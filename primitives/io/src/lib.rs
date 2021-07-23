@@ -65,7 +65,7 @@ use sp_runtime_interface::{
 use codec::{Decode, Encode};
 
 #[cfg(feature = "std")]
-use sp_externalities::{ExternalitiesExt, Externalities};
+use sp_externalities::{Externalities, ExternalitiesExt};
 
 use sp_externalities::WorkerDeclaration;
 
@@ -238,14 +238,19 @@ pub trait Storage {
 	///
 	/// Will panic if there is no open transaction.
 	fn rollback_transaction(&mut self) {
-		let to_drop_tasks = self.storage_rollback_transaction()
+		let to_drop_tasks = self
+			.storage_rollback_transaction()
 			.expect("No open transaction that can be rolled back.");
 		if to_drop_tasks.len() > 0 {
-			sp_externalities::externalities_and_extension::<RuntimeSpawnExt, _, _>(*self, |ext, runtime_spawn| {
-				for task in to_drop_tasks.into_iter() {
-					runtime_spawn.dismiss(task, ext)
-				}
-			}).expect("Missing runtime spawn extension");
+			sp_externalities::externalities_and_extension::<RuntimeSpawnExt, _, _>(
+				*self,
+				|ext, runtime_spawn| {
+					for task in to_drop_tasks.into_iter() {
+						runtime_spawn.dismiss(task, ext)
+					}
+				},
+			)
+			.expect("Missing runtime spawn extension");
 		}
 	}
 
@@ -257,14 +262,19 @@ pub trait Storage {
 	///
 	/// Will panic if there is no open transaction.
 	fn commit_transaction(&mut self) {
-		let to_drop_tasks = self.storage_commit_transaction()
+		let to_drop_tasks = self
+			.storage_commit_transaction()
 			.expect("No open transaction that can be committed.");
 		if to_drop_tasks.len() > 0 {
-			sp_externalities::externalities_and_extension::<RuntimeSpawnExt, _, _>(*self, |ext, runtime_spawn| {
-				for task in to_drop_tasks.into_iter() {
-					runtime_spawn.dismiss(task, ext)
-				}
-			}).expect("Missing runtime spawn extension");
+			sp_externalities::externalities_and_extension::<RuntimeSpawnExt, _, _>(
+				*self,
+				|ext, runtime_spawn| {
+					for task in to_drop_tasks.into_iter() {
+						runtime_spawn.dismiss(task, ext)
+					}
+				},
+			)
+			.expect("Missing runtime spawn extension");
 		}
 	}
 }
@@ -277,11 +287,7 @@ pub trait DefaultChildStorage {
 	///
 	/// Parameter `storage_key` is the unprefixed location of the root of the child trie in the parent trie.
 	/// Result is `None` if the value for `key` in the child storage can not be found.
-	fn get(
-		&mut self,
-		storage_key: &[u8],
-		key: &[u8],
-	) -> Option<Vec<u8>> {
+	fn get(&mut self, storage_key: &[u8], key: &[u8]) -> Option<Vec<u8>> {
 		let child_info = ChildInfo::new_default(storage_key);
 		self.child_storage(&child_info, key).map(|s| s.to_vec())
 	}
@@ -361,11 +367,7 @@ pub trait DefaultChildStorage {
 	/// Check a child storage key.
 	///
 	/// Check whether the given `key` exists in default child defined at `storage_key`.
-	fn exists(
-		&mut self,
-		storage_key: &[u8],
-		key: &[u8],
-	) -> bool {
+	fn exists(&mut self, storage_key: &[u8], key: &[u8]) -> bool {
 		let child_info = ChildInfo::new_default(storage_key);
 		self.exists_child_storage(&child_info, key)
 	}
@@ -1406,7 +1408,8 @@ pub trait RuntimeTasks {
 	///
 	/// This should not be used directly. Use `sp_tasks::set_capacity` instead.
 	fn set_capacity(&mut self, capacity: u32) {
-		let runtime_spawn = self.extension::<RuntimeSpawnExt>()
+		let runtime_spawn = self
+			.extension::<RuntimeSpawnExt>()
 			.expect("Cannot set capacity without dynamic runtime dispatcher (RuntimeSpawnExt)");
 		runtime_spawn.set_capacity(capacity);
 	}
@@ -1421,18 +1424,24 @@ pub trait RuntimeTasks {
 		payload: Vec<u8>,
 		declaration: Crossing<WorkerDeclaration>,
 	) -> Option<u64> {
-		sp_externalities::externalities_and_extension::<RuntimeSpawnExt, _, _>(*self, |ext, spawn| {
-			spawn.spawn_call(dispatcher_ref, entry, payload, declaration.into_inner(), ext)
-		}).expect("Cannot spawn without dynamic runtime dispatcher (RuntimeSpawnExt)")
+		sp_externalities::externalities_and_extension::<RuntimeSpawnExt, _, _>(
+			*self,
+			|ext, spawn| {
+				spawn.spawn_call(dispatcher_ref, entry, payload, declaration.into_inner(), ext)
+			},
+		)
+		.expect("Cannot spawn without dynamic runtime dispatcher (RuntimeSpawnExt)")
 	}
 
 	/// Host function for joining a task.
 	///
 	/// This should not be used directly. Use `join` of `sp_tasks::spawn` result instead.
 	fn join(&mut self, handle: u64) -> Option<Vec<u8>> {
-		sp_externalities::externalities_and_extension::<RuntimeSpawnExt, _, _>(*self, |ext, spawn| {
-			spawn.join(handle, ext)
-		}).expect("Cannot spawn without dynamic runtime dispatcher (RuntimeSpawnExt)")
+		sp_externalities::externalities_and_extension::<RuntimeSpawnExt, _, _>(
+			*self,
+			|ext, spawn| spawn.join(handle, ext),
+		)
+		.expect("Cannot spawn without dynamic runtime dispatcher (RuntimeSpawnExt)")
 	}
 
 	/// Host function to dismiss a task.
@@ -1443,9 +1452,11 @@ pub trait RuntimeTasks {
 	///
 	/// This should not be used directly. Use `kill` of `sp_tasks::spawn` result instead.
 	fn dismiss(&mut self, handle: u64) {
-		sp_externalities::externalities_and_extension::<RuntimeSpawnExt, _, _>(*self, |ext, spawn| {
-			spawn.dismiss(handle, ext)
-		}).expect("Cannot spawn without dynamic runtime dispatcher (RuntimeSpawnExt)")
+		sp_externalities::externalities_and_extension::<RuntimeSpawnExt, _, _>(
+			*self,
+			|ext, spawn| spawn.dismiss(handle, ext),
+		)
+		.expect("Cannot spawn without dynamic runtime dispatcher (RuntimeSpawnExt)")
 	}
 }
 

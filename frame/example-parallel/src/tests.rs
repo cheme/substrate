@@ -80,55 +80,56 @@ impl Config for Test {
 	type Call = Call;
 }
 
-use sp_tasks::pool_spawn::RuntimeInstanceSpawn;
-use sp_core::Pair;
-use sp_core::traits::RuntimeSpawnExt;
-use sp_core::offchain::{
-	testing::TestTransactionPoolExt, TransactionPoolExt,
+use sp_core::{
+	offchain::{testing::TestTransactionPoolExt, TransactionPoolExt},
+	traits::RuntimeSpawnExt,
+	Pair,
 };
+use sp_tasks::pool_spawn::RuntimeInstanceSpawn;
 
 fn test_ext() -> sp_io::TestExternalities {
 	let mut ext = sp_io::TestExternalities::default();
 	let (pool, _pool_state) = TestTransactionPoolExt::new();
 
 	ext.register_extension(TransactionPoolExt::new(pool));
-	let runtime_spawn = RuntimeInstanceSpawn::with_externalities_and_module(None, &mut ext.ext())
-		.unwrap();
+	let runtime_spawn =
+		RuntimeInstanceSpawn::with_externalities_and_module(None, &mut ext.ext()).unwrap();
 	ext.register_extension(RuntimeSpawnExt(Box::new(runtime_spawn)));
 	ext
 }
 
 #[test]
 fn it_can_enlist() {
+	let test = |inline: bool| {
+		test_ext().execute_with(|| {
+			if !inline {
+				sp_tasks::set_capacity(1);
+			}
+			let (pair1, _) = sp_core::sr25519::Pair::generate();
+			let (pair2, _) = sp_core::sr25519::Pair::generate();
 
-	let test = |inline: bool| test_ext().execute_with(|| {
-		if !inline {
-			sp_tasks::set_capacity(1);
-		}
-		let (pair1, _) = sp_core::sr25519::Pair::generate();
-		let (pair2, _) = sp_core::sr25519::Pair::generate();
+			let event_name = b"test";
 
-		let event_name = b"test";
+			Example::run_event(Origin::signed(Default::default()), event_name.to_vec())
+				.expect("Failed to enlist");
 
-		Example::run_event(Origin::signed(Default::default()), event_name.to_vec())
-			.expect("Failed to enlist");
+			let participants = vec![
+				EnlistedParticipant {
+					account: pair1.public().to_vec(),
+					signature: AsRef::<[u8]>::as_ref(&pair1.sign(event_name)).to_vec(),
+				},
+				EnlistedParticipant {
+					account: pair2.public().to_vec(),
+					signature: AsRef::<[u8]>::as_ref(&pair2.sign(event_name)).to_vec(),
+				},
+			];
 
-		let participants = vec![
-			EnlistedParticipant {
-				account: pair1.public().to_vec(),
-				signature: AsRef::<[u8]>::as_ref(&pair1.sign(event_name)).to_vec(),
-			},
-			EnlistedParticipant {
-				account: pair2.public().to_vec(),
-				signature: AsRef::<[u8]>::as_ref(&pair2.sign(event_name)).to_vec(),
-			},
-		];
+			Example::enlist_participants(Origin::signed(Default::default()), participants)
+				.expect("Failed to enlist");
 
-		Example::enlist_participants(Origin::signed(Default::default()), participants)
-			.expect("Failed to enlist");
-
-		assert_eq!(Example::participants().len(), 2);
-	});
+			assert_eq!(Example::participants().len(), 2);
+		})
+	};
 
 	test(false);
 	test(true);
@@ -136,7 +137,6 @@ fn it_can_enlist() {
 
 #[test]
 fn one_wrong_will_not_enlist_anyone() {
-
 	test_ext().execute_with(|| {
 		sp_tasks::set_capacity(1);
 		let (pair1, _) = sp_core::sr25519::Pair::generate();
@@ -173,40 +173,41 @@ fn one_wrong_will_not_enlist_anyone() {
 
 #[test]
 fn it_can_pending_enlist() {
-
-	let test = |inline: bool| test_ext().execute_with(|| {
-		if !inline {
-			sp_tasks::set_capacity(1);
-		}
-		let nb = 6;
-		let pairs: Vec<_> = (0..nb).into_iter()
-			.map(|_| sp_core::sr25519::Pair::generate().0)
-			.collect();
-
-		let event_name = b"test";
-
-		Example::run_event(Origin::signed(Default::default()), event_name.to_vec())
-			.expect("Failed to enlist");
-
-		let participants: Vec<_> = pairs.into_iter().map(|pair|
-			EnlistedParticipant {
-				account: pair.public().to_vec(),
-				signature: AsRef::<[u8]>::as_ref(&pair.sign(event_name)).to_vec(),
+	let test = |inline: bool| {
+		test_ext().execute_with(|| {
+			if !inline {
+				sp_tasks::set_capacity(1);
 			}
-		).collect();
+			let nb = 6;
+			let pairs: Vec<_> =
+				(0..nb).into_iter().map(|_| sp_core::sr25519::Pair::generate().0).collect();
 
-		Example::enlist_pending_participants(Origin::signed(Default::default()), participants)
-			.expect("Failed to enlist");
+			let event_name = b"test";
 
-		assert_eq!(Example::pending_participants().len(), nb);
-		assert_eq!(Example::participants().len(), 0);
+			Example::run_event(Origin::signed(Default::default()), event_name.to_vec())
+				.expect("Failed to enlist");
 
-		Example::validate_pendings_participants(Origin::signed(Default::default()), nb as u32)
-			.expect("Failed to enlist");
+			let participants: Vec<_> = pairs
+				.into_iter()
+				.map(|pair| EnlistedParticipant {
+					account: pair.public().to_vec(),
+					signature: AsRef::<[u8]>::as_ref(&pair.sign(event_name)).to_vec(),
+				})
+				.collect();
 
-		assert_eq!(Example::pending_participants().len(), 0);
-		assert_eq!(Example::participants().len(), nb);
-	});
+			Example::enlist_pending_participants(Origin::signed(Default::default()), participants)
+				.expect("Failed to enlist");
+
+			assert_eq!(Example::pending_participants().len(), nb);
+			assert_eq!(Example::participants().len(), 0);
+
+			Example::validate_pendings_participants(Origin::signed(Default::default()), nb as u32)
+				.expect("Failed to enlist");
+
+			assert_eq!(Example::pending_participants().len(), 0);
+			assert_eq!(Example::participants().len(), nb);
+		})
+	};
 	test(false);
 	test(true);
 }

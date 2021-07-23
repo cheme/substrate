@@ -32,8 +32,9 @@ use sp_runtime::{
 #[cfg(not(feature = "std"))]
 use sp_sandbox::Value;
 #[cfg(not(feature = "std"))]
-use sp_tasks::{WorkerDeclaration, WorkerDeclarationKind, AccessDeclaration,
-	DeclarationFailureHandling};
+use sp_tasks::{
+	AccessDeclaration, DeclarationFailureHandling, WorkerDeclaration, WorkerDeclarationKind,
+};
 
 extern "C" {
 	#[allow(dead_code)]
@@ -741,8 +742,8 @@ sp_core::wasm_export_functions! {
 
 #[cfg(not(feature = "std"))]
 mod tasks {
-	use sp_std::prelude::*;
 	use super::{WorkerDeclaration, WorkerDeclarationKind};
+	use sp_std::prelude::*;
 
 	pub fn incrementer(data: Vec<u8>) -> Vec<u8> {
 		data.into_iter().map(|v| v + 1).collect()
@@ -753,10 +754,11 @@ mod tasks {
 	}
 
 	pub fn parallel_incrementer(data: Vec<u8>) -> Vec<u8> {
-	   let first = data.into_iter().map(|v| v + 2).collect::<Vec<_>>();
-	   let second = sp_tasks::spawn(incrementer, first, WorkerDeclaration::stateless())
-			 .unwrap().join();
-	   second.unwrap()
+		let first = data.into_iter().map(|v| v + 2).collect::<Vec<_>>();
+		let second = sp_tasks::spawn(incrementer, first, WorkerDeclaration::stateless())
+			.unwrap()
+			.join();
+		second.unwrap()
 	}
 
 	pub fn read_key(_data: Vec<u8>) -> Vec<u8> {
@@ -775,11 +777,8 @@ mod tasks {
 	}
 
 	pub fn read_key_nested(_data: Vec<u8>) -> Vec<u8> {
-		let handle = sp_tasks::spawn(
-			read_key,
-			vec![],
-			WorkerDeclarationKind::ReadOptimistic.into(),
-		);
+		let handle =
+			sp_tasks::spawn(read_key, vec![], WorkerDeclarationKind::ReadOptimistic.into());
 		handle.unwrap().join().unwrap();
 		Default::default()
 	}

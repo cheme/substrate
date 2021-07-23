@@ -22,25 +22,26 @@
 use std::{
 	collections::HashMap,
 	panic::AssertUnwindSafe,
-	sync::{Arc, atomic::{AtomicU64, Ordering}, mpsc},
+	sync::{
+		atomic::{AtomicU64, Ordering},
+		mpsc, Arc,
+	},
 };
 
-use sp_core::{
-	traits::{
-		Externalities, AsyncExternalities,
-		RuntimeSpawnExt, RuntimeSpawn, TaskHandle, BoxFuture, SpawnLimit,
-	},
-};
-use log::trace;
-use sp_externalities::{ExternalitiesExt as _, WorkerResult, TaskId, WorkerDeclaration};
 use crate::{
+	common::{
+		instantiate_inline, InlineInstantiateRef, NativeTask, PendingTask as InlineTask, Task,
+		WasmTask,
+	},
 	new_async_externalities,
 	wasm_runtime::{WasmInstance, WasmModule},
-	common::{
-		WasmTask, NativeTask, Task, PendingTask as InlineTask,
-		InlineInstantiateRef, instantiate_inline,
-	},
 };
+use log::trace;
+use sp_core::traits::{
+	AsyncExternalities, BoxFuture, Externalities, RuntimeSpawn, RuntimeSpawnExt, SpawnLimit,
+	TaskHandle,
+};
+use sp_externalities::{ExternalitiesExt as _, TaskId, WorkerDeclaration, WorkerResult};
 
 /// Inner id for a thread in pool.
 type PoolThreadId = u64;
@@ -56,7 +57,7 @@ impl<'a, 'b> crate::common::LazyInstanciate<'a> for InlineInstantiate<'a, 'b> {
 			**self.guard = if let Some(instance) = instantiate_inline(self.module) {
 				Some(instance)
 			} else {
-				return None;
+				return None
 			};
 		}
 
@@ -95,10 +96,7 @@ mod task_handle {
 
 	impl Default for TaskHandlesInner {
 		fn default() -> Self {
-			TaskHandlesInner {
-				running: BTreeMap::new(),
-				workers: BTreeMap::new(),
-			}
+			TaskHandlesInner { running: BTreeMap::new(), workers: BTreeMap::new() }
 		}
 	}
 
@@ -145,16 +143,11 @@ mod task_handle {
 		pub(super) fn new_thread_id(&self, _counter: &Arc<AtomicU64>) -> PoolThreadId {
 			0
 		}
-		pub(super) fn register_new_thread(&self, _handle: TaskHandle, _thread_id: PoolThreadId) {
-		}
-		pub(super) fn drop_new_thread(&self, _thread_id: PoolThreadId) {
-		}
-		pub(super) fn register_worker(&self, _worker: TaskId, _thread_id: PoolThreadId) {
-		}
-		pub(super) fn finished_worker(&self, _worker: TaskId) {
-		}
-		pub(super) fn dismiss_thread(&self, _worker: TaskId) {
-		}
+		pub(super) fn register_new_thread(&self, _handle: TaskHandle, _thread_id: PoolThreadId) {}
+		pub(super) fn drop_new_thread(&self, _thread_id: PoolThreadId) {}
+		pub(super) fn register_worker(&self, _worker: TaskId, _thread_id: PoolThreadId) {}
+		pub(super) fn finished_worker(&self, _worker: TaskId) {}
+		pub(super) fn dismiss_thread(&self, _worker: TaskId) {}
 	}
 }
 
@@ -181,15 +174,8 @@ struct RemoteTask {
 }
 
 impl RuntimeInstanceSpawnInfo {
-	fn new(
-		capacity: usize,
-		shared_limit: Box<dyn sp_core::traits::SpawnNamed>,
-	) -> Self {
-		RuntimeInstanceSpawnInfo {
-			nb_runing: 0,
-			capacity,
-			shared_limit,
-		}
+	fn new(capacity: usize, shared_limit: Box<dyn sp_core::traits::SpawnNamed>) -> Self {
+		RuntimeInstanceSpawnInfo { nb_runing: 0, capacity, shared_limit }
 	}
 
 	fn start(&mut self) -> Processing {
@@ -245,12 +231,7 @@ impl RuntimeInstanceSpawn {
 		}
 	}
 
-	fn insert(
-		&self,
-		handle: TaskId,
-		task: Task,
-		ext: Box<dyn AsyncExternalities>,
-	) {
+	fn insert(&self, handle: TaskId, task: Task, ext: Box<dyn AsyncExternalities>) {
 		let mut infos = self.infos.lock();
 		match infos.start() {
 			Processing::SpawnNew => {
@@ -258,21 +239,19 @@ impl RuntimeInstanceSpawn {
 				if !self.spawn_new() {
 					let task = InlineTask { task, ext };
 					self.tasks.lock().insert(handle, PendingTask::Inline(task));
-					return;
+					return
 				}
 			},
 			Processing::RunInline => {
 				let task = InlineTask { task, ext };
 				self.tasks.lock().insert(handle, PendingTask::Inline(task));
-				return;
+				return
 			},
 		}
 		let (result_sender, result_receiver) = mpsc::channel();
 		let task = RemoteTask { task, ext, result_sender, handle };
 		self.task_sender.send(task).expect("Receiver is in scope");
-		self.tasks.lock().insert(handle, PendingTask::Remote (
-			result_receiver,
-		));
+		self.tasks.lock().insert(handle, PendingTask::Remote(result_receiver));
 	}
 
 	// Spawn a new worker loop listening on the task queue.
@@ -288,80 +267,74 @@ impl RuntimeInstanceSpawn {
 		let thread_handle = self.spawn(
 			"executor-extra-runtime-instance",
 			Box::pin(async move {
-			let task_receiver = task_receiver.clone();
-			let mut instance: Option<AssertUnwindSafe<Box<dyn WasmInstance>>> = None;
-			while let Ok(RemoteTask { handle, task, ext, result_sender }) = {
-				let task_receiver_locked = task_receiver.lock();
-				task_receiver_locked.recv()
-			} {
-				task_handles.register_worker(handle, thread_id);
-				let async_ext = || {
-					let async_ext = match new_async_externalities(scheduler.clone(), ext) {
-						Ok(val) => val,
-						Err(e) => {
-							log::error!(
-								target: "executor",
-								"Failed to setup externalities for async context: {}",
-								e,
-							);
+				let task_receiver = task_receiver.clone();
+				let mut instance: Option<AssertUnwindSafe<Box<dyn WasmInstance>>> = None;
+				while let Ok(RemoteTask { handle, task, ext, result_sender }) = {
+					let task_receiver_locked = task_receiver.lock();
+					task_receiver_locked.recv()
+				} {
+					task_handles.register_worker(handle, thread_id);
+					let async_ext = || {
+						let async_ext = match new_async_externalities(scheduler.clone(), ext) {
+							Ok(val) => val,
+							Err(e) => {
+								log::error!(
+									target: "executor",
+									"Failed to setup externalities for async context: {}",
+									e,
+								);
 
-							return None;
-						}
-					};
-					let async_ext = match async_ext.with_runtime_spawn(runtime_spawn.clone()) {
-						Ok(val) => val,
-						Err(e) => {
-							log::error!(
-								target: "executor",
-								"Failed to setup runtime extension for async externalities: {}",
-								e,
-							);
+								return None
+							},
+						};
+						let async_ext = match async_ext.with_runtime_spawn(runtime_spawn.clone()) {
+							Ok(val) => val,
+							Err(e) => {
+								log::error!(
+									target: "executor",
+									"Failed to setup runtime extension for async externalities: {}",
+									e,
+								);
 
-							return None;
-						}
-					};
-					Some(async_ext)
-				};
-
-				let result = if let Some(async_ext) = async_ext() {
-					let instance_ref = InlineInstantiateRef {
-						module: &*module,
-						instance: &mut instance,
+								return None
+							},
+						};
+						Some(async_ext)
 					};
 
-					crate::common::process_task(
-						task,
-						async_ext,
-						handle,
-						instance_ref,
-					)
-				} else {
-					WorkerResult::HardPanic
-				};
+					let result = if let Some(async_ext) = async_ext() {
+						let instance_ref =
+							InlineInstantiateRef { module: &*module, instance: &mut instance };
 
-				let mut end = false;
-				if let &WorkerResult::RuntimePanic = &result {
-					log::error!("Panic error in spawned task, dropping instance");
-					// Here we don't just shut all because panic will only transmit to parent
-					// if 'join' is call, if 'dismiss' is call then it is fine to ignore a panic.
-					instance = None; // will be lazily re-instantiated
+						crate::common::process_task(task, async_ext, handle, instance_ref)
+					} else {
+						WorkerResult::HardPanic
+					};
+
+					let mut end = false;
+					if let &WorkerResult::RuntimePanic = &result {
+						log::error!("Panic error in spawned task, dropping instance");
+						// Here we don't just shut all because panic will only transmit to parent
+						// if 'join' is call, if 'dismiss' is call then it is fine to ignore a panic.
+						instance = None; // will be lazily re-instantiated
+					}
+					if let &WorkerResult::HardPanic = &result {
+						end = true;
+					}
+					if let Err(_) = result_sender.send(Some(result)) {
+						// Closed channel, remove this thread instance.
+						end = true;
+					}
+					if end {
+						task_handles.finished_worker(handle);
+						infos.lock().finished();
+						return
+					}
 				}
-				if let &WorkerResult::HardPanic = &result {
-					end = true;
-				}
-				if let Err(_) = result_sender.send(Some(result)) {
-					// Closed channel, remove this thread instance.
-					end = true;
-				}
-				if end {
-					task_handles.finished_worker(handle);
-					infos.lock().finished();
-					return;
-				}
-			}
-			log::error!("Sender dropped, closing all instance.");
-			infos.lock().finished();
-		}));
+				log::error!("Sender dropped, closing all instance.");
+				infos.lock().finished();
+			}),
+		);
 		if let Some(thread_handle) = thread_handle {
 			self.task_handles.register_new_thread(thread_handle, thread_id);
 			true
@@ -372,20 +345,12 @@ impl RuntimeInstanceSpawn {
 	}
 
 	#[cfg(feature = "abort-future")]
-	fn spawn(
-		&self,
-		name: &'static str,
-		future: BoxFuture,
-	) -> Option<TaskHandle> {
+	fn spawn(&self, name: &'static str, future: BoxFuture) -> Option<TaskHandle> {
 		self.scheduler.spawn(name, future)
 	}
 
 	#[cfg(not(feature = "abort-future"))]
-	fn spawn(
-		&self,
-		name: &'static str,
-		future: BoxFuture,
-	) -> Option<TaskHandle> {
+	fn spawn(&self, name: &'static str, future: BoxFuture) -> Option<TaskHandle> {
 		self.scheduler.spawn(name, future);
 		None
 	}
@@ -437,18 +402,14 @@ impl RuntimeSpawn for RuntimeInstanceSpawn {
 		let worker_result = match task {
 			Some(PendingTask::Remote(receiver)) => match receiver.recv() {
 				Ok(Some(output)) => output,
-				Ok(None)
-				| Err(_) => {
+				Ok(None) | Err(_) => {
 					// spawned task did end with no result, so panic
 					WorkerResult::RuntimePanic
 				},
 			},
 			Some(PendingTask::Inline(task)) => {
 				let mut instance = self.instance.lock();
-				let instance_ref = InlineInstantiate {
-					module: &self.module,
-					guard: &mut instance,
-				};
+				let instance_ref = InlineInstantiate { module: &self.module, guard: &mut instance };
 
 				let runtime_spawn = Box::new(self.nested_instance());
 				crate::inline_spawn::process_task_inline(

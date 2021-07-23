@@ -418,9 +418,9 @@ impl<H: Hasher> std::fmt::Debug for GenesisOrUnavailableState<H> {
 }
 
 impl<H> StateBackend<H> for GenesisOrUnavailableState<H>
-	where
-		H: Hasher + 'static,
-		H::Out: Ord + codec::Codec,
+where
+	H: Hasher + 'static,
+	H::Out: Ord + codec::Codec,
 {
 	type Error = ClientError;
 	type Transaction = <InMemoryBackend<H> as StateBackend<H>>::Transaction;

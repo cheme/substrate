@@ -161,9 +161,8 @@ where
 	/// In contrast to [`commit_all`](Self::commit_all) this will not panic if there are open
 	/// transactions.
 	fn as_backend(&mut self) -> InMemoryBackend<H> {
-		let top: Vec<_> = self.overlay.changes()
-			.map(|(k, v)| (k.clone(), v.value().cloned()))
-			.collect();
+		let top: Vec<_> =
+			self.overlay.changes().map(|(k, v)| (k.clone(), v.value().cloned())).collect();
 		let mut transaction = vec![(None, top)];
 
 		for (child_changes, child_info) in self.overlay.children() {
@@ -228,10 +227,10 @@ where
 }
 
 impl<H, N> TestExternalities<H, N>
-	where
-		H: Hasher,
-		N: ChangesTrieBlockNumber,
-		H::Out: Ord + 'static + codec::Codec
+where
+	H: Hasher,
+	N: ChangesTrieBlockNumber,
+	H::Out: Ord + 'static + codec::Codec,
 {
 	/// This doesn't test if they are in the same state, only if they contains the
 	/// same data at this state

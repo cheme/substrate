@@ -17,44 +17,39 @@
 
 //! Common utilities and types for implementing `RuntimeSpawn` trait.
 
-use sp_externalities::{WorkerResult, Externalities, AsyncExternalities,
-	WorkerState, TaskId};
-use sp_std::sync::Arc;
-use sp_std::boxed::Box;
-use sp_std::vec::Vec;
-#[cfg(feature = "std")]
-use crate::wasm_runtime::{WasmInstance, WasmModule, InvokeMethod};
 #[cfg(feature = "std")]
 use crate::error::Error;
 #[cfg(feature = "std")]
-use std::panic::{AssertUnwindSafe, UnwindSafe};
+use crate::wasm_runtime::{InvokeMethod, WasmInstance, WasmModule};
 #[cfg(feature = "std")]
 pub use log::error as log_error;
+use sp_externalities::{AsyncExternalities, Externalities, TaskId, WorkerResult, WorkerState};
+use sp_std::{boxed::Box, sync::Arc, vec::Vec};
+#[cfg(feature = "std")]
+use std::panic::{AssertUnwindSafe, UnwindSafe};
 
 /// Set up the externalities and safe calling environment to execute runtime calls.
 ///
 /// If the inner closure panics, it will be caught and return an error.
 #[cfg(feature = "std")]
 pub fn with_externalities_safe<F, U>(ext: &mut dyn Externalities, f: F) -> Result<U, Error>
-	where F: UnwindSafe + FnOnce() -> U
+where
+	F: UnwindSafe + FnOnce() -> U,
 {
-	sp_externalities::set_and_run_with_externalities(
-		ext,
-		move || {
-			// Substrate uses custom panic hook that terminates process on panic. Disable
-			// termination for the native call.
-			let _guard = sp_panic_handler::AbortGuard::force_unwind();
-			std::panic::catch_unwind(f).map_err(|e| {
-				if let Some(err) = e.downcast_ref::<String>() {
-					Error::RuntimePanicked(err.clone())
-				} else if let Some(err) = e.downcast_ref::<&'static str>() {
-					Error::RuntimePanicked(err.to_string())
-				} else {
-					Error::RuntimePanicked("Unknown panic".into())
-				}
-			})
-		},
-	)
+	sp_externalities::set_and_run_with_externalities(ext, move || {
+		// Substrate uses custom panic hook that terminates process on panic. Disable
+		// termination for the native call.
+		let _guard = sp_panic_handler::AbortGuard::force_unwind();
+		std::panic::catch_unwind(f).map_err(|e| {
+			if let Some(err) = e.downcast_ref::<String>() {
+				Error::RuntimePanicked(err.clone())
+			} else if let Some(err) = e.downcast_ref::<&'static str>() {
+				Error::RuntimePanicked(err.to_string())
+			} else {
+				Error::RuntimePanicked("Unknown panic".into())
+			}
+		})
+	})
 }
 
 /// Not std `with_externalities_safe` is only for use with environment
@@ -66,12 +61,10 @@ pub fn with_externalities_safe<F, U>(ext: &mut dyn Externalities, f: F) -> Resul
 /// only run on 'join').
 #[cfg(not(feature = "std"))]
 fn with_externalities_safe<F, U>(ext: &mut dyn Externalities, f: F) -> Result<U, ()>
-	where F: FnOnce() -> U
+where
+	F: FnOnce() -> U,
 {
-	Ok(sp_externalities::set_and_run_with_externalities(
-		ext,
-		f,
-	))
+	Ok(sp_externalities::set_and_run_with_externalities(ext, f))
 }
 
 /// A call for wasm context.
@@ -163,11 +156,11 @@ pub fn instantiate(
 				"Failed to create new instance for module for async context: {}",
 				e,
 			);
-			return None;
-		}
+			return None
+		},
 		None => {
 			log_error!(target: "executor", "No module for a wasm task.");
-			return None;
+			return None
 		},
 	})
 }
@@ -181,49 +174,34 @@ pub fn instantiate_inline(
 }
 
 /// Run a given task.
-pub fn process_task<
-	'a,
-	#[cfg(feature = "std")]
-	I: LazyInstanciate<'a> + 'a,
->(
+pub fn process_task<'a, #[cfg(feature = "std")] I: LazyInstanciate<'a> + 'a>(
 	task: Task,
 	async_ext: crate::AsyncExternalities,
 	handle: TaskId,
-	#[cfg(feature = "std")]
-	instance_ref: I,
+	#[cfg(feature = "std")] instance_ref: I,
 ) -> WorkerResult {
-	#[cfg(feature = "std")] {
-		process_task_inner::<(),_>(
-			task,
-			async_ext,
-			handle,
-			instance_ref,
-		)
+	#[cfg(feature = "std")]
+	{
+		process_task_inner::<(), _>(task, async_ext, handle, instance_ref)
 	}
-	#[cfg(not(feature = "std"))] {
-		process_task_inner::<()>(
-			task,
-			async_ext,
-			handle,
-		)
+	#[cfg(not(feature = "std"))]
+	{
+		process_task_inner::<()>(task, async_ext, handle)
 	}
 }
 
 pub(crate) fn process_task_inner<
 	'a,
 	HostLocal: HostLocalFunction,
-	#[cfg(feature = "std")]
-	I: LazyInstanciate<'a> + 'a,
+	#[cfg(feature = "std")] I: LazyInstanciate<'a> + 'a,
 >(
 	task: Task,
 	mut async_ext: crate::AsyncExternalities,
 	handle: TaskId,
-	#[cfg(feature = "std")]
-	instance_ref: I,
+	#[cfg(feature = "std")] instance_ref: I,
 ) -> WorkerResult {
 	let result = match task {
 		Task::Wasm(WasmTask { dispatcher_ref, func, data }) => {
-
 			#[cfg(feature = "std")]
 			if HostLocal::HOST_LOCAL {
 				panic!("HOST_LOCAL is only expected for a wasm no_std call");
@@ -231,33 +209,27 @@ pub(crate) fn process_task_inner<
 				let instance = if let Some(instance) = instance_ref.instantiate() {
 					instance
 				} else {
-					return WorkerResult::HardPanic;
+					return WorkerResult::HardPanic
 				};
-				match with_externalities_safe(
-					&mut async_ext,
-					|| instance.call(
-						InvokeMethod::TableWithWrapper { dispatcher_ref, func },
-						&data[..],
-					)
-				) {
+				match with_externalities_safe(&mut async_ext, || {
+					instance
+						.call(InvokeMethod::TableWithWrapper { dispatcher_ref, func }, &data[..])
+				}) {
 					Ok(Ok(result)) => result,
 					Ok(Err(error)) | Err(error) => {
 						log_error!("Runtime panic error in wasm task: {:?}", error);
-						return WorkerResult::RuntimePanic;
+						return WorkerResult::RuntimePanic
 					},
 				}
 			}
 			#[cfg(not(feature = "std"))]
 			if HostLocal::HOST_LOCAL {
 				let f: fn(Vec<u8>) -> Vec<u8> = unsafe { sp_std::mem::transmute(func) };
-				match with_externalities_safe(
-					&mut async_ext,
-					|| f(data),
-				) {
+				match with_externalities_safe(&mut async_ext, || f(data)) {
 					Ok(result) => result,
 					Err(error) => {
 						log_error!("Runtime panic error in wasm task: {:?}", error);
-						return WorkerResult::RuntimePanic;
+						return WorkerResult::RuntimePanic
 					},
 				}
 			} else {
@@ -265,43 +237,33 @@ pub(crate) fn process_task_inner<
 			}
 		},
 		Task::Native(NativeTask { func, data }) => {
-			match with_externalities_safe(
-				&mut async_ext,
-				|| func(data),
-			) {
+			match with_externalities_safe(&mut async_ext, || func(data)) {
 				Ok(result) => result,
 				#[cfg(not(feature = "std"))]
 				Err(error) => {
 					log_error!("Runtime panic error in wasm task: {:?}", error);
-					return WorkerResult::RuntimePanic;
+					return WorkerResult::RuntimePanic
 				},
 				#[cfg(feature = "std")]
 				Err(Error::RuntimePanicked(error)) => {
 					log_error!("Runtime panic error in wasm task: {:?}", error);
-					return WorkerResult::RuntimePanic;
+					return WorkerResult::RuntimePanic
 				},
 				#[cfg(feature = "std")]
 				Err(error) => {
 					log_error!("Wasm instance error in : {:?}", error);
-					return WorkerResult::HardPanic;
+					return WorkerResult::HardPanic
 				},
 			}
 		},
 	};
 
 	match async_ext.extract_state() {
-		WorkerState::Invalid => {
-			WorkerResult::Invalid
-		},
-		WorkerState::NeedResolve => {
-			WorkerResult::CallAt(result, async_ext.extract_delta(), handle)
-		},
-		WorkerState::Valid => {
-			WorkerResult::Valid(result, async_ext.extract_delta())
-		},
-		WorkerState::Optimistic(access) => {
-			WorkerResult::Optimistic(result, async_ext.extract_delta(), handle, access)
-		},
+		WorkerState::Invalid => WorkerResult::Invalid,
+		WorkerState::NeedResolve => WorkerResult::CallAt(result, async_ext.extract_delta(), handle),
+		WorkerState::Valid => WorkerResult::Valid(result, async_ext.extract_delta()),
+		WorkerState::Optimistic(access) =>
+			WorkerResult::Optimistic(result, async_ext.extract_delta(), handle, access),
 	}
 }
 
@@ -319,4 +281,4 @@ pub trait HostLocalFunction: Copy + 'static {
 	const HOST_LOCAL: bool = false;
 }
 
-impl HostLocalFunction for () { }
+impl HostLocalFunction for () {}

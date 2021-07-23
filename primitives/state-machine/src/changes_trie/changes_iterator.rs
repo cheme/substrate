@@ -334,10 +334,10 @@ where
 }
 
 impl<'a, H, Number> Iterator for DrilldownIterator<'a, H, Number>
-	where
-			Number: BlockNumber,
-			H: Hasher + 'static,
-			H::Out: Encode
+where
+	Number: BlockNumber,
+	H: Hasher + 'static,
+	H::Out: Encode,
 {
 	type Item = Result<(Number, u32), String>;
 
@@ -378,10 +378,10 @@ where
 }
 
 impl<'a, H, Number> Iterator for ProvingDrilldownIterator<'a, H, Number>
-	where
-		Number: BlockNumber,
-		H: Hasher + 'static,
-		H::Out: 'a + Codec,
+where
+	Number: BlockNumber,
+	H: Hasher + 'static,
+	H::Out: 'a + Codec,
 {
 	type Item = Result<(Number, u32), String>;
 

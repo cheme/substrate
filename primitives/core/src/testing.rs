@@ -177,8 +177,7 @@ impl crate::traits::SpawnLimit for TaskExecutor {
 		number_of_tasks
 	}
 
-	fn release(&self, _number_of_tasks: usize) {
-	}
+	fn release(&self, _number_of_tasks: usize) {}
 }
 
 #[cfg(feature = "std")]

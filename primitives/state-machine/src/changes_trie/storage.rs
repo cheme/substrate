@@ -18,9 +18,9 @@
 //! Changes trie storage utilities.
 
 use crate::{
+	changes_trie::{AnchorBlockId, BlockNumber, BuildCache, RootsStorage, Storage},
+	trie_backend_essence::{NoopsBackenStorage, TrieBackendStorage},
 	StorageKey,
-	trie_backend_essence::{TrieBackendStorage, NoopsBackenStorage},
-	changes_trie::{BuildCache, RootsStorage, Storage, AnchorBlockId, BlockNumber},
 };
 use hash_db::{Hasher, Prefix, EMPTY_PREFIX};
 use parking_lot::RwLock;
@@ -202,9 +202,9 @@ impl<'a, H: Hasher, Number: BlockNumber> TrieBackendAdapter<'a, H, Number> {
 }
 
 impl<'a, H, Number> TrieBackendStorage<H> for TrieBackendAdapter<'a, H, Number>
-	where
-		Number: BlockNumber,
-		H: Hasher + 'static,
+where
+	Number: BlockNumber,
+	H: Hasher + 'static,
 {
 	type Overlay = MemoryDB<H>;
 	type AsyncStorage = NoopsBackenStorage<H>;
@@ -219,14 +219,11 @@ impl<'a, H, Number> TrieBackendStorage<H> for TrieBackendAdapter<'a, H, Number>
 }
 
 impl<'a, H, Number> Clone for TrieBackendAdapter<'a, H, Number>
-	where
-		Number: BlockNumber,
-		H: Hasher,
+where
+	Number: BlockNumber,
+	H: Hasher,
 {
 	fn clone(&self) -> Self {
-		TrieBackendAdapter {
-			storage: self.storage,
-			_hasher: std::marker::PhantomData,
-		}
+		TrieBackendAdapter { storage: self.storage, _hasher: std::marker::PhantomData }
 	}
 }

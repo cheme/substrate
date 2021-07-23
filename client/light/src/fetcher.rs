@@ -77,9 +77,9 @@ impl<E, H, B: BlockT, S: BlockchainStorage<B>> LightDataChecker<E, H, B, S> {
 		remote_proof: ChangesProof<B::Header>,
 		cht_size: NumberFor<B>,
 	) -> ClientResult<Vec<(NumberFor<B>, u32)>>
-		where
-			H: Hasher + 'static,
-			H::Out: Ord + codec::Codec,
+	where
+		H: Hasher + 'static,
+		H::Out: Ord + codec::Codec,
 	{
 		// since we need roots of all changes tries for the range begin..max
 		// => remote node can't use max block greater that one that we have passed
@@ -172,9 +172,9 @@ impl<E, H, B: BlockT, S: BlockchainStorage<B>> LightDataChecker<E, H, B, S> {
 		remote_roots: &BTreeMap<NumberFor<B>, B::Hash>,
 		remote_roots_proof: StorageProof,
 	) -> ClientResult<()>
-		where
-			H: Hasher + 'static,
-			H::Out: Ord + codec::Codec,
+	where
+		H: Hasher + 'static,
+		H::Out: Ord + codec::Codec,
 	{
 		// all the checks are sharing the same storage
 		let storage = remote_roots_proof.into_memory_db();
@@ -232,12 +232,12 @@ impl<E, H, B: BlockT, S: BlockchainStorage<B>> LightDataChecker<E, H, B, S> {
 }
 
 impl<E, Block, H, S> FetchChecker<Block> for LightDataChecker<E, H, Block, S>
-	where
-		Block: BlockT,
-		E: CodeExecutor + Clone + 'static,
-		H: Hasher + 'static,
-		H::Out: Ord + codec::Codec + 'static,
-		S: BlockchainStorage<Block>,
+where
+	Block: BlockT,
+	E: CodeExecutor + Clone + 'static,
+	H: Hasher + 'static,
+	H::Out: Ord + codec::Codec + 'static,
+	S: BlockchainStorage<Block>,
 {
 	fn check_header_proof(
 		&self,

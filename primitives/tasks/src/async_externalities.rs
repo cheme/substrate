@@ -18,26 +18,25 @@
 
 //! Async externalities.
 
-use sp_std::{
-	boxed::Box,
-	any::{TypeId, Any},
-	vec::Vec,
-};
 use sp_core::{
 	storage::{ChildInfo, TrackedStorageKey},
-	traits::{SpawnNamed, TaskExecutorExt, RuntimeSpawnExt, RuntimeSpawn},
+	traits::{RuntimeSpawn, RuntimeSpawnExt, SpawnNamed, TaskExecutorExt},
 };
 use sp_externalities::{
-	Externalities, Extensions, ExternalitiesExt as _, TaskId, WorkerResult,
-	WorkerDeclaration, AsyncExternalities as AsyncExternalitiesTrait,
 	ambassador_impl_Externalities_body_single_struct,
-	WorkerState,
+	AsyncExternalities as AsyncExternalitiesTrait, Extensions, Externalities,
+	ExternalitiesExt as _, TaskId, WorkerDeclaration, WorkerResult, WorkerState,
+};
+use sp_std::{
+	any::{Any, TypeId},
+	boxed::Box,
+	vec::Vec,
 };
 
 // Module to expose AsyncExternalities without alias to delegate macro.
 mod async_ext_def {
-	use ambassador::Delegate;
 	use super::*;
+	use ambassador::Delegate;
 	use sp_externalities::AsyncExternalities;
 
 	/// Simple state-less externalities for use in async context.
@@ -59,10 +58,7 @@ pub fn new_async_externalities(
 	scheduler: Box<dyn SpawnNamed>,
 	async_ext: Box<dyn AsyncExternalitiesTrait>,
 ) -> Result<AsyncExternalities, &'static str> {
-	let mut res = AsyncExternalities {
-		extensions: Default::default(),
-		state: async_ext,
-	};
+	let mut res = AsyncExternalities { extensions: Default::default(), state: async_ext };
 	let mut ext = &mut res as &mut dyn Externalities;
 	ext.register_extension::<TaskExecutorExt>(TaskExecutorExt(scheduler.clone()))
 		.map_err(|_| "Failed to register task executor extension.")?;
@@ -76,10 +72,7 @@ pub fn new_async_externalities(
 pub fn new_inline_only_externalities(
 	async_ext: Box<dyn AsyncExternalitiesTrait>,
 ) -> Result<AsyncExternalities, &'static str> {
-	Ok(AsyncExternalities {
-		extensions: Default::default(),
-		state: async_ext,
-	})
+	Ok(AsyncExternalities { extensions: Default::default(), state: async_ext })
 }
 
 impl AsyncExternalities {

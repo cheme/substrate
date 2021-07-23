@@ -21,18 +21,19 @@ use crate::{
 	backend::Backend, overlayed_changes::OverlayedExtensions, IndexOperation, OverlayedChanges,
 	StorageKey, StorageValue,
 };
+use codec::{Decode, Encode, EncodeAppend};
 use hash_db::Hasher;
 use sp_core::{
 	hexdisplay::HexDisplay,
 	storage::{well_known_keys::is_child_storage_key, ChildInfo, TrackedStorageKey},
 };
-use sp_trie::{trie_types::Layout, empty_child_trie_root};
 use sp_externalities::{
-	Externalities, Extensions, Extension, ExtensionStore, TaskId,
-	WorkerResult, WorkerDeclaration, AsyncExternalities,
+	AsyncExternalities, Extension, ExtensionStore, Extensions, Externalities, TaskId,
+	WorkerDeclaration, WorkerResult,
 };
-use codec::{Decode, Encode, EncodeAppend};
+use sp_trie::{empty_child_trie_root, trie_types::Layout};
 
+use super::EXT_NOT_ALLOWED_TO_FAIL;
 #[cfg(feature = "std")]
 use crate::changes_trie::State as ChangesTrieState;
 use crate::{log_error, trace, warn, StorageTransactionCache};
@@ -45,13 +46,11 @@ use sp_std::{
 };
 #[cfg(feature = "std")]
 use std::error;
-use super::EXT_NOT_ALLOWED_TO_FAIL;
 
 const BENCHMARKING_FN: &str = "\
 	This is a special fn only for benchmarking where a database commit happens from the runtime.
 	For that reason client started transactions before calling into runtime are not allowed.
 	Without client transactions the loop condition garantuees the success of the tx close.";
-
 
 /// Panic handler declaration for externalities.
 #[cfg(feature = "std")]
@@ -249,11 +248,7 @@ where
 		result.map(|r| r.encode())
 	}
 
-	fn child_storage(
-		&mut self,
-		child_info: &ChildInfo,
-		key: &[u8],
-	) -> Option<StorageValue> {
+	fn child_storage(&mut self, child_info: &ChildInfo, key: &[u8]) -> Option<StorageValue> {
 		let _guard = guard();
 		let result = self
 			.overlay
@@ -273,11 +268,7 @@ where
 		result
 	}
 
-	fn child_storage_hash(
-		&mut self,
-		child_info: &ChildInfo,
-		key: &[u8],
-	) -> Option<Vec<u8>> {
+	fn child_storage_hash(&mut self, child_info: &ChildInfo, key: &[u8]) -> Option<Vec<u8>> {
 		let _guard = guard();
 		let result = self
 			.overlay
@@ -313,11 +304,7 @@ where
 		result
 	}
 
-	fn exists_child_storage(
-		&mut self,
-		child_info: &ChildInfo,
-		key: &[u8],
-	) -> bool {
+	fn exists_child_storage(&mut self, child_info: &ChildInfo, key: &[u8]) -> bool {
 		let _guard = guard();
 
 		let result = match self.overlay.child_storage(child_info, key) {
@@ -338,14 +325,13 @@ where
 	}
 
 	fn next_storage_key(&mut self, key: &[u8]) -> Option<StorageKey> {
-		let mut next_backend_key = self.backend.next_storage_key(key).expect(EXT_NOT_ALLOWED_TO_FAIL);
+		let mut next_backend_key =
+			self.backend.next_storage_key(key).expect(EXT_NOT_ALLOWED_TO_FAIL);
 		let next_backend_key = &mut next_backend_key;
 		let backend = &mut self.backend;
 		let overlay = &mut self.overlay;
 		let result = || -> Option<StorageKey> {
-			let mut overlay_changes = overlay.iter_after(
-				key,
-			).peekable();
+			let mut overlay_changes = overlay.iter_after(key).peekable();
 
 			match (&next_backend_key, overlay_changes.peek()) {
 				(_, None) => next_backend_key.clone(),
@@ -364,9 +350,9 @@ where
 							// If the `backend_key` and `overlay_key` are equal, it means that we need
 							// to search for the next backend key, because the overlay has overwritten
 							// this key.
-							*next_backend_key = backend.next_storage_key(
-								&overlay_key.0,
-							).expect(EXT_NOT_ALLOWED_TO_FAIL);
+							*next_backend_key = backend
+								.next_storage_key(&overlay_key.0)
+								.expect(EXT_NOT_ALLOWED_TO_FAIL);
 						}
 					}
 
@@ -382,22 +368,17 @@ where
 		result
 	}
 
-	fn next_child_storage_key(
-		&mut self,
-		child_info: &ChildInfo,
-		key: &[u8],
-	) -> Option<StorageKey> {
-		let mut next_backend_key = self.backend
+	fn next_child_storage_key(&mut self, child_info: &ChildInfo, key: &[u8]) -> Option<StorageKey> {
+		let mut next_backend_key = self
+			.backend
 			.next_child_storage_key(child_info, key)
 			.expect(EXT_NOT_ALLOWED_TO_FAIL);
 		let next_backend_key = &mut next_backend_key;
 		let backend = &mut self.backend;
 		let overlay = &mut self.overlay;
 		let result = || -> Option<StorageKey> {
-			let mut overlay_changes = overlay.child_iter_after(
-				child_info.storage_key(),
-				key,
-			).peekable();
+			let mut overlay_changes =
+				overlay.child_iter_after(child_info.storage_key(), key).peekable();
 
 			match (&next_backend_key, overlay_changes.peek()) {
 				(_, None) => next_backend_key.clone(),
@@ -416,10 +397,9 @@ where
 							// If the `backend_key` and `overlay_key` are equal, it means that we need
 							// to search for the next backend key, because the overlay has overwritten
 							// this key.
-							*next_backend_key = backend.next_child_storage_key(
-								child_info,
-								&overlay_key.0,
-							).expect(EXT_NOT_ALLOWED_TO_FAIL);
+							*next_backend_key = backend
+								.next_child_storage_key(child_info, &overlay_key.0)
+								.expect(EXT_NOT_ALLOWED_TO_FAIL);
 						}
 					}
 
@@ -431,7 +411,8 @@ where
 				},
 			}
 		}();
-		self.overlay.log_backend_interval(Some(child_info), key, next_backend_key.as_ref());
+		self.overlay
+			.log_backend_interval(Some(child_info), key, next_backend_key.as_ref());
 		result
 	}
 
@@ -785,7 +766,7 @@ where
 			backend,
 			&mut self.overlay,
 		) {
-			return Some(Box::new(result));
+			return Some(Box::new(result))
 		}
 		None
 	}
@@ -1031,7 +1012,7 @@ mod tests {
 		}
 		.into();
 
-		let mut  ext = TestExt::new(&mut overlay, &mut cache, &backend, None, None);
+		let mut ext = TestExt::new(&mut overlay, &mut cache, &backend, None, None);
 
 		// next_backend < next_overlay
 		assert_eq!(ext.next_storage_key(&[5]), Some(vec![10]));

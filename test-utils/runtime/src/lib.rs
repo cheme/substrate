@@ -26,14 +26,13 @@ pub mod system;
 use codec::{Decode, Encode, Error, Input};
 use sp_std::{marker::PhantomData, prelude::*};
 
-use sp_application_crypto::{ecdsa, ed25519, sr25519, RuntimeAppPublic};
-use sp_core::{offchain::KeyTypeId, ChangesTrieConfiguration, OpaqueMetadata, RuntimeDebug};
-use trie_db::{TrieMut, Trie};
-use sp_trie::{PrefixedMemoryDB, StorageProof};
-use sp_trie::trie_types::{TrieDB, TrieDBMut};
-use sp_tasks::WorkerDeclarationKind;
+use cfg_if::cfg_if;
+use frame_support::{parameter_types, traits::KeyOwnerProofSystem, weights::RuntimeDbWeight};
+use frame_system::limits::{BlockLength, BlockWeights};
 use sp_api::{decl_runtime_apis, impl_runtime_apis};
+use sp_application_crypto::{ecdsa, ed25519, sr25519, RuntimeAppPublic};
 pub use sp_core::hash::H256;
+use sp_core::{offchain::KeyTypeId, ChangesTrieConfiguration, OpaqueMetadata, RuntimeDebug};
 use sp_inherents::{CheckInherentsResult, InherentData};
 #[cfg(feature = "std")]
 use sp_runtime::traits::NumberFor;
@@ -49,16 +48,15 @@ use sp_runtime::{
 	},
 	ApplyExtrinsicResult, Perbill,
 };
+use sp_tasks::WorkerDeclarationKind;
+use sp_trie::{
+	trie_types::{TrieDB, TrieDBMut},
+	PrefixedMemoryDB, StorageProof,
+};
 #[cfg(any(feature = "std", test))]
 use sp_version::NativeVersion;
 use sp_version::RuntimeVersion;
-use cfg_if::cfg_if;
-use frame_support::{
-	parameter_types,
-	traits::KeyOwnerProofSystem,
-	weights::RuntimeDbWeight,
-};
-use frame_system::limits::{BlockWeights, BlockLength};
+use trie_db::{Trie, TrieMut};
 
 // Ensure Babe and Aura use the same crypto to simplify things a bit.
 pub use sp_consensus_babe::{AllowedSlots, AuthorityId, Slot};
@@ -1254,13 +1252,13 @@ fn test_witness(proof: StorageProof, root: crate::Hash) {
 	ext.place_storage(vec![0], Some(vec![1]));
 	assert!(ext.storage_root().as_slice() != &root[..]);
 
-	use sp_externalities::ExternalitiesExt;
 	use sp_core::traits::{RuntimeSpawn, RuntimeSpawnExt};
+	use sp_externalities::ExternalitiesExt;
 	use sp_tasks::inline_spawn::hosted_runtime::RuntimeInstanceHostLocal;
 	#[cfg(not(feature = "std"))]
 	use sp_tasks::inline_spawn::hosted_runtime::{
-		host_runtime_tasks_set_capacity, host_runtime_tasks_spawn,
-		host_runtime_tasks_join, host_runtime_tasks_dismiss,
+		host_runtime_tasks_dismiss, host_runtime_tasks_join, host_runtime_tasks_set_capacity,
+		host_runtime_tasks_spawn,
 	};
 
 	let runtime_ext = RuntimeInstanceHostLocal::new();
@@ -1268,7 +1266,9 @@ fn test_witness(proof: StorageProof, root: crate::Hash) {
 
 	let mut dyn_ext: &mut dyn Externalities = &mut ext;
 	// use inline only extension.
-	dyn_ext.register_extension::<RuntimeSpawnExt>(RuntimeSpawnExt(runtime_ext)).unwrap();
+	dyn_ext
+		.register_extension::<RuntimeSpawnExt>(RuntimeSpawnExt(runtime_ext))
+		.unwrap();
 
 	fn worker_test(_inp: Vec<u8>) -> Vec<u8> {
 		let mut result = Vec::<u8>::default();
@@ -1281,44 +1281,44 @@ fn test_witness(proof: StorageProof, root: crate::Hash) {
 
 	#[cfg(not(feature = "std"))]
 	fn host_storage_set(key: &[u8], value: &[u8]) {
-		sp_externalities::with_externalities(|ext|
+		sp_externalities::with_externalities(|ext| {
 			ext.place_storage(key.to_vec(), Some(value.to_vec()))
-		).unwrap();
+		})
+		.unwrap();
 	}
 
 	#[cfg(not(feature = "std"))]
 	fn host_storage_get(key: &[u8]) -> Option<Vec<u8>> {
-		sp_externalities::with_externalities(|ext|
-			ext.storage(key).clone()
-		).unwrap()
+		sp_externalities::with_externalities(|ext| ext.storage(key).clone()).unwrap()
 	}
 
 	#[cfg(not(feature = "std"))]
-	let _guard = unsafe {(
-		sp_io::storage::host_get.replace_implementation(host_storage_get),
-		sp_io::storage::host_set.replace_implementation(host_storage_set),
-		sp_io::runtime_tasks::host_set_capacity.replace_implementation(host_runtime_tasks_set_capacity),
-		sp_io::runtime_tasks::host_spawn.replace_implementation(host_runtime_tasks_spawn),
-		sp_io::runtime_tasks::host_join.replace_implementation(host_runtime_tasks_join),
-		sp_io::runtime_tasks::host_dismiss.replace_implementation(host_runtime_tasks_dismiss),
-	)};
+	let _guard = unsafe {
+		(
+			sp_io::storage::host_get.replace_implementation(host_storage_get),
+			sp_io::storage::host_set.replace_implementation(host_storage_set),
+			sp_io::runtime_tasks::host_set_capacity
+				.replace_implementation(host_runtime_tasks_set_capacity),
+			sp_io::runtime_tasks::host_spawn.replace_implementation(host_runtime_tasks_spawn),
+			sp_io::runtime_tasks::host_join.replace_implementation(host_runtime_tasks_join),
+			sp_io::runtime_tasks::host_dismiss.replace_implementation(host_runtime_tasks_dismiss),
+		)
+	};
 
 	sp_externalities::set_and_run_with_externalities(&mut ext, || {
 		sp_externalities::with_externalities(|ext| {
 			assert!(ext.storage(&[0]).is_some());
 			assert!(ext.storage(b"value3").is_some());
 			assert!(ext.storage(b"xyz").is_none());
-		}).unwrap();
+		})
+		.unwrap();
 
 		assert!(sp_io::storage::get(&[0]).is_some());
 		assert!(sp_io::storage::get(b"value3").is_some());
 		assert!(sp_io::storage::get(b"xyz").is_none());
 		sp_tasks::set_capacity(4);
-		let handle = sp_tasks::spawn(
-			worker_test,
-			Vec::new(),
-			WorkerDeclarationKind::ReadAtSpawn.into(),
-		);
+		let handle =
+			sp_tasks::spawn(worker_test, Vec::new(), WorkerDeclarationKind::ReadAtSpawn.into());
 		sp_io::storage::set(b"xyz", b"test");
 		assert!(sp_io::storage::get(b"xyz").is_some());
 		let res = handle.unwrap().join().expect("expected result for task");
@@ -1335,56 +1335,35 @@ fn test_tasks() {
 		result.push(42);
 		result
 	}
-	let handle = sp_tasks::spawn(
-		todo,
-		Vec::new(),
-		WorkerDeclarationKind::ReadAtSpawn.into(),
-	);
+	let handle = sp_tasks::spawn(todo, Vec::new(), WorkerDeclarationKind::ReadAtSpawn.into());
 	let res = handle.unwrap().join().expect("expected result for task");
 	assert!(res.get(0) == Some(&42));
 
 	fn tokill(_inp: Vec<u8>) -> Vec<u8> {
-		loop { }
+		loop {}
 	}
-	let handle = sp_tasks::spawn(
-		tokill,
-		Vec::new(),
-		WorkerDeclarationKind::ReadAtSpawn.into(),
-	);
+	let handle = sp_tasks::spawn(tokill, Vec::new(), WorkerDeclarationKind::ReadAtSpawn.into());
 	handle.unwrap().dismiss();
 	fn do_panic(_inp: Vec<u8>) -> Vec<u8> {
 		panic!("Expected test panic.");
 	}
-	let handle = sp_tasks::spawn(
-		do_panic,
-		Vec::new(),
-		WorkerDeclarationKind::ReadAtSpawn.into(),
-	);
+	let handle = sp_tasks::spawn(do_panic, Vec::new(), WorkerDeclarationKind::ReadAtSpawn.into());
 	// Dismiss don't panic
 	handle.unwrap().dismiss();
 
 	sp_io::storage::start_transaction();
-	let handle = sp_tasks::spawn(
-		todo,
-		Vec::new(),
-		WorkerDeclarationKind::ReadAtSpawn.into(),
-	);
+	let handle = sp_tasks::spawn(todo, Vec::new(), WorkerDeclarationKind::ReadAtSpawn.into());
 	// invalidate state for handle
 	sp_io::storage::rollback_transaction();
 	assert!(handle.unwrap().join().is_none());
 	sp_io::storage::start_transaction();
-	let handle = sp_tasks::spawn(
-		todo,
-		Vec::new(),
-		WorkerDeclarationKind::ReadLastBlock.into(),
-	);
+	let handle = sp_tasks::spawn(todo, Vec::new(), WorkerDeclarationKind::ReadLastBlock.into());
 	sp_io::storage::rollback_transaction();
 	// state stay correct for last block
 	assert!(handle.unwrap().join().is_some());
 
 	// TODO	unimplemented!("join, kill and consort");
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -1460,9 +1439,9 @@ mod tests {
 		let backend = sp_state_machine::TrieBackend::<_, crate::Hashing>::new(db, root);
 		let proof = sp_state_machine::prove_read(backend, vec![b"value3"]).unwrap();
 		let client = TestClientBuilder::new()
-//			.set_execution_strategy(ExecutionStrategy::NativeElseWasm)
+			//			.set_execution_strategy(ExecutionStrategy::NativeElseWasm)
 			.set_execution_strategy(ExecutionStrategy::AlwaysWasm)
-//			.set_execution_strategy(ExecutionStrategy::Both)
+			//			.set_execution_strategy(ExecutionStrategy::Both)
 			.build();
 		let runtime_api = client.runtime_api();
 		let block_id = BlockId::Number(client.chain_info().best_number);
@@ -1472,9 +1451,8 @@ mod tests {
 
 	#[test]
 	fn test_tasks() {
-		let client = TestClientBuilder::new()
-			.set_execution_strategy(ExecutionStrategy::Both)
-			.build();
+		let client =
+			TestClientBuilder::new().set_execution_strategy(ExecutionStrategy::Both).build();
 		let runtime_api = client.runtime_api();
 		let block_id = BlockId::Number(client.chain_info().best_number);
 

@@ -22,25 +22,19 @@
 //! As a minimal implementation it can run in no_std (with alloc), but do not
 //! actually spawn threads, all execution is done inline in the parent thread.
 
-use crate::{new_inline_only_externalities, Crossing};
-use sp_core::traits::RuntimeSpawn;
-use sp_externalities::{WorkerResult, Externalities, AsyncExternalities, TaskId,
-	WorkerDeclaration};
-use sp_std::rc::Rc;
-use sp_std::cell::RefCell;
-use sp_std::collections::btree_map::BTreeMap;
-use sp_std::boxed::Box;
-use sp_std::vec::Vec;
+#[cfg(feature = "std")]
+use crate::common::{InlineInstantiateRef, LazyInstanciate};
+use crate::{
+	common::{HostLocalFunction, NativeTask, PendingTask, Task, WasmTask},
+	new_inline_only_externalities, Crossing,
+};
 #[cfg(feature = "std")]
 pub use log::error as log_error;
-#[cfg(feature = "std")]
-use crate::common::{
-	LazyInstanciate, InlineInstantiateRef,
+use sp_core::traits::RuntimeSpawn;
+use sp_externalities::{
+	AsyncExternalities, Externalities, TaskId, WorkerDeclaration, WorkerResult,
 };
-use crate::common::{
-	WasmTask, NativeTask, Task, PendingTask,
-	HostLocalFunction,
-};
+use sp_std::{boxed::Box, cell::RefCell, collections::btree_map::BTreeMap, rc::Rc, vec::Vec};
 
 /// Helper inner struct to implement `RuntimeSpawn` extension.
 ///
@@ -52,34 +46,20 @@ pub struct RuntimeInstanceSpawn {
 }
 
 /// Run a given task inline.
-pub fn process_task_inline<
-	'a,
-	#[cfg(feature = "std")]
-	I: LazyInstanciate<'a> + 'a,
->(
+pub fn process_task_inline<'a, #[cfg(feature = "std")] I: LazyInstanciate<'a> + 'a>(
 	task: Task,
 	ext: Box<dyn AsyncExternalities>,
 	handle: TaskId,
 	runtime_ext: Box<dyn RuntimeSpawn>,
-	#[cfg(feature = "std")]
-	instance_ref: I,
+	#[cfg(feature = "std")] instance_ref: I,
 ) -> WorkerResult {
-	#[cfg(feature = "std")] {
-		process_task_inline_inner::<(), I>(
-			task,
-			ext,
-			runtime_ext,
-			handle,
-			instance_ref,
-		)
+	#[cfg(feature = "std")]
+	{
+		process_task_inline_inner::<(), I>(task, ext, runtime_ext, handle, instance_ref)
 	}
-	#[cfg(not(feature = "std"))] {
-		process_task_inline_inner::<()>(
-			task,
-			ext,
-			runtime_ext,
-			handle,
-		)
+	#[cfg(not(feature = "std"))]
+	{
+		process_task_inline_inner::<()>(task, ext, runtime_ext, handle)
 	}
 }
 
@@ -87,17 +67,14 @@ pub fn process_task_inline<
 fn process_task_inline_inner<
 	'a,
 	HostLocal: HostLocalFunction,
-	#[cfg(feature = "std")]
-	I: LazyInstanciate<'a> + 'a,
+	#[cfg(feature = "std")] I: LazyInstanciate<'a> + 'a,
 >(
 	task: Task,
 	ext: Box<dyn AsyncExternalities>,
 	runtime_ext: Box<dyn RuntimeSpawn>,
 	handle: TaskId,
-	#[cfg(feature = "std")]
-	instance_ref: I,
+	#[cfg(feature = "std")] instance_ref: I,
 ) -> WorkerResult {
-
 	let async_ext = match new_inline_only_externalities(ext) {
 		Ok(val) => val,
 		Err(e) => {
@@ -106,8 +83,8 @@ fn process_task_inline_inner<
 				"Failed to setup externalities for inline async context: {}",
 				e,
 			);
-			return WorkerResult::HardPanic;
-		}
+			return WorkerResult::HardPanic
+		},
 	};
 	let async_ext = match async_ext.with_runtime_spawn(runtime_ext) {
 		Ok(val) => val,
@@ -117,8 +94,8 @@ fn process_task_inline_inner<
 				"Failed to setup runtime extension for async externalities: {}",
 				e,
 			);
-			return WorkerResult::HardPanic;
-		}
+			return WorkerResult::HardPanic
+		},
 	};
 
 	#[cfg(feature = "std")]
@@ -133,10 +110,7 @@ fn process_task_inline_inner<
 
 impl RuntimeInstanceSpawn {
 	fn nested_instance(&self) -> Self {
-		RuntimeInstanceSpawn {
-			tasks: Default::default(),
-			counter: 0,
-		}
+		RuntimeInstanceSpawn { tasks: Default::default(), counter: 0 }
 	}
 }
 
@@ -146,10 +120,7 @@ impl RuntimeInstanceSpawn {
 	/// This can be use if we are sure native only will
 	/// be use or if we are not using sp_io calls.
 	pub fn new() -> Self {
-		RuntimeInstanceSpawn {
-			tasks: BTreeMap::new(),
-			counter: 0,
-		}
+		RuntimeInstanceSpawn { tasks: BTreeMap::new(), counter: 0 }
 	}
 
 	/// Base implementation for `RuntimeSpawn` method.
@@ -168,7 +139,7 @@ impl RuntimeInstanceSpawn {
 		let handle = self.counter;
 		self.counter += 1;
 		if let Some(ext) = calling_ext.get_worker_externalities(handle, declaration) {
-			self.tasks.insert(handle, PendingTask {task, ext});
+			self.tasks.insert(handle, PendingTask { task, ext });
 			Some(handle)
 		} else {
 			None
@@ -214,17 +185,13 @@ pub mod hosted_runtime {
 	///
 	/// Warning to use only with environment that do not use threads (mainly wasm)
 	/// and thus allows the unsafe `Send` declaration.
-	pub struct RuntimeInstanceHostLocal(
-		Rc<RefCell<RuntimeInstanceSpawn>>,
-	);
+	pub struct RuntimeInstanceHostLocal(Rc<RefCell<RuntimeInstanceSpawn>>);
 
-	unsafe impl Send for RuntimeInstanceHostLocal { }
+	unsafe impl Send for RuntimeInstanceHostLocal {}
 
 	impl RuntimeInstanceHostLocal {
 		fn nested_instance(&self) -> Self {
-			RuntimeInstanceHostLocal(
-				Rc::new(RefCell::new(self.0.borrow().nested_instance())),
-			)
+			RuntimeInstanceHostLocal(Rc::new(RefCell::new(self.0.borrow().nested_instance())))
 		}
 	}
 
@@ -247,7 +214,9 @@ pub mod hosted_runtime {
 			declaration: WorkerDeclaration,
 			calling_ext: &mut dyn Externalities,
 		) -> Option<TaskId> {
-			self.0.borrow_mut().spawn_call(dispatcher_ref, func, data, declaration, calling_ext)
+			self.0
+				.borrow_mut()
+				.spawn_call(dispatcher_ref, func, data, declaration, calling_ext)
 		}
 
 		fn join(&self, handle: TaskId, calling_ext: &mut dyn Externalities) -> Option<Vec<u8>> {
@@ -260,10 +229,8 @@ pub mod hosted_runtime {
 					{
 						let mut instance = None;
 						let module = None;
-						let instance_ref = InlineInstantiateRef {
-							instance: &mut instance,
-							module: &module,
-						};
+						let instance_ref =
+							InlineInstantiateRef { instance: &mut instance, module: &module };
 
 						process_task_inline_inner::<HostLocal, _>(
 							task.task,
@@ -300,9 +267,7 @@ pub mod hosted_runtime {
 		/// Warning this is implementing `Send` when it should not and
 		/// should never be use in environment supporting threads.
 		pub fn new() -> Self {
-			RuntimeInstanceHostLocal(
-				Rc::new(RefCell::new(RuntimeInstanceSpawn::new())),
-			)
+			RuntimeInstanceHostLocal(Rc::new(RefCell::new(RuntimeInstanceSpawn::new())))
 		}
 	}
 
@@ -327,23 +292,34 @@ pub mod hosted_runtime {
 		payload: Vec<u8>,
 		declaration: Crossing<WorkerDeclaration>,
 	) -> Option<TaskId> {
-		sp_externalities::with_externalities_and_extension::<RuntimeSpawnExt, _, _>(|ext, runtime_spawn| {
-			runtime_spawn.spawn_call(dispatcher_ref, entry, payload, declaration.into_inner(), ext)
-		}).unwrap()
+		sp_externalities::with_externalities_and_extension::<RuntimeSpawnExt, _, _>(
+			|ext, runtime_spawn| {
+				runtime_spawn.spawn_call(
+					dispatcher_ref,
+					entry,
+					payload,
+					declaration.into_inner(),
+					ext,
+				)
+			},
+		)
+		.unwrap()
 	}
 
 	/// Hosted runtime variant of sp_io `RuntimeTasks` `spawn`.
 	pub fn host_runtime_tasks_join(handle: TaskId) -> Option<Vec<u8>> {
-		sp_externalities::with_externalities_and_extension::<RuntimeSpawnExt, _, _>(|ext, runtime_spawn| {
-			runtime_spawn.join(handle, ext)
-		}).unwrap()
+		sp_externalities::with_externalities_and_extension::<RuntimeSpawnExt, _, _>(
+			|ext, runtime_spawn| runtime_spawn.join(handle, ext),
+		)
+		.unwrap()
 	}
 
 	/// Hosted runtime variant of sp_io `RuntimeTasks` `spawn`.
 	pub fn host_runtime_tasks_dismiss(handle: TaskId) {
-		sp_externalities::with_externalities_and_extension::<RuntimeSpawnExt, _, _>(|ext, runtime_spawn| {
-			runtime_spawn.dismiss(handle, ext)
-		}).unwrap()
+		sp_externalities::with_externalities_and_extension::<RuntimeSpawnExt, _, _>(
+			|ext, runtime_spawn| runtime_spawn.dismiss(handle, ext),
+		)
+		.unwrap()
 	}
 }
 

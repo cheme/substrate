@@ -30,9 +30,8 @@
 //! from the worker, panic if trying to close or commit a transaction
 //! that is not from the worker).
 
-use sp_std::collections::btree_map::BTreeMap;
-use sp_externalities::{WorkerResult, TaskId};
-use sp_std::{vec, vec::Vec};
+use sp_externalities::{TaskId, WorkerResult};
+use sp_std::{collections::btree_map::BTreeMap, vec, vec::Vec};
 
 #[derive(Debug, Clone)]
 pub(super) struct Markers {
@@ -57,22 +56,14 @@ struct MarkerDesc {
 
 impl Default for Markers {
 	fn default() -> Self {
-		Markers {
-			markers: BTreeMap::new(),
-			transactions: vec![Default::default()],
-			start_depth: 0,
-		}
+		Markers { markers: BTreeMap::new(), transactions: vec![Default::default()], start_depth: 0 }
 	}
 }
 
 impl Markers {
 	/// Initialize marker for an existing overlay.
 	pub(super) fn from_start_depth(start_depth: usize) -> Self {
-		Markers {
-			markers: BTreeMap::new(),
-			transactions: vec![Default::default()],
-			start_depth,
-		}
+		Markers { markers: BTreeMap::new(), transactions: vec![Default::default()], start_depth }
 	}
 
 	/// Access base depth for this worker overlay.
@@ -82,18 +73,17 @@ impl Markers {
 }
 
 impl Markers {
-	fn current_transaction_internal(transactions: &mut Vec<Vec<TaskId>>) -> (&mut Vec<TaskId>, usize) {
+	fn current_transaction_internal(
+		transactions: &mut Vec<Vec<TaskId>>,
+	) -> (&mut Vec<TaskId>, usize) {
 		let len = transactions.len();
-		(transactions.last_mut()
-			.expect("Initialized above"), len)
+		(transactions.last_mut().expect("Initialized above"), len)
 	}
 
 	/// Add a marker at current transaction depth.
 	pub(super) fn set_marker(&mut self, marker: TaskId) {
 		let (tx, index) = Self::current_transaction_internal(&mut self.transactions);
-		self.markers.insert(marker, MarkerDesc {
-			transaction_depth: index,
-		});
+		self.markers.insert(marker, MarkerDesc { transaction_depth: index });
 		tx.push(marker)
 	}
 
@@ -140,7 +130,7 @@ impl Markers {
 					}
 				}
 				true
-			}
+			},
 			None => false,
 		}
 	}
@@ -157,8 +147,7 @@ impl Markers {
 			},
 			WorkerResult::Valid(_result, _delta) => true,
 			WorkerResult::Invalid => true,
-			WorkerResult::RuntimePanic
-			| WorkerResult::HardPanic => true,
+			WorkerResult::RuntimePanic | WorkerResult::HardPanic => true,
 		}
 	}
 }

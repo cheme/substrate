@@ -18,7 +18,6 @@
 
 //! Substrate service tasks management module.
 
-use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
 use crate::{
 	config::{JoinFuture, TaskExecutor, TaskType},
 	Error,
@@ -35,7 +34,15 @@ use prometheus_endpoint::{
 	Registry, U64,
 };
 use sp_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver, TracingUnboundedSender};
-use std::{panic, pin::Pin, result::Result};
+use std::{
+	panic,
+	pin::Pin,
+	result::Result,
+	sync::{
+		atomic::{AtomicUsize, Ordering},
+		Arc,
+	},
+};
 use tracing_futures::Instrument;
 
 mod prometheus_future;
@@ -58,11 +65,11 @@ impl TaskLimit {
 impl sp_core::traits::SpawnLimit for TaskLimit {
 	fn try_reserve(&self, number_of_tasks: usize) -> usize {
 		if let Some(limit) = self.0.as_ref() {
-			let old = limit.fetch_update(
-				Ordering::SeqCst,
-				Ordering::SeqCst,
-				|limit| Some(limit.saturating_sub(number_of_tasks))
-			).expect("Change only return Some; qed");
+			let old = limit
+				.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |limit| {
+					Some(limit.saturating_sub(number_of_tasks))
+				})
+				.expect("Change only return Some; qed");
 			std::cmp::min(old, number_of_tasks)
 		} else {
 			number_of_tasks

@@ -23,19 +23,14 @@ use crate::{
 };
 
 use std::{
-	panic::{UnwindSafe, AssertUnwindSafe},
+	panic::{AssertUnwindSafe, UnwindSafe},
 	path::PathBuf,
 	result,
-	sync::{
-		Arc,
-	},
+	sync::Arc,
 };
 
 use codec::{Decode, Encode};
 use log::trace;
-use sp_wasm_interface::{HostFunctions, Function};
-use sp_tasks::common::with_externalities_safe;
-use sp_tasks::pool_spawn::RuntimeInstanceSpawn;
 use sc_executor_common::{
 	runtime_blob::RuntimeBlob,
 	wasm_runtime::{WasmInstance, WasmModule},
@@ -44,7 +39,9 @@ use sp_core::{
 	traits::{CodeExecutor, Externalities, RuntimeCode},
 	NativeOrEncoded,
 };
+use sp_tasks::{common::with_externalities_safe, pool_spawn::RuntimeInstanceSpawn};
 use sp_version::{NativeVersion, RuntimeVersion};
+use sp_wasm_interface::{Function, HostFunctions};
 
 /// Default num of pages for the heap
 const DEFAULT_HEAP_PAGES: u64 = 2048;
@@ -354,13 +351,10 @@ impl<D: NativeExecutionDispatch + 'static> CodeExecutor for NativeExecutor<D> {
 							);
 						}
 
-						with_externalities_safe(
-							&mut **ext,
-							move || {
-								RuntimeInstanceSpawn::preregister_builtin_ext(module.clone());
-								instance.call_export(method, data).map(NativeOrEncoded::Encoded)
-							}
-						)
+						with_externalities_safe(&mut **ext, move || {
+							RuntimeInstanceSpawn::preregister_builtin_ext(module.clone());
+							instance.call_export(method, data).map(NativeOrEncoded::Encoded)
+						})
 					},
 					(true, true, Some(call)) => {
 						trace!(

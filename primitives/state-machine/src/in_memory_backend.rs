@@ -141,8 +141,7 @@ where
 	}
 }
 
-impl<H> From<Vec<(Option<ChildInfo>, StorageCollection)>>
-	for TrieBackend<MemoryDB<H>, H>
+impl<H> From<Vec<(Option<ChildInfo>, StorageCollection)>> for TrieBackend<MemoryDB<H>, H>
 where
 	H: Hasher + 'static,
 	H::Out: Codec + Ord,

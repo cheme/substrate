@@ -20,6 +20,7 @@
 #![warn(missing_docs)]
 #![cfg_attr(not(feature = "std"), no_std)]
 
+pub mod async_ext;
 pub mod backend;
 #[cfg(feature = "std")]
 mod basic;
@@ -27,7 +28,6 @@ mod basic;
 mod changes_trie;
 mod error;
 mod ext;
-pub mod async_ext;
 #[cfg(feature = "std")]
 mod in_memory_backend;
 pub(crate) mod overlayed_changes;
@@ -121,6 +121,7 @@ impl sp_std::fmt::Display for DefaultError {
 }
 
 pub use crate::{
+	backend::{AsyncBackend, Backend},
 	ext::Ext,
 	overlayed_changes::{
 		ChildStorageCollection, IndexOperation, OffchainChangesCollection,
@@ -131,7 +132,6 @@ pub use crate::{
 	trie_backend::TrieBackend,
 	trie_backend_essence::{Storage, TrieBackendStorage},
 };
-pub use crate::backend::{Backend, AsyncBackend};
 pub use error::{Error, ExecutionError};
 
 #[cfg(not(feature = "std"))]
@@ -321,7 +321,8 @@ mod execution {
 		}
 	}
 
-	impl<'a, B, H, N, Exec> StateMachine<'a, B, H, N, Exec> where
+	impl<'a, B, H, N, Exec> StateMachine<'a, B, H, N, Exec>
+	where
 		H: Hasher + 'static,
 		H::Out: Ord + 'static + codec::Codec,
 		Exec: CodeExecutor + Clone + 'static,

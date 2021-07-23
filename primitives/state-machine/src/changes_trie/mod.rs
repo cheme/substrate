@@ -193,7 +193,9 @@ pub struct TrieBackendStorageAdapter<'a, H: Hasher, Number: BlockNumber>(
 	pub &'a dyn Storage<H, Number>,
 );
 
-impl<'a, H: Hasher + 'static, N: BlockNumber> crate::TrieBackendStorage<H> for TrieBackendStorageAdapter<'a, H, N> {
+impl<'a, H: Hasher + 'static, N: BlockNumber> crate::TrieBackendStorage<H>
+	for TrieBackendStorageAdapter<'a, H, N>
+{
 	type Overlay = sp_trie::MemoryDB<H>;
 	type AsyncStorage = crate::trie_backend_essence::NoopsBackenStorage<H>;
 

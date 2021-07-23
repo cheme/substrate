@@ -630,16 +630,10 @@ macro_rules! does_panic {
 	($test_name: ident, $method_name: expr) => {
 		test_wasm_execution!($test_name);
 		fn $test_name(wasm_method: WasmExecutionMethod) {
-
 			let mut ext = TestExternalities::default();
 			let mut ext = ext.ext();
 
-			let error_result = call_in_wasm(
-				$method_name,
-				&[],
-				wasm_method,
-				&mut ext,
-			).unwrap_err();
+			let error_result = call_in_wasm($method_name, &[], wasm_method, &mut ext).unwrap_err();
 
 			dbg!(&error_result);
 			assert!(format!("{}", error_result).contains("Runtime panic"));
@@ -651,34 +645,22 @@ macro_rules! dont_panic {
 	($test_name: ident, $method_name: expr) => {
 		test_wasm_execution!($test_name);
 		fn $test_name(wasm_method: WasmExecutionMethod) {
-
 			let mut ext = TestExternalities::default();
 			let mut ext = ext.ext();
 
-			call_in_wasm(
-				$method_name,	
-				&[],
-				wasm_method,
-				&mut ext,
-			).unwrap();
+			call_in_wasm($method_name, &[], wasm_method, &mut ext).unwrap();
 		}
-	}; 
+	};
 }
 
 macro_rules! does_write_foo {
 	($test_name: ident, $method_name: expr) => {
 		test_wasm_execution!($test_name);
 		fn $test_name(wasm_method: WasmExecutionMethod) {
-
 			let mut ext = TestExternalities::default();
 			let mut ext = ext.ext();
 
-			call_in_wasm(
-				$method_name,	
-				&[],
-				wasm_method,
-				&mut ext,
-			).unwrap();
+			call_in_wasm($method_name, &[], wasm_method, &mut ext).unwrap();
 			assert_eq!(ext.storage(b"foo"), Some(b"bar".to_vec()));
 		}
 	};

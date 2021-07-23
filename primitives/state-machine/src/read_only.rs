@@ -25,11 +25,11 @@ use sp_core::{
 	traits::Externalities,
 	Blake2Hasher,
 };
+use sp_externalities::{AsyncExternalities, TaskId, WorkerDeclaration, WorkerResult};
 use std::{
 	any::{Any, TypeId},
 	marker::PhantomData,
 };
-use sp_externalities::{TaskId, WorkerResult, WorkerDeclaration, AsyncExternalities};
 
 /// Trait for inspecting state in any backend.
 ///
@@ -84,39 +84,34 @@ impl<'a, H: Hasher, B: 'a + Backend<H>> Externalities for ReadOnlyExternalities<
 	}
 
 	fn storage(&mut self, key: &[u8]) -> Option<StorageValue> {
-		self.backend.storage(key).expect("Backed failed for storage in ReadOnlyExternalities")
+		self.backend
+			.storage(key)
+			.expect("Backed failed for storage in ReadOnlyExternalities")
 	}
 
 	fn storage_hash(&mut self, key: &[u8]) -> Option<Vec<u8>> {
 		self.storage(key).map(|v| Blake2Hasher::hash(&v).encode())
 	}
 
-	fn child_storage(
-		&mut self,
-		child_info: &ChildInfo,
-		key: &[u8],
-	) -> Option<StorageValue> {
-		self.backend.child_storage(child_info, key).expect("Backed failed for child_storage in ReadOnlyExternalities")
+	fn child_storage(&mut self, child_info: &ChildInfo, key: &[u8]) -> Option<StorageValue> {
+		self.backend
+			.child_storage(child_info, key)
+			.expect("Backed failed for child_storage in ReadOnlyExternalities")
 	}
 
-	fn child_storage_hash(
-		&mut self,
-		child_info: &ChildInfo,
-		key: &[u8],
-	) -> Option<Vec<u8>> {
+	fn child_storage_hash(&mut self, child_info: &ChildInfo, key: &[u8]) -> Option<Vec<u8>> {
 		self.child_storage(child_info, key).map(|v| Blake2Hasher::hash(&v).encode())
 	}
 
 	fn next_storage_key(&mut self, key: &[u8]) -> Option<StorageKey> {
-		self.backend.next_storage_key(key).expect("Backed failed for next_storage_key in ReadOnlyExternalities")
+		self.backend
+			.next_storage_key(key)
+			.expect("Backed failed for next_storage_key in ReadOnlyExternalities")
 	}
 
-	fn next_child_storage_key(
-		&mut self,
-		child_info: &ChildInfo,
-		key: &[u8],
-	) -> Option<StorageKey> {
-		self.backend.next_child_storage_key(child_info, key)
+	fn next_child_storage_key(&mut self, child_info: &ChildInfo, key: &[u8]) -> Option<StorageKey> {
+		self.backend
+			.next_child_storage_key(child_info, key)
 			.expect("Backed failed for next_child_storage_key in ReadOnlyExternalities")
 	}
 
@@ -210,25 +205,24 @@ impl<'a, H: Hasher, B: 'a + Backend<H>> Externalities for ReadOnlyExternalities<
 			async_backend,
 			&mut self.overlay, // No current overlay state since read only.
 		) {
-			return Some(Box::new(result));
+			return Some(Box::new(result))
 		}
 		None
 	}
 
 	fn resolve_worker_result(&mut self, state_update: WorkerResult) -> Option<Vec<u8>> {
 		match state_update {
-			WorkerResult::CallAt(result, None, ..)
-			| WorkerResult::Optimistic(result, None, ..)
-			| WorkerResult::Valid(result, None, ..) => Some(result),
-			WorkerResult::CallAt(result, Some(delta), ..)
-			| WorkerResult::Optimistic(result, Some(delta), ..)
-			| WorkerResult::Valid(result, Some(delta), ..) => {
+			WorkerResult::CallAt(result, None, ..) |
+			WorkerResult::Optimistic(result, None, ..) |
+			WorkerResult::Valid(result, None, ..) => Some(result),
+			WorkerResult::CallAt(result, Some(delta), ..) |
+			WorkerResult::Optimistic(result, Some(delta), ..) |
+			WorkerResult::Valid(result, Some(delta), ..) =>
 				if delta.is_empty() {
 					Some(result)
 				} else {
 					unimplemented!("Storing change is not supported in ReadOnlyExternalities");
-				}
-			},
+				},
 			WorkerResult::Invalid => None,
 			WorkerResult::RuntimePanic => {
 				panic!("Runtime panic from a worker.")
@@ -239,8 +233,7 @@ impl<'a, H: Hasher, B: 'a + Backend<H>> Externalities for ReadOnlyExternalities<
 		}
 	}
 
-	fn dismiss_worker(&mut self, _id: TaskId) {
-	}
+	fn dismiss_worker(&mut self, _id: TaskId) {}
 
 	fn get_read_and_written_keys(&self) -> Vec<(Vec<u8>, u32, u32, bool)> {
 		unimplemented!("get_read_and_written_keys is not supported in ReadOnlyExternalities")

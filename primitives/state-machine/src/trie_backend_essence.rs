@@ -64,7 +64,10 @@ impl<S: TrieBackendStorage<H>, H: Hasher> Clone for TrieBackendEssence<S, H> {
 	}
 }
 
-impl<S: TrieBackendStorage<H>, H: Hasher> TrieBackendEssence<S, H> where H::Out: Encode {
+impl<S: TrieBackendStorage<H>, H: Hasher> TrieBackendEssence<S, H>
+where
+	H::Out: Encode,
+{
 	/// Create new trie-based backend.
 	pub fn new(storage: S, root: H::Out) -> Self {
 		TrieBackendEssence { storage, root, empty: H::hash(&[0u8]) }
@@ -488,7 +491,6 @@ impl<H: Hasher + 'static> TrieBackendStorage<H> for NoopsBackenStorage<H> {
 		self.clone()
 	}
 }
-
 
 // This implementation is used by normal storage trie clients.
 #[cfg(feature = "std")]

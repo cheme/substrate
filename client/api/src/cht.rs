@@ -105,12 +105,12 @@ pub fn build_proof<Header, Hasher, BlocksI, HashesI>(
 	blocks: BlocksI,
 	hashes: HashesI,
 ) -> ClientResult<StorageProof>
-	where
-		Header: HeaderT,
-		Hasher: hash_db::Hasher + 'static,
-		Hasher::Out: Ord + codec::Codec,
-		BlocksI: IntoIterator<Item=Header::Number>,
-		HashesI: IntoIterator<Item=ClientResult<Option<Header::Hash>>>,
+where
+	Header: HeaderT,
+	Hasher: hash_db::Hasher + 'static,
+	Hasher::Out: Ord + codec::Codec,
+	BlocksI: IntoIterator<Item = Header::Number>,
+	HashesI: IntoIterator<Item = ClientResult<Option<Header::Hash>>>,
 {
 	let transaction = build_pairs::<Header, _>(cht_size, cht_num, hashes)?
 		.into_iter()
@@ -134,10 +134,10 @@ pub fn check_proof<Header, Hasher>(
 	remote_hash: Header::Hash,
 	remote_proof: StorageProof,
 ) -> ClientResult<()>
-	where
-		Header: HeaderT,
-		Hasher: hash_db::Hasher + 'static,
-		Hasher::Out: Ord + codec::Codec,
+where
+	Header: HeaderT,
+	Hasher: hash_db::Hasher + 'static,
+	Hasher::Out: Ord + codec::Codec,
 {
 	do_check_proof::<Header, Hasher, _>(
 		local_root,
@@ -162,10 +162,10 @@ pub fn check_proof_on_proving_backend<Header, Hasher>(
 	remote_hash: Header::Hash,
 	proving_backend: &TrieBackend<MemoryDB<Hasher>, Hasher>,
 ) -> ClientResult<()>
-	where
-		Header: HeaderT,
-		Hasher: hash_db::Hasher + 'static,
-		Hasher::Out: Ord + codec::Codec,
+where
+	Header: HeaderT,
+	Hasher: hash_db::Hasher + 'static,
+	Hasher::Out: Ord + codec::Codec,
 {
 	do_check_proof::<Header, Hasher, _>(
 		local_root,

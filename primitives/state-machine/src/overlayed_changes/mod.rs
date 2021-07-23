@@ -18,11 +18,11 @@
 //! The overlayed changes to state.
 
 mod changeset;
-mod offchain;
 mod filters;
-mod markers;
-mod loggers;
 mod local_scope;
+mod loggers;
+mod markers;
+mod offchain;
 
 use self::changeset::OverlayedChangeSet;
 use crate::{backend::Backend, stats::StateMachineStats};
@@ -30,8 +30,8 @@ pub use offchain::OffchainOverlayedChanges;
 use sp_std::{
 	any::{Any, TypeId},
 	boxed::Box,
-	vec::Vec,
 	fmt::Debug,
+	vec::Vec,
 };
 
 use crate::{changes_trie::BlockNumber, DefaultError};
@@ -46,12 +46,12 @@ use sp_core::{
 	offchain::OffchainOverlayedChange,
 	storage::{well_known_keys::EXTRINSIC_INDEX, ChildInfo},
 };
-use sp_externalities::{Extension, Extensions};
+use sp_externalities::{
+	Change, Extension, Extensions, TaskId, WorkerDeclaration, WorkerDeclarationKind, WorkerResult,
+};
 #[cfg(not(feature = "std"))]
 use sp_std::collections::btree_map::{BTreeMap as Map, Entry as MapEntry};
 use sp_std::collections::btree_set::BTreeSet;
-use sp_externalities::{TaskId, WorkerResult,
-	WorkerDeclaration, WorkerDeclarationKind, Change};
 #[cfg(feature = "std")]
 use std::collections::{hash_map::Entry as MapEntry, HashMap as Map};
 
@@ -130,9 +130,13 @@ impl OverlayedChanges {
 	/// It contains the overlay changes and ensure
 	/// we do not commit or rollback them.
 	/// Return None if cannot be spawn from parent.
-	pub fn child_worker_overlay(&mut self, worker_id: TaskId, declaration: WorkerDeclaration) -> Option<Self> {
+	pub fn child_worker_overlay(
+		&mut self,
+		worker_id: TaskId,
+		declaration: WorkerDeclaration,
+	) -> Option<Self> {
 		if !self.declare_child_worker(worker_id, declaration.kind.clone()) {
-			return None;
+			return None
 		}
 		let mut result = OverlayedChanges::default();
 		result.top = self.top.clone();
@@ -141,7 +145,6 @@ impl OverlayedChanges {
 		result.start_transaction();
 		let transaction_offset = result.top.transaction_depth();
 		result.markers = markers::Markers::from_start_depth(transaction_offset);
-
 
 		result.set_worker_declaration(declaration);
 
@@ -394,10 +397,7 @@ impl OverlayedChanges {
 	/// Clear child storage of given storage key.
 	///
 	/// Can be rolled back or committed when called inside a transaction.
-	pub(crate) fn clear_child_storage(
-		&mut self,
-		child_info: &ChildInfo,
-	) {
+	pub(crate) fn clear_child_storage(&mut self, child_info: &ChildInfo) {
 		// clear is reading value, this is not idealy, still guarding
 		// read_write (would not be needed with special clear prefix
 		// optimization).
@@ -429,11 +429,7 @@ impl OverlayedChanges {
 	/// Removes all key-value pairs which keys share the given prefix.
 	///
 	/// Can be rolled back or committed when called inside a transaction
-	pub(crate) fn clear_child_prefix(
-		&mut self,
-		child_info: &ChildInfo,
-		prefix: &[u8],
-	) {
+	pub(crate) fn clear_child_prefix(&mut self, child_info: &ChildInfo, prefix: &[u8]) {
 		self.filters.guard_write_prefix(Some(child_info), prefix);
 		self.optimistic_logger.log_write_prefix(Some(child_info), prefix);
 		let extrinsic_index = self.extrinsic_index();
@@ -464,12 +460,16 @@ impl OverlayedChanges {
 	///
 	/// Return false if the declaration is incompatible with current parent worker accesses.
 	/// TODO check if we can &WorkerDeclaration
-	pub fn declare_child_worker(&mut self, child_marker: TaskId, declaration: WorkerDeclarationKind) -> bool {
+	pub fn declare_child_worker(
+		&mut self,
+		child_marker: TaskId,
+		declaration: WorkerDeclarationKind,
+	) -> bool {
 		match declaration {
-			WorkerDeclarationKind::Stateless
-			| WorkerDeclarationKind::ReadLastBlock
-			| WorkerDeclarationKind::ReadAtSpawn
-			| WorkerDeclarationKind::WriteAtSpawn => (),
+			WorkerDeclarationKind::Stateless |
+			WorkerDeclarationKind::ReadLastBlock |
+			WorkerDeclarationKind::ReadAtSpawn |
+			WorkerDeclarationKind::WriteAtSpawn => (),
 			WorkerDeclarationKind::ReadOptimistic => {
 				self.optimistic_logger.log_writes_against(Some(child_marker));
 				self.optimistic_logger.log_appends_against(Some(child_marker));
@@ -484,34 +484,43 @@ impl OverlayedChanges {
 			},
 			WorkerDeclarationKind::ReadDeclarative(filter, failure) => {
 				if !self.filters.guard_declare_child_filter_read(&filter) {
-					return false;
+					return false
 				}
 				self.filters.set_failure_handler(Some(child_marker), failure);
 				// TODO consider merging add_change and forbid_writes (or even the full block).
-				self.filters.add_change(WorkerDeclarationKind::ReadDeclarative(filter.clone(), failure), child_marker);
+				self.filters.add_change(
+					WorkerDeclarationKind::ReadDeclarative(filter.clone(), failure),
+					child_marker,
+				);
 				self.filters.forbid_write_appends(filter, child_marker);
 			},
 			WorkerDeclarationKind::WriteLightDeclarative(filter, failure) => {
 				if !self.filters.guard_declare_child_filter_write(&filter) {
-					return false;
+					return false
 				}
 				self.filters.set_failure_handler(Some(child_marker), failure);
 				// TODO see if possible to only push worker type??
-				self.filters.add_change(WorkerDeclarationKind::WriteLightDeclarative(filter.clone(), failure), child_marker);
+				self.filters.add_change(
+					WorkerDeclarationKind::WriteLightDeclarative(filter.clone(), failure),
+					child_marker,
+				);
 				self.filters.forbid_all(filter, child_marker);
 			},
 			WorkerDeclarationKind::WriteDeclarative(filters, failure) => {
 				if !self.filters.guard_declare_child_filter_read(&filters.read_only) {
-					return false;
+					return false
 				}
 				if !self.filters.guard_declare_child_filter_write(&filters.write) {
-					return false;
+					return false
 				}
 				if !self.filters.guard_declare_child_filter_append(&filters.append) {
-					return false;
+					return false
 				}
 				self.filters.set_failure_handler(Some(child_marker), failure);
-				self.filters.add_change(WorkerDeclarationKind::WriteDeclarative(filters.clone(), failure), child_marker);
+				self.filters.add_change(
+					WorkerDeclarationKind::WriteDeclarative(filters.clone(), failure),
+					child_marker,
+				);
 				self.filters.forbid_all(filters.write, child_marker);
 				self.filters.forbid_write_appends(filters.read_only, child_marker);
 				self.filters.forbid_read_writes(filters.append, child_marker);
@@ -525,10 +534,10 @@ impl OverlayedChanges {
 	pub fn set_worker_declaration(&mut self, declaration: WorkerDeclaration) {
 		self.write_local_scope.set_write_local_scope(declaration.write_local_scope);
 		match declaration.kind {
-			WorkerDeclarationKind::Stateless
-			| WorkerDeclarationKind::ReadLastBlock
-			| WorkerDeclarationKind::ReadAtSpawn
-			| WorkerDeclarationKind::WriteAtSpawn => (),
+			WorkerDeclarationKind::Stateless |
+			WorkerDeclarationKind::ReadLastBlock |
+			WorkerDeclarationKind::ReadAtSpawn |
+			WorkerDeclarationKind::WriteAtSpawn => (),
 			WorkerDeclarationKind::ReadOptimistic => {
 				self.optimistic_logger.log_reads_against(None);
 			},
@@ -563,16 +572,17 @@ impl OverlayedChanges {
 	///
 	/// Return `None` when the worker execution should be invalidated.
 	pub fn resolve_worker_result(&mut self, result: WorkerResult) -> Option<Vec<u8>> {
-		if !self.filters.on_worker_result(&result)
-			|| !self.optimistic_logger.on_worker_result(&result)
-			|| !self.markers.on_worker_result(&result) {
-			return None;
+		if !self.filters.on_worker_result(&result) ||
+			!self.optimistic_logger.on_worker_result(&result) ||
+			!self.markers.on_worker_result(&result)
+		{
+			return None
 		}
 
 		match result {
-			WorkerResult::Optimistic(result, state_delta, ..)
-			| WorkerResult::Valid(result, state_delta)
-			| WorkerResult::CallAt(result, state_delta, ..) => {
+			WorkerResult::Optimistic(result, state_delta, ..) |
+			WorkerResult::Valid(result, state_delta) |
+			WorkerResult::CallAt(result, state_delta, ..) => {
 				if let Some(delta) = state_delta {
 					self.inject_worker_delta(delta);
 				}
@@ -695,19 +705,19 @@ impl OverlayedChanges {
 	///
 	/// Panics:
 	/// Panics if `transaction_depth() > initial_depth`
-	fn drain_committed_for(&mut self, initial_depth: usize) -> (
-		impl Iterator<Item=(StorageKey, Change)>,
-		impl Iterator<Item=(StorageKey, (impl Iterator<Item=(StorageKey, Change)>, ChildInfo))>,
+	fn drain_committed_for(
+		&mut self,
+		initial_depth: usize,
+	) -> (
+		impl Iterator<Item = (StorageKey, Change)>,
+		impl Iterator<Item = (StorageKey, (impl Iterator<Item = (StorageKey, Change)>, ChildInfo))>,
 	) {
 		use sp_std::mem::take;
 		(
 			take(&mut self.top).drain_commited_for(initial_depth),
-			take(&mut self.children).into_iter()
-				.map(move |(key, (val, info))| (
-						key,
-						(val.drain_commited_for(initial_depth), info)
-					)
-				),
+			take(&mut self.children).into_iter().map(move |(key, (val, info))| {
+				(key, (val.drain_commited_for(initial_depth), info))
+			}),
 		)
 	}
 
@@ -730,16 +740,18 @@ impl OverlayedChanges {
 	) {
 		use sp_std::mem::take;
 		(
-			take(&mut self.top).drain_commited()
+			take(&mut self.top)
+				.drain_commited()
 				.map(|(k, change)| (k, change_to_change_set(change))),
-			take(&mut self.children).into_iter()
-				.map(|(key, (val, info))| (
-						key,
-						(val.drain_commited()
-							.map(|(k, change)| (k, change_to_change_set(change))),
-							info)
-					)
-				),
+			take(&mut self.children).into_iter().map(|(key, (val, info))| {
+				(
+					key,
+					(
+						val.drain_commited().map(|(k, change)| (k, change_to_change_set(change))),
+						info,
+					),
+				)
+			}),
 		)
 	}
 
@@ -756,19 +768,23 @@ impl OverlayedChanges {
 	}
 
 	/// Get an iterator over all child changes as seen by the current transaction.
-	pub fn children(&mut self)
-		-> impl Iterator<Item=(impl Iterator<Item=(&StorageKey, &mut OverlayedValue)>, &ChildInfo)> {
+	pub fn children(
+		&mut self,
+	) -> impl Iterator<Item = (impl Iterator<Item = (&StorageKey, &mut OverlayedValue)>, &ChildInfo)>
+	{
 		self.children.iter_mut().map(|(_, v)| (v.0.changes(), &v.1))
 	}
 
 	/// Get an iterator over all top changes as been by the current transaction.
-	pub fn changes(&mut self) -> impl Iterator<Item=(&StorageKey, &mut OverlayedValue)> {
+	pub fn changes(&mut self) -> impl Iterator<Item = (&StorageKey, &mut OverlayedValue)> {
 		self.top.changes()
 	}
 
 	/// Get an optional iterator over all child changes stored under the supplied key.
-	pub fn child_changes(&mut self, key: &[u8])
-		-> Option<(impl Iterator<Item=(&StorageKey, &mut OverlayedValue)>, &ChildInfo)> {
+	pub fn child_changes(
+		&mut self,
+		key: &[u8],
+	) -> Option<(impl Iterator<Item = (&StorageKey, &mut OverlayedValue)>, &ChildInfo)> {
 		self.children.get_mut(key).map(|(overlay, info)| (overlay.changes(), &*info))
 	}
 
@@ -779,9 +795,7 @@ impl OverlayedChanges {
 
 	/// Convert this instance with all changes into a [`StorageChanges`] instance.
 	#[cfg(feature = "std")]
-	pub fn into_storage_changes<
-		B: Backend<H>, H: Hasher + 'static, N: BlockNumber
-	>(
+	pub fn into_storage_changes<B: Backend<H>, H: Hasher + 'static, N: BlockNumber>(
 		mut self,
 		backend: &B,
 		changes_trie_state: Option<&ChangesTrieState<H, N>>,
@@ -855,7 +869,8 @@ impl OverlayedChanges {
 	/// Inserts storage entry responsible for current extrinsic index.
 	#[cfg(test)]
 	pub(crate) fn set_extrinsic_index(&mut self, extrinsic_index: u32) {
-		self.top.set(EXTRINSIC_INDEX.to_vec(), Change::Write(extrinsic_index.encode()), None);
+		self.top
+			.set(EXTRINSIC_INDEX.to_vec(), Change::Write(extrinsic_index.encode()), None);
 	}
 
 	/// Returns current extrinsic index to use in changes trie construction.
@@ -890,10 +905,13 @@ impl OverlayedChanges {
 		self.filters.guard_read_all();
 		self.optimistic_logger.log_read_all();
 		let delta = self.top.changes().map(|(k, v)| (&k[..], v.value().map(|v| &v[..])));
-		let child_delta = self.children.iter_mut().map(|(_, v)| (v.0.changes(), &v.1))
-			.map(|(changes, info)| (info, changes.map(
-				|(k, v)| (&k[..], v.value().map(|v| &v[..]))
-			)));
+		let child_delta =
+			self.children
+				.iter_mut()
+				.map(|(_, v)| (v.0.changes(), &v.1))
+				.map(|(changes, info)| {
+					(info, changes.map(|(k, v)| (&k[..], v.value().map(|v| &v[..]))))
+				});
 
 		let (root, transaction) = backend.full_storage_root(delta, child_delta);
 
@@ -944,10 +962,15 @@ impl OverlayedChanges {
 		key: &[u8],
 		backend_accessed: Option<&Vec<u8>>,
 	) {
-		self.filters.guard_read_interval(child_info, key, backend_accessed.map(Vec::as_slice));
-		self.optimistic_logger.log_read_interval(child_info, key, backend_accessed.map(Vec::as_slice));
+		self.filters
+			.guard_read_interval(child_info, key, backend_accessed.map(Vec::as_slice));
+		self.optimistic_logger.log_read_interval(
+			child_info,
+			key,
+			backend_accessed.map(Vec::as_slice),
+		);
 	}
-	
+
 	/// Returns an iterator over the keys (in lexicographic order) following `key` (excluding `key`)
 	/// alongside its value.
 	pub fn iter_after(&mut self, key: &[u8]) -> impl Iterator<Item = (&[u8], &mut OverlayedValue)> {
@@ -999,20 +1022,24 @@ impl OverlayedChanges {
 					Change::Write(value) => added.push((key, value)),
 					Change::Delete => deleted.push(key),
 					Change::Append(value, changes) => appended.push((key, (value, changes))),
-					Change::IncrementCounter(value, increment) => incremented.push((key, (value, increment))),
+					Change::IncrementCounter(value, increment) =>
+						incremented.push((key, (value, increment))),
 				}
 			}
 			// TODO implement extraction of delta for logged delete prefix
 			// actually having delete prefix as first state component of state machine
 			// would be more straight forward and better for all but https://github.com/paritytech/substrate/pull/5280
 			// did not have support (delete prefix as first state citizen).
-			children.push((info, sp_externalities::TrieDelta {
-				added,
-				deleted,
-				appended,
-				incremented,
-				deleted_prefix: Vec::new(), // TODO deleted prefix optimization
-			}));
+			children.push((
+				info,
+				sp_externalities::TrieDelta {
+					added,
+					deleted,
+					appended,
+					incremented,
+					deleted_prefix: Vec::new(), // TODO deleted prefix optimization
+				},
+			));
 		}
 
 		let mut added = Vec::new();
@@ -1024,7 +1051,8 @@ impl OverlayedChanges {
 				Change::Write(value) => added.push((key, value)),
 				Change::Delete => deleted.push(key),
 				Change::Append(value, changes) => appended.push((key, (value, changes))),
-				Change::IncrementCounter(value, increment) => incremented.push((key, (value, increment))),
+				Change::IncrementCounter(value, increment) =>
+					incremented.push((key, (value, increment))),
 			}
 		}
 		sp_externalities::StateDelta {
@@ -1175,13 +1203,15 @@ impl<'a> OverlayedExtensions<'a> {
 
 /// Declaration of radix trees for this crate.
 pub mod radix_trees {
-	use radix_tree::{Derivative, radix::{RadixConf, impls::Radix256Conf},
-		children::{Children, ART48_256}, Value, TreeConf, Node};
-	use sp_std::boxed::Box;
-	use core::fmt::Debug;
 	use super::StorageKey;
+	use core::fmt::Debug;
+	use radix_tree::{
+		children::{Children, ART48_256},
+		radix::{impls::Radix256Conf, RadixConf},
+		Derivative, Node, TreeConf, Value,
+	};
 	use sp_core::storage::ChildInfo;
-	use sp_std::collections::btree_map::BTreeMap;
+	use sp_std::{boxed::Box, collections::btree_map::BTreeMap};
 
 	radix_tree::flatten_children!(
 		Children256FlattenART,
@@ -1196,7 +1226,8 @@ pub mod radix_trees {
 	pub type FilterTree<F> = radix_tree::Tree<Node256NoBackendART<F>>;
 
 	/// Write access logs with children origin.
-	pub(crate) type AccessTreeWrite = radix_tree::Tree<Node256NoBackendART<super::loggers::OriginLog>>;
+	pub(crate) type AccessTreeWrite =
+		radix_tree::Tree<Node256NoBackendART<super::loggers::OriginLog>>;
 
 	/// A tree of filter rules.
 	#[derive(Debug, Clone, Default)]

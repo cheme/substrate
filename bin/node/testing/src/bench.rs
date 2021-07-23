@@ -41,24 +41,27 @@ use node_runtime::{
 	Signature, SystemCall, UncheckedExtrinsic,
 };
 use sc_block_builder::BlockBuilderProvider;
+use sc_client_api::{
+	execution_extensions::{ExecutionExtensions, ExecutionStrategies},
+	BlockBackend, ExecutionStrategy,
+};
 use sc_client_db::PruningMode;
 use sc_executor::{NativeExecutor, WasmExecutionMethod};
 use sp_api::ProvideRuntimeApi;
+use sp_block_builder::BlockBuilder;
 use sp_consensus::{
 	BlockImport, BlockImportParams, BlockOrigin, ForkChoiceStrategy, ImportResult, ImportedAux,
 };
+use sp_core::{
+	blake2_256, ed25519, sr25519,
+	traits::{SpawnLimit, SpawnNamed, TaskHandle},
+	ExecutionContext, Pair, Public,
+};
+use sp_inherents::InherentData;
 use sp_runtime::{
 	generic::BlockId,
 	traits::{Block as BlockT, IdentifyAccount, Verify, Zero},
 	OpaqueExtrinsic,
-};
-use sp_core::{ExecutionContext, blake2_256, traits::{SpawnNamed, SpawnLimit, TaskHandle},
-	Pair, Public, sr25519, ed25519};
-use sp_block_builder::BlockBuilder;
-use sp_inherents::InherentData;
-use sc_client_api::{
-	ExecutionStrategy, BlockBackend,
-	execution_extensions::{ExecutionExtensions, ExecutionStrategies},
 };
 
 /// Keyring full of accounts for benching.
@@ -250,11 +253,7 @@ impl SpawnNamed for TaskExecutor {
 		self.pool.spawn_ok(future);
 	}
 
-	fn spawn(
-		&self,
-		_name: &'static str,
-		future: BoxFuture<'static, ()>,
-	) -> Option<TaskHandle> {
+	fn spawn(&self, _name: &'static str, future: BoxFuture<'static, ()>) -> Option<TaskHandle> {
 		self.pool.spawn_ok(future);
 		// no dismiss
 		None
@@ -267,8 +266,7 @@ impl SpawnLimit for TaskExecutor {
 		number_of_tasks
 	}
 
-	fn release(&self, _number_of_tasks: usize) {
-	}
+	fn release(&self, _number_of_tasks: usize) {}
 }
 
 /// Iterator for block content.

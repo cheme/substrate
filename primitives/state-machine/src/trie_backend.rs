@@ -20,8 +20,7 @@
 use crate::{
 	debug,
 	trie_backend_essence::{Ephemeral, TrieBackendEssence, TrieBackendStorage},
-	warn, Backend,
-	StorageKey, StorageValue, AsyncBackend,
+	warn, AsyncBackend, Backend, StorageKey, StorageValue,
 };
 use codec::{Codec, Decode};
 use hash_db::Hasher;
@@ -44,7 +43,10 @@ impl<S: TrieBackendStorage<H>, H: Hasher> Clone for TrieBackend<S, H> {
 	}
 }
 
-impl<S: TrieBackendStorage<H>, H: Hasher> TrieBackend<S, H> where H::Out: Codec {
+impl<S: TrieBackendStorage<H>, H: Hasher> TrieBackend<S, H>
+where
+	H::Out: Codec,
+{
 	/// Create new trie-based backend.
 	pub fn new(storage: S, root: H::Out) -> Self {
 		TrieBackend { essence: TrieBackendEssence::new(storage, root) }
@@ -82,7 +84,8 @@ impl<S: TrieBackendStorage<H>, H: Hasher> sp_std::fmt::Debug for TrieBackend<S, 
 	}
 }
 
-impl<S, H> Backend<H> for TrieBackend<S, H> where
+impl<S, H> Backend<H> for TrieBackend<S, H>
+where
 	S: TrieBackendStorage<H>,
 	H: Hasher + 'static,
 	H::Out: Ord + Codec,
@@ -275,8 +278,10 @@ impl<S, H> Backend<H> for TrieBackend<S, H> where
 	fn async_backend(&self) -> Box<dyn AsyncBackend> {
 		use crate::backend::AsyncBackendAdapter;
 
-		let inner: TrieBackend<S::AsyncStorage, H> = TrieBackend { essence: self.essence.async_backend()};
-		let inner: AsyncBackendAdapter<H, TrieBackend<S::AsyncStorage, H>> = AsyncBackendAdapter::new(inner);
+		let inner: TrieBackend<S::AsyncStorage, H> =
+			TrieBackend { essence: self.essence.async_backend() };
+		let inner: AsyncBackendAdapter<H, TrieBackend<S::AsyncStorage, H>> =
+			AsyncBackendAdapter::new(inner);
 		Box::new(inner)
 	}
 }

@@ -49,12 +49,14 @@ pub(crate) fn prepare_input<'a, B, H, Number>(
 		impl Iterator<Item = InputPair<Number>> + 'a,
 		Vec<(ChildIndex<Number>, impl Iterator<Item = InputPair<Number>> + 'a)>,
 		Vec<Number>,
-	), String>
-	where
-		B: Backend<H>,
-		H: Hasher + 'static,
-		H::Out: Encode,
-		Number: BlockNumber,
+	),
+	String,
+>
+where
+	B: Backend<H>,
+	H: Hasher + 'static,
+	H::Out: Encode,
+	Number: BlockNumber,
 {
 	let number = parent.number.clone() + One::one();
 	let (extrinsics_input, children_extrinsics_input) =
@@ -84,14 +86,17 @@ fn prepare_extrinsics_input<'a, B, H, Number>(
 	backend: &'a B,
 	block: &Number,
 	overlay: &'a mut OverlayedChanges,
-) -> Result<(
-		impl Iterator<Item=InputPair<Number>> + 'a,
-		BTreeMap<ChildIndex<Number>, impl Iterator<Item=InputPair<Number>> + 'a>,
-	), String>
-	where
-		B: Backend<H>,
-		H: Hasher + 'a,
-		Number: BlockNumber,
+) -> Result<
+	(
+		impl Iterator<Item = InputPair<Number>> + 'a,
+		BTreeMap<ChildIndex<Number>, impl Iterator<Item = InputPair<Number>> + 'a>,
+	),
+	String,
+>
+where
+	B: Backend<H>,
+	H: Hasher + 'a,
+	Number: BlockNumber,
 {
 	let mut children_result = BTreeMap::new();
 
@@ -108,14 +113,22 @@ fn prepare_extrinsics_input<'a, B, H, Number>(
 		// Note that with current code this unsafe double mutable access
 		// is fine (no insert in the overlay that would messed the mutable iterator).
 		let iter = prepare_extrinsics_input_inner(
-			backend, block, unsafe { &mut *overlay_unsafe },
+			backend,
+			block,
+			unsafe { &mut *overlay_unsafe },
 			Some(child_info.clone()),
 			child_changes,
 		)?;
 		children_result.insert(child_index, iter);
 	}
 
-	let top = prepare_extrinsics_input_inner(backend, block, unsafe { &mut *overlay_unsafe }, None, unsafe { &mut *overlay_unsafe }.changes())?;
+	let top = prepare_extrinsics_input_inner(
+		backend,
+		block,
+		unsafe { &mut *overlay_unsafe },
+		None,
+		unsafe { &mut *overlay_unsafe }.changes(),
+	)?;
 
 	Ok((top, children_result))
 }
@@ -125,12 +138,12 @@ fn prepare_extrinsics_input_inner<'a, B, H, Number>(
 	block: &Number,
 	overlay: &'a mut OverlayedChanges,
 	child_info: Option<ChildInfo>,
-	changes: impl Iterator<Item=(&'a StorageKey, &'a mut OverlayedValue)>
-) -> Result<impl Iterator<Item=InputPair<Number>> + 'a, String>
-	where
-		B: Backend<H>,
-		H: Hasher,
-		Number: BlockNumber,
+	changes: impl Iterator<Item = (&'a StorageKey, &'a mut OverlayedValue)>,
+) -> Result<impl Iterator<Item = InputPair<Number>> + 'a, String>
+where
+	B: Backend<H>,
+	H: Hasher,
+	Number: BlockNumber,
 {
 	changes
 		.filter_map(|(k, v)| {
@@ -201,11 +214,13 @@ fn prepare_digest_input<'a, H, Number>(
 		impl Iterator<Item = InputPair<Number>> + 'a,
 		BTreeMap<ChildIndex<Number>, impl Iterator<Item = InputPair<Number>> + 'a>,
 		Vec<Number>,
-	), String>
-	where
-		H: Hasher + 'static,
-		H::Out: 'a + Encode,
-		Number: BlockNumber,
+	),
+	String,
+>
+where
+	H: Hasher + 'static,
+	H::Out: 'a + Encode,
+	Number: BlockNumber,
 {
 	let build_skewed_digest = config.end.as_ref() == Some(&block);
 	let block_for_digest = if build_skewed_digest {
@@ -838,33 +853,68 @@ mod test {
 					configuration_range.clone(),
 					&mut changes,
 					&parent,
-				).unwrap();
-				assert_eq!(changes_trie_nodes.0.collect::<Vec<InputPair<u64>>>(), vec![
-					InputPair::ExtrinsicIndex(ExtrinsicIndex { block: zero + 11, key: vec![100] }, vec![0, 2, 3]),
-					InputPair::ExtrinsicIndex(ExtrinsicIndex { block: zero + 11, key: vec![101] }, vec![1]),
-					InputPair::ExtrinsicIndex(ExtrinsicIndex { block: zero + 11, key: vec![103] }, vec![0, 1]),
-				]);
+				)
+				.unwrap();
+				assert_eq!(
+					changes_trie_nodes.0.collect::<Vec<InputPair<u64>>>(),
+					vec![
+						InputPair::ExtrinsicIndex(
+							ExtrinsicIndex { block: zero + 11, key: vec![100] },
+							vec![0, 2, 3]
+						),
+						InputPair::ExtrinsicIndex(
+							ExtrinsicIndex { block: zero + 11, key: vec![101] },
+							vec![1]
+						),
+						InputPair::ExtrinsicIndex(
+							ExtrinsicIndex { block: zero + 11, key: vec![103] },
+							vec![0, 1]
+						),
+					]
+				);
 			}
 
 			configuration_range.end = Some(zero + 11);
-			let changes_trie_nodes = prepare_input(
-				&backend,
-				&storage,
-				configuration_range,
-				&mut changes,
-				&parent,
-			).unwrap();
-			assert_eq!(changes_trie_nodes.0.collect::<Vec<InputPair<u64>>>(), vec![
-				InputPair::ExtrinsicIndex(ExtrinsicIndex { block: zero + 11, key: vec![100] }, vec![0, 2, 3]),
-				InputPair::ExtrinsicIndex(ExtrinsicIndex { block: zero + 11, key: vec![101] }, vec![1]),
-				InputPair::ExtrinsicIndex(ExtrinsicIndex { block: zero + 11, key: vec![103] }, vec![0, 1]),
-
-				InputPair::DigestIndex(DigestIndex { block: zero + 11, key: vec![100] }, vec![zero + 4]),
-				InputPair::DigestIndex(DigestIndex { block: zero + 11, key: vec![101] }, vec![zero + 4]),
-				InputPair::DigestIndex(DigestIndex { block: zero + 11, key: vec![102] }, vec![zero + 4]),
-				InputPair::DigestIndex(DigestIndex { block: zero + 11, key: vec![103] }, vec![zero + 4]),
-				InputPair::DigestIndex(DigestIndex { block: zero + 11, key: vec![105] }, vec![zero + 4, zero + 8]),
-			]);
+			let changes_trie_nodes =
+				prepare_input(&backend, &storage, configuration_range, &mut changes, &parent)
+					.unwrap();
+			assert_eq!(
+				changes_trie_nodes.0.collect::<Vec<InputPair<u64>>>(),
+				vec![
+					InputPair::ExtrinsicIndex(
+						ExtrinsicIndex { block: zero + 11, key: vec![100] },
+						vec![0, 2, 3]
+					),
+					InputPair::ExtrinsicIndex(
+						ExtrinsicIndex { block: zero + 11, key: vec![101] },
+						vec![1]
+					),
+					InputPair::ExtrinsicIndex(
+						ExtrinsicIndex { block: zero + 11, key: vec![103] },
+						vec![0, 1]
+					),
+					InputPair::DigestIndex(
+						DigestIndex { block: zero + 11, key: vec![100] },
+						vec![zero + 4]
+					),
+					InputPair::DigestIndex(
+						DigestIndex { block: zero + 11, key: vec![101] },
+						vec![zero + 4]
+					),
+					InputPair::DigestIndex(
+						DigestIndex { block: zero + 11, key: vec![102] },
+						vec![zero + 4]
+					),
+					InputPair::DigestIndex(
+						DigestIndex { block: zero + 11, key: vec![103] },
+						vec![zero + 4]
+					),
+					InputPair::DigestIndex(
+						DigestIndex { block: zero + 11, key: vec![105] },
+						vec![zero + 4, zero + 8]
+					),
+				]
+			);
 		}
 
 		test_with_zero(0);
@@ -1006,16 +1056,22 @@ mod test {
 			configuration_range(&config, 0),
 			&mut changes,
 			&parent,
-		).unwrap();
-		assert_eq!(root_changes_trie_nodes.collect::<Vec<InputPair<u64>>>(), vec![
-			InputPair::ExtrinsicIndex(ExtrinsicIndex { block: 16, key: vec![100] }, vec![0, 2, 3]),
-			InputPair::ExtrinsicIndex(ExtrinsicIndex { block: 16, key: vec![101] }, vec![1]),
-			InputPair::ExtrinsicIndex(ExtrinsicIndex { block: 16, key: vec![103] }, vec![0, 1]),
-
-			InputPair::DigestIndex(DigestIndex { block: 16, key: vec![100] }, vec![4]),
-			InputPair::DigestIndex(DigestIndex { block: 16, key: vec![102] }, vec![4]),
-			InputPair::DigestIndex(DigestIndex { block: 16, key: vec![105] }, vec![8]),
-		]);
+		)
+		.unwrap();
+		assert_eq!(
+			root_changes_trie_nodes.collect::<Vec<InputPair<u64>>>(),
+			vec![
+				InputPair::ExtrinsicIndex(
+					ExtrinsicIndex { block: 16, key: vec![100] },
+					vec![0, 2, 3]
+				),
+				InputPair::ExtrinsicIndex(ExtrinsicIndex { block: 16, key: vec![101] }, vec![1]),
+				InputPair::ExtrinsicIndex(ExtrinsicIndex { block: 16, key: vec![103] }, vec![0, 1]),
+				InputPair::DigestIndex(DigestIndex { block: 16, key: vec![100] }, vec![4]),
+				InputPair::DigestIndex(DigestIndex { block: 16, key: vec![102] }, vec![4]),
+				InputPair::DigestIndex(DigestIndex { block: 16, key: vec![105] }, vec![8]),
+			]
+		);
 
 		let child_changes_tries_nodes = child_changes_tries_nodes
 			.into_iter()

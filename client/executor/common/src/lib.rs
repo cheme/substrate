@@ -22,6 +22,5 @@
 #![deny(unused_crate_dependencies)]
 
 pub mod sandbox;
-pub use sp_tasks::wasm_runtime;
-pub use sp_tasks::error;
+pub use sp_tasks::{error, wasm_runtime};
 pub mod runtime_blob;

@@ -63,31 +63,33 @@
 /// is a noops.
 #[cfg(not(feature = "std"))]
 macro_rules! log_error {
-	(target: $target:expr, $($arg:tt)+) => (
+	(target: $target:expr, $($arg:tt)+) => {
 		()
-	);
-	($($arg:tt)+) => (
+	};
+	($($arg:tt)+) => {
 		()
-	);
+	};
 }
 
+mod async_externalities;
+pub mod common;
 #[cfg(feature = "std")]
 pub mod error;
-#[cfg(feature = "std")]
-pub mod wasm_runtime;
+pub mod inline_spawn;
 #[cfg(feature = "std")]
 pub mod pool_spawn;
-pub mod inline_spawn;
-pub mod common;
-mod async_externalities;
+#[cfg(feature = "std")]
+pub mod wasm_runtime;
 
 #[cfg(feature = "std")]
-pub use async_externalities::new_async_externalities;
-#[cfg(feature = "std")]
 pub use crate::common::with_externalities_safe;
+#[cfg(feature = "std")]
+pub use async_externalities::new_async_externalities;
 pub use async_externalities::{new_inline_only_externalities, AsyncExternalities};
-pub use sp_externalities::{WorkerResult, WorkerDeclaration, WorkerDeclarationKind,
-	AccessDeclaration, DeclarationFailureHandling};
+pub use sp_externalities::{
+	AccessDeclaration, DeclarationFailureHandling, WorkerDeclaration, WorkerDeclarationKind,
+	WorkerResult,
+};
 pub use sp_io::Crossing;
 use sp_std::vec::Vec;
 
@@ -120,9 +122,9 @@ pub fn set_capacity(capacity: u32) {
 
 #[cfg(feature = "std")]
 mod inner {
-	use sp_core::traits::RuntimeSpawnExt;
-	use crate::WorkerDeclaration;
 	use super::DataJoinHandle;
+	use crate::WorkerDeclaration;
+	use sp_core::traits::RuntimeSpawnExt;
 
 	/// Spawn new runtime task (native).
 	pub fn spawn(
@@ -144,10 +146,10 @@ mod inner {
 
 #[cfg(not(feature = "std"))]
 mod inner {
+	use super::DataJoinHandle;
+	use crate::WorkerDeclaration;
 	use core::mem;
 	use sp_std::prelude::*;
-	use crate::WorkerDeclaration;
-	use super::DataJoinHandle;
 
 	/// Dispatch wrapper for wasm blob.
 	///
@@ -197,9 +199,8 @@ pub use inner::spawn;
 mod tests {
 
 	use super::*;
-	use sp_core::traits::RuntimeSpawnExt;
 	use crate::pool_spawn::RuntimeInstanceSpawn;
-	use sp_core::testing::TaskExecutor;
+	use sp_core::{testing::TaskExecutor, traits::RuntimeSpawnExt};
 
 	fn async_runner(mut data: Vec<u8>) -> Vec<u8> {
 		data.sort();
@@ -213,9 +214,9 @@ mod tests {
 	fn test_externalities() -> sp_io::TestExternalities {
 		let executor = TaskExecutor::new();
 		let mut ext = sp_io::TestExternalities::default();
-		ext.register_extension::<RuntimeSpawnExt>(RuntimeSpawnExt(
-			Box::new(RuntimeInstanceSpawn::new(None, Box::new(executor), 100))
-		));
+		ext.register_extension::<RuntimeSpawnExt>(RuntimeSpawnExt(Box::new(
+			RuntimeInstanceSpawn::new(None, Box::new(executor), 100),
+		)));
 		ext
 	}
 
@@ -231,7 +232,7 @@ mod tests {
 
 	#[test]
 	fn panicking() {
-		let res = test_externalities().execute_with_safe(||{
+		let res = test_externalities().execute_with_safe(|| {
 			spawn(async_panicker, vec![5, 2, 1], WorkerDeclaration::stateless())
 				.unwrap()
 				.join();
@@ -242,28 +243,34 @@ mod tests {
 
 	#[test]
 	fn many_joins() {
-		test_externalities().execute_with_safe(|| {
-			// converges to 1 only after 1000+ steps
-			let mut running_val = 9780657630u64;
-			let mut data = vec![];
-			let handles = (0..1024).map(
-				|_| {
-					running_val = if running_val % 2 == 0 {
-						running_val / 2
-					} else {
-						3 * running_val + 1
-					};
-					data.push(running_val as u8);
-					(spawn(async_runner, data.clone(), WorkerDeclaration::stateless()).unwrap(), data.clone())
+		test_externalities()
+			.execute_with_safe(|| {
+				// converges to 1 only after 1000+ steps
+				let mut running_val = 9780657630u64;
+				let mut data = vec![];
+				let handles = (0..1024)
+					.map(|_| {
+						running_val = if running_val % 2 == 0 {
+							running_val / 2
+						} else {
+							3 * running_val + 1
+						};
+						data.push(running_val as u8);
+						(
+							spawn(async_runner, data.clone(), WorkerDeclaration::stateless())
+								.unwrap(),
+							data.clone(),
+						)
+					})
+					.collect::<Vec<_>>();
+
+				for (handle, mut data) in handles {
+					let result = handle.join();
+					data.sort();
+
+					assert_eq!(result, Some(data));
 				}
-			).collect::<Vec<_>>();
-
-			for (handle, mut data) in handles {
-				let result = handle.join();
-				data.sort();
-
-				assert_eq!(result, Some(data));
-			}
-		}).expect("Failed to run with externalities");
+			})
+			.expect("Failed to run with externalities");
 	}
 }

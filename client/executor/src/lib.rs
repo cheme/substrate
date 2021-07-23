@@ -38,12 +38,10 @@ mod integration_tests;
 mod wasm_runtime;
 
 pub use codec::Codec;
-pub use sp_tasks::{with_externalities_safe, pool_spawn::RuntimeInstanceSpawn};
-pub use native_executor::{
-	NativeExecutionDispatch, NativeExecutor, WasmExecutor,
-};
+pub use native_executor::{NativeExecutionDispatch, NativeExecutor, WasmExecutor};
 #[doc(hidden)]
 pub use sp_core::traits::Externalities;
+pub use sp_tasks::{pool_spawn::RuntimeInstanceSpawn, with_externalities_safe};
 pub use sp_version::{NativeVersion, RuntimeVersion};
 #[doc(hidden)]
 pub use sp_wasm_interface;

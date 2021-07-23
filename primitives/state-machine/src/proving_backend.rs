@@ -20,9 +20,10 @@
 use crate::{
 	trie_backend::TrieBackend,
 	trie_backend_essence::{Ephemeral, TrieBackendEssence, TrieBackendStorage},
-	Backend, DBValue, Error, ExecutionError, AsyncBackend,
+	AsyncBackend, Backend, DBValue, Error, ExecutionError,
 };
 use codec::{Codec, Decode, Encode};
+use delegate::delegate;
 use hash_db::{HashDB, Hasher, Prefix, EMPTY_PREFIX};
 use log::debug;
 use parking_lot::RwLock;
@@ -39,7 +40,6 @@ use std::{
 	collections::{hash_map::Entry, HashMap},
 	sync::Arc,
 };
-use delegate::delegate;
 
 /// Patricia trie-based backend specialized in get value proofs.
 pub struct ProvingBackendRecorder<'a, S: 'a + TrieBackendStorage<H>, H: 'a + Hasher> {
@@ -179,12 +179,12 @@ impl<Hash: std::hash::Hash + Eq> ProofRecorder<Hash> {
 
 /// Patricia trie-based backend which also tracks all touched storage trie values.
 /// These can be sent to remote node and used as a proof of execution.
-pub struct ProvingBackend<'a, S: 'a + TrieBackendStorage<H>, H: Hasher + 'static> (
+pub struct ProvingBackend<'a, S: 'a + TrieBackendStorage<H>, H: Hasher + 'static>(
 	TrieBackend<ProofRecorderBackend<'a, S, H>, H>,
 );
 
 /// A proving backend for workers.
-pub struct OwnedProvingBackend<S: TrieBackendStorage<H>, H: Hasher + 'static> (
+pub struct OwnedProvingBackend<S: TrieBackendStorage<H>, H: Hasher + 'static>(
 	TrieBackend<OwnedProofRecorderBackend<S, H>, H>,
 );
 
@@ -248,7 +248,8 @@ where
 }
 
 impl<S: TrieBackendStorage<H>, H: Hasher> OwnedProvingBackend<S, H>
-	where H::Out: Codec
+where
+	H::Out: Codec,
 {
 	#[allow(dead_code)] // TODO implement joining different collected proofs.
 	/// Extracting the gathered unordered proof.
@@ -290,9 +291,9 @@ impl<S: TrieBackendStorage<H>, H: Hasher + 'static> TrieBackendStorage<H>
 
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Result<Option<DBValue>, String> {
 		if let Some(v) = self.proof_recorder.get(key) {
-			return Ok(v.clone());
+			return Ok(v.clone())
 		}
-		let backend_value =  self.backend.get(key, prefix)?;
+		let backend_value = self.backend.get(key, prefix)?;
 		self.proof_recorder.record(key.clone(), backend_value.clone());
 		Ok(backend_value)
 	}
@@ -305,19 +306,13 @@ impl<S: TrieBackendStorage<H>, H: Hasher + 'static> TrieBackendStorage<H>
 	}
 }
 
-impl<'a, S: TrieBackendStorage<H>, H: Hasher> Clone
-	for ProofRecorderBackend<'a, S, H>
-{
+impl<'a, S: TrieBackendStorage<H>, H: Hasher> Clone for ProofRecorderBackend<'a, S, H> {
 	fn clone(&self) -> Self {
-		ProofRecorderBackend {
-			backend: self.backend,
-			proof_recorder: self.proof_recorder.clone(),
-		}
+		ProofRecorderBackend { backend: self.backend, proof_recorder: self.proof_recorder.clone() }
 	}
 }
 
-impl<S: TrieBackendStorage<H>, H: Hasher> Clone for OwnedProofRecorderBackend<S, H>
-{
+impl<S: TrieBackendStorage<H>, H: Hasher> Clone for OwnedProofRecorderBackend<S, H> {
 	fn clone(&self) -> Self {
 		OwnedProofRecorderBackend {
 			backend: self.backend.clone(),
@@ -326,26 +321,23 @@ impl<S: TrieBackendStorage<H>, H: Hasher> Clone for OwnedProofRecorderBackend<S,
 	}
 }
 
-impl<'a, S: TrieBackendStorage<H>, H: Hasher> std::fmt::Debug
-	for ProvingBackend<'a, S, H>
-{
+impl<'a, S: TrieBackendStorage<H>, H: Hasher> std::fmt::Debug for ProvingBackend<'a, S, H> {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		write!(f, "ProvingBackend")
 	}
 }
 
-impl<S: TrieBackendStorage<H>, H: Hasher> std::fmt::Debug for OwnedProvingBackend<S, H>
-{
+impl<S: TrieBackendStorage<H>, H: Hasher> std::fmt::Debug for OwnedProvingBackend<S, H> {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		write!(f, "OwnedProvingBackend")
 	}
 }
 
 impl<'a, S, H> Backend<H> for ProvingBackend<'a, S, H>
-	where
-		S: TrieBackendStorage<H>,
-		H: 'static + Hasher,
-		H::Out: Ord + Codec,
+where
+	S: TrieBackendStorage<H>,
+	H: 'static + Hasher,
+	H::Out: Ord + Codec,
 {
 	type Error = String;
 	type Transaction = S::Overlay;
@@ -453,17 +445,18 @@ impl<'a, S, H> Backend<H> for ProvingBackend<'a, S, H>
 
 	fn async_backend(&self) -> Box<dyn AsyncBackend> {
 		let async_storage = self.0.backend_storage().async_storage();
-		Box::new(crate::backend::AsyncBackendAdapter::new(OwnedProvingBackend(
-			TrieBackend::new(async_storage, self.0.essence().root().clone())
-		)))
+		Box::new(crate::backend::AsyncBackendAdapter::new(OwnedProvingBackend(TrieBackend::new(
+			async_storage,
+			self.0.essence().root().clone(),
+		))))
 	}
 }
 
 impl<S, H> Backend<H> for OwnedProvingBackend<S, H>
-	where
-		S: TrieBackendStorage<H>,
-		H: Hasher,
-		H::Out: Ord + Codec,
+where
+	S: TrieBackendStorage<H>,
+	H: Hasher,
+	H::Out: Ord + Codec,
 {
 	type Error = String;
 	type Transaction = S::Overlay;

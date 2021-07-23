@@ -28,7 +28,9 @@ use sp_core::{
 	traits::Externalities,
 	Blake2Hasher,
 };
-use sp_externalities::{Extension, Extensions};
+use sp_externalities::{
+	AsyncExternalities, Extension, Extensions, TaskId, WorkerDeclaration, WorkerResult,
+};
 use sp_trie::{empty_child_trie_root, trie_types::Layout, TrieConfiguration};
 use std::{
 	any::{Any, TypeId},
@@ -36,8 +38,6 @@ use std::{
 	iter::FromIterator,
 	ops::Bound,
 };
-use sp_externalities::{TaskId,
-	WorkerResult, WorkerDeclaration, AsyncExternalities};
 
 /// Simple Map-based Externalities impl.
 #[derive(Debug)]
@@ -148,20 +148,15 @@ impl Externalities for BasicExternalities {
 		self.storage(key).map(|v| Blake2Hasher::hash(&v).encode())
 	}
 
-	fn child_storage(
-		&mut self,
-		child_info: &ChildInfo,
-		key: &[u8],
-	) -> Option<StorageValue> {
-		self.inner.children_default.get(child_info.storage_key())
-			.and_then(|child| child.data.get(key)).cloned()
+	fn child_storage(&mut self, child_info: &ChildInfo, key: &[u8]) -> Option<StorageValue> {
+		self.inner
+			.children_default
+			.get(child_info.storage_key())
+			.and_then(|child| child.data.get(key))
+			.cloned()
 	}
 
-	fn child_storage_hash(
-		&mut self,
-		child_info: &ChildInfo,
-		key: &[u8],
-	) -> Option<Vec<u8>> {
+	fn child_storage_hash(&mut self, child_info: &ChildInfo, key: &[u8]) -> Option<Vec<u8>> {
 		self.child_storage(child_info, key).map(|v| Blake2Hasher::hash(&v).encode())
 	}
 
@@ -170,11 +165,7 @@ impl Externalities for BasicExternalities {
 		self.inner.top.range::<[u8], _>(range).next().map(|(k, _)| k).cloned()
 	}
 
-	fn next_child_storage_key(
-		&mut self,
-		child_info: &ChildInfo,
-		key: &[u8],
-	) -> Option<StorageKey> {
+	fn next_child_storage_key(&mut self, child_info: &ChildInfo, key: &[u8]) -> Option<StorageKey> {
 		let range = (Bound::Excluded(key), Bound::Unbounded);
 		self.inner
 			.children_default

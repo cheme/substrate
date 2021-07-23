@@ -287,11 +287,7 @@ where
 
 	let task_manager = {
 		let registry = config.prometheus_config.as_ref().map(|cfg| &cfg.registry);
-		TaskManager::new(
-			config.task_executor.clone(),
-			config.worker_limit,
-			registry,
-		)?
+		TaskManager::new(config.task_executor.clone(), config.worker_limit, registry)?
 	};
 
 	let executor = NativeExecutor::<TExecDisp>::new(
@@ -382,11 +378,7 @@ where
 	let keystore_container = KeystoreContainer::new(&config.keystore)?;
 	let task_manager = {
 		let registry = config.prometheus_config.as_ref().map(|cfg| &cfg.registry);
-		TaskManager::new(
-			config.task_executor.clone(),
-			config.worker_limit,
-			registry,
-		)?
+		TaskManager::new(config.task_executor.clone(), config.worker_limit, registry)?
 	};
 
 	let executor = NativeExecutor::<TExecDisp>::new(

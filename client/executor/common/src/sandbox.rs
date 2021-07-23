@@ -21,9 +21,9 @@
 //! Sandboxing is baked by wasmi at the moment. In future, however, we would like to add/switch to
 //! a compiled execution engine.
 
-use sp_tasks::error::{Result, Error};
 use codec::{Decode, Encode};
 use sp_core::sandbox as sandbox_primitives;
+use sp_tasks::error::{Error, Result};
 use sp_wasm_interface::{FunctionContext, Pointer, WordSize};
 use std::{collections::HashMap, rc::Rc};
 use wasmi::{

@@ -81,9 +81,10 @@ pub mod pallet {
 
 		/// Submit list of pending participants to the current event.
 		#[pallet::weight(0)]
-		pub fn enlist_pending_participants(origin: OriginFor<T>, participants: Vec<EnlistedParticipant>)
-			-> DispatchResult
-		{
+		pub fn enlist_pending_participants(
+			origin: OriginFor<T>,
+			participants: Vec<EnlistedParticipant>,
+		) -> DispatchResult {
 			let _ = ensure_signed(origin)?;
 
 			for participant in participants {
@@ -98,9 +99,10 @@ pub mod pallet {
 		/// It removes participants that are invalid from pending list
 		/// and process the valid ones.
 		#[pallet::weight(0)]
-		pub fn validate_pendings_participants(_origin: OriginFor<T>, number: u32)
-			-> DispatchResult
-		{
+		pub fn validate_pendings_participants(
+			_origin: OriginFor<T>,
+			number: u32,
+		) -> DispatchResult {
 			validate_pending_participants_parallel::<T>(number as usize);
 			Ok(())
 		}
@@ -119,7 +121,8 @@ pub mod pallet {
 	/// They need to be verified before being added to participants.
 	#[pallet::storage]
 	#[pallet::getter(fn pending_participants)]
-	pub(super) type PendingParticipants<T: Config> = StorageValue<_, Vec<EnlistedParticipant>, ValueQuery>;
+	pub(super) type PendingParticipants<T: Config> =
+		StorageValue<_, Vec<EnlistedParticipant>, ValueQuery>;
 
 	/// Current event id to enlist participants to.
 	#[pallet::storage]
@@ -168,23 +171,20 @@ fn validate_participants_parallel(event_id: &[u8], participants: &[EnlistedParti
 	event_id.encode_to(&mut async_payload);
 	participants[..participants.len() / 2].encode_to(&mut async_payload);
 
-	let handle = sp_tasks::spawn(
-		spawn_verify,
-		async_payload,
-		sp_tasks::WorkerDeclaration::stateless(),
-	).expect("Worker run as stateless");
+	let handle =
+		sp_tasks::spawn(spawn_verify, async_payload, sp_tasks::WorkerDeclaration::stateless())
+			.expect("Worker run as stateless");
 	let mut result = true;
 
-	for participant in &participants[participants.len()/2..] {
+	for participant in &participants[participants.len() / 2..] {
 		if !participant.verify(event_id) {
 			result = false;
 			break
 		}
 	}
 	match handle.join() {
-		Some(encoded) => {
-			bool::decode(&mut &encoded[..]).expect("Failed to decode result") && result
-		},
+		Some(encoded) =>
+			bool::decode(&mut &encoded[..]).expect("Failed to decode result") && result,
 		None => {
 			unreachable!("Worker run as stateless")
 		},
@@ -192,7 +192,6 @@ fn validate_participants_parallel(event_id: &[u8], participants: &[EnlistedParti
 }
 
 fn validate_pending_participants_parallel<T: Config>(number: usize) {
-
 	fn spawn_verify<T: Config>(data: Vec<u8>) -> Vec<u8> {
 		let stream = &mut &data[..];
 		let split = u32::decode(stream).expect("Failed to decode") as usize;
@@ -221,7 +220,8 @@ fn validate_pending_participants_parallel<T: Config>(number: usize) {
 		spawn_verify::<T>,
 		async_payload,
 		sp_tasks::WorkerDeclarationKind::ReadAtSpawn.into(),
-	).expect("Declaration incompatible with other running workers.");
+	)
+	.expect("Declaration incompatible with other running workers.");
 
 	for participant in &participants[split..number] {
 		if participant.verify(&event_id) {
@@ -229,9 +229,7 @@ fn validate_pending_participants_parallel<T: Config>(number: usize) {
 		}
 	}
 	let mut to_skip: Vec<u32> = match handle.join() {
-		Some(result) => {
-			Decode::decode(&mut &result[..]).expect("Failed to decode result")
-		},
+		Some(result) => Decode::decode(&mut &result[..]).expect("Failed to decode result"),
 		None => {
 			unreachable!("Transaction bug")
 		},

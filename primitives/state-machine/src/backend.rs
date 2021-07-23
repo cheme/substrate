@@ -17,17 +17,17 @@
 
 //! State machine backends. These manage the code and storage of contracts.
 
+use super::EXT_NOT_ALLOWED_TO_FAIL;
 use crate::{
 	trie_backend::TrieBackend, trie_backend_essence::TrieBackendStorage, ChildStorageCollection,
 	StorageCollection, StorageKey, StorageValue, UsageInfo,
 };
-use sp_std::{vec::Vec, boxed::Box};
-#[cfg(feature = "std")]
-use sp_core::traits::RuntimeCode;
-use super::EXT_NOT_ALLOWED_TO_FAIL;
 use codec::{Decode, Encode};
 use hash_db::Hasher;
 use sp_core::storage::{well_known_keys, ChildInfo, TrackedStorageKey};
+#[cfg(feature = "std")]
+use sp_core::traits::RuntimeCode;
+use sp_std::{boxed::Box, vec::Vec};
 
 /// A state backend is used to read state data and can have changes committed
 /// to it.
@@ -283,21 +283,13 @@ pub trait AsyncBackend: Send {
 	/// Read child runtime storage.
 	///
 	/// Returns an `Option` that holds the SCALE encoded hash.
-	fn child_storage(
-		&self,
-		child_info: &ChildInfo,
-		key: &[u8],
-	) -> Option<Vec<u8>>;
+	fn child_storage(&self, child_info: &ChildInfo, key: &[u8]) -> Option<Vec<u8>>;
 
 	/// Returns the key immediately following the given key, if it exists.
 	fn next_storage_key(&self, key: &[u8]) -> Option<Vec<u8>>;
 
 	/// Returns the key immediately following the given key, if it exists, in child storage.
-	fn next_child_storage_key(
-		&self,
-		child_info: &ChildInfo,
-		key: &[u8]
-	) -> Option<Vec<u8>>;
+	fn next_child_storage_key(&self, child_info: &ChildInfo, key: &[u8]) -> Option<Vec<u8>>;
 
 	/// Alternative to Clone for backend.
 	/// If dyn_clonable get compatible with no_std, this
@@ -311,11 +303,7 @@ impl AsyncBackend for () {
 		None
 	}
 
-	fn child_storage(
-		&self,
-		_child_info: &ChildInfo,
-		_key: &[u8],
-	) -> Option<Vec<u8>> {
+	fn child_storage(&self, _child_info: &ChildInfo, _key: &[u8]) -> Option<Vec<u8>> {
 		None
 	}
 
@@ -323,11 +311,7 @@ impl AsyncBackend for () {
 		None
 	}
 
-	fn next_child_storage_key(
-		&self,
-		_child_info: &ChildInfo,
-		_key: &[u8]
-	) -> Option<Vec<u8>> {
+	fn next_child_storage_key(&self, _child_info: &ChildInfo, _key: &[u8]) -> Option<Vec<u8>> {
 		None
 	}
 
@@ -344,11 +328,7 @@ impl<H: Hasher, B: Backend<H> + Send + 'static> AsyncBackend for AsyncBackendAda
 		self.0.storage(key).expect(EXT_NOT_ALLOWED_TO_FAIL)
 	}
 
-	fn child_storage(
-		&self,
-		child_info: &ChildInfo,
-		key: &[u8],
-	) -> Option<Vec<u8>> {
+	fn child_storage(&self, child_info: &ChildInfo, key: &[u8]) -> Option<Vec<u8>> {
 		self.0.child_storage(child_info, key).expect(EXT_NOT_ALLOWED_TO_FAIL)
 	}
 
@@ -356,11 +336,7 @@ impl<H: Hasher, B: Backend<H> + Send + 'static> AsyncBackend for AsyncBackendAda
 		self.0.next_storage_key(key).expect(EXT_NOT_ALLOWED_TO_FAIL)
 	}
 
-	fn next_child_storage_key(
-		&self,
-		child_info: &ChildInfo,
-		key: &[u8]
-	) -> Option<Vec<u8>> {
+	fn next_child_storage_key(&self, child_info: &ChildInfo, key: &[u8]) -> Option<Vec<u8>> {
 		self.0.next_child_storage_key(child_info, key).expect(EXT_NOT_ALLOWED_TO_FAIL)
 	}
 

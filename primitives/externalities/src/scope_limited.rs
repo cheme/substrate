@@ -44,9 +44,9 @@ pub fn with_externalities<F: FnOnce(&mut dyn Externalities) -> R, R>(f: F) -> Op
 /// Returns `None` if no externalities are set or extension is not registered.
 /// Returns `Some(_)` with the result of the closure.
 pub fn with_externalities_and_extension<T, F, R>(f: F) -> Option<R>
-	where
-		T: sp_std::any::Any + crate::Extension,
-		F: FnOnce(&mut dyn Externalities, &mut T) -> R,
+where
+	T: sp_std::any::Any + crate::Extension,
+	F: FnOnce(&mut dyn Externalities, &mut T) -> R,
 {
 	ext::with(|ext| externalities_and_extension(ext, f)).flatten()
 }
@@ -57,9 +57,9 @@ pub fn with_externalities_and_extension<T, F, R>(f: F) -> Option<R>
 /// Returns `None` if no externalities are set or extension is not registered.
 /// Returns `Some(_)` with the result of the closure.
 pub fn externalities_and_extension<T, F, R>(mut ext: &mut dyn Externalities, f: F) -> Option<R>
-	where
-		T: sp_std::any::Any + crate::Extension,
-		F: FnOnce(&mut dyn Externalities, &mut T) -> R,
+where
+	T: sp_std::any::Any + crate::Extension,
+	F: FnOnce(&mut dyn Externalities, &mut T) -> R,
 {
 	use crate::ExternalitiesExt;
 	let ext_unsafe = ext as *mut dyn Externalities;

@@ -17,20 +17,17 @@
 
 //! Shareable Substrate traits.
 
+use dyn_clone::DynClone;
+use sp_std::{borrow::Cow, boxed::Box, vec::Vec};
 #[cfg(feature = "std")]
 use std::{
 	fmt::{Debug, Display},
 	panic::UnwindSafe,
 };
-use sp_std::{
-	borrow::Cow,
-	boxed::Box,
-	vec::Vec,
-};
-use dyn_clone::DynClone;
 
-pub use sp_externalities::{Externalities, ExternalitiesExt, AsyncExternalities,
-	WorkerDeclaration, WorkerResult, TaskId};
+pub use sp_externalities::{
+	AsyncExternalities, Externalities, ExternalitiesExt, TaskId, WorkerDeclaration, WorkerResult,
+};
 
 /// Code execution engine.
 #[cfg(feature = "std")]
@@ -206,7 +203,8 @@ pub trait RuntimeSpawn: Send {
 	/// declaration fail.
 	///
 	/// Function pointers (`dispatcher_ref`, `func`) are WASM pointer types.
-	fn spawn_call(&self,
+	fn spawn_call(
+		&self,
 		dispatcher_ref: u32,
 		func: u32,
 		payload: Vec<u8>,
@@ -256,11 +254,7 @@ pub trait SpawnNamed: SpawnLimit + DynClone + Send + Sync {
 	/// The handle optionally allows to signal that the task can be dismiss.
 	///
 	/// The given `name` is used to identify the future in tracing.
-	fn spawn(
-		&self,
-		name: &'static str,
-		future: BoxFuture,
-	) -> Option<TaskHandle>;
+	fn spawn(&self, name: &'static str, future: BoxFuture) -> Option<TaskHandle>;
 }
 dyn_clone::clone_trait_object!(SpawnNamed);
 
@@ -282,17 +276,12 @@ pub trait TaskHandleTrait: Send {
 	fn dismiss(&mut self);
 }
 
-
 impl SpawnNamed for Box<dyn SpawnNamed> {
 	fn spawn_blocking(&self, name: &'static str, future: BoxFuture) {
 		(**self).spawn_blocking(name, future)
 	}
 
-	fn spawn(
-		&self,
-		name: &'static str,
-		future: BoxFuture,
-	) -> Option<TaskHandle> {
+	fn spawn(&self, name: &'static str, future: BoxFuture) -> Option<TaskHandle> {
 		(**self).spawn(name, future)
 	}
 }
