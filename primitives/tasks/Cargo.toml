@@ -1,6 +1,6 @@
 [package]
 name = "sp-tasks"
-version = "3.0.0"
+version = "4.0.0-dev"
 authors = ["Parity Technologies <admin@parity.io>"]
 edition = "2018"
 license = "Apache-2.0"
@@ -19,15 +19,15 @@ log = { version = "0.4.8", optional = true }
 parking_lot = { version = "0.11.1", optional = true }
 thiserror = { version = "1.0.21", optional = true }
 ambassador = "0.2.1"
-sp-core = { version = "3.0.0", default-features = false, path = "../core" }
-sp-externalities = { version = "0.9.0", default-features = false, path = "../externalities" }
-sp-io = { version = "3.0.0", default-features = false, path = "../io" }
-sp-std = { version = "3.0.0", default-features = false, path = "../std" }
 wasmi = { version = "0.9.0", optional = true }
+sp-core = { version = "4.0.0-dev", default-features = false, path = "../core" }
+sp-externalities = { version = "0.10.0-dev", default-features = false, path = "../externalities" }
+sp-io = { version = "4.0.0-dev", default-features = false, path = "../io" }
+sp-std = { version = "4.0.0-dev", default-features = false, path = "../std" }
 sp-panic-handler = { version = "3.0.0", optional = true, path = "../panic-handler" }
-sp-allocator = { version = "3.0.0", optional = true, path = "../allocator" }
-sp-wasm-interface = { version = "3.0.0", default-features = false, path = "../wasm-interface" }
-sp-runtime-interface = { version = "3.0.0", default-features = false, path = "../runtime-interface" }
+sc-allocator = { version = "4.0.0-dev", optional = true, path = "../../client/allocator" } # TODO this would need moving back to sp-allocator (or part of crate)
+sp-wasm-interface = { version = "4.0.0-dev", default-features = false, path = "../wasm-interface" }
+sp-runtime-interface = { version = "4.0.0-dev", default-features = false, path = "../runtime-interface" }
 sp-serializer = { version = "3.0.0", optional = true, path = "../serializer" }
 
 [dev-dependencies]
@@ -42,7 +42,7 @@ std = [
 	"derive_more",
 	"log",
 	"parking_lot",
-  "sp-allocator",
+  "sc-allocator",
   "sp-serializer",
   "thiserror",
   "wasmi",

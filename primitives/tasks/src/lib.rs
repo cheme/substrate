@@ -55,7 +55,6 @@
 //!
 //! When allowing unbounded parallelism, malicious transactions can exploit it and partition
 //! network consensus based on how much resources nodes have.
-//!
 
 #![warn(missing_docs)]
 #![cfg_attr(not(feature = "std"), no_std)]
@@ -160,7 +159,11 @@ mod inner {
 	///
 	/// NOTE: Since this dynamic dispatch function and the invoked function are compiled with
 	/// the same compiler, there should be no problem with ABI incompatibility.
-	extern "C" fn dispatch_wrapper(func_ref: *const u8, payload_ptr: *mut u8, payload_len: u32) -> u64 {
+	extern "C" fn dispatch_wrapper(
+		func_ref: *const u8,
+		payload_ptr: *mut u8,
+		payload_len: u32,
+	) -> u64 {
 		let payload_len = payload_len as usize;
 		let output = unsafe {
 			let payload = Vec::from_raw_parts(payload_ptr, payload_len, payload_len);

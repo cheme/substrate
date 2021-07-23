@@ -25,7 +25,11 @@
 //!
 //! This crate exposes the main [`Externalities`] trait.
 
-use sp_std::{any::{Any, TypeId}, vec::Vec, boxed::Box};
+use sp_std::{
+	any::{Any, TypeId},
+	boxed::Box,
+	vec::Vec,
+};
 
 use sp_storage::{ChildInfo, TrackedStorageKey};
 use ambassador::{Delegate, delegatable_trait};
@@ -96,12 +100,7 @@ pub trait Externalities: ExtensionStore {
 	}
 
 	/// Set child storage entry `key` of current contract being called (effective immediately).
-	fn set_child_storage(
-		&mut self,
-		child_info: &ChildInfo,
-		key: Vec<u8>,
-		value: Vec<u8>,
-	) {
+	fn set_child_storage(&mut self, child_info: &ChildInfo, key: Vec<u8>, value: Vec<u8>) {
 		self.place_child_storage(child_info, key, Some(value))
 	}
 
@@ -111,11 +110,7 @@ pub trait Externalities: ExtensionStore {
 	}
 
 	/// Clear a child storage entry (`key`) of current contract being called (effective immediately).
-	fn clear_child_storage(
-		&mut self,
-		child_info: &ChildInfo,
-		key: &[u8],
-	) {
+	fn clear_child_storage(&mut self, child_info: &ChildInfo, key: &[u8]) {
 		self.place_child_storage(child_info, key.to_vec(), None)
 	}
 
@@ -176,12 +171,7 @@ pub trait Externalities: ExtensionStore {
 	fn place_storage(&mut self, key: Vec<u8>, value: Option<Vec<u8>>);
 
 	/// Set or clear a child storage entry.
-	fn place_child_storage(
-		&mut self,
-		child_info: &ChildInfo,
-		key: Vec<u8>,
-		value: Option<Vec<u8>>,
-	);
+	fn place_child_storage(&mut self, child_info: &ChildInfo, key: Vec<u8>, value: Option<Vec<u8>>);
 
 	/// Get the trie root of the current storage map.
 	///
@@ -196,19 +186,12 @@ pub trait Externalities: ExtensionStore {
 	///
 	/// If the storage root equals the default hash as defined by the trie, the key in the top-level
 	/// storage map will be removed.
-	fn child_storage_root(
-		&mut self,
-		child_info: &ChildInfo,
-	) -> Vec<u8>;
+	fn child_storage_root(&mut self, child_info: &ChildInfo) -> Vec<u8>;
 
 	/// Append storage item.
 	///
 	/// This assumes specific format of the storage item. Also there is no way to undo this operation.
-	fn storage_append(
-		&mut self,
-		key: Vec<u8>,
-		value: Vec<u8>,
-	);
+	fn storage_append(&mut self, key: Vec<u8>, value: Vec<u8>);
 
 	/// Get the changes trie root of the current storage overlay at a block with given `parent`.
 	///
@@ -329,6 +312,13 @@ pub trait Externalities: ExtensionStore {
 	fn proof_size(&self) -> Option<u32> {
 		None
 	}
+
+	/// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+	/// Benchmarking related functionality and shouldn't be used anywhere else!
+	/// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+	///
+	/// Get all the keys that have been read or written to during the benchmark.
+	fn get_read_and_written_keys(&self) -> Vec<(Vec<u8>, u32, u32, bool)>;
 }
 
 /// Substrate externalities that can be use within a worker context.

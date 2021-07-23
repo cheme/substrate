@@ -203,7 +203,11 @@ impl Drop for Handle {
 
 #[cfg(feature = "std")]
 impl crate::traits::SpawnEssentialNamed for TaskExecutor {
-	fn spawn_essential_blocking(&self, _: &'static str, future: futures::future::BoxFuture<'static, ()>) {
+	fn spawn_essential_blocking(
+		&self,
+		_: &'static str,
+		future: futures::future::BoxFuture<'static, ()>,
+	) {
 		self.0.spawn_ok(future);
 	}
 	fn spawn_essential(&self, _: &'static str, future: futures::future::BoxFuture<'static, ()>) {

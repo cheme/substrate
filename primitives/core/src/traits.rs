@@ -107,11 +107,7 @@ impl<'a> RuntimeCode<'a> {
 	///
 	/// This is only useful for tests that don't want to execute any code.
 	pub fn empty() -> Self {
-		Self {
-			code_fetcher: &NoneFetchRuntimeCode,
-			hash: Vec::new(),
-			heap_pages: None,
-		}
+		Self { code_fetcher: &NoneFetchRuntimeCode, hash: Vec::new(), heap_pages: None }
 	}
 }
 
@@ -318,7 +314,11 @@ pub trait SpawnEssentialNamed: DynClone + Send + Sync {
 	/// Spawn the given blocking future.
 	///
 	/// The given `name` is used to identify the future in tracing.
-	fn spawn_essential_blocking(&self, name: &'static str, future: futures::future::BoxFuture<'static, ()>);
+	fn spawn_essential_blocking(
+		&self,
+		name: &'static str,
+		future: futures::future::BoxFuture<'static, ()>,
+	);
 	/// Spawn the given non-blocking future.
 	///
 	/// The given `name` is used to identify the future in tracing.
@@ -328,7 +328,11 @@ dyn_clone::clone_trait_object!(SpawnEssentialNamed);
 
 #[cfg(feature = "std")]
 impl SpawnEssentialNamed for Box<dyn SpawnEssentialNamed> {
-	fn spawn_essential_blocking(&self, name: &'static str, future: futures::future::BoxFuture<'static, ()>) {
+	fn spawn_essential_blocking(
+		&self,
+		name: &'static str,
+		future: futures::future::BoxFuture<'static, ()>,
+	) {
 		(**self).spawn_essential_blocking(name, future)
 	}
 

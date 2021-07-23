@@ -17,33 +17,34 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 use crate::{
-	RuntimeInfo, error::{Error, Result},
+	error::{Error, Result},
 	wasm_runtime::{RuntimeCache, WasmExecutionMethod},
+	RuntimeInfo,
 };
 
 use std::{
 	panic::{UnwindSafe, AssertUnwindSafe},
-	result,
-	sync::Arc,
 	path::PathBuf,
-};
-
-use sp_version::{NativeVersion, RuntimeVersion};
-use codec::{Decode, Encode};
-use sp_core::{
-	NativeOrEncoded,
-	traits::{
-		CodeExecutor, Externalities, RuntimeCode,
+	result,
+	sync::{
+		Arc,
 	},
 };
+
+use codec::{Decode, Encode};
 use log::trace;
 use sp_wasm_interface::{HostFunctions, Function};
 use sp_tasks::common::with_externalities_safe;
 use sp_tasks::pool_spawn::RuntimeInstanceSpawn;
 use sc_executor_common::{
-	wasm_runtime::{WasmInstance, WasmModule},
 	runtime_blob::RuntimeBlob,
+	wasm_runtime::{WasmInstance, WasmModule},
 };
+use sp_core::{
+	traits::{CodeExecutor, Externalities, RuntimeCode},
+	NativeOrEncoded,
+};
+use sp_version::{NativeVersion, RuntimeVersion};
 
 /// Default num of pages for the heap
 const DEFAULT_HEAP_PAGES: u64 = 2048;
@@ -139,7 +140,8 @@ impl WasmExecutor {
 		allow_missing_host_functions: bool,
 		f: F,
 	) -> Result<R>
-		where F: FnOnce(
+	where
+		F: FnOnce(
 			AssertUnwindSafe<&Arc<dyn WasmModule>>,
 			AssertUnwindSafe<&dyn WasmInstance>,
 			Option<&RuntimeVersion>,
@@ -158,7 +160,7 @@ impl WasmExecutor {
 				let instance = AssertUnwindSafe(instance);
 				let ext = AssertUnwindSafe(ext);
 				f(module, instance, version, ext)
-			}
+			},
 		)? {
 			Ok(r) => r,
 			Err(e) => Err(e),
@@ -221,7 +223,7 @@ impl sp_core::traits::ReadRuntimeVersion for WasmExecutor {
 			.map_err(|e| format!("Failed to read the static section: {:?}", e))
 			.map(|v| v.map(|v| v.encode()))?
 		{
-			return Ok(version);
+			return Ok(version)
 		}
 
 		// If the blob didn't have embedded runtime version section, we fallback to the legacy
@@ -267,17 +269,17 @@ impl<D: NativeExecutionDispatch> NativeExecutor<D> {
 		default_heap_pages: Option<u64>,
 		max_runtime_instances: usize,
 	) -> Self {
-		let extended =  D::ExtendHostFunctions::host_functions();
+		let extended = D::ExtendHostFunctions::host_functions();
 		let mut host_functions = sp_io::SubstrateHostFunctions::host_functions()
 			.into_iter()
 			// filter out any host function overrides provided.
 			.filter(|host_fn| {
-				extended.iter()
+				extended
+					.iter()
 					.find(|ext_host_fn| host_fn.name() == ext_host_fn.name())
 					.is_none()
 			})
 			.collect::<Vec<_>>();
-
 
 		// Add the custom host functions provided by the user.
 		host_functions.extend(extended);
@@ -307,13 +309,10 @@ impl<D: NativeExecutionDispatch> RuntimeInfo for NativeExecutor<D> {
 		ext: &mut dyn Externalities,
 		runtime_code: &RuntimeCode,
 	) -> Result<RuntimeVersion> {
-		self.wasm.with_instance(
-			runtime_code,
-			ext,
-			false,
-			|_module, _instance, version, _ext|
-				Ok(version.cloned().ok_or_else(|| Error::ApiError("Unknown version".into()))),
-		)
+		self.wasm
+			.with_instance(runtime_code, ext, false, |_module, _instance, version, _ext| {
+				Ok(version.cloned().ok_or_else(|| Error::ApiError("Unknown version".into())))
+			})
 	}
 }
 
@@ -338,17 +337,13 @@ impl<D: NativeExecutionDispatch + 'static> CodeExecutor for NativeExecutor<D> {
 			ext,
 			false,
 			|module, instance, onchain_version, mut ext| {
-				let onchain_version = onchain_version.ok_or_else(
-					|| Error::ApiError("Unknown version".into())
-				)?;
+				let onchain_version =
+					onchain_version.ok_or_else(|| Error::ApiError("Unknown version".into()))?;
 
-				let can_call_with = onchain_version.can_call_with(&self.native_version.runtime_version);
+				let can_call_with =
+					onchain_version.can_call_with(&self.native_version.runtime_version);
 
-				match (
-					use_native,
-					can_call_with,
-					native_call,
-				) {
+				match (use_native, can_call_with, native_call) {
 					(_, false, _) | (false, _, _) => {
 						if !can_call_with {
 							trace!(
@@ -378,13 +373,10 @@ impl<D: NativeExecutionDispatch + 'static> CodeExecutor for NativeExecutor<D> {
 
 						used_native = true;
 						let res = with_externalities_safe(&mut **ext, move || (call)())
-							.and_then(|r| r
-								.map(NativeOrEncoded::Native)
-								.map_err(Error::ApiError)
-							);
+							.and_then(|r| r.map(NativeOrEncoded::Native).map_err(Error::ApiError));
 
 						Ok(res)
-					}
+					},
 					_ => {
 						trace!(
 							target: "executor",
@@ -395,9 +387,9 @@ impl<D: NativeExecutionDispatch + 'static> CodeExecutor for NativeExecutor<D> {
 
 						used_native = true;
 						Ok(D::dispatch(&mut **ext, method, data).map(NativeOrEncoded::Encoded))
-					}
+					},
 				}
-			}
+			},
 		);
 		(result, used_native)
 	}
@@ -460,7 +452,6 @@ impl<D: NativeExecutionDispatch> sp_core::traits::ReadRuntimeVersion for NativeE
 ///
 /// When you have multiple interfaces, you can give the host functions as a tuple e.g.:
 /// `(my_interface::HostFunctions, my_interface2::HostFunctions)`
-///
 #[macro_export]
 macro_rules! native_executor_instance {
 	( $pub:vis $name:ident, $dispatcher:path, $version:path $(,)?) => {
@@ -518,16 +509,9 @@ mod tests {
 
 	#[test]
 	fn native_executor_registers_custom_interface() {
-		let executor = NativeExecutor::<MyExecutor>::new(
-			WasmExecutionMethod::Interpreted,
-			None,
-			8,
-		);
+		let executor = NativeExecutor::<MyExecutor>::new(WasmExecutionMethod::Interpreted, None, 8);
 		my_interface::HostFunctions::host_functions().iter().for_each(|function| {
-			assert_eq!(
-				executor.wasm.host_functions.iter().filter(|f| f == &function).count(),
-				2,
-			);
+			assert_eq!(executor.wasm.host_functions.iter().filter(|f| f == &function).count(), 2);
 		});
 
 		my_interface::say_hello_world("hey");

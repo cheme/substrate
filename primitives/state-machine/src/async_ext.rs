@@ -423,6 +423,10 @@ impl Externalities for AsyncExt {
 	fn dismiss_worker(&mut self, id: TaskId) {
 		self.overlay.dismiss_worker(id)
 	}
+
+	fn get_read_and_written_keys(&self) -> Vec<(Vec<u8>, u32, u32, bool)> {
+		unimplemented!("get_read_and_written_keys is not supported in AsyncExternalities")
+	}
 }
 
 impl sp_externalities::ExtensionStore for AsyncExt {
