@@ -26,7 +26,7 @@ use crate::{stats::StateUsageStats, utils::Meta};
 use hash_db::Hasher;
 use log::trace;
 use lru::{LocalOrderedKeys, LRU};
-use parking_lot::{Mutex, RwLock, RwLockUpgradableReadGuard};
+use parking_lot::{RwLock, RwLockUpgradableReadGuard};
 use sp_core::hexdisplay::HexDisplay;
 use sp_core::storage::ChildInfo;
 use sp_runtime::traits::{Block as BlockT, HashFor, Header, NumberFor};
@@ -76,9 +76,9 @@ impl EstimateSize for Vec<u8> {
 }
 
 impl EstimateSize for Option<Vec<u8>> {
-    fn estimate_size(&self) -> usize {
-        self.as_ref().map(|v| v.capacity()).unwrap_or(0)
-    }
+	fn estimate_size(&self) -> usize {
+		self.as_ref().map(|v| v.capacity()).unwrap_or(0)
+	}
 }
 
 struct OptionHOut<T: AsRef<[u8]>>(Option<T>);
@@ -178,11 +178,11 @@ impl<B: BlockT> Cache<B> {
     }
 }
 
-pub type SharedCache<B> = Arc<Mutex<Cache<B>>>;
+pub type SharedCache<B> = Arc<RwLock<Cache<B>>>;
 
 /// Create a new shared cache instance with given max memory usage.
 pub fn new_shared_cache<B: BlockT>(shared_cache_size: usize) -> SharedCache<B> {
-    Arc::new(Mutex::new(Cache {
+    Arc::new(RwLock::new(Cache {
         lru: LRU::new(shared_cache_size),
         modifications: VecDeque::new(),
     }))
@@ -285,7 +285,7 @@ impl<B: BlockT> CacheChanges<B> {
         commit_number: Option<NumberFor<B>>,
         is_best: bool,
     ) {
-        let mut cache = self.shared_cache.lock();
+        let mut cache = self.shared_cache.write();
         trace!(
             "Syncing cache, id = (#{:?}, {:?}), parent={:?}, best={}",
             commit_number,
@@ -556,13 +556,14 @@ impl<S: StateBackend<HashFor<B>>, B: BlockT> StateBackend<HashFor<B>> for Cachin
 
             return Ok(entry);
         }
-        let mut cache = self.cache.shared_cache.lock();
+				let cache = self.cache.shared_cache.upgradable_read();
         if Self::is_allowed(
             Some(key),
             None,
             &self.cache.parent_hash,
             &cache.modifications,
         ) {
+						let mut cache = RwLockUpgradableReadGuard::upgrade(cache);
             if let Some(entry) = cache.lru.storage().get(key).map(|a| a.clone()) {
                 trace!("Found in shared cache: {:?}", HexDisplay::from(&key));
                 self.usage.tally_key_read(key, entry.as_ref(), true);
@@ -584,13 +585,14 @@ impl<S: StateBackend<HashFor<B>>, B: BlockT> StateBackend<HashFor<B>> for Cachin
             trace!("Found hash in local cache: {:?}", HexDisplay::from(&key));
             return Ok(entry);
         }
-        let mut cache = self.cache.shared_cache.lock();
+			let cache = self.cache.shared_cache.upgradable_read();
         if Self::is_allowed(
             Some(key),
             None,
             &self.cache.parent_hash,
             &cache.modifications,
         ) {
+				let mut cache = RwLockUpgradableReadGuard::upgrade(cache);
             if let Some(entry) = cache.lru.hashes().get(key).map(|a| a.0.clone()) {
                 trace!("Found hash in shared cache: {:?}", HexDisplay::from(&key));
                 return Ok(entry);
@@ -615,13 +617,14 @@ impl<S: StateBackend<HashFor<B>>, B: BlockT> StateBackend<HashFor<B>> for Cachin
             trace!("Found in local cache: {:?}", key);
             return Ok(self.usage.tally_child_key_read(&key, entry, true));
         }
-        let mut cache = self.cache.shared_cache.lock();
+			let cache = self.cache.shared_cache.upgradable_read();
         if Self::is_allowed(
             None,
             Some(&key),
             &self.cache.parent_hash,
             &cache.modifications,
         ) {
+				let mut cache = RwLockUpgradableReadGuard::upgrade(cache);
             if let Some(entry) = cache.lru.child_storage().get(&key).map(|a| a.clone()) {
                 trace!("Found in shared cache: {:?}", key);
                 return Ok(self.usage.tally_child_key_read(&key, entry, true));
@@ -682,8 +685,9 @@ impl<S: StateBackend<HashFor<B>>, B: BlockT> StateBackend<HashFor<B>> for Cachin
             );
             return Ok(entry);
         }
-        let mut cache = self.cache.shared_cache.lock();
+		let cache = self.cache.shared_cache.upgradable_read();
         if let Some(parent) = self.cache.parent_hash.as_ref() {
+			let mut cache = RwLockUpgradableReadGuard::upgrade(cache);
             if let Some(entry) = cache.lru.next_storage_key(&key, None) {
                 if Self::is_allowed_interval(
                     (&key, entry.as_ref()),
@@ -724,8 +728,9 @@ impl<S: StateBackend<HashFor<B>>, B: BlockT> StateBackend<HashFor<B>> for Cachin
             );
             return Ok(entry);
         }
-        let mut cache = self.cache.shared_cache.lock();
+		let cache = self.cache.shared_cache.upgradable_read();
         if let Some(parent) = self.cache.parent_hash.as_ref() {
+			let mut cache = RwLockUpgradableReadGuard::upgrade(cache);
             if let Some(entry) = cache.lru.next_storage_key(&key, Some(child_info)) {
                 if Self::is_allowed_interval(
                     (&key, entry.as_ref()),
@@ -1403,7 +1408,7 @@ mod tests {
             true,
         );
         // 32 * 2 key, 3 * 4 ptr, 2 * 4 ptr, 3 byte size
-        assert_eq!(shared.lock().used_storage_cache_size(), 87 /* bytes */);
+        assert_eq!(shared.read().used_storage_cache_size(), 87 /* bytes */);
 
         let key = H256::random()[..].to_vec();
         s.cache.sync_cache(
@@ -1418,7 +1423,7 @@ mod tests {
         // only last item remaining.
         // (32 * 2) * 2 key, 3 * 4 ptr, 2 * 4 ptr, 2 byte size
         assert_eq!(
-            shared.lock().used_storage_cache_size(),
+            shared.read().used_storage_cache_size(),
             150 /* bytes */
         );
     }
@@ -1446,7 +1451,7 @@ mod tests {
             true,
         );
         // 32 * 2 key, 3 * 4 ptr, 2 * 4 ptr, 4 byte size
-        assert_eq!(shared.lock().used_storage_cache_size(), 88 /* bytes */);
+        assert_eq!(shared.read().used_storage_cache_size(), 88 /* bytes */);
 
         let key = H256::random()[..].to_vec();
         s.cache.sync_cache(
@@ -1459,7 +1464,7 @@ mod tests {
             true,
         );
         // minus 2 byte size
-        assert_eq!(shared.lock().used_storage_cache_size(), 86 /* bytes */);
+        assert_eq!(shared.read().used_storage_cache_size(), 86 /* bytes */);
     }
 
     #[test]
@@ -1511,7 +1516,7 @@ mod tests {
 
         // Restart (or unknown block?), clear caches.
         {
-            let mut cache = s.cache.shared_cache.lock();
+            let mut cache = s.cache.shared_cache.write();
             let cache = &mut *cache;
             cache.lru.clear();
             cache.modifications.clear();
@@ -1562,7 +1567,7 @@ mod tests {
             true,
         );
         assert_eq!(
-            shared.lock().lru.storage().get(&key).unwrap(),
+            shared.write().lru.storage().get(&key).unwrap(),
             &Some(vec![1])
         );
 
@@ -1584,7 +1589,7 @@ mod tests {
         );
 
         assert_eq!(
-            shared.lock().lru.storage().get(&key).unwrap(),
+            shared.write().lru.storage().get(&key).unwrap(),
             &Some(vec![1])
         );
 
@@ -1970,7 +1975,7 @@ mod qc {
 
                             std::mem::swap(fork_chain, &mut new_fork);
 
-                            self.shared.lock().sync(&retracted, &enacted);
+                            self.shared.write().sync(&retracted, &enacted);
 
                             self.head_state(
                                 self.canon
