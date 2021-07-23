@@ -379,7 +379,7 @@ impl BenchDb {
 		keyring: &BenchKeyring,
 	) -> (Client, std::sync::Arc<Backend>, TaskExecutor) {
 		let db_config = sc_client_db::DatabaseSettings {
-			state_cache_size: 16*1024*1024,
+			state_cache_size: 16 * 1024 * 1024,
 			state_pruning: PruningMode::ArchiveAll,
 			source: database_type.into_settings(dir.into()),
 			keep_blocks: sc_client_db::KeepBlocks::All,

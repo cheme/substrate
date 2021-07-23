@@ -2495,13 +2495,17 @@ pub(crate) mod tests {
 			db.storage.db.clone()
 		};
 
-		let backend = Backend::<Block>::new(DatabaseSettings {
-			state_cache_size: 16777216,
-			state_pruning: PruningMode::keep_blocks(1),
-			source: DatabaseSettingsSrc::Custom(backing),
-			keep_blocks: KeepBlocks::All,
-			transaction_storage: TransactionStorageMode::BlockBody,
-		}, 0).unwrap();
+		let backend = Backend::<Block>::new(
+			DatabaseSettings {
+				state_cache_size: 16777216,
+				state_pruning: PruningMode::keep_blocks(1),
+				source: DatabaseSettingsSrc::Custom(backing),
+				keep_blocks: KeepBlocks::All,
+				transaction_storage: TransactionStorageMode::BlockBody,
+			},
+			0,
+		)
+		.unwrap();
 		assert_eq!(backend.blockchain().info().best_number, 9);
 		for i in 0..10 {
 			assert!(backend.blockchain().hash(i).unwrap().is_some())

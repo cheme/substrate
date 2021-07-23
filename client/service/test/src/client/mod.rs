@@ -1424,17 +1424,15 @@ fn doesnt_import_blocks_that_revert_finality() {
 
 	// we need to run with archive pruning to avoid pruning non-canonical
 	// states
-	let backend = Arc::new(Backend::new(
-		DatabaseSettings {
-			state_cache_size: 1 << 20,
-			state_pruning: PruningMode::ArchiveAll,
-			keep_blocks: KeepBlocks::All,
-			transaction_storage: TransactionStorageMode::BlockBody,
-			source: DatabaseSettingsSrc::RocksDb {
-				path: tmp.path().into(),
-				cache_size: 1024,
-			}
-		},
+	let backend = Arc::new(
+		Backend::new(
+			DatabaseSettings {
+				state_cache_size: 1 << 20,
+				state_pruning: PruningMode::ArchiveAll,
+				keep_blocks: KeepBlocks::All,
+				transaction_storage: TransactionStorageMode::BlockBody,
+				source: DatabaseSettingsSrc::RocksDb { path: tmp.path().into(), cache_size: 1024 },
+			},
 			u64::MAX,
 		)
 		.unwrap(),
@@ -1636,16 +1634,14 @@ fn returns_status_for_pruned_blocks() {
 
 	// set to prune after 1 block
 	// states
-	let backend = Arc::new(Backend::new(
-		DatabaseSettings {
-			state_cache_size: 1 << 20,
-			state_pruning: PruningMode::keep_blocks(1),
-			keep_blocks: KeepBlocks::All,
-			transaction_storage: TransactionStorageMode::BlockBody,
-			source: DatabaseSettingsSrc::RocksDb {
-				path: tmp.path().into(),
-				cache_size: 1024,
-		}
+	let backend = Arc::new(
+		Backend::new(
+			DatabaseSettings {
+				state_cache_size: 1 << 20,
+				state_pruning: PruningMode::keep_blocks(1),
+				keep_blocks: KeepBlocks::All,
+				transaction_storage: TransactionStorageMode::BlockBody,
+				source: DatabaseSettingsSrc::RocksDb { path: tmp.path().into(), cache_size: 1024 },
 			},
 			u64::MAX,
 		)
