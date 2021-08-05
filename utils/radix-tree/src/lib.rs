@@ -657,6 +657,8 @@ impl<N: TreeConf> Node<N> {
 		if !N::Backend::ACTIVE {
 			panic!("No backend");
 		}
+		// Note that no_cache cannot work with mutable (would need querying
+		// resolved nodes first).
 		self.backend.fetch_children_no_cache(index)
 	}
 
@@ -711,15 +713,17 @@ impl<N: TreeConf> Node<N> {
 		&mut self,
 		index: KeyIndexFor<N>,
 	) -> Option<&mut Box<Self>> {
-		let resolved = if let Some(entry) = self.children.get_child_mut(index) {
-			entry.state() == ChildState::Resolved
-		} else {
-			false
-		};
-		if !resolved {
-			if let Some(Some(result)) = self.backend.fetch_children(index) {
-				let result = ChildFor::<N>::from_state(ChildState::Resolved, Some(result));
-				self.children.set_child(index, result);
+		if N::Backend::ACTIVE {
+			let resolved = if let Some(entry) = self.children.get_child_mut(index) {
+				entry.state() == ChildState::Resolved
+			} else {
+				false
+			};
+			if !resolved {
+				if let Some(Some(result)) = self.backend.fetch_children(index) {
+					let result = ChildFor::<N>::from_state(ChildState::Resolved, Some(result));
+					self.children.set_child(index, result);
+				}
 			}
 		}
 		self.children.get_child_mut(index).and_then(|c| c.node_mut())
