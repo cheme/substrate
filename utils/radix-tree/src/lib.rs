@@ -711,9 +711,16 @@ impl<N: TreeConf> Node<N> {
 		&mut self,
 		index: KeyIndexFor<N>,
 	) -> Option<&mut Box<Self>> {
-		if let Some(Some(result)) = self.backend.fetch_children(index) {
-			let result = ChildFor::<N>::from_state(ChildState::Resolved, Some(result));
-			self.children.set_child(index, result);
+		let resolved = if let Some(entry) = self.children.get_child_mut(index) {
+			entry.state() == ChildState::Resolved
+		} else {
+			false
+		};
+		if !resolved {
+			if let Some(Some(result)) = self.backend.fetch_children(index) {
+				let result = ChildFor::<N>::from_state(ChildState::Resolved, Some(result));
+				self.children.set_child(index, result);
+			}
 		}
 		self.children.get_child_mut(index).and_then(|c| c.node_mut())
 	}
