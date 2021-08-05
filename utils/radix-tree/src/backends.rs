@@ -607,6 +607,10 @@ impl<N, B> TreeBackend<N> for NodeTestBackend<N, B>
 				if let Some(mut child) = node.children.get_child_mut(i).and_then(|c| c.node_mut()) {
 					if let Some(ix) = Self::commit_change_fuse(&mut child, remove_node) {
 						node.backend.child_index[backend_ix] = Some(ix);
+					} else {
+						// set old index (can be unset due to value not new but split
+						// that makes it a new child.
+						node.backend.child_index[backend_ix] = child.backend.index.clone();
 					}
 				}
 				backend_ix = i.to_usize() + 1;
