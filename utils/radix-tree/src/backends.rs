@@ -643,6 +643,10 @@ impl<N, B> TreeBackend<N> for NodeTestBackend<N, B>
 		}
 
 		node.backend.children_changed = false;
+		node.backend.nb_children = {
+			use crate::children::Children;
+			node.children.number_child()
+		};
 		node.backend.prefix_changed = false;
 
 		let encoded = encode_node::<N, B>(node);
