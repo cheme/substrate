@@ -270,7 +270,7 @@ impl<N: Debug + Clone> Children for Children2<N> {
 pub struct Children256<N> (
 	// 256 array is to big but ok for initial implementation
 	Option<[Option<N>; 256]>,
-	u8,
+	u16, // u16 as could overflow u8 with size 256
 );
 
 /// 48 children for art tree.
@@ -380,7 +380,7 @@ impl<N: Debug + Clone> Children for Children256<N> {
 	type Node = N;
 
 	fn empty(initial_size: usize) -> Self {
-		Children256(None, initial_size as u8)
+		Children256(None, initial_size as u16)
 	}
 
 	fn need_init_unfetched(_initial_size: usize) -> bool {
@@ -524,7 +524,7 @@ impl<N: Debug + Clone> Children256<N> {
 	fn need_reduce(
 		&self,
 	) -> bool {
-		self.1 <= REM_TRESHOLD48
+		self.1 <= REM_TRESHOLD48 as u16
 	}
 
 	fn reduce_node(&mut self) -> ART48<N> {
@@ -1041,12 +1041,12 @@ impl<N: Debug + Clone> ART4<N> {
 }
 
 impl<N> ART48_256<N> {
-	pub fn len(&self) -> u8 {
+	pub fn len(&self) -> usize {
 		match self {
-			ART48_256::ART4(inner) => inner.1,
-			ART48_256::ART16(inner) => inner.1,
-			ART48_256::ART48(inner) => inner.1,
-			ART48_256::ART256(inner) => inner.1,
+			ART48_256::ART4(inner) => inner.1 as usize,
+			ART48_256::ART16(inner) => inner.1 as usize,
+			ART48_256::ART48(inner) => inner.1 as usize,
+			ART48_256::ART256(inner) => inner.1 as usize,
 		}
 	}
 }
