@@ -1105,6 +1105,8 @@ impl<N: TreeConf> Tree<N> {
 				match current.descend(key, position, dest_position) {
 					Descent::Child(child_position, index) => {
 						if current.has_child(index) { // has child for lifetime only
+							// insert is guaranteed to succeed so set backend change node when going down.
+							current.backend.set_children_change();
 							if let Some(child) = current.get_child_mut(index) {
 								position = child_position.next::<N::Radix>();
 								//position = child_position;
@@ -1204,6 +1206,9 @@ impl<N: TreeConf> Tree<N> {
 				// Note that this can produce dangling pointer when removing
 				// node.
 				let current: &mut NodeBox<N> = unsafe { current_ptr.as_mut().unwrap() };
+				// TODO for each traversed node backend set_children_change (otherwhise removal node parent may
+				// not be accessible on commit.
+				// TODO just accum unsafe backend ref and call when actual delete happen.
 				match current.descend(key, position, dest_position) {
 					Descent::Child(child_position, index) => {
 						if let Some(child) = current.get_child_mut(index) {
@@ -1282,6 +1287,9 @@ pub trait WithChildState<N> {
 /// Different possible children state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChildState {
+	// TODO add are NeedCommit state
+	// to avoid checking state of all children
+	// of this children???
 	/// Fetched state.
 	Resolved,
 	/// When runing on backend, this child need to be resolve

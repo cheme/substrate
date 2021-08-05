@@ -32,7 +32,7 @@ use core::cell::RefCell;
 
 /// Node backend management.
 pub trait Backend: Clone {
-	type Index;
+	type Index: Eq;
 
 	/// Get a root node from the backend.
 	fn get_root(&self) -> Option<(Vec<u8>, Self::Index)>;
@@ -586,6 +586,7 @@ impl<N, B> TreeBackend<N> for NodeTestBackend<N, B>
 	}
 
 	fn commit_change(node: &mut NodeBox<N>, remove_node: &mut Vec<N::Backend>) -> Option<Self::Index> {
+		let mut encoded_change = false;
 		let changed = node.backend.children_changed
 			|| node.backend.prefix_changed
 			|| node.backend.value_state == ValueState::Modified
@@ -606,6 +607,7 @@ impl<N, B> TreeBackend<N> for NodeTestBackend<N, B>
 				use crate::WithChildState;
 				if let Some(mut child) = node.children.get_child_mut(i).and_then(|c| c.node_mut()) {
 					if let Some(ix) = Self::commit_change_fuse(&mut child, remove_node) {
+						encoded_change = true;
 						node.backend.child_index[backend_ix] = Some(ix);
 					} else {
 						// set old index (can be unset due to value not new but split
@@ -617,7 +619,10 @@ impl<N, B> TreeBackend<N> for NodeTestBackend<N, B>
 				index = Some(i);
 			}
 			while backend_ix < <<N as TreeConf>::Radix as RadixConf>::CHILDREN_CAPACITY {
-				node.backend.child_index[backend_ix] = None;
+				if node.backend.child_index[backend_ix].is_some() {
+					node.backend.child_index[backend_ix] = None;
+					encoded_change = true;
+				}
 				backend_ix += 1;
 			}
 		}
@@ -630,7 +635,10 @@ impl<N, B> TreeBackend<N> for NodeTestBackend<N, B>
 					node.backend.backend.set_new_node(encoded)
 				};
 
-				node.backend.value = Some(ix);
+				if node.backend.value.as_ref() != Some(&ix) {
+					node.backend.value = Some(ix);
+					encoded_change = true;
+				}
 				node.backend.value_state = ValueState::Resolved;
 			} else {
 				unreachable!("modified should be some");
@@ -639,6 +647,7 @@ impl<N, B> TreeBackend<N> for NodeTestBackend<N, B>
 		if node.backend.value_state == ValueState::Deleted {
 			if let Some(previous) = node.backend.value.clone() {
 				node.backend.backend.remove_node(previous);
+				encoded_change = true;
 			} else {
 				unreachable!("deleted should be some");
 			};
@@ -651,13 +660,20 @@ impl<N, B> TreeBackend<N> for NodeTestBackend<N, B>
 			use crate::children::Children;
 			node.children.number_child()
 		};
+		encoded_change = encoded_change || node.backend.prefix_changed;
+
 		node.backend.prefix_changed = false;
 
-		let encoded = encode_node::<N, B>(node);
-		if let Some(i) = node.backend.index.as_ref() {
-			node.backend.backend.update_node(i.clone(), encoded)
+		if encoded_change {
+			let encoded = encode_node::<N, B>(node);
+			// TODO additional change check??
+			if let Some(i) = node.backend.index.as_ref() {
+				node.backend.backend.update_node(i.clone(), encoded)
+			} else {
+				Some(node.backend.backend.set_new_node(encoded))
+			}
 		} else {
-			Some(node.backend.backend.set_new_node(encoded))
+			None
 		}
 	}
 
