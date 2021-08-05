@@ -117,6 +117,7 @@ pub trait Children: Clone + Debug {
 	/// Initialize size is size from backend.
 	fn empty(initial_size: usize) -> Self;
 
+	/// TODO bad fn, at least remove param
 	fn need_init_unfetched(initial_size: usize) -> bool;
 
 	/// Set or replace child.

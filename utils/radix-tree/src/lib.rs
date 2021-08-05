@@ -683,7 +683,13 @@ impl<N: TreeConf> Node<N> {
 				},
 			}
 		} else {
-			false
+			// TODO param is incorrect here
+			if !N::Children::need_init_unfetched(self.children.number_child()) {
+				self.backend.fetch_children_index(index).is_some()
+			} else {
+				// already resolved, missing value is same as resolved to none.
+				false
+			}
 		}
 	}
 
