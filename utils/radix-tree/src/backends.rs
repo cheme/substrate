@@ -254,6 +254,16 @@ pub struct TestBackend {
 	root_index: u64,
 }
 
+#[cfg(feature = "hash_backend")]
+/// Set based backend containing encoded nodes
+/// with hash as key.
+/// Root is always stored at empty key.
+#[derive(Clone, Debug)]
+pub struct HashedTestBackend {
+	encoded_nodes: hashbrown::HashMap<Vec<u8>, Vec<u8>>,
+	pub root: Option<Vec<u8>>,
+}
+
 impl Default for TestBackend {
 	fn default() -> Self {
 		TestBackend {
@@ -261,6 +271,16 @@ impl Default for TestBackend {
 			free_node: 0,
 			new_node_on_update: true,
 			root_index: 0,
+		}
+	}
+}
+
+#[cfg(feature = "hash_backend")]
+impl Default for HashedTestBackend {
+	fn default() -> Self {
+		HashedTestBackend {
+			encoded_nodes: Default::default(),
+			root: None,
 		}
 	}
 }
@@ -334,6 +354,50 @@ impl Backend for Rc<RefCell<TestBackend>> {
 	}
 }
 
+#[cfg(feature = "hash_backend")]
+impl Backend for Rc<RefCell<HashedTestBackend>> {
+	type Index = Vec<u8>; // TODO could switch to Blake2bResult (but need a reserved root key)
+	fn get_root(&self) -> Option<(Vec<u8>, Self::Index)> {
+		let s = self.borrow();
+		if let Some(root_hash) = s.root.clone() {
+			self.get_node(root_hash.clone()).map(|root| (root, root_hash))
+		} else {
+			None
+		}
+	}
+
+	fn get_node(&self, index: Self::Index) -> Option<Vec<u8>> {
+		self.borrow().encoded_nodes.get(&index).cloned()
+	}
+
+	fn update_node(&self, index: Self::Index, node: Vec<u8>) -> Option<Self::Index> {
+		let mut s = self.borrow_mut();
+		let new_index = blake2_rfc::blake2b::blake2b(64, &[], &node).as_bytes().to_vec();
+		if new_index == index {
+			s.encoded_nodes.insert(index, node);
+			None
+		} else {
+			s.encoded_nodes.insert(new_index.clone(), node);
+			s.encoded_nodes.remove(&index);
+			Some(new_index)
+		}
+	}
+
+	fn remove_node(&self, index: Self::Index) {
+		self.borrow_mut().encoded_nodes.remove(&index);
+	}
+
+	fn set_new_node(&self, node: Vec<u8>) -> Self::Index {
+		let index = blake2_rfc::blake2b::blake2b(64, &[], &node).as_bytes().to_vec();
+		self.borrow_mut().encoded_nodes.insert(index.clone(), node);
+		index
+	}
+
+	fn set_root(&self, root: Self::Index) {
+		self.borrow_mut().root = Some(root);
+	}
+}
+
 /// Test only backend with lazy access.
 #[derive(Clone, Debug)]
 pub struct NodeTestBackend<N: TreeConf, B: Backend> {
@@ -363,7 +427,6 @@ fn decode<N, B>(
 		B: Backend,
 		B::Index: Decode,
 {
-
 	let input = &mut encoded.as_slice();
 	let value: Option<B::Index> = Decode::decode(input).unwrap();
 	let mut child_index = Vec::new();

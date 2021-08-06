@@ -46,6 +46,8 @@ pub use backends::TreeBackend as Backend;
 use alloc::rc::Rc;
 use core::cell::RefCell;
 use backends::TestBackend;
+#[cfg(feature = "hash_backend")]
+use backends::HashedTestBackend;
 
 /// Alias to type of a key as used by external api.
 pub type Key = NodeKeyBuff;
@@ -1477,4 +1479,17 @@ impl <V: Value + Codec> TreeConf for Node256TestBackend<V> {
     type Value = V;
     type Children = Children256<ChildFor<Self>>;
     type Backend = backends::NodeTestBackend<Self, Rc<RefCell<TestBackend>>>;
+}
+
+#[cfg(feature = "hash_backend")]
+#[derive(Derivative)]
+#[derivative(Clone)]
+#[derivative(Debug)]
+pub struct Node256HashedTestBackend<V>(core::marker::PhantomData<V>);
+#[cfg(feature = "hash_backend")]
+impl <V: Value + Codec> TreeConf for Node256HashedTestBackend<V> {
+    type Radix = Radix256Conf;
+    type Value = V;
+    type Children = Children256<ChildFor<Self>>;
+    type Backend = backends::NodeTestBackend<Self, Rc<RefCell<HashedTestBackend>>>;
 }

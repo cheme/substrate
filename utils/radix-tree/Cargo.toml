@@ -14,15 +14,17 @@ smallvec = "1.6"
 hashbrown = { version = "0.9.1", default-features = false, features = [ "ahash" ] }
 codec = { package = "parity-scale-codec", version = "2.0.0", default-features = false, features = ["derive"] }
 parking_lot = { version = "0.10.2", optional = true }
+blake2-rfc = { version = "0.2.18", optional = true }
 
 [dev-dependencies]
 criterion = "0.3"
 rand = { version = "0.8.3", features = ["small_rng"] }
 
 [features]
-default = []
+default = ["std", "hash_backend"]
 std = ["parking_lot", "smallvec/write"]
 fuzzer = []
+hash_backend = ["blake2-rfc"]
 
 [[bench]]
 name = "bench"

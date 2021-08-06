@@ -20,6 +20,9 @@
 #[cfg(any(test, feature = "fuzzer"))]
 use crate::{Node256NoBackend, Node256NoBackendART, Node256TestBackendART,
 	Node16NoBackend, Node4NoBackend, Node256TestBackend};
+#[cfg(any(test, feature = "fuzzer"))]
+#[cfg(feature = "hash_backend")]
+use crate::Node256HashedTestBackend;
 //use crate::{Node256HashBackend, Node256LazyHashBackend, Node256TxBackend};
 
 macro_rules! test_for {
@@ -500,3 +503,5 @@ test_for!(test_16, Node16NoBackend, false);
 test_for!(test_256_art, Node256NoBackendART, false);
 test_for!(test_256_backend, Node256TestBackend, true);
 test_for!(test_256_backend_art, Node256TestBackendART, true);
+#[cfg(feature = "hash_backend")]
+test_for!(test_256_hashed_backend, Node256HashedTestBackend, true);
