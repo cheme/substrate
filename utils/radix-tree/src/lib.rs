@@ -723,6 +723,8 @@ impl<N: TreeConf> Node<N> {
 				if let Some(Some(result)) = self.backend.fetch_children(index) {
 					let result = ChildFor::<N>::from_state(ChildState::Resolved, Some(result));
 					self.children.set_child(index, result);
+				} else {
+					// TODO add Resolved None to children!!
 				}
 			}
 		}
@@ -880,7 +882,16 @@ impl<N: TreeConf> Node<N> {
 					return Some(next_backend)
 				}
 			}
-			next.and_then(|n| self.has_child(n).then(|| n))
+			if let Some(n) = next {
+				if !self.has_child(n) {
+					// removed, skip TODO do not recurse call
+					self.get_next_child_index(Some(n))
+				} else {
+					Some(n)
+				}
+			} else {
+				None
+			}
 		} else {
 			next
 		}
