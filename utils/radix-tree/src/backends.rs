@@ -108,6 +108,15 @@ pub trait TreeBackend<N: TreeConf>: Clone {
 	/// Original number of children stored in backend.
 	fn fetch_nb_children(&mut self) -> Option<usize>;
 
+	/// Current number of children for the node.
+	/// If backend is inactive it can be simply read from node children
+	/// and the function should never be call by code.
+	fn current_nb_children(&self) -> usize;
+
+	fn increase_number_of_children(&mut self);
+
+	fn decrease_number_of_children(&mut self);
+
 	// TODO replace by backend_hash_value -> bool ?
 	fn fetch_value_index (&self) -> Option<Self::Index>;
 
@@ -226,6 +235,14 @@ impl<N: TreeConf> TreeBackend<N> for () {
 	}
 
 	fn clear_content(&mut self) { }
+
+	fn current_nb_children(&self) -> usize {
+		panic!("Inactive backend, no counting of children");
+	}
+
+	fn increase_number_of_children(&mut self) { }
+
+	fn decrease_number_of_children(&mut self) { }
 }
 
 /// Backend containing encoded nodes.
@@ -325,6 +342,7 @@ pub struct NodeTestBackend<N: TreeConf, B: Backend> {
 	encoded: Vec<u8>,
 	child_index: Vec<Option<B::Index>>,
 	nb_children: usize,
+	pending_nb_children: usize,
 	value: Option<B::Index>,
 	value_state: ValueState,
 	backend: B,
@@ -394,6 +412,7 @@ fn decode<N, B>(
 		child_index,
 		value,
 		value_state: ValueState::Unfetched,
+		pending_nb_children: nb_children,
 		nb_children,
 		backend: backend.clone(),
 		children_changed: false,
@@ -577,6 +596,7 @@ impl<N, B> TreeBackend<N> for NodeTestBackend<N, B>
 			child_index: vec![None; <<N as TreeConf>::Radix as RadixConf>::CHILDREN_CAPACITY],
 			value: None,
 			nb_children: 0,
+			pending_nb_children: 0,
 			backend: backend.clone(),
 			children_changed: false,
 			prefix_changed: true, // new node need update
@@ -694,5 +714,17 @@ impl<N, B> TreeBackend<N> for NodeTestBackend<N, B>
 		self.children_changed = false;
 		self.prefix_changed = true; // to ensure update
 		self.value_state = ValueState::Resolved;
+	}
+
+	fn current_nb_children(&self) -> usize {
+		self.pending_nb_children
+	}
+
+	fn increase_number_of_children(&mut self) {
+		self.pending_nb_children += 1;
+	}
+
+	fn decrease_number_of_children(&mut self) {
+		self.pending_nb_children -= 1;
 	}
 }

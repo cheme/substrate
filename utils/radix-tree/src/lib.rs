@@ -463,7 +463,7 @@ impl<N: TreeConf> Node<N> {
 		backend: &mut N::Backend,
 	) -> N::Children {
 		let nb_children = backend.fetch_nb_children().unwrap_or(0);
-		if N::Backend::ACTIVE && N::Children::need_init_unfetched(nb_children) {
+		if N::Backend::ACTIVE && N::Children::need_init_unfetched() {
 			use crate::children::NodeIndex;
 			let mut children = N::Children::empty(0);
 			let mut i = KeyIndexFor::<N>::zero();
@@ -471,7 +471,6 @@ impl<N: TreeConf> Node<N> {
 				if let Some(_) = backend.fetch_children_index(i) {
 					let child = ChildFor::<N>::from_state(ChildState::Unfetched, None);
 					children.set_child(i, child);
-					children.increase_number();
 				}
 
 				if let Some(n) = i.next() {
@@ -638,7 +637,11 @@ impl<N: TreeConf> Node<N> {
 	fn number_child(
 		&self,
 	) -> usize {
-		self.children.number_child()
+		if N::Backend::ACTIVE {
+			self.backend.current_nb_children()
+		} else {
+			self.children.number_child()
+		}
 	}
 
 	fn get_child(
@@ -685,8 +688,7 @@ impl<N: TreeConf> Node<N> {
 				},
 			}
 		} else {
-			// TODO param is incorrect here
-			if !N::Children::need_init_unfetched(self.children.number_child()) {
+			if !N::Children::need_init_unfetched() {
 				self.backend.fetch_children_index(index).is_some()
 			} else {
 				// already resolved, missing value is same as resolved to none.
@@ -748,7 +750,7 @@ impl<N: TreeConf> Node<N> {
 		// TODO check is none when with backend? and don't return
 		let result = self.children.set_child(index, child).and_then(|c| c.extract_node());
 		if result.is_none() {
-			self.children.increase_number();
+			self.backend.increase_number_of_children();
 		} else {
 			unreachable!("should not set child on existing, set value in this case");
 		}
@@ -762,12 +764,10 @@ impl<N: TreeConf> Node<N> {
 		let result = self.children.remove_child(index).and_then(|c| c.extract_node());
 		if result.is_some() {
 			self.backend.set_children_change();
-			self.children.decrease_number();
+			self.backend.decrease_number_of_children();
 			if N::Backend::ACTIVE {
-	//		if N::Backend::ACTIVE && !N::Children::need_init_unfetched(self.children.number_child()) {
 				let child = ChildFor::<N>::from_state(ChildState::Resolved, None);
 				self.children.set_child(index, child);
-				self.children.increase_number();
 			}
 		}
 		result
@@ -794,7 +794,7 @@ impl<N: TreeConf> Node<N> {
 		let child = replace(node, parent);
 		let child = ChildFor::<N>::from_state(ChildState::Resolved, Some(child));
 		assert!(node.children.set_child(index, child).is_none());
-		node.children.increase_number();
+		node.backend.increase_number_of_children();
 		node.backend.set_children_change();
 	}
 
@@ -805,7 +805,7 @@ impl<N: TreeConf> Node<N> {
 		if let Some(index) = node.get_next_child_index(None) {
 			// even with backend we do a removal in this case (cannot keep deleted).
 			if let Some(child) = node.children.remove_child(index) {
-				node.children.decrease_number();
+				node.backend.decrease_number_of_children();
 				let position = PositionFor::<N> {
 					index: 0,
 					mask: node.key.start,
