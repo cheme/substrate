@@ -761,6 +761,12 @@ impl<N: TreeConf> Node<N> {
 		if result.is_some() {
 			self.backend.set_children_change();
 			self.children.decrease_number();
+			if N::Backend::ACTIVE {
+	//		if N::Backend::ACTIVE && !N::Children::need_init_unfetched(self.children.number_child()) {
+				let child = ChildFor::<N>::from_state(ChildState::Resolved, None);
+				self.children.set_child(index, child);
+				self.children.increase_number();
+			}
 		}
 		result
 	}
@@ -1201,6 +1207,7 @@ impl<N: TreeConf> Tree<N> {
 				return result;
 			}
 			let mut parent = None;
+			let mut touched_backends: Vec<&mut NodeBox<N>> = Vec::new();
 			let mut current_ptr: *mut NodeBox<N> = current;
 			loop {
 				// Note that this can produce dangling pointer when removing
@@ -1215,7 +1222,16 @@ impl<N: TreeConf> Tree<N> {
 							let old_position = child_position;
 							position = child_position.next::<N::Radix>();
 							current_ptr = child as *mut NodeBox<N>;
-							parent = Some((current, old_position));
+							if N::Backend::ACTIVE {
+								if let Some((old, _)) = replace(
+									&mut parent,
+									Some((current, old_position)),
+								) {
+									touched_backends.push(old);
+								}
+							} else {
+								parent = Some((current, old_position));
+							}
 						} else {
 							return None;
 						}
@@ -1252,6 +1268,12 @@ impl<N: TreeConf> Tree<N> {
 						}
 
 						//return current.set_value(value);
+						if N::Backend::ACTIVE {
+							// set child as changed for path to allow commit to touch deep node.
+							for node in touched_backends.into_iter() {
+								node.backend.set_children_change();
+							}
+						}
 						return result;
 					},
 				}

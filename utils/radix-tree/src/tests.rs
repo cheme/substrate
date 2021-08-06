@@ -466,6 +466,28 @@ pub mod $module_name {
 			Do::Remove(b"start".to_vec()),
 		]);
 	}
+
+	#[test]
+	fn insert_deep() {
+		test_insert_remove(vec![
+			Do::Insert(b"s".to_vec(), b"value2".to_vec()),
+			Do::Insert(b"start".to_vec(), b"value2".to_vec()),
+			Do::Insert(b"start_long".to_vec(), b"value1".to_vec()),
+			Do::Commit,
+			Do::Insert(b"start_long_long".to_vec(), b"value3".to_vec()),
+		]);
+	}
+
+	#[test]
+	fn remove_deep() {
+		test_insert_remove(vec![
+			Do::Insert(b"s".to_vec(), b"value2".to_vec()),
+			Do::Insert(b"start".to_vec(), b"value2".to_vec()),
+			Do::Insert(b"start_long".to_vec(), b"value1".to_vec()),
+			Do::Commit,
+			Do::Remove(b"start_long".to_vec()),
+		]);
+	}
 }
 
 }
