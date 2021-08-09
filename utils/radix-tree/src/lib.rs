@@ -42,7 +42,7 @@ use radix::{PrefixKeyConf, RadixConf, Position,
 	MaskFor, MaskKeyByte};
 use children::Children;
 use codec::Codec;
-pub use backends::TreeBackend as Backend;
+pub use backends::NodeBackend;
 use alloc::rc::Rc;
 use core::cell::RefCell;
 use backends::TestBackend;
@@ -393,17 +393,17 @@ pub trait TreeConf: Debug + Clone + Sized {
 	type Radix: RadixConf;
 	type Value: Value;
 	type Children: Children<Node = ChildFor<Self>, Radix = Self::Radix>;
-	type Backend: Backend<Self>;
+	type NodeBackend: NodeBackend<Self>;
 
-	fn new_node_backend(node: &Node<Self>, removed_node: &mut Vec<Self::Backend>) -> Self::Backend {
+	fn new_node_backend(node: &Node<Self>, removed_node: &mut Vec<Self::NodeBackend>) -> Self::NodeBackend {
 		Self::new_node_backend_root(&node.backend.backend(), removed_node)
 	}
 
-	fn new_node_backend_root(init: &BackendFor<Self>, removed_node: &mut Vec<Self::Backend>) -> Self::Backend {
+	fn new_node_backend_root(init: &BackendFor<Self>, removed_node: &mut Vec<Self::NodeBackend>) -> Self::NodeBackend {
 		if let Some(backend) = removed_node.pop() {
 			backend
 		} else {
-			Self::Backend::new_node_backend(init)
+			Self::NodeBackend::new_node_backend(init)
 		}
 	}
 }
@@ -411,8 +411,8 @@ pub trait TreeConf: Debug + Clone + Sized {
 pub(crate) type PositionFor<N> = Position<<<N as TreeConf>::Radix as RadixConf>::Alignment>;
 pub(crate) type AlignmentFor<N> = <<N as TreeConf>::Radix as RadixConf>::Alignment;
 pub(crate) type KeyIndexFor<N> = <<N as TreeConf>::Radix as RadixConf>::KeyIndex;
-pub(crate) type BackendFor<N> = <<N as TreeConf>::Backend as Backend<N>>::Backend;
-pub type ChildFor<N> = <<N as TreeConf>::Backend as Backend<N>>::ChildState;
+pub(crate) type BackendFor<N> = <<N as TreeConf>::NodeBackend as NodeBackend<N>>::Backend;
+pub type ChildFor<N> = <<N as TreeConf>::NodeBackend as NodeBackend<N>>::ChildState;
 
 /// Node of a tree.
 #[derive(Derivative)]
@@ -436,7 +436,7 @@ pub struct Node<N>
 	children: N::Children,
 
 	/// A backend for serializing the tree. `()` can be used if no serializing is needed.
-	backend: N::Backend,
+	backend: N::NodeBackend,
 }
 
 impl<N: TreeConf> Debug for Node<N> {
@@ -456,16 +456,16 @@ impl<N: TreeConf> Node<N> {
 		end_position: PositionFor<N>,
 		value: Option<N::Value>,
 		init: (),
-		backend: N::Backend,
+		backend: N::NodeBackend,
 	) -> NodeBox<N> {
 		Box::new(Self::new(key, start_position, end_position, value, init, backend))
 	}
 
 	fn children_from_backend(
-		backend: &mut N::Backend,
+		backend: &mut N::NodeBackend,
 	) -> N::Children {
 		let nb_children = backend.fetch_nb_children().unwrap_or(0);
-		if N::Backend::ACTIVE && N::Children::need_init_unfetched() {
+		if N::NodeBackend::ACTIVE && N::Children::need_init_unfetched() {
 			use crate::children::NodeIndex;
 			let mut children = N::Children::empty(0);
 			let mut i = KeyIndexFor::<N>::zero();
@@ -493,7 +493,7 @@ impl<N: TreeConf> Node<N> {
 		end_position: PositionFor<N>,
 		value: Option<N::Value>,
 		_init: (),
-		mut backend: N::Backend,
+		mut backend: N::NodeBackend,
 	) -> Node<N> {
 		let children = Self::children_from_backend(&mut backend);
 		Node {
@@ -506,7 +506,7 @@ impl<N: TreeConf> Node<N> {
 
 	fn new_box_unfetched(
 		prefix: PrefixKey<NodeKeyBuff, AlignmentFor<N>>,
-		mut backend: N::Backend,
+		mut backend: N::NodeBackend,
 	) -> NodeBox<N> {
 		let children = Self::children_from_backend(&mut backend);
 		Box::new(Node {
@@ -571,7 +571,7 @@ impl<N: TreeConf> Node<N> {
 	fn value(
 		&self,
 	) -> Option<&N::Value> {
-		if N::Backend::ACTIVE {
+		if N::NodeBackend::ACTIVE {
 			match self.backend.value_state()  {
 				ValueState::Deleted => {
 					return None;
@@ -588,7 +588,7 @@ impl<N: TreeConf> Node<N> {
 	fn value_mut(
 		&mut self,
 	) -> Option<&mut N::Value> {
-		if N::Backend::ACTIVE {
+		if N::NodeBackend::ACTIVE {
 			match self.backend.value_state()  {
 				ValueState::Deleted => {
 					return None;
@@ -607,7 +607,7 @@ impl<N: TreeConf> Node<N> {
 	fn value_no_cache(
 		&self,
 	) -> Option<N::Value> {
-		if !N::Backend::ACTIVE {
+		if !N::NodeBackend::ACTIVE {
 			panic!("No backend");
 		}
 		self.backend.fetch_value_no_cache()
@@ -617,7 +617,7 @@ impl<N: TreeConf> Node<N> {
 		&mut self,
 		value: N::Value,
 	) -> Option<N::Value> {
-		if N::Backend::ACTIVE {
+		if N::NodeBackend::ACTIVE {
 			self.backend.set_value_state(ValueState::Modified);
 		}
 		replace(&mut self.value, Some(value))
@@ -627,7 +627,7 @@ impl<N: TreeConf> Node<N> {
 		&mut self,
 		with_value: bool,
 	) -> Option<N::Value> {
-		if N::Backend::ACTIVE {
+		if N::NodeBackend::ACTIVE {
 			if with_value {
 				self.backend.fetch_value();
 			}
@@ -639,7 +639,7 @@ impl<N: TreeConf> Node<N> {
 	fn number_child(
 		&self,
 	) -> usize {
-		if N::Backend::ACTIVE {
+		if N::NodeBackend::ACTIVE {
 			self.backend.current_nb_children()
 		} else {
 			self.children.number_child()
@@ -650,7 +650,7 @@ impl<N: TreeConf> Node<N> {
 		&self,
 		index: KeyIndexFor<N>,
 	) -> Option<&Self> {
-		if N::Backend::ACTIVE {
+		if N::NodeBackend::ACTIVE {
 			panic!("Cannot fetch");
 		}
 		self.children.get_child(index).and_then(|c| c.node())
@@ -659,7 +659,7 @@ impl<N: TreeConf> Node<N> {
 		&self,
 		index: KeyIndexFor<N>,
 	) -> Option<NodeBox<N>> {
-		if !N::Backend::ACTIVE {
+		if !N::NodeBackend::ACTIVE {
 			panic!("No backend");
 		}
 		// Note that no_cache cannot work with mutable (would need querying
@@ -671,7 +671,7 @@ impl<N: TreeConf> Node<N> {
 		&self,
 		index: KeyIndexFor<N>,
 	) -> bool {
-		if !N::Backend::ACTIVE {
+		if !N::NodeBackend::ACTIVE {
 			return self.children.get_child(index).is_some();
 		}
 		if let Some(children) = self.children.get_child(index) {
@@ -702,7 +702,7 @@ impl<N: TreeConf> Node<N> {
 	fn has_value(
 		&self,
 	) -> bool {
-		if !N::Backend::ACTIVE {
+		if !N::NodeBackend::ACTIVE {
 			return self.value.is_some()
 		}
 		match self.backend.value_state() {
@@ -717,7 +717,7 @@ impl<N: TreeConf> Node<N> {
 		&mut self,
 		index: KeyIndexFor<N>,
 	) -> Option<&mut Box<Self>> {
-		if N::Backend::ACTIVE {
+		if N::NodeBackend::ACTIVE {
 			let resolved = if let Some(entry) = self.children.get_child_mut(index) {
 				entry.state() == ChildState::Resolved
 			} else {
@@ -767,7 +767,7 @@ impl<N: TreeConf> Node<N> {
 		if result.is_some() {
 			self.backend.set_children_change();
 			self.backend.decrease_number_of_children();
-			if N::Backend::ACTIVE {
+			if N::NodeBackend::ACTIVE {
 				let child = ChildFor::<N>::from_state(ChildState::Resolved, None);
 				self.children.set_child(index, child);
 			}
@@ -778,7 +778,7 @@ impl<N: TreeConf> Node<N> {
 		node: &mut Box<Self>,
 		position: PositionFor<N>,
 		mut at: PositionFor<N>,
-		removed_node: &mut Vec<N::Backend>,
+		removed_node: &mut Vec<N::NodeBackend>,
 	) {
 		at.index -= position.index;
 		let index = node.key.index::<N::Radix>(at);
@@ -802,7 +802,7 @@ impl<N: TreeConf> Node<N> {
 
 	fn fuse_child(
 		node: &mut Box<Self>,
-		removed_node: &mut Vec<N::Backend>,
+		removed_node: &mut Vec<N::NodeBackend>,
 	) {
 		if let Some(index) = node.get_next_child_index(None) {
 			// even with backend we do a removal in this case (cannot keep deleted).
@@ -821,7 +821,7 @@ impl<N: TreeConf> Node<N> {
 				child.key = replace(&mut node.key, child.key);
 				child.backend.set_prefix_change();
 				let mut parent = replace(node, child);
-				if N::Backend::ACTIVE {
+				if N::NodeBackend::ACTIVE {
 					parent.backend.clear_content();
 					removed_node.push(parent.backend);
 				}
@@ -878,7 +878,7 @@ impl<N: TreeConf> Node<N> {
 		from: Option<KeyIndexFor<N>>,
 	) -> Option<KeyIndexFor<N>> {
 		let next = self.children.get_next_child_index(from);
-		if N::Backend::ACTIVE {
+		if N::NodeBackend::ACTIVE {
 			if let Some(next_backend) = self.backend.get_next_child_index(from) {
 				if next.as_ref().map(|n| &next_backend < n).unwrap_or(true) {
 					return Some(next_backend)
@@ -918,7 +918,7 @@ pub struct Tree<N>
 	/// When using backend, removed
 	/// node can be reuse, and removal is only done on commit.
 	#[derivative(Debug="ignore")]
-	pub removed_node: Vec<N::Backend>,
+	pub removed_node: Vec<N::NodeBackend>,
 }
 
 impl<N> Default for Tree<N>
@@ -951,7 +951,7 @@ impl<N> Tree<N>
 	/// Instantiate an existing tree from its serializing
 	/// backend.
 	pub fn from_backend(init: BackendFor<N>) -> Self {
-		let tree =  N::Backend::get_root(&init);
+		let tree =  N::NodeBackend::get_root(&init);
 		Tree {
 			tree,
 			init,
@@ -963,9 +963,9 @@ impl<N> Tree<N>
 	pub fn commit(&mut self) {
 		if let Some(mut node) = self.tree.as_mut() {
 			for node in self.removed_node.drain(..) {
-				N::Backend::delete(node);
+				N::NodeBackend::delete(node);
 			}
-			if let Some(result) = N::Backend::commit_change_fuse(&mut node, &mut self.removed_node) {
+			if let Some(result) = N::NodeBackend::commit_change_fuse(&mut node, &mut self.removed_node) {
 				use crate::backends::Backend;
 				node.backend.backend().set_root(result);
 			}
@@ -1203,7 +1203,7 @@ impl<N: TreeConf> Tree<N> {
 				if current.number_child() == 0 {
 					empty_tree = Some(result);
 				} else {
-					if !N::Backend::FUSE_ON_COMMIT {
+					if !N::NodeBackend::FUSE_ON_COMMIT {
 						if current.number_child() == 1 {
 							Node::<N>::fuse_child(current, &mut self.removed_node);
 						}
@@ -1235,7 +1235,7 @@ impl<N: TreeConf> Tree<N> {
 							let old_position = child_position;
 							position = child_position.next::<N::Radix>();
 							current_ptr = child as *mut NodeBox<N>;
-							if N::Backend::ACTIVE {
+							if N::NodeBackend::ACTIVE {
 								if let Some((old, _)) = replace(
 									&mut parent,
 									Some((current, old_position)),
@@ -1259,14 +1259,14 @@ impl<N: TreeConf> Tree<N> {
 								let parent_index = parent_position.index::<N::Radix>(key)
 									.expect("was resolved from key");
 								if let Some(mut removed) = parent.remove_child(parent_index) {
-									if N::Backend::ACTIVE {
+									if N::NodeBackend::ACTIVE {
 										removed.backend.clear_content();
 										self.removed_node.push(removed.backend);
 									}
 								} else {
 									unreachable!();
 								}
-								if !N::Backend::FUSE_ON_COMMIT { // TODO this could ignore fuse on commit (do not query additional nodes).
+								if !N::NodeBackend::FUSE_ON_COMMIT { // TODO this could ignore fuse on commit (do not query additional nodes).
 									if !parent.has_value() && parent.number_child() == 1 {
 										Node::<N>::fuse_child(parent, &mut self.removed_node);
 									}
@@ -1276,12 +1276,12 @@ impl<N: TreeConf> Tree<N> {
 								empty_tree = Some(result);
 								break;
 							}
-						} else if !N::Backend::FUSE_ON_COMMIT && current.number_child() == 1 {
+						} else if !N::NodeBackend::FUSE_ON_COMMIT && current.number_child() == 1 {
 							Node::<N>::fuse_child(current, &mut self.removed_node);
 						}
 
 						//return current.set_value(value);
-						if N::Backend::ACTIVE {
+						if N::NodeBackend::ACTIVE {
 							// set child as changed for path to allow commit to touch deep node.
 							for node in touched_backends.into_iter() {
 								node.backend.set_children_change();
@@ -1310,6 +1310,7 @@ impl<N: TreeConf> Tree<N> {
 	}
 }
 
+/// Associate `ChildState` with node `N`.
 pub trait WithChildState<N> {
 	fn state(&self) -> ChildState;
 	fn state_mut(&mut self) -> &mut ChildState;
@@ -1423,7 +1424,7 @@ impl <V: Value> TreeConf for Node256NoBackend<V> {
     type Radix = Radix256Conf;
     type Value = V;
     type Children = Children256<ChildFor<Self>>;
-    type Backend = ();
+    type NodeBackend = ();
 }
 
 #[derive(Derivative)]
@@ -1434,7 +1435,7 @@ impl <V: Value> TreeConf for Node256NoBackendART<V> {
     type Radix = Radix256Conf;
     type Value = V;
     type Children = ART48_256<ChildFor<Self>>;
-    type Backend = ();
+    type NodeBackend = ();
 }
 
 #[derive(Derivative)]
@@ -1445,7 +1446,7 @@ impl <V: Value> TreeConf for Node16NoBackend<V> {
     type Radix = Radix16Conf;
     type Value = V;
     type Children = Children16<ChildFor<Self>>;
-    type Backend = ();
+    type NodeBackend = ();
 }
 
 #[derive(Derivative)]
@@ -1456,7 +1457,7 @@ impl <V: Value> TreeConf for Node4NoBackend<V> {
     type Radix = Radix4Conf;
     type Value = V;
     type Children = Children4<ChildFor<Self>>;
-    type Backend = ();
+    type NodeBackend = ();
 }
 
 #[derive(Derivative)]
@@ -1467,7 +1468,7 @@ impl <V: Value + Codec> TreeConf for Node256TestBackendART<V> {
     type Radix = Radix256Conf;
     type Value = V;
     type Children = ART48_256<ChildFor<Self>>;
-    type Backend = backends::NodeTestBackend<Self, Rc<RefCell<TestBackend>>>;
+    type NodeBackend = backends::NodeTestBackend<Self, Rc<RefCell<TestBackend>>>;
 }
 
 #[derive(Derivative)]
@@ -1478,7 +1479,7 @@ impl <V: Value + Codec> TreeConf for Node256TestBackend<V> {
     type Radix = Radix256Conf;
     type Value = V;
     type Children = Children256<ChildFor<Self>>;
-    type Backend = backends::NodeTestBackend<Self, Rc<RefCell<TestBackend>>>;
+    type NodeBackend = backends::NodeTestBackend<Self, Rc<RefCell<TestBackend>>>;
 }
 
 #[cfg(feature = "hash_backend")]
@@ -1491,5 +1492,5 @@ impl <V: Value + Codec> TreeConf for Node256HashedTestBackend<V> {
     type Radix = Radix256Conf;
     type Value = V;
     type Children = Children256<ChildFor<Self>>;
-    type Backend = backends::NodeTestBackend<Self, Rc<RefCell<HashedTestBackend>>>;
+    type NodeBackend = backends::NodeTestBackend<Self, Rc<RefCell<HashedTestBackend>>>;
 }

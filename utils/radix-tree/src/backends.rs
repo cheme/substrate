@@ -64,15 +64,15 @@ impl Backend for () {
 	fn set_root(&self, _root: Self::Index) { }
 }
 
-/// Node backend management.
-pub trait TreeBackend<N: TreeConf>: Clone {
+/// Information stored at node level for backend management.
+pub trait NodeBackend<N: TreeConf>: Clone {
 	const ACTIVE: bool = true;
 	// fuse node only on commit allows making change
 	// without querying additional nodes, but also
 	// creates empty node until commit.
 	const FUSE_ON_COMMIT: bool = false;
-	/// Always use () if inactive or ChildState if active
-	/// TODO consider moving to Tree (leaks node type in this crate)
+
+	/// Just use `Box<Node<N>>` if inactive or `Child<Node<N>>` if active.
 	type ChildState: crate::WithChildState<crate::Node<N>>;
 
 	/// Inner backend used.
@@ -141,9 +141,9 @@ pub trait TreeBackend<N: TreeConf>: Clone {
 
 	/// Flush changes that happens to a node.
 	/// return new backend index if changed.
-	fn commit_change(node: &mut NodeBox<N>, remove_node: &mut Vec<N::Backend>) -> Option<Self::Index>;
+	fn commit_change(node: &mut NodeBox<N>, remove_node: &mut Vec<N::NodeBackend>) -> Option<Self::Index>;
 
-	fn commit_change_fuse(node: &mut NodeBox<N>, remove_node: &mut Vec<N::Backend>) -> Option<Self::Index> {
+	fn commit_change_fuse(node: &mut NodeBox<N>, remove_node: &mut Vec<N::NodeBackend>) -> Option<Self::Index> {
 		if Self::FUSE_ON_COMMIT
 			&& node.number_child() == 1
 			&& !node.has_value()
@@ -166,7 +166,7 @@ pub trait TreeBackend<N: TreeConf>: Clone {
 }
 
 
-impl<N: TreeConf> TreeBackend<N> for () {
+impl<N: TreeConf> NodeBackend<N> for () {
 	const ACTIVE: bool = false;
 	type ChildState = Box<Node<N>>;
 
@@ -220,7 +220,7 @@ impl<N: TreeConf> TreeBackend<N> for () {
 	fn delete(self) {
 	}
 
-	fn commit_change(_node: &mut NodeBox<N>, _remove_node: &mut Vec<N::Backend>) -> Option<Self::Index> {
+	fn commit_change(_node: &mut NodeBox<N>, _remove_node: &mut Vec<N::NodeBackend>) -> Option<Self::Index> {
 		None
 	}
 
@@ -486,7 +486,7 @@ fn decode<N, B>(
 
 fn encode_node<N, B>(node: &Node<N>) -> Vec<u8>
 where
-		N: TreeConf<Backend = NodeTestBackend<N, B>>,
+		N: TreeConf<NodeBackend = NodeTestBackend<N, B>>,
 		N::Value: Encode,
 		B: Backend,
 		B::Index: Encode,
@@ -527,9 +527,9 @@ where
 }
 
 
-impl<N, B> TreeBackend<N> for NodeTestBackend<N, B>
+impl<N, B> NodeBackend<N> for NodeTestBackend<N, B>
 	where
-		N: TreeConf<Backend = Self>,
+		N: TreeConf<NodeBackend = Self>,
 		N::Value: Decode + Encode,
 		B: Backend,
 		B::Index: Clone + Decode + Encode,
@@ -668,7 +668,7 @@ impl<N, B> TreeBackend<N> for NodeTestBackend<N, B>
 		}
 	}
 
-	fn commit_change(node: &mut NodeBox<N>, remove_node: &mut Vec<N::Backend>) -> Option<Self::Index> {
+	fn commit_change(node: &mut NodeBox<N>, remove_node: &mut Vec<N::NodeBackend>) -> Option<Self::Index> {
 		let mut encoded_change = false;
 		let changed = node.backend.children_changed
 			|| node.backend.prefix_changed
