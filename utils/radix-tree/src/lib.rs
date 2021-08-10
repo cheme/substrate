@@ -465,7 +465,7 @@ impl<N: TreeConf> Node<N> {
 		backend: &mut N::NodeBackend,
 	) -> N::Children {
 		let nb_children = backend.fetch_nb_children().unwrap_or(0);
-		if N::NodeBackend::ACTIVE && N::Children::need_init_unfetched() {
+		if N::Backend::ACTIVE && N::Children::need_init_unfetched() {
 			use crate::children::NodeIndex;
 			let mut children = N::Children::empty(0);
 			let mut i = KeyIndexFor::<N>::zero();
@@ -571,7 +571,7 @@ impl<N: TreeConf> Node<N> {
 		&self,
 		_backend: &N::Backend,
 	) -> Option<&N::Value> {
-		if N::NodeBackend::ACTIVE {
+		if N::Backend::ACTIVE {
 			match self.backend.value_state()  {
 				ValueState::Deleted => {
 					return None;
@@ -589,7 +589,7 @@ impl<N: TreeConf> Node<N> {
 		&mut self,
 		backend: &N::Backend,
 	) -> Option<&mut N::Value> {
-		if N::NodeBackend::ACTIVE {
+		if N::Backend::ACTIVE {
 			match self.backend.value_state()  {
 				ValueState::Deleted => {
 					return None;
@@ -609,7 +609,7 @@ impl<N: TreeConf> Node<N> {
 		&self,
 		backend: &N::Backend,
 	) -> Option<N::Value> {
-		if !N::NodeBackend::ACTIVE {
+		if !N::Backend::ACTIVE {
 			panic!("No backend");
 		}
 		self.backend.fetch_value_no_cache(backend)
@@ -619,7 +619,7 @@ impl<N: TreeConf> Node<N> {
 		&mut self,
 		value: N::Value,
 	) -> Option<N::Value> {
-		if N::NodeBackend::ACTIVE {
+		if N::Backend::ACTIVE {
 			self.backend.set_value_state(ValueState::Modified);
 		}
 		replace(&mut self.value, Some(value))
@@ -630,7 +630,7 @@ impl<N: TreeConf> Node<N> {
 		with_value: bool,
 		backend: &N::Backend,
 	) -> Option<N::Value> {
-		if N::NodeBackend::ACTIVE {
+		if N::Backend::ACTIVE {
 			if with_value {
 				self.backend.fetch_value(backend);
 			}
@@ -642,7 +642,7 @@ impl<N: TreeConf> Node<N> {
 	fn number_child(
 		&self,
 	) -> usize {
-		if N::NodeBackend::ACTIVE {
+		if N::Backend::ACTIVE {
 			self.backend.current_nb_children()
 		} else {
 			self.children.number_child()
@@ -654,7 +654,7 @@ impl<N: TreeConf> Node<N> {
 		index: KeyIndexFor<N>,
 		_backend: &N::Backend,
 	) -> Option<&Self> {
-		if N::NodeBackend::ACTIVE {
+		if N::Backend::ACTIVE {
 			panic!("Cannot fetch");
 		}
 		self.children.get_child(index).and_then(|c| c.node())
@@ -664,7 +664,7 @@ impl<N: TreeConf> Node<N> {
 		index: KeyIndexFor<N>,
 		backend: &N::Backend,
 	) -> Option<NodeBox<N>> {
-		if !N::NodeBackend::ACTIVE {
+		if !N::Backend::ACTIVE {
 			panic!("No backend");
 		}
 		// Note that no_cache cannot work with mutable (would need querying
@@ -676,7 +676,7 @@ impl<N: TreeConf> Node<N> {
 		&self,
 		index: KeyIndexFor<N>,
 	) -> bool {
-		if !N::NodeBackend::ACTIVE {
+		if !N::Backend::ACTIVE {
 			return self.children.get_child(index).is_some();
 		}
 		if let Some(children) = self.children.get_child(index) {
@@ -707,7 +707,7 @@ impl<N: TreeConf> Node<N> {
 	fn has_value(
 		&self,
 	) -> bool {
-		if !N::NodeBackend::ACTIVE {
+		if !N::Backend::ACTIVE {
 			return self.value.is_some()
 		}
 		match self.backend.value_state() {
@@ -723,7 +723,7 @@ impl<N: TreeConf> Node<N> {
 		index: KeyIndexFor<N>,
 		backend: &N::Backend,
 	) -> Option<&mut Box<Self>> {
-		if N::NodeBackend::ACTIVE {
+		if N::Backend::ACTIVE {
 			let resolved = if let Some(entry) = self.children.get_child_mut(index) {
 				entry.state() == ChildState::Resolved
 			} else {
@@ -774,7 +774,7 @@ impl<N: TreeConf> Node<N> {
 		if result.is_some() {
 			self.backend.set_children_change();
 			self.backend.decrease_number_of_children();
-			if N::NodeBackend::ACTIVE {
+			if N::Backend::ACTIVE {
 				let child = ChildFor::<N>::from_state(ChildState::Resolved, None);
 				self.children.set_child(index, child);
 			}
@@ -828,7 +828,7 @@ impl<N: TreeConf> Node<N> {
 				child.key = replace(&mut node.key, child.key);
 				child.backend.set_prefix_change();
 				let mut parent = replace(node, child);
-				if N::NodeBackend::ACTIVE {
+				if N::Backend::ACTIVE {
 					parent.backend.clear_content();
 					removed_node.push(parent.backend);
 				}
@@ -885,7 +885,7 @@ impl<N: TreeConf> Node<N> {
 		from: Option<KeyIndexFor<N>>,
 	) -> Option<KeyIndexFor<N>> {
 		let next = self.children.get_next_child_index(from);
-		if N::NodeBackend::ACTIVE {
+		if N::Backend::ACTIVE {
 			if let Some(next_backend) = self.backend.get_next_child_index(from) {
 				if next.as_ref().map(|n| &next_backend < n).unwrap_or(true) {
 					return Some(next_backend)
@@ -1240,7 +1240,7 @@ impl<N: TreeConf> Tree<N> {
 							let old_position = child_position;
 							position = child_position.next::<N::Radix>();
 							current_ptr = child as *mut NodeBox<N>;
-							if N::NodeBackend::ACTIVE {
+							if N::Backend::ACTIVE {
 								if let Some((old, _)) = replace(
 									&mut parent,
 									Some((current, old_position)),
@@ -1264,7 +1264,7 @@ impl<N: TreeConf> Tree<N> {
 								let parent_index = parent_position.index::<N::Radix>(key)
 									.expect("was resolved from key");
 								if let Some(mut removed) = parent.remove_child(parent_index) {
-									if N::NodeBackend::ACTIVE {
+									if N::Backend::ACTIVE {
 										removed.backend.clear_content();
 										self.removed_node.push(removed.backend);
 									}
@@ -1286,7 +1286,7 @@ impl<N: TreeConf> Tree<N> {
 						}
 
 						//return current.set_value(value);
-						if N::NodeBackend::ACTIVE {
+						if N::Backend::ACTIVE {
 							// set child as changed for path to allow commit to touch deep node.
 							for node in touched_backends.into_iter() {
 								node.backend.set_children_change();

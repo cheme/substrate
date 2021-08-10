@@ -28,6 +28,8 @@ pub mod node_test;
 
 /// Node backend management.
 pub trait Backend: Clone {
+	const ACTIVE: bool = true;
+
 	type Index: Eq;
 
 	/// Get a root node from the backend.
@@ -46,6 +48,7 @@ pub trait Backend: Clone {
 }
 
 impl Backend for () {
+	const ACTIVE: bool = false;
 	type Index = ();
 	fn get_root(&self) -> Option<(Vec<u8>, Self::Index)> { None }
 
@@ -62,7 +65,6 @@ impl Backend for () {
 
 /// Information stored at node level for backend management.
 pub trait NodeBackend<N: TreeConf>: Clone {
-	const ACTIVE: bool = true;
 	// fuse node only on commit allows making change
 	// without querying additional nodes, but also
 	// creates empty node until commit.
@@ -161,9 +163,7 @@ pub trait NodeBackend<N: TreeConf>: Clone {
 	fn clear_content(&mut self);
 }
 
-
 impl<N: TreeConf> NodeBackend<N> for () {
-	const ACTIVE: bool = false;
 	type ChildState = Box<Node<N>>;
 
 	fn init_root(_encoded_root: Vec<u8>, _root_index: IndexFor<N>) -> Option<NodeBox<N>> {
