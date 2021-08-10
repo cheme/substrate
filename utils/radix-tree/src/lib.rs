@@ -24,8 +24,7 @@
 
 extern crate alloc;
 
-//pub mod backends;
-pub mod backends;
+pub mod backend;
 pub mod radix;
 pub mod children;
 pub mod iterators;
@@ -42,13 +41,13 @@ use radix::{PrefixKeyConf, RadixConf, Position,
 	MaskFor, MaskKeyByte};
 use children::Children;
 use codec::Codec;
-pub use backends::NodeBackend;
+pub use backend::NodeBackend;
 use alloc::rc::Rc;
 use core::cell::RefCell;
-use backends::TestBackend;
+use backend::TestBackend;
 #[cfg(feature = "hash_backend")]
-use backends::HashedTestBackend;
-use backends::Backend;
+use backend::HashedTestBackend;
+use backend::Backend;
 
 /// Alias to type of a key as used by external api.
 pub type Key = NodeKeyBuff;
@@ -1479,7 +1478,7 @@ impl <V: Value + Codec> TreeConf for Node256TestBackendART<V> {
 	type Value = V;
 	type Children = ART48_256<ChildFor<Self>>;
 	type Backend = Rc<RefCell<TestBackend>>;
-	type NodeBackend = backends::NodeTestBackend<Self, Rc<RefCell<TestBackend>>>;
+	type NodeBackend = backend::node_test::NodeTestBackend<Self, Rc<RefCell<TestBackend>>>;
 }
 
 #[derive(Derivative)]
@@ -1491,7 +1490,7 @@ impl <V: Value + Codec> TreeConf for Node256TestBackend<V> {
 	type Value = V;
 	type Children = Children256<ChildFor<Self>>;
 	type Backend = Rc<RefCell<TestBackend>>;
-	type NodeBackend = backends::NodeTestBackend<Self, Rc<RefCell<TestBackend>>>;
+	type NodeBackend = backend::node_test::NodeTestBackend<Self, Rc<RefCell<TestBackend>>>;
 }
 
 #[cfg(feature = "hash_backend")]
@@ -1505,5 +1504,5 @@ impl <V: Value + Codec> TreeConf for Node256HashedTestBackend<V> {
 	type Value = V;
 	type Children = Children256<ChildFor<Self>>;
 	type Backend = Rc<RefCell<HashedTestBackend>>;
-	type NodeBackend = backends::NodeTestBackend<Self, Rc<RefCell<HashedTestBackend>>>;
+	type NodeBackend = backend::node_test::NodeTestBackend<Self, Rc<RefCell<HashedTestBackend>>>;
 }
