@@ -340,7 +340,7 @@ impl<'a, N: TreeConf> $seek_iter<'a, N> {
 		match self.next {
 			Descent::Child(position, index) => {
 				if let Some(parent) = self.stack.stack.last() {
-					if let Some(child) = $from_stack(parent.1).$get_child(index, &self.tree.init) {
+					if let Some(child) = $from_stack(parent.1).$get_child(index, &self.tree.backend) {
 						let position = position.next::<N::Radix>();
 						match child.descend(
 							&self.dest,
@@ -436,7 +436,7 @@ impl<'a, N: TreeConf> $iter<'a, N> {
 			if let Some(last) = self.stack.stack.last_mut() {
 				let last_1 = $from_stack(last.1);
 				// try descend
-				if let Some(child) = last_1.$get_child(last.2, &self.tree.init) {
+				if let Some(child) = last_1.$get_child(last.2, &self.tree.backend) {
 					//let position = last.0.next::<N::Radix>();
 					let position = last.0;
 					position.set_index::<N::Radix>(&mut self.stack.key, last.2);
@@ -569,7 +569,7 @@ impl<'a, N: TreeConf> Iterator for SeekValueIter<'a, N> {
 	fn next(&mut self) -> Option<Self::Item> {
 		loop {
 			if let Some((key, pos, node)) = self.0.next() {
-				if let Some(v) = node.value(&self.0.tree.init) {
+				if let Some(v) = node.value(&self.0.tree.backend) {
 					let pos = pos.next_by::<N::Radix>(node.depth());
 					return Some((&key[..pos.index], v))
 				}
@@ -616,7 +616,7 @@ impl<'a, N: TreeConf> Iterator for SeekValueIterMut<'a, N> {
 	fn next(&mut self) -> Option<Self::Item> {
 		loop {
 			if let Some((key, pos, node)) = self.0.next() {
-				if let Some(v) = node.value(&self.0.tree.init) {
+				if let Some(v) = node.value(&self.0.tree.backend) {
 					let pos = pos.next_by::<N::Radix>(node.depth());
 					return Some((&key[..pos.index], v))
 				}
@@ -695,7 +695,7 @@ impl<'a, N: TreeConf> Iterator for ValueIter<'a, N> {
 	fn next(&mut self) -> Option<Self::Item> {
 		loop {
 			if let Some((mut key, pos, node)) = self.0.next() {
-				if let Some(v) = node.value(&self.0.tree.init) {
+				if let Some(v) = node.value(&self.0.tree.backend) {
 					key.truncate(pos.index);
 					return Some((key, v))
 				}
@@ -723,7 +723,7 @@ impl<'a, N: TreeConf> Iterator for ValueIterMut<'a, N> {
 	fn next(&mut self) -> Option<Self::Item> {
 		loop {
 			if let Some((mut key, pos, node)) = self.0.next() {
-				if let Some(v) = node.value_mut(&self.0.tree.init) {
+				if let Some(v) = node.value_mut(&self.0.tree.backend) {
 					key.truncate(pos.index);
 					return Some((key, v))
 				}

@@ -437,7 +437,7 @@ pub struct Node<N>
 	/// Children of this node
 	children: N::Children,
 
-	/// A backend for serializing the tree. `()` can be used if no serializing is needed.
+	/// Backend infos for serializing the tree. `()` can be used if no serializing is needed.
 	backend: N::NodeBackend,
 }
 
@@ -457,13 +457,12 @@ impl<N: TreeConf> Node<N> {
 		start_position: PositionFor<N>,
 		end_position: PositionFor<N>,
 		value: Option<N::Value>,
-		init: (),
-		backend: N::NodeBackend,
+		node_backend: N::NodeBackend,
 	) -> NodeBox<N> {
-		Box::new(Self::new(key, start_position, end_position, value, init, backend))
+		Box::new(Self::new(key, start_position, end_position, value, node_backend))
 	}
 
-	fn children_from_backend(
+	fn children_with_backend(
 		backend: &mut N::NodeBackend,
 	) -> N::Children {
 		let nb_children = backend.fetch_nb_children().unwrap_or(0);
@@ -494,10 +493,9 @@ impl<N: TreeConf> Node<N> {
 		start_position: PositionFor<N>,
 		end_position: PositionFor<N>,
 		value: Option<N::Value>,
-		_init: (),
 		mut backend: N::NodeBackend,
 	) -> Node<N> {
-		let children = Self::children_from_backend(&mut backend);
+		let children = Self::children_with_backend(&mut backend);
 		Node {
 			key: PrefixKey::new_offset(key, start_position, end_position),
 			value,
@@ -510,7 +508,7 @@ impl<N: TreeConf> Node<N> {
 		prefix: PrefixKey<NodeKeyBuff, AlignmentFor<N>>,
 		mut backend: N::NodeBackend,
 	) -> NodeBox<N> {
-		let children = Self::children_from_backend(&mut backend);
+		let children = Self::children_with_backend(&mut backend);
 		Box::new(Node {
 			key: prefix,
 			value: None,
@@ -921,9 +919,9 @@ pub struct Tree<N>
 	/// A root node if any.
 	tree: Option<NodeBox<N>>,
 
-	/// A backend if needed. TODO rename to backend
+	/// A backend for serializing the tree.
 	#[derivative(Debug="ignore")]
-	pub init: N::Backend,
+	pub backend: N::Backend,
 
 	/// When using backend, removed
 	/// node can be reuse, and removal is only done on commit.
@@ -939,7 +937,7 @@ impl<N> Default for Tree<N>
 	fn default() -> Self {
 		Tree {
 			tree: None,
-			init: Default::default(),
+			backend: Default::default(),
 			removed_node: Vec::new(),
 		}
 	}
@@ -950,23 +948,23 @@ impl<N> Tree<N>
 		N: TreeConf,
 {
 	/// Create a new empty tree.
-	pub fn new(init: N::Backend) -> Self {
+	pub fn new(backend: N::Backend) -> Self {
 		Tree {
 			tree: None,
-			init,
+			backend,
 			removed_node: Vec::new(),
 		}
 	}
 	
 	/// Instantiate an existing tree from its serializing
 	/// backend.
-	pub fn from_backend(init: N::Backend) -> Self {
-		let tree = N::Backend::get_root(&init).and_then(|(enc_root, root_ix)| {
+	pub fn from_backend(backend: N::Backend) -> Self {
+		let tree = N::Backend::get_root(&backend).and_then(|(enc_root, root_ix)| {
 			N::NodeBackend::init_root(enc_root, root_ix)
 		});
 		Tree {
 			tree,
-			init,
+			backend,
 			removed_node: Vec::new(),
 		}
 	}
@@ -975,10 +973,10 @@ impl<N> Tree<N>
 	pub fn commit(&mut self) {
 		if let Some(mut node) = self.tree.as_mut() {
 			for node in self.removed_node.drain(..) {
-				N::NodeBackend::delete(node, &self.init);
+				N::NodeBackend::delete(node, &self.backend);
 			}
-			if let Some(result) = N::NodeBackend::commit_change_fuse(&mut node, &mut self.removed_node, &self.init) {
-				self.init.set_root(result);
+			if let Some(result) = N::NodeBackend::commit_change_fuse(&mut node, &mut self.removed_node, &self.backend) {
+				self.backend.set_root(result);
 			}
 		}
 	}
@@ -1026,7 +1024,7 @@ impl<N: TreeConf> Tree<N> {
 			// TODO is this limit condition of any use
 			if key.len() == 0 {
 				if current.depth() == 0 {
-					return current.$value(&self.init);
+					return current.$value(&self.backend);
 				} else {
 					return None;
 				}
@@ -1039,7 +1037,7 @@ impl<N: TreeConf> Tree<N> {
 			loop {
 				match current.descend(key, position, dest_position) {
 					Descent::Child(child_position, index) => {
-						if let Some(child) = current.$get_child(index, &self.init) {
+						if let Some(child) = current.$get_child(index, &self.backend) {
 							position = child_position.next::<N::Radix>();
 							current = child;
 						} else {
@@ -1050,7 +1048,7 @@ impl<N: TreeConf> Tree<N> {
 						return None;
 					},
 					Descent::Match(_position) => {
-						return current.$value(&self.init);
+						return current.$value(&self.backend);
 					},
 				}
 			}
@@ -1086,7 +1084,7 @@ impl<N: TreeConf> Tree<N> {
 			// TODO is this limit condition of any use
 			if key.len() == 0 {
 				if current.depth() == 0 {
-					return current.value_no_cache(&self.init);
+					return current.value_no_cache(&self.backend);
 				} else {
 					return None;
 				}
@@ -1099,7 +1097,7 @@ impl<N: TreeConf> Tree<N> {
 			loop {
 				match current.descend(key, position, dest_position) {
 					Descent::Child(child_position, index) => {
-						if let Some(child) = current.get_child_no_cache(index, &self.init) {
+						if let Some(child) = current.get_child_no_cache(index, &self.backend) {
 							position = child_position.next::<N::Radix>();
 							current = child;
 						} else {
@@ -1110,7 +1108,7 @@ impl<N: TreeConf> Tree<N> {
 						return None;
 					},
 					Descent::Match(_position) => {
-						return current.value_no_cache(&self.init);
+						return current.value_no_cache(&self.backend);
 					},
 				}
 			}
@@ -1137,7 +1135,7 @@ impl<N: TreeConf> Tree<N> {
 						if current.has_child(index) { // has child for lifetime only
 							// insert is guaranteed to succeed so set backend change node when going down.
 							current.backend.set_children_change();
-							if let Some(child) = current.get_child_mut(index, &self.init) {
+							if let Some(child) = current.get_child_mut(index, &self.backend) {
 								position = child_position.next::<N::Radix>();
 								//position = child_position;
 								current = child;
@@ -1151,7 +1149,6 @@ impl<N: TreeConf> Tree<N> {
 								child_position,
 								dest_position,
 								None,
-								(),
 								N::new_node_backend(&mut self.removed_node),
 							);
 							new_child.set_value(value);
@@ -1169,7 +1166,6 @@ impl<N: TreeConf> Tree<N> {
 							child_start,
 							dest_position,
 							None,
-							(),
 							N::new_node_backend(&mut self.removed_node),
 						);
 						new_child.set_value(value);
@@ -1195,7 +1191,6 @@ impl<N: TreeConf> Tree<N> {
 				position,
 				dest_position,
 				None,
-				(),
 				N::new_node_backend_root(&mut self.removed_node),
 			));
 			self.tree.as_mut().map(|node| node.set_value(value));
@@ -1210,7 +1205,7 @@ impl<N: TreeConf> Tree<N> {
 		if let Some(top) = self.tree.as_mut() {
 			let current: &mut NodeBox<N> = top;
 			if key.len() == 0 && current.depth() == 0 {
-				let result = current.remove_value(with_value, &self.init);
+				let result = current.remove_value(with_value, &self.backend);
 				if current.number_child() == 0 {
 					empty_tree = Some(result);
 				} else {
@@ -1242,7 +1237,7 @@ impl<N: TreeConf> Tree<N> {
 				// TODO just accum unsafe backend ref and call when actual delete happen.
 				match current.descend(key, position, dest_position) {
 					Descent::Child(child_position, index) => {
-						if let Some(child) = current.get_child_mut(index, &self.init) {
+						if let Some(child) = current.get_child_mut(index, &self.backend) {
 							let old_position = child_position;
 							position = child_position.next::<N::Radix>();
 							current_ptr = child as *mut NodeBox<N>;
@@ -1264,7 +1259,7 @@ impl<N: TreeConf> Tree<N> {
 						return None;
 					},
 					Descent::Match(_position) => {
-						let result = current.remove_value(with_value, &self.init);
+						let result = current.remove_value(with_value, &self.backend);
 						if current.number_child() == 0 {
 							if let Some((parent, parent_position)) = parent {
 								let parent_index = parent_position.index::<N::Radix>(key)
