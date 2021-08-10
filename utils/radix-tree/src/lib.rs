@@ -394,7 +394,7 @@ pub trait TreeConf: Debug + Clone + Sized {
 	type Value: Value;
 	type Children: Children<Node = ChildFor<Self>, Radix = Self::Radix>;
 	type Backend: Backend;
-	type NodeBackend: NodeBackend<Self, Index = <Self::Backend as Backend>::Index>;
+	type NodeBackend: NodeBackend<Self>;
 
 	fn new_node_backend(removed_node: &mut Vec<Self::NodeBackend>) -> Self::NodeBackend {
 		Self::new_node_backend_root(removed_node)
@@ -412,7 +412,7 @@ pub trait TreeConf: Debug + Clone + Sized {
 pub(crate) type PositionFor<N> = Position<<<N as TreeConf>::Radix as RadixConf>::Alignment>;
 pub(crate) type AlignmentFor<N> = <<N as TreeConf>::Radix as RadixConf>::Alignment;
 pub(crate) type KeyIndexFor<N> = <<N as TreeConf>::Radix as RadixConf>::KeyIndex;
-pub(crate) type IndexFor<N> = <<N as TreeConf>::NodeBackend as NodeBackend<N>>::Index;
+pub(crate) type IndexFor<N> = <<N as TreeConf>::Backend as Backend>::Index;
 pub type ChildFor<N> = <<N as TreeConf>::NodeBackend as NodeBackend<N>>::ChildState;
 
 /// Node of a tree.
@@ -567,9 +567,9 @@ impl<N: TreeConf> Node<N> {
 		self.key.depth()
 	}
 
-	fn value<B2: Backend<Index = IndexFor<N>>>(
+	fn value(
 		&self,
-		_backend: &B2,
+		_backend: &N::Backend,
 	) -> Option<&N::Value> {
 		if N::NodeBackend::ACTIVE {
 			match self.backend.value_state()  {
@@ -585,9 +585,9 @@ impl<N: TreeConf> Node<N> {
 		self.value.as_ref()
 	}
 
-	fn value_mut<B2: Backend<Index = IndexFor<N>>>(
+	fn value_mut(
 		&mut self,
-		backend: &B2,
+		backend: &N::Backend,
 	) -> Option<&mut N::Value> {
 		if N::NodeBackend::ACTIVE {
 			match self.backend.value_state()  {
@@ -605,9 +605,9 @@ impl<N: TreeConf> Node<N> {
 		self.value.as_mut()
 	}
 
-	fn value_no_cache<B2: Backend<Index = IndexFor<N>>>(
+	fn value_no_cache(
 		&self,
-		backend: &B2,
+		backend: &N::Backend,
 	) -> Option<N::Value> {
 		if !N::NodeBackend::ACTIVE {
 			panic!("No backend");
@@ -625,10 +625,10 @@ impl<N: TreeConf> Node<N> {
 		replace(&mut self.value, Some(value))
 	}
 
-	fn remove_value<B2: Backend<Index = IndexFor<N>>>(
+	fn remove_value(
 		&mut self,
 		with_value: bool,
-		backend: &B2,
+		backend: &N::Backend,
 	) -> Option<N::Value> {
 		if N::NodeBackend::ACTIVE {
 			if with_value {
@@ -649,20 +649,20 @@ impl<N: TreeConf> Node<N> {
 		}
 	}
 
-	fn get_child<B2: Backend<Index = IndexFor<N>>>(
+	fn get_child(
 		&self,
 		index: KeyIndexFor<N>,
-		_backend: &B2,
+		_backend: &N::Backend,
 	) -> Option<&Self> {
 		if N::NodeBackend::ACTIVE {
 			panic!("Cannot fetch");
 		}
 		self.children.get_child(index).and_then(|c| c.node())
 	}
-	fn get_child_no_cache<B2: Backend<Index = IndexFor<N>>>( // TODO useless except if backend non mutable no_cache get 
+	fn get_child_no_cache( // TODO useless except if backend non mutable no_cache get 
 		&self,
 		index: KeyIndexFor<N>,
-		backend: &B2,
+		backend: &N::Backend,
 	) -> Option<NodeBox<N>> {
 		if !N::NodeBackend::ACTIVE {
 			panic!("No backend");
@@ -718,10 +718,10 @@ impl<N: TreeConf> Node<N> {
 		}
 	}
 	
-	fn get_child_mut<B2: Backend<Index = IndexFor<N>>>(
+	fn get_child_mut(
 		&mut self,
 		index: KeyIndexFor<N>,
-		backend: &B2,
+		backend: &N::Backend,
 	) -> Option<&mut Box<Self>> {
 		if N::NodeBackend::ACTIVE {
 			let resolved = if let Some(entry) = self.children.get_child_mut(index) {
@@ -741,10 +741,10 @@ impl<N: TreeConf> Node<N> {
 		self.children.get_child_mut(index).and_then(|c| c.node_mut())
 	}
 
-	fn get_child_mut_deref<B2: Backend<Index = IndexFor<N>>>(
+	fn get_child_mut_deref(
 		&mut self,
 		index: KeyIndexFor<N>,
-		backend: &B2,
+		backend: &N::Backend,
 	) -> Option<&mut Self> {
 		self.get_child_mut(index, backend).map(AsMut::as_mut)
 	}
@@ -1478,7 +1478,7 @@ impl <V: Value + Codec> TreeConf for Node256TestBackendART<V> {
 	type Value = V;
 	type Children = ART48_256<ChildFor<Self>>;
 	type Backend = Rc<RefCell<TestBackend>>;
-	type NodeBackend = backend::node_test::NodeTestBackend<Self, Rc<RefCell<TestBackend>>>;
+	type NodeBackend = backend::node_test::NodeTestBackend<Self>;
 }
 
 #[derive(Derivative)]
@@ -1490,7 +1490,7 @@ impl <V: Value + Codec> TreeConf for Node256TestBackend<V> {
 	type Value = V;
 	type Children = Children256<ChildFor<Self>>;
 	type Backend = Rc<RefCell<TestBackend>>;
-	type NodeBackend = backend::node_test::NodeTestBackend<Self, Rc<RefCell<TestBackend>>>;
+	type NodeBackend = backend::node_test::NodeTestBackend<Self>;
 }
 
 #[cfg(feature = "hash_backend")]
@@ -1504,5 +1504,5 @@ impl <V: Value + Codec> TreeConf for Node256HashedTestBackend<V> {
 	type Value = V;
 	type Children = Children256<ChildFor<Self>>;
 	type Backend = Rc<RefCell<HashedTestBackend>>;
-	type NodeBackend = backend::node_test::NodeTestBackend<Self, Rc<RefCell<HashedTestBackend>>>;
+	type NodeBackend = backend::node_test::NodeTestBackend<Self>;
 }

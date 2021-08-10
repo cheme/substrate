@@ -22,7 +22,7 @@
 //! a freetable declared in their column option
 //! to store indexing.
 
-use radix_tree::backends::Backend;
+use radix_tree::backend::Backend;
 use parity_db::{Db, Result as DbResult};
 use std::sync::Arc;
 

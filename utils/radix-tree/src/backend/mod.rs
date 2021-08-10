@@ -18,7 +18,7 @@
 //! Node backends for storing tree nodes.
 
 use crate::{TreeConf, KeyIndexFor,
-	NodeBox, Node, ValueState};
+	NodeBox, Node, ValueState, IndexFor};
 use alloc::vec::Vec;
 use alloc::rc::Rc;
 use alloc::boxed::Box;
@@ -71,27 +71,23 @@ pub trait NodeBackend<N: TreeConf>: Clone {
 	/// Just use `Box<Node<N>>` if inactive or `Child<Node<N>>` if active.
 	type ChildState: crate::WithChildState<crate::Node<N>>;
 
-	/// Inner backend used.
-	type Backend: Backend<Index = Self::Index>;
-	type Index;
-
 	/// Get a root node from the backend.
-	fn init_root(encoded_root: Vec<u8>, root_index: Self::Index) -> Option<NodeBox<N>>;
+	fn init_root(encoded_root: Vec<u8>, root_index: IndexFor<N>) -> Option<NodeBox<N>>;
 
 	fn new_node_backend() -> Self;
 
 	/// Get next defined node.
 	fn get_next_child_index(&self, from: Option<KeyIndexFor<N>>) -> Option<KeyIndexFor<N>>;
 	// TODO usefull ? fetch children?
-	fn get_node<B2: Backend<Index = Self::Index>>(&self, index: Self::Index, backend: &B2) -> Option<NodeBox<N>>;
+	fn get_node(&self, index: IndexFor<N>, backend: &N::Backend) -> Option<NodeBox<N>>;
 
 	// TODO replace by backend_hash_index -> bool ?
-	fn fetch_children_index(&self, at: KeyIndexFor<N>) -> Option<Self::Index>;
+	fn fetch_children_index(&self, at: KeyIndexFor<N>) -> Option<IndexFor<N>>;
 	/// Get a child node from the backend.
 	/// TODO use Self::Index instead of usize??
-	fn fetch_children<B2: Backend<Index = Self::Index>>(&mut self, at: KeyIndexFor<N>, backend: &B2) -> Option<Option<NodeBox<N>>>;
+	fn fetch_children(&mut self, at: KeyIndexFor<N>, backend: &N::Backend) -> Option<Option<NodeBox<N>>>;
 
-	fn fetch_children_no_cache<B2: Backend<Index = Self::Index>>(&self, at: KeyIndexFor<N>, backend: &B2) -> Option<NodeBox<N>>;
+	fn fetch_children_no_cache(&self, at: KeyIndexFor<N>, backend: &N::Backend) -> Option<NodeBox<N>>;
 
 //	fn resolve_parent(&self) -> Option<NodeBox<N>>;
 
@@ -112,11 +108,11 @@ pub trait NodeBackend<N: TreeConf>: Clone {
 	fn decrease_number_of_children(&mut self);
 
 	// TODO replace by backend_hash_value -> bool ?
-	fn fetch_value_index (&self) -> Option<Self::Index>;
+	fn fetch_value_index (&self) -> Option<IndexFor<N>>;
 
-	fn fetch_value<B2: Backend<Index = Self::Index>>(&mut self, backend: &B2) -> Option<Option<N::Value>>;
+	fn fetch_value(&mut self, backend: &N::Backend) -> Option<Option<N::Value>>;
 
-	fn fetch_value_no_cache<B2: Backend<Index = Self::Index>>(&self, backend: &B2) -> Option<N::Value>;
+	fn fetch_value_no_cache(&self, backend: &N::Backend) -> Option<N::Value>;
 
 	/// Indicate a child node was change.
 	/// TODO could consider adding position to avoid iterating on all child
@@ -131,21 +127,21 @@ pub trait NodeBackend<N: TreeConf>: Clone {
 	
 	/// Delete a node.
 	/// Does flush change immediatly.
-	fn delete<B2: Backend<Index = Self::Index>>(self, backend: &B2);
+	fn delete(self, backend: &N::Backend);
 
 	/// Flush changes that happens to a node.
 	/// return new backend index if changed.
-	fn commit_change<B2: Backend<Index = Self::Index>>(
+	fn commit_change(
 		node: &mut NodeBox<N>,
 		remove_node: &mut Vec<N::NodeBackend>,
-		backend: &B2,
-	) -> Option<Self::Index>;
+		backend: &N::Backend,
+	) -> Option<IndexFor<N>>;
 
-	fn commit_change_fuse<B2: Backend<Index = Self::Index>>(
+	fn commit_change_fuse(
 		node: &mut NodeBox<N>,
 		remove_node: &mut Vec<N::NodeBackend>,
-		backend: &B2,
-	) -> Option<Self::Index> {
+		backend: &N::Backend,
+	) -> Option<IndexFor<N>> {
 		if Self::FUSE_ON_COMMIT
 			&& node.number_child() == 1
 			&& !node.has_value()
@@ -170,29 +166,26 @@ impl<N: TreeConf> NodeBackend<N> for () {
 	const ACTIVE: bool = false;
 	type ChildState = Box<Node<N>>;
 
-	type Backend = ();
-	type Index = ();
-
-	fn init_root(_encoded_root: Vec<u8>, _root_index: Self::Index) -> Option<NodeBox<N>> {
+	fn init_root(_encoded_root: Vec<u8>, _root_index: IndexFor<N>) -> Option<NodeBox<N>> {
 		None
 	}
 
-	fn get_node<B2: Backend<Index = Self::Index>>(&self, _index: Self::Index, _backend: &B2) -> Option<NodeBox<N>> {
+	fn get_node(&self, _index: IndexFor<N>, _backend: &N::Backend) -> Option<NodeBox<N>> {
 		None
 	}
 
 	fn get_next_child_index(&self, _index: Option<KeyIndexFor<N>>) -> Option<KeyIndexFor<N>> {
 		None
 	}
-	fn fetch_children<B2: Backend<Index = Self::Index>>(&mut self, _at: KeyIndexFor<N>, _backend: &B2) -> Option<Option<NodeBox<N>>> {
+	fn fetch_children(&mut self, _at: KeyIndexFor<N>, _backend: &N::Backend) -> Option<Option<NodeBox<N>>> {
 		None
 	}
 
-	fn fetch_children_index(&self, _at: KeyIndexFor<N>) -> Option<Self::Index> {
+	fn fetch_children_index(&self, _at: KeyIndexFor<N>) -> Option<IndexFor<N>> {
 		None
 	}
 
-	fn fetch_children_no_cache<B2: Backend<Index = Self::Index>>(&self, _at: KeyIndexFor<N>, _backend: &B2) -> Option<NodeBox<N>> {
+	fn fetch_children_no_cache(&self, _at: KeyIndexFor<N>, _backend: &N::Backend) -> Option<NodeBox<N>> {
 		None
 	}
 
@@ -200,15 +193,15 @@ impl<N: TreeConf> NodeBackend<N> for () {
 		None
 	}
 
-	fn fetch_value_index (&self) -> Option<Self::Index> {
+	fn fetch_value_index (&self) -> Option<IndexFor<N>> {
 		None
 	}
 
-	fn fetch_value<B2: Backend<Index = Self::Index>>(&mut self, _backend: &B2) -> Option<Option<N::Value>> {
+	fn fetch_value(&mut self, _backend: &N::Backend) -> Option<Option<N::Value>> {
 		None
 	}
 
-	fn fetch_value_no_cache<B2: Backend<Index = Self::Index>>(&self, _backend: &B2) -> Option<N::Value> {
+	fn fetch_value_no_cache(&self, _backend: &N::Backend) -> Option<N::Value> {
 		None
 	}
 
@@ -218,14 +211,14 @@ impl<N: TreeConf> NodeBackend<N> for () {
 	fn set_prefix_change(&mut self) {
 	}
 
-	fn delete<B2: Backend<Index = Self::Index>>(self, _: &B2) {
+	fn delete(self, _: &N::Backend) {
 	}
 
-	fn commit_change<B2: Backend<Index = Self::Index>>(
+	fn commit_change(
 		_node: &mut NodeBox<N>,
 		_remove_node: &mut Vec<N::NodeBackend>,
-		_: &B2,
-	) -> Option<Self::Index> {
+		_: &N::Backend,
+	) -> Option<IndexFor<N>> {
 		None
 	}
 
