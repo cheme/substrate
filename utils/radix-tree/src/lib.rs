@@ -44,9 +44,9 @@ use codec::Codec;
 pub use backend::NodeBackend;
 use alloc::rc::Rc;
 use core::cell::RefCell;
-use backend::TestBackend;
+use backend::test_backend::TestBackend;
 #[cfg(feature = "hash_backend")]
-use backend::HashedTestBackend;
+use backend::test_backend::HashedTestBackend;
 use backend::Backend;
 
 /// Alias to type of a key as used by external api.
@@ -112,7 +112,7 @@ impl<D, P> PrefixKey<D, P>
 		if P::ALIGNED {
 			self.data.borrow().len()
 		} else {
-			let nb_mask = P::Mask::LAST.to_index() + 1; // TODO associated const, but merge useless traits first
+			let nb_mask = P::Mask::LAST.to_index() + 1;
 			let mut len = self.data.borrow().len() * nb_mask as usize;
 			len -= self.start.to_index() as usize;
 			if P::Mask::FIRST != self.end {
@@ -127,7 +127,6 @@ impl<P> PrefixKey<NodeKeyBuff, P>
 	where
 		P: PrefixKeyConf,
 {
-	// TODO consider returning the skipped byte aka key index (avoid fetching it before split_off)
 	fn child_split_off<R: RadixConf<Alignment = P>>(&mut self, position: Position<P>) -> Self {
 		let split_end = self.end;
 		let shift = if position.mask == MaskFor::<R>::FIRST {
@@ -189,10 +188,7 @@ fn common_until<D1, D2, N>(one: &PrefixKey<D1, N::Alignment>, other: &PrefixKey<
 			mask: MaskFor::<N>::FIRST,
 		}
 	} else {
-		// TODO replace by debug_assert later.
-		if one.start != other.start {
-			panic!("Unaligned call to common_until.");
-		}
+		debug_assert!(one.start == other.start);
 
 		let left = one.data.borrow();
 		let right = other.data.borrow();
@@ -282,74 +278,8 @@ fn common_until<D1, D2, N>(one: &PrefixKey<D1, N::Alignment>, other: &PrefixKey<
 	}
 }
 
-//	fn common_depth_next(&self, other: &Self) -> Descent<P> {
-/*		// key must be aligned.
-		assert!(self.start == other.start);
-		let left = self.data.borrow();
-		let right = other.data.borrow();
-		assert!(self.start == other.start);
-		if left.len() == 0 {
-			if right.len() == 0 {
-				return Descent::Match(Position::zero());
-			} else {
-				return Descent::Middle(Position::zero(), other.index(Position::zero()));
-			}
-		} else if right.len() == 0 {
-			return Descent::Child(Position::zero(), self.index(Position::zero()));
-		}
-		let mut index = 0;
-		let mut delta = self.unchecked_first_byte() ^ other.unchecked_last_byte();
-		if delta == 0 {
-			let upper_bound = min(left.len(), right.len());
-			for i in 1..(upper_bound - 1) {
-				if left[i] != right[i] {
-					index = i;
-					break;
-				}
-			}
-			if index == 0 {
-				index = upper_bound - 1;
-				delta = if left.len() == upper_bound {
-					self.unchecked_last_byte() ^ right[index]
-				} else {
-					left[index] ^ other.unchecked_last_byte()
-				};
-			} else {
-				delta = left[index] ^ right[index];
-			}
-		}
-		if delta == 0 {
-			Position {
-				index: index + 1,
-				mask: 0,
-			}
-		} else {
-			let mask = 255u8 >> delta.leading_zeros();
-			Position {
-				index,
-				mask,
-			}
-		}*/
-//	}
-/*
-	// TODO remove that??
-	fn index(&self, ix: Position<P>) -> P::KeyIndex {
-		let mask = 128u8 >> ix.mask.leading_zeros();
-		if (self.data.borrow()[ix.index] & mask) == 0 {
-			KeyIndex {
-				right: false,
-			}
-		} else {
-			KeyIndex {
-				right: true,
-			}
-		}
-	}
-*/
-
 impl<P> PrefixKey<NodeKeyBuff, P>
-	where
-		P: PrefixKeyConf,
+	where P: PrefixKeyConf,
 {
 	/// start is inclusive, end is exclusive.
 	/// This function cannot build an empty `PrefixKey`,
