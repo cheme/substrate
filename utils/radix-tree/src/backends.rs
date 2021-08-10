@@ -79,25 +79,23 @@ pub trait NodeBackend<N: TreeConf>: Clone {
 	type Backend: Backend<Index = Self::Index>;
 	type Index;
 
-	/// TODO consider keeping backend out of node.
-	fn backend(&self) -> &Self::Backend;
-
 	/// Get a root node from the backend.
-	/// TODO specialize return node to commit recursively on drop.
-	fn get_root(init: &Self::Backend) -> Option<NodeBox<N>>;
+	fn init_root(encoded_root: Vec<u8>, root_index: Self::Index) -> Option<NodeBox<N>>;
+
+	fn new_node_backend() -> Self;
 
 	/// Get next defined node.
 	fn get_next_child_index(&self, from: Option<KeyIndexFor<N>>) -> Option<KeyIndexFor<N>>;
 	// TODO usefull ? fetch children?
-	fn get_node(&self, index: Self::Index) -> Option<NodeBox<N>>;
+	fn get_node<B2: Backend<Index = Self::Index>>(&self, index: Self::Index, backend: &B2) -> Option<NodeBox<N>>;
 
 	// TODO replace by backend_hash_index -> bool ?
 	fn fetch_children_index(&self, at: KeyIndexFor<N>) -> Option<Self::Index>;
 	/// Get a child node from the backend.
 	/// TODO use Self::Index instead of usize??
-	fn fetch_children(&mut self, at: KeyIndexFor<N>) -> Option<Option<NodeBox<N>>>;
+	fn fetch_children<B2: Backend<Index = Self::Index>>(&mut self, at: KeyIndexFor<N>, backend: &B2) -> Option<Option<NodeBox<N>>>;
 
-	fn fetch_children_no_cache(&self, at: KeyIndexFor<N>) -> Option<NodeBox<N>>;
+	fn fetch_children_no_cache<B2: Backend<Index = Self::Index>>(&self, at: KeyIndexFor<N>, backend: &B2) -> Option<NodeBox<N>>;
 
 //	fn resolve_parent(&self) -> Option<NodeBox<N>>;
 
@@ -120,9 +118,9 @@ pub trait NodeBackend<N: TreeConf>: Clone {
 	// TODO replace by backend_hash_value -> bool ?
 	fn fetch_value_index (&self) -> Option<Self::Index>;
 
-	fn fetch_value(&mut self) -> Option<Option<N::Value>>;
+	fn fetch_value<B2: Backend<Index = Self::Index>>(&mut self, backend: &B2) -> Option<Option<N::Value>>;
 
-	fn fetch_value_no_cache(&self) -> Option<N::Value>;
+	fn fetch_value_no_cache<B2: Backend<Index = Self::Index>>(&self, backend: &B2) -> Option<N::Value>;
 
 	/// Indicate a child node was change.
 	/// TODO could consider adding position to avoid iterating on all child
@@ -137,23 +135,29 @@ pub trait NodeBackend<N: TreeConf>: Clone {
 	
 	/// Delete a node.
 	/// Does flush change immediatly.
-	fn delete(self);
+	fn delete<B2: Backend<Index = Self::Index>>(self, backend: &B2);
 
 	/// Flush changes that happens to a node.
 	/// return new backend index if changed.
-	fn commit_change(node: &mut NodeBox<N>, remove_node: &mut Vec<N::NodeBackend>) -> Option<Self::Index>;
+	fn commit_change<B2: Backend<Index = Self::Index>>(
+		node: &mut NodeBox<N>,
+		remove_node: &mut Vec<N::NodeBackend>,
+		backend: &B2,
+	) -> Option<Self::Index>;
 
-	fn commit_change_fuse(node: &mut NodeBox<N>, remove_node: &mut Vec<N::NodeBackend>) -> Option<Self::Index> {
+	fn commit_change_fuse<B2: Backend<Index = Self::Index>>(
+		node: &mut NodeBox<N>,
+		remove_node: &mut Vec<N::NodeBackend>,
+		backend: &B2,
+	) -> Option<Self::Index> {
 		if Self::FUSE_ON_COMMIT
 			&& node.number_child() == 1
 			&& !node.has_value()
 		{
 			Node::<N>::fuse_child(node, remove_node);
 		}
-		Self::commit_change(node, remove_node)
+		Self::commit_change(node, remove_node, backend)
 	}
-
-	fn new_node_backend(backend: &Self::Backend) -> Self;
 
 	/// Value state is stored in backend.
 	fn value_state(&self) -> ValueState;
@@ -173,17 +177,18 @@ impl<N: TreeConf> NodeBackend<N> for () {
 	type Backend = ();
 	type Index = ();
 
-	fn backend(&self) -> &Self::Backend { self }
-
-	fn get_root(_init: &Self::Backend) -> Option<NodeBox<N>> { None }
-
-	fn get_node(&self, _index: Self::Index) -> Option<NodeBox<N>> {
+	fn init_root(_encoded_root: Vec<u8>, _root_index: Self::Index) -> Option<NodeBox<N>> {
 		None
 	}
+
+	fn get_node<B2: Backend<Index = Self::Index>>(&self, _index: Self::Index, _backend: &B2) -> Option<NodeBox<N>> {
+		None
+	}
+
 	fn get_next_child_index(&self, _index: Option<KeyIndexFor<N>>) -> Option<KeyIndexFor<N>> {
 		None
 	}
-	fn fetch_children(&mut self, _at: KeyIndexFor<N>) -> Option<Option<NodeBox<N>>> {
+	fn fetch_children<B2: Backend<Index = Self::Index>>(&mut self, _at: KeyIndexFor<N>, _backend: &B2) -> Option<Option<NodeBox<N>>> {
 		None
 	}
 
@@ -191,7 +196,7 @@ impl<N: TreeConf> NodeBackend<N> for () {
 		None
 	}
 
-	fn fetch_children_no_cache(&self, _at: KeyIndexFor<N>) -> Option<NodeBox<N>> {
+	fn fetch_children_no_cache<B2: Backend<Index = Self::Index>>(&self, _at: KeyIndexFor<N>, _backend: &B2) -> Option<NodeBox<N>> {
 		None
 	}
 
@@ -203,11 +208,11 @@ impl<N: TreeConf> NodeBackend<N> for () {
 		None
 	}
 
-	fn fetch_value(&mut self) -> Option<Option<N::Value>> {
+	fn fetch_value<B2: Backend<Index = Self::Index>>(&mut self, _backend: &B2) -> Option<Option<N::Value>> {
 		None
 	}
 
-	fn fetch_value_no_cache(&self) -> Option<N::Value> {
+	fn fetch_value_no_cache<B2: Backend<Index = Self::Index>>(&self, _backend: &B2) -> Option<N::Value> {
 		None
 	}
 
@@ -217,14 +222,18 @@ impl<N: TreeConf> NodeBackend<N> for () {
 	fn set_prefix_change(&mut self) {
 	}
 
-	fn delete(self) {
+	fn delete<B2: Backend<Index = Self::Index>>(self, _: &B2) {
 	}
 
-	fn commit_change(_node: &mut NodeBox<N>, _remove_node: &mut Vec<N::NodeBackend>) -> Option<Self::Index> {
+	fn commit_change<B2: Backend<Index = Self::Index>>(
+		_node: &mut NodeBox<N>,
+		_remove_node: &mut Vec<N::NodeBackend>,
+		_: &B2,
+	) -> Option<Self::Index> {
 		None
 	}
 
-	fn new_node_backend(_backend: &Self::Backend) -> Self {
+	fn new_node_backend() -> Self {
 		()
 	}
 	fn value_state(&self) -> ValueState {
@@ -399,6 +408,7 @@ impl Backend for Rc<RefCell<HashedTestBackend>> {
 }
 
 /// Test only backend with lazy access.
+/// TODO Index as param
 #[derive(Clone, Debug)]
 pub struct NodeTestBackend<N: TreeConf, B: Backend> {
 	// None for new node only.
@@ -409,16 +419,14 @@ pub struct NodeTestBackend<N: TreeConf, B: Backend> {
 	pending_nb_children: usize,
 	value: Option<B::Index>,
 	value_state: ValueState,
-	backend: B,
 	children_changed: bool,
 	prefix_changed: bool,
-	_ph: core::marker::PhantomData<N>,
+	_ph: core::marker::PhantomData<(N, B)>,
 }
 
 // TODO replace backend by N::Backend when attached
 fn decode<N, B>(
 	encoded: Vec<u8>,
-	backend: &B,
 	index: B::Index,
 ) -> (NodeTestBackend<N, B>, PrefixKey<Vec<u8>, AlignmentFor<N>>)
 	where
@@ -477,7 +485,6 @@ fn decode<N, B>(
 		value_state: ValueState::Unfetched,
 		pending_nb_children: nb_children,
 		nb_children,
-		backend: backend.clone(),
 		children_changed: false,
 		prefix_changed: false,
 		_ph: Default::default(),
@@ -542,24 +549,16 @@ impl<N, B> NodeBackend<N> for NodeTestBackend<N, B>
 	type Backend = B;
 	type Index = <Self::Backend as Backend>::Index;
 
-	fn backend(&self) -> &Self::Backend {
-		&self.backend
+	fn init_root(encoded: Vec<u8>, index: Self::Index) -> Option<NodeBox<N>> {
+		let (backend, prefix) = decode::<N, B>(encoded, index);
+		Some(Node::<N>::new_box_unfetched(
+			prefix,
+			backend,
+		))
 	}
-
-	fn get_root(init: &Self::Backend) -> Option<NodeBox<N>> {
-		if let Some((encoded, index)) = init.get_root() {
-			let (backend, prefix) = decode::<N, B>(encoded, init, index);
-			Some(Node::<N>::new_box_unfetched(
-				prefix,
-				backend,
-			))
-		} else {
-			None
-		}
-	}
-	fn get_node(&self, index: Self::Index) -> Option<NodeBox<N>> {
-		if let Some(encoded) = self.backend.get_node(index.clone()) {
-			let (backend, prefix) = decode::<N, B>(encoded, &self.backend, index);
+	 fn get_node<B2: Backend<Index = Self::Index>>(&self, index: Self::Index, backend: &B2) -> Option<NodeBox<N>> {
+		if let Some(encoded) = backend.get_node(index.clone()) {
+			let (backend, prefix) = decode::<N, B>(encoded, index);
 			Some(Node::<N>::new_box_unfetched(
 				prefix,
 				backend,
@@ -590,10 +589,10 @@ impl<N, B> NodeBackend<N> for NodeTestBackend<N, B>
 		}
 	}
 
-	fn fetch_children(&mut self, at: KeyIndexFor<N>) -> Option<Option<NodeBox<N>>> {
+	fn fetch_children<B2: Backend<Index = Self::Index>>(&mut self, at: KeyIndexFor<N>, backend: &B2) -> Option<Option<NodeBox<N>>> {
 		if let Some(child) = self.child_index.get_mut(at.to_usize()) {
 			if let Some(index) = child.clone() {
-				return Some(self.get_node(index));
+				return Some(self.get_node(index, backend));
 			} else {
 				return Some(None);
 			}
@@ -601,10 +600,10 @@ impl<N, B> NodeBackend<N> for NodeTestBackend<N, B>
 		None
 	}
 
-	fn fetch_children_no_cache(&self, at: KeyIndexFor<N>) -> Option<NodeBox<N>> {
+	fn fetch_children_no_cache<B2: Backend<Index = Self::Index>>(&self, at: KeyIndexFor<N>, backend: &B2) -> Option<NodeBox<N>> {
 		if let Some(child) = self.child_index.get(at.to_usize()) {
 			if let Some(index) = child.clone() {
-				return self.get_node(index);
+				return self.get_node(index, backend);
 			}
 		}
 		None
@@ -619,22 +618,22 @@ impl<N, B> NodeBackend<N> for NodeTestBackend<N, B>
 		self.value.clone()
 	}
 
-	fn fetch_value(&mut self) -> Option<Option<N::Value>> {
+	fn fetch_value<B2: Backend<Index = Self::Index>>(&mut self, backend: &B2) -> Option<Option<N::Value>> {
 		if self.value_state != ValueState::Unfetched {
 			None
 		} else {
 			self.value_state = ValueState::Resolved;
 			if let Some(ix) = self.value.clone() {
-				let value = self.backend.get_node(ix).expect("Value stored with node.");
+				let value = backend.get_node(ix).expect("Value stored with node.");
 				Some(Some(Decode::decode(&mut value.as_slice()).unwrap()))
 			} else {
 				Some(None)
 			}
 		}
 	}
-	fn fetch_value_no_cache(&self) -> Option<N::Value> {
+	fn fetch_value_no_cache<B2: Backend<Index = Self::Index>>(&self, backend: &B2) -> Option<N::Value> {
 		if let Some(ix) = self.value.clone() {
-			self.backend.get_node(ix).map(|value| Decode::decode(&mut value.as_slice()).unwrap())
+			backend.get_node(ix).map(|value| Decode::decode(&mut value.as_slice()).unwrap())
 		} else {
 			None
 		}
@@ -646,13 +645,13 @@ impl<N, B> NodeBackend<N> for NodeTestBackend<N, B>
 		self.prefix_changed = true;
 	}
 
-	fn delete(self) {
+	fn delete<B2: Backend<Index = Self::Index>>(self, backend: &B2) {
 		if let Some(index) = self.index {
-			self.backend.remove_node(index);
+			backend.remove_node(index);
 		}
 	}
 
-	fn new_node_backend(backend: &Self::Backend) -> Self {
+	fn new_node_backend() -> Self {
 		NodeTestBackend {
 			index: None,
 			encoded: Vec::new(),
@@ -660,7 +659,6 @@ impl<N, B> NodeBackend<N> for NodeTestBackend<N, B>
 			value: None,
 			nb_children: 0,
 			pending_nb_children: 0,
-			backend: backend.clone(),
 			children_changed: false,
 			prefix_changed: true, // new node need update
 			value_state: ValueState::Resolved,
@@ -668,7 +666,11 @@ impl<N, B> NodeBackend<N> for NodeTestBackend<N, B>
 		}
 	}
 
-	fn commit_change(node: &mut NodeBox<N>, remove_node: &mut Vec<N::NodeBackend>) -> Option<Self::Index> {
+	fn commit_change<B2: Backend<Index = Self::Index>>(
+		node: &mut NodeBox<N>,
+		remove_node: &mut Vec<N::NodeBackend>,
+		backend: &B2,
+	) -> Option<Self::Index> {
 		let mut encoded_change = false;
 		let changed = node.backend.children_changed
 			|| node.backend.prefix_changed
@@ -689,7 +691,7 @@ impl<N, B> NodeBackend<N> for NodeTestBackend<N, B>
 				use crate::children::Children;
 				use crate::WithChildState;
 				if let Some(mut child) = node.children.get_child_mut(i).and_then(|c| c.node_mut()) {
-					if let Some(ix) = Self::commit_change_fuse(&mut child, remove_node) {
+					if let Some(ix) = Self::commit_change_fuse(&mut child, remove_node, backend) {
 						encoded_change = true;
 						node.backend.child_index[backend_ix] = Some(ix);
 					} else {
@@ -713,9 +715,9 @@ impl<N, B> NodeBackend<N> for NodeTestBackend<N, B>
 			if let Some(value) = node.value.as_ref() {
 				let encoded = value.encode();
 				let ix = if let Some(previous) = node.backend.value.clone() {
-					node.backend.backend.update_node(previous.clone(), encoded).unwrap_or(previous)
+					backend.update_node(previous.clone(), encoded).unwrap_or(previous)
 				} else {
-					node.backend.backend.set_new_node(encoded)
+					backend.set_new_node(encoded)
 				};
 
 				if node.backend.value.as_ref() != Some(&ix) {
@@ -729,7 +731,7 @@ impl<N, B> NodeBackend<N> for NodeTestBackend<N, B>
 		}
 		if node.backend.value_state == ValueState::Deleted {
 			if let Some(previous) = node.backend.value.clone() {
-				node.backend.backend.remove_node(previous);
+				backend.remove_node(previous);
 				encoded_change = true;
 			} else {
 				unreachable!("deleted should be some");
@@ -751,9 +753,9 @@ impl<N, B> NodeBackend<N> for NodeTestBackend<N, B>
 			let encoded = encode_node::<N, B>(node);
 			// TODO additional change check??
 			if let Some(i) = node.backend.index.as_ref() {
-				node.backend.backend.update_node(i.clone(), encoded)
+				backend.update_node(i.clone(), encoded)
 			} else {
-				Some(node.backend.backend.set_new_node(encoded))
+				Some(backend.set_new_node(encoded))
 			}
 		} else {
 			None

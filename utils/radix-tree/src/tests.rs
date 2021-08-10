@@ -23,7 +23,9 @@ use crate::{Node256NoBackend, Node256NoBackendART, Node256TestBackendART,
 #[cfg(any(test, feature = "fuzzer"))]
 #[cfg(feature = "hash_backend")]
 use crate::Node256HashedTestBackend;
-//use crate::{Node256HashBackend, Node256LazyHashBackend, Node256TxBackend};
+
+#[cfg(any(test, feature = "fuzzer"))]
+type BackendFor<N> = <N as crate::TreeConf>::Backend;
 
 macro_rules! test_for {
 	($module_name: ident, $backend_conf: ident, $check_backend_ser: expr) => {
@@ -32,6 +34,7 @@ macro_rules! test_for {
 #[cfg(any(test, feature = "fuzzer"))]
 pub mod $module_name {
 	use crate::*;
+	use super::BackendFor;
 	use alloc::collections::btree_map::BTreeMap;
 	#[cfg(test)]
 	use alloc::vec;
