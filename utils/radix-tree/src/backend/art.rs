@@ -99,6 +99,17 @@ impl<N> ArtLocalBackend<N>
 			value_state: ValueState::Resolved,
 		}
 	}
+
+	fn need_resize(&self) -> Option<Self> {
+		match self.encoded {
+			ArtEncoded::Art4(..) => self.pending_nb_children > 4,
+			ArtEncoded::Art16(..) => self.pending_nb_children > 16
+					|| self.pending_nb_children < 5,
+			ArtEncoded::Art48(..) => self.pending_nb_children > 48
+					|| self.pending_nb_children < 17,
+			ArtEncoded::Art256(..) => self.pending_nb_children < 49,
+		}.then(|| Self::with_capacity(self.pending_nb_children))
+	}
 }
 
 #[derive(Clone, Debug)]
@@ -199,6 +210,26 @@ impl<N> ArtEncoded<N>
 		};
 		PrefixKey::new_offset(prefix, start, end)
 	}
+
+	// TODO use in node_test
+	pub fn write_prefix(key: &PrefixKey<Vec<u8>, AlignmentFor<N>>) -> Vec<u8> {
+		let mut result = Vec::with_capacity(key.data.len() + 1 + if <N::Radix as RadixConf>::Alignment::DEFAULT.is_some() {
+			0
+		} else {
+			2
+		});
+		if <N::Radix as RadixConf>::Alignment::DEFAULT.is_some() {
+		} else {
+			result.push(<N::Radix as RadixConf>::Alignment::encode_mask(key.start));
+		};
+		key.data.encode_to(&mut result); // TODO use varint encode for len and replace its size for 1.
+		if <N::Radix as RadixConf>::Alignment::DEFAULT.is_some() {
+		} else {
+			result.push(<N::Radix as RadixConf>::Alignment::encode_mask(key.end));
+		};
+		result
+	}
+
 	fn nb_children(&self) -> usize {
 		match self {
 			ArtEncoded::Art4(art, _) => art.nb_children(),
@@ -235,6 +266,56 @@ impl<N> ArtEncoded<N>
 			ArtEncoded::Art256(art) => art.fetch_children_index(at),
 		}
 	}
+
+	fn set_value_index(&mut self, index: u64) {
+		match self {
+			ArtEncoded::Art4(art, _) => art.set_value_index(index),
+			ArtEncoded::Art16(art) => art.set_value_index(index),
+			ArtEncoded::Art48(art) => art.set_value_index(index),
+			ArtEncoded::Art256(art) => art.set_value_index(index),
+		}
+	}
+
+	fn set_children_index(&mut self, at: KeyIndexFor<N>, index: u64) -> bool {
+		let at = at.to_usize();
+		match self {
+			ArtEncoded::Art4(art, _) => art.set_children_index(at, index),
+			ArtEncoded::Art16(art) => art.set_children_index(at, index),
+			ArtEncoded::Art48(art) => art.set_children_index(at, index),
+			ArtEncoded::Art256(art) => art.set_children_index(at, index),
+		}
+	}
+
+	fn remove_children_index(&mut self, at: KeyIndexFor<N>) {
+		let at = at.to_usize();
+		match self {
+			ArtEncoded::Art4(art, _) => art.remove_children_index(at),
+			ArtEncoded::Art16(art) => art.remove_children_index(at),
+			ArtEncoded::Art48(art) => art.remove_children_index(at),
+			ArtEncoded::Art256(art) => art.remove_children_index(at),
+		}
+	}
+
+	fn as_ref(&self) -> &[u8] {
+		match self {
+			ArtEncoded::Art4(art, _) => art.as_ref(),
+			ArtEncoded::Art16(art) => art.as_ref(),
+			ArtEncoded::Art48(art) => art.as_ref(),
+			ArtEncoded::Art256(art) => art.as_ref(),
+		}
+	}
+
+	fn set_prefix(&mut self, prefix: &PrefixKey<Vec<u8>, AlignmentFor<N>>) {
+		let encoded_prefix = Self::write_prefix(prefix);
+		match self {
+			ArtEncoded::Art4(art, _) => art.set_prefix(encoded_prefix),
+			ArtEncoded::Art16(art) => art.set_prefix(encoded_prefix),
+			ArtEncoded::Art48(art) => art.set_prefix(encoded_prefix),
+			ArtEncoded::Art256(art) => art.set_prefix(encoded_prefix),
+		}
+	}
+
+
 }
 
 const ART4_FIX_LEN: usize = 1 + 4 + 5 * 8;
@@ -331,7 +412,7 @@ impl Art4 {
 		}
 		if four_ix != ART4_NB {
 			self.0[four_ix + 1] = at as u8;
-			let i = 5 - four_ix;
+			let i = ART4_NB + 1 - four_ix;
 			let i = ART4_FIX_LEN - i * 8;
 			write_u64(index, &mut self.0[i .. i + 8]);
 			true
@@ -340,8 +421,35 @@ impl Art4 {
 		}
 	}
 
+	fn remove_children_index(&mut self, at: usize) {
+		for i in 0..ART4_NB {
+			let ix = self.0[i + 1] as usize;
+			if at == ix {
+				if at == 0 && self.read_child_index(i) == 0 {
+					break;
+				}
+				self.0[0] -= 1;
+				self.0.copy_within(i + 2 .. ART4_NB + 1, i + 1);
+				self.0[ART4_NB] = 0;
+				let i = ART4_NB - i;
+				let i = ART4_FIX_LEN - i * 8;
+				let ie = ART4_FIX_LEN - 1 * 8;
+				self.0.copy_within(i .. ie, i - 8);
+				write_u64(0, &mut self.0[i - 8 .. i]);
+				break;
+			} else if ix < at {
+				break;
+			}
+		}
+	}
+
 	fn as_ref(&self) -> &[u8] {
 		&self.0[..]
+	}
+
+	fn set_prefix(&mut self, mut prefix: Vec<u8>) {
+		self.0.truncate(ART4_FIX_LEN);
+		self.0.append(&mut prefix);
 	}
 }
 
@@ -400,8 +508,24 @@ impl Art16 {
 		unimplemented!()
 	}
 
+	fn set_value_index(&mut self, index: u64) {
+		unimplemented!()
+	}
+
+	fn set_children_index(&mut self, at: usize, index: u64) -> bool {
+		unimplemented!()
+	}
+
+	fn remove_children_index(&mut self, at: usize) {
+		unimplemented!()
+	}
+
 	fn as_ref(&self) -> &[u8] {
 		&self.0[..]
+	}
+
+	fn set_prefix(&mut self, prefix: Vec<u8>) {
+		unimplemented!()
 	}
 }
 
@@ -430,8 +554,24 @@ impl Art48 {
 		unimplemented!()
 	}
 
+	fn set_value_index(&mut self, index: u64) {
+		unimplemented!()
+	}
+
+	fn set_children_index(&mut self, at: usize, index: u64) -> bool {
+		unimplemented!()
+	}
+
+	fn remove_children_index(&mut self, at: usize) {
+		unimplemented!()
+	}
+
 	fn as_ref(&self) -> &[u8] {
 		&self.0[..]
+	}
+
+	fn set_prefix(&mut self, prefix: Vec<u8>) {
+		unimplemented!()
 	}
 }
 
@@ -452,16 +592,32 @@ impl Art256 {
 		unimplemented!()
 	}
 
-	fn fetch_value_index (&self) -> Option<u64> {
+	fn fetch_value_index(&self) -> Option<u64> {
 		unimplemented!()
 	}
 
-	fn fetch_children_index (&self, at: usize) -> Option<u64> {
+	fn fetch_children_index(&self, at: usize) -> Option<u64> {
+		unimplemented!()
+	}
+
+	fn set_value_index(&mut self, index: u64) {
+		unimplemented!()
+	}
+
+	fn set_children_index(&mut self, at: usize, index: u64) -> bool {
+		unimplemented!()
+	}
+
+	fn remove_children_index(&mut self, at: usize) {
 		unimplemented!()
 	}
 
 	fn as_ref(&self) -> &[u8] {
 		&self.0[..]
+	}
+
+	fn set_prefix(&mut self, prefix: Vec<u8>) {
+		unimplemented!()
 	}
 }
 
@@ -556,8 +712,7 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 		remove_node: &mut Vec<N::NodeBackend>,
 		backend: &N::Backend,
 	) -> Option<IndexFor<N>> {
-		unimplemented!()
-/*		let mut encoded_change = false;
+		let mut encoded_change = false;
 		let changed = node.backend.children_changed
 			|| node.backend.prefix_changed
 			|| node.backend.value_state == ValueState::Modified
@@ -566,77 +721,76 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 			return None;
 		}
 		if node.backend.children_changed {
-			// recurse commit of resolved children and update backend indexes.
-			let mut index = None;
-			let mut backend_ix = 0;
-			while let Some(i) = node.get_next_child_index(index) {
-				while backend_ix < i.to_usize() {
-					node.backend.child_index[backend_ix] = None; // ensure deleted (could also get next on both).
-					backend_ix += 1;
-				}
+			if let Some(new) = node.backend.need_resize() {
+				// insert from old and node change.
+				unimplemented!();
+				node.backend = new;
+			} else {
+				let mut from = None;
 				use crate::children::Children;
-				use crate::WithChildState;
-				if let Some(mut child) = node.children.get_child_mut(i).and_then(|c| c.node_mut()) {
-					if let Some(ix) = Self::commit_change_fuse(&mut child, remove_node, backend) {
-						encoded_change = true;
-						node.backend.child_index[backend_ix] = Some(ix);
-					} else {
-						// set old index (can be unset due to value not new but split
-						// that makes it a new child.
-						node.backend.child_index[backend_ix] = child.backend.index.clone();
+				// iterate child change and add to existing backend
+				while let Some(next) = node.children.get_next_child_index(from) {
+					from = Some(next);
+					use crate::WithChildState;
+					match node.children.get_child_mut(next).map(|c| c.node_mut()) {
+						Some(Some(mut child)) => {
+							if let Some(ix) = Self::commit_change_fuse(&mut child, remove_node, backend) {
+								encoded_change = true;
+								node.backend.encoded.set_children_index(next, ix);
+							} else {
+								// set old index (can be unset due to value not new but split
+								// that makes it a new child. TODO manage differently. eg return if modified from
+								// commit.
+								if let Some(ix) = child.backend.index.clone() {
+									node.backend.encoded.set_children_index(next, ix);
+								}
+							}
+						},
+						Some(None) => {
+							encoded_change = true;
+							node.backend.encoded.remove_children_index(next);
+						},
+						None => (),
 					}
 				}
-				backend_ix = i.to_usize() + 1;
-				index = Some(i);
-			}
-			while backend_ix < <<N as TreeConf>::Radix as RadixConf>::CHILDREN_CAPACITY {
-				if node.backend.child_index[backend_ix].is_some() {
-					node.backend.child_index[backend_ix] = None;
-					encoded_change = true;
-				}
-				backend_ix += 1;
 			}
 		}
 		if node.backend.value_state == ValueState::Modified {
 			if let Some(value) = node.value.as_ref() {
-				let encoded = value.encode();
-				let ix = if let Some(previous) = node.backend.value.clone() {
-					backend.update_node(previous.clone(), encoded).unwrap_or(previous)
+				let ix = if let Some(previous) = node.backend.encoded.fetch_value_index() {
+					backend.update_node(previous.clone(), value.clone()).unwrap_or(previous)
 				} else {
-					backend.set_new_node(encoded)
+					backend.set_new_node(value.clone())
 				};
 
-				if node.backend.value.as_ref() != Some(&ix) {
-					node.backend.value = Some(ix);
-					encoded_change = true;
-				}
+				node.backend.encoded.set_value_index(ix);
+				encoded_change = true;
 				node.backend.value_state = ValueState::Resolved;
 			} else {
 				unreachable!("modified should be some");
 			}
 		}
 		if node.backend.value_state == ValueState::Deleted {
-			if let Some(previous) = node.backend.value.clone() {
-				backend.remove_node(previous);
+			if let Some(previous) = node.backend.encoded.fetch_value_index() {
+				node.backend.encoded.set_value_index(0);
 				encoded_change = true;
 			} else {
 				unreachable!("deleted should be some");
 			};
-			node.backend.value = None;
 			node.backend.value_state = ValueState::Resolved;
 		}
 
 		node.backend.children_changed = false;
-		node.backend.nb_children = {
-			use crate::children::Children;
-			node.children.number_child()
-		};
+		node.backend.original_nb_children = node.backend.pending_nb_children;
 		encoded_change = encoded_change || node.backend.prefix_changed;
-
-		node.backend.prefix_changed = false;
+		if node.backend.prefix_changed {
+			node.backend.encoded.set_prefix(&node.key);
+			encoded_change = true;
+			node.backend.prefix_changed = false;
+		}
 
 		if encoded_change {
-			let encoded = encode_node::<N>(node);
+			let encoded = node.backend.encoded.as_ref().to_vec();
 			// TODO additional change check??
 			if let Some(i) = node.backend.index.as_ref() {
 				backend.update_node(i.clone(), encoded)
@@ -646,7 +800,6 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 		} else {
 			None
 		}
-*/
 	}
 
 	fn value_state(&self) -> ValueState {

@@ -340,7 +340,7 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 		node.backend.children_changed = false;
 		node.backend.nb_children = {
 			use crate::children::Children;
-			node.children.number_child()
+			node.children.number_child() // TODO incorrect?? set pending_nb_children
 		};
 		encoded_change = encoded_change || node.backend.prefix_changed;
 
