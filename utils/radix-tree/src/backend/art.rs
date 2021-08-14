@@ -156,6 +156,13 @@ impl<N> ArtEncoded<N>
 
 	// TODO share code with node_test
 	pub fn read_prefix(mut encoded: &[u8], index: IndexFor<N>) -> PrefixKey<Vec<u8>, AlignmentFor<N>> {
+		if encoded.len() == 0 {
+			return PrefixKey {
+				data: Default::default(),
+				start: MaskFor::<N::Radix>::FIRST,
+				end: MaskFor::<N::Radix>::FIRST,
+			}
+		}
 		let start_mask = if let Some(mask) = <N::Radix as RadixConf>::Alignment::DEFAULT {
 			mask
 		} else {
@@ -230,34 +237,128 @@ impl<N> ArtEncoded<N>
 	}
 }
 
+const ART4_FIX_LEN: usize = 1 + 4 + 5 * 8;
 impl Art4 {
 	fn empty() -> Self {
-		unimplemented!()
+		Art4(vec![0; ART4_FIX_LEN])
 	}
 
 	fn read(encoded: Vec<u8>) -> (Art4, usize) {
-		unimplemented!()
+		debug_assert!(encoded.len() >= ART4_FIX_LEN);
+		(Art4(encoded), ART4_FIX_LEN)
 	}
 
 	fn nb_children(&self) -> usize {
-		unimplemented!()
+		self.0[0] as usize
 	}
 
 	fn get_next_child_index(&self, index: Option<usize>) -> Option<usize> {
-		unimplemented!()
+		let mut touched = index.is_none();
+		for i in 1..5 {
+			if self.0[i] > 0 {
+				let v = self.0[i] as usize - 1;
+				if touched || Some(v) > index {
+					return Some(v);
+				} else {
+					touched = Some(v) == index;
+				}
+			} else {
+				break;
+			}
+		}
+		None
 	}
 
-	fn fetch_value_index (&self) -> Option<u64> {
-		unimplemented!()
+	fn fetch_value_index(&self) -> Option<u64> {
+		let index = read_u64(&self.0[ART4_FIX_LEN - 8.. ART4_FIX_LEN]);
+		(index != 0).then(|| index)
 	}
 
-	fn fetch_children_index (&self, at: usize) -> Option<u64> {
-		unimplemented!()
+	fn fetch_children_index(&self, at: usize) -> Option<u64> {
+		for i in 1..5 {
+			if self.0[i] > 0 {
+				if self.0[i] as usize - 1 == at {
+					let i = 6 - i;
+					let i = ART4_FIX_LEN - i * 8;
+					let index = read_u64(&self.0[i .. i + 8]);
+					return Some(index);
+				} else if self.0[i] as usize - 1 > at {
+					break;
+				}
+			} else {
+				break;
+			}
+		}
+		None
+	}
+
+	fn set_children_index(&mut self, at: usize, index: u64) -> bool {
+		let mut four_ix = 0;
+		for i in 1..5 {
+			if self.0[i] == 0 {
+				// empty, set here.
+				four_ix = i;
+				self.0[0] += 1;
+				break;
+			}
+			let ix = self.0[i] as usize - 1;
+			if at == ix {
+				four_ix = i;
+				break;
+			} else if ix > at {
+				if self.nb_children() > 3 {
+					return false;
+				}
+				self.0[0] += 1;
+				four_ix = i;
+				self.0.copy_within(i .. 4, i + 1);
+				let i = 6 - four_ix;
+				let i = ART4_FIX_LEN - i * 8;
+				let ie = ART4_FIX_LEN - 2 * 8;
+				self.0.copy_within(i .. ie, i + 8);
+				break;
+			}
+		}
+		if four_ix != 0 {
+			self.0[four_ix] = at as u8 + 1;
+			let i = 6 - four_ix;
+			let i = ART4_FIX_LEN - i * 8;
+			write_u64(index, &mut self.0[i .. i + 8]);
+			true
+		} else {
+			false
+		}
 	}
 
 	fn as_ref(&self) -> &[u8] {
 		&self.0[..]
 	}
+}
+
+#[test]
+fn test_art4() {
+	let mut art4 = Art4::empty();
+	assert_eq!(art4.nb_children(), 0);
+	assert_eq!(art4.fetch_children_index(0), None);
+	assert_eq!(art4.fetch_children_index(255), None);
+	assert!(art4.set_children_index(5, 44));
+	assert!(art4.set_children_index(0, 48));
+	assert!(art4.set_children_index(8, 50));
+	assert_eq!(art4.nb_children(), 3);
+	assert_eq!(art4.fetch_children_index(0), Some(48));
+	assert_eq!(art4.fetch_children_index(1), None);
+	assert_eq!(art4.fetch_children_index(255), None);
+	assert_eq!(art4.fetch_children_index(5), Some(44));
+	assert_eq!(art4.fetch_children_index(8), Some(50));
+	assert!(art4.set_children_index(1, 15));
+	assert!(art4.set_children_index(8, 30));
+	assert!(art4.set_children_index(7, 30) == false);
+	assert_eq!(art4.fetch_children_index(0), Some(48));
+	assert_eq!(art4.fetch_children_index(1), Some(15));
+	assert_eq!(art4.fetch_children_index(8), Some(30));
+	let mut art4 = Art4::empty();
+	assert!(art4.set_children_index(255, 2450));
+	assert_eq!(art4.fetch_children_index(255), Some(2450));
 }
 
 impl Art16 {
@@ -593,4 +694,15 @@ fn varint_decode(buf: &[u8]) -> (u64, usize) {
 fn varint_encoded_len(size: u64) -> usize {
 	let nb_bit = std::cmp::max(64 - size.leading_zeros(), 1);
 	(nb_bit as usize + 6) / 7
+}
+
+fn read_u64(enc: &[u8]) -> u64 {
+	let mut buf = [0; 8];
+	buf[..].copy_from_slice(&enc[..8]);
+	u64::from_le_bytes(buf)
+}
+
+fn write_u64(ix: u64, dest: &mut [u8]) {
+	let buf = ix.to_le_bytes();
+	dest[..8].copy_from_slice(&buf[..]);
 }

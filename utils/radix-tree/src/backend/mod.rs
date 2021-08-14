@@ -179,7 +179,7 @@ impl<N: TreeConf> NodeBackend<N> for () {
 		None
 	}
 
-	fn fetch_value_index (&self) -> Option<IndexFor<N>> {
+	fn fetch_value_index(&self) -> Option<IndexFor<N>> {
 		None
 	}
 
