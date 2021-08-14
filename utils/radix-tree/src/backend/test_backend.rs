@@ -26,8 +26,8 @@ use crate::Backend;
 pub struct TestBackend {
 	encoded_nodes: Vec<(Vec<u8>, Option<u64>)>,
 	free_node: u64,
-	new_node_on_update: bool,
 	root_index: u64,
+	new_node_on_update: bool,
 }
 
 #[cfg(feature = "hash_backend")]

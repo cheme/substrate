@@ -394,6 +394,7 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 		// Note here if value is stored in different node, we would need to remove it.
 		self.value = None;
 		self.nb_children = 0;
+		self.pending_nb_children = 0;
 		self.children_changed = false;
 		self.prefix_changed = true; // to ensure update
 		self.value_state = ValueState::Resolved;

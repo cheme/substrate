@@ -73,7 +73,7 @@ impl<V: Clone + Debug> Value for V { }
 #[derive(Derivative)]
 #[derivative(Clone)]
 #[derivative(Debug)]
-struct PrefixKey<D, P>
+pub struct PrefixKey<D, P>
 	where
 		P: PrefixKeyConf,
 {
