@@ -394,15 +394,7 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 		None
 	}
 
-	fn fetch_children(&mut self, at: KeyIndexFor<N>, backend: &N::Backend) -> Option<Option<NodeBox<N>>> {
-		if let Some(index) = self.fetch_children_index(at) {
-			return Some(self.get_node(index, backend));
-		}
-		None
-	}
-
-	// TODO same as fetch children: design issue, ChildState account for it.
-	fn fetch_children_no_cache(&self, at: KeyIndexFor<N>, backend: &N::Backend) -> Option<NodeBox<N>> {
+	fn fetch_children(&self, at: KeyIndexFor<N>, backend: &N::Backend) -> Option<NodeBox<N>> {
 		if let Some(index) = self.fetch_children_index(at) {
 			return self.get_node(index, backend);
 		}
@@ -418,21 +410,7 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 		self.encoded.fetch_value_index()
 	}
 
-	fn fetch_value(&mut self, backend: &N::Backend) -> Option<Option<N::Value>> {
-		if self.value_state != ValueState::Unfetched {
-			None
-		} else {
-			self.value_state = ValueState::Resolved;
-			if let Some(ix) = self.encoded.fetch_value_index() {
-				let value = backend.get_node(ix).expect("Value stored with node.");
-				Some(Some(value))
-			} else {
-				Some(None)
-			}
-		}
-	}
-
-	fn fetch_value_no_cache(&self, backend: &N::Backend) -> Option<N::Value> {
+	fn fetch_value(&self, backend: &N::Backend) -> Option<N::Value> {
 		if let Some(ix) = self.encoded.fetch_value_index() {
 			backend.get_node(ix)
 		} else {

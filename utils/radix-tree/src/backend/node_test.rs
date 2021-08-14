@@ -207,18 +207,7 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 		}
 	}
 
-	fn fetch_children(&mut self, at: KeyIndexFor<N>, backend: &N::Backend) -> Option<Option<NodeBox<N>>> {
-		if let Some(child) = self.child_index.get_mut(at.to_usize()) {
-			if let Some(index) = child.clone() {
-				return Some(self.get_node(index, backend));
-			} else {
-				return Some(None);
-			}
-		}
-		None
-	}
-
-	fn fetch_children_no_cache(&self, at: KeyIndexFor<N>, backend: &N::Backend) -> Option<NodeBox<N>> {
+	fn fetch_children(&self, at: KeyIndexFor<N>, backend: &N::Backend) -> Option<NodeBox<N>> {
 		if let Some(child) = self.child_index.get(at.to_usize()) {
 			if let Some(index) = child.clone() {
 				return self.get_node(index, backend);
@@ -236,29 +225,19 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 		self.value.clone()
 	}
 
-	fn fetch_value(&mut self, backend: &N::Backend) -> Option<Option<N::Value>> {
-		if self.value_state != ValueState::Unfetched {
-			None
-		} else {
-			self.value_state = ValueState::Resolved;
-			if let Some(ix) = self.value.clone() {
-				let value = backend.get_node(ix).expect("Value stored with node.");
-				Some(Some(Decode::decode(&mut value.as_slice()).unwrap()))
-			} else {
-				Some(None)
-			}
-		}
-	}
-	fn fetch_value_no_cache(&self, backend: &N::Backend) -> Option<N::Value> {
+	fn fetch_value(&self, backend: &N::Backend) -> Option<N::Value> {
 		if let Some(ix) = self.value.clone() {
-			backend.get_node(ix).map(|value| Decode::decode(&mut value.as_slice()).unwrap())
+			let value = backend.get_node(ix).expect("Value stored with node.");
+			Some(Decode::decode(&mut value.as_slice()).unwrap())
 		} else {
 			None
 		}
 	}
+
 	fn set_change(&mut self) {
 		self.children_changed = true;
 	}
+
 	fn set_prefix_change(&mut self) {
 		self.prefix_changed = true;
 	}

@@ -87,10 +87,7 @@ pub trait NodeBackend<N: TreeConf>: Clone {
 	fn fetch_children_index(&self, at: KeyIndexFor<N>) -> Option<IndexFor<N>>;
 
 	/// Get a child node from the backend.
-	/// TODO use Self::Index instead of usize??
-	fn fetch_children(&mut self, at: KeyIndexFor<N>, backend: &N::Backend) -> Option<Option<NodeBox<N>>>;
-
-	fn fetch_children_no_cache(&self, at: KeyIndexFor<N>, backend: &N::Backend) -> Option<NodeBox<N>>;
+	fn fetch_children(&self, at: KeyIndexFor<N>, backend: &N::Backend) -> Option<NodeBox<N>>;
 
 	/// Original number of children stored in backend.
 	fn fetch_nb_children(&mut self) -> Option<usize>;
@@ -107,9 +104,7 @@ pub trait NodeBackend<N: TreeConf>: Clone {
 	// TODO replace by backend_hash_value -> bool ?
 	fn fetch_value_index (&self) -> Option<IndexFor<N>>;
 
-	fn fetch_value(&mut self, backend: &N::Backend) -> Option<Option<N::Value>>;
-
-	fn fetch_value_no_cache(&self, backend: &N::Backend) -> Option<N::Value>;
+	fn fetch_value(&self, backend: &N::Backend) -> Option<N::Value>;
 
 	/// Indicate a child node was change.
 	/// TODO could consider adding position to avoid iterating on all child
@@ -172,15 +167,11 @@ impl<N: TreeConf> NodeBackend<N> for () {
 	fn get_next_child_index(&self, _index: Option<KeyIndexFor<N>>) -> Option<KeyIndexFor<N>> {
 		None
 	}
-	fn fetch_children(&mut self, _at: KeyIndexFor<N>, _backend: &N::Backend) -> Option<Option<NodeBox<N>>> {
+	fn fetch_children(&self, _at: KeyIndexFor<N>, _backend: &N::Backend) -> Option<NodeBox<N>> {
 		None
 	}
 
 	fn fetch_children_index(&self, _at: KeyIndexFor<N>) -> Option<IndexFor<N>> {
-		None
-	}
-
-	fn fetch_children_no_cache(&self, _at: KeyIndexFor<N>, _backend: &N::Backend) -> Option<NodeBox<N>> {
 		None
 	}
 
@@ -192,11 +183,7 @@ impl<N: TreeConf> NodeBackend<N> for () {
 		None
 	}
 
-	fn fetch_value(&mut self, _backend: &N::Backend) -> Option<Option<N::Value>> {
-		None
-	}
-
-	fn fetch_value_no_cache(&self, _backend: &N::Backend) -> Option<N::Value> {
+	fn fetch_value(&self, _backend: &N::Backend) -> Option<N::Value> {
 		None
 	}
 

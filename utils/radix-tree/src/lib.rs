@@ -525,9 +525,7 @@ impl<N: TreeConf> Node<N> {
 					return None;
 				},
 				ValueState::Unfetched => {
-					if let Some(option_value) = self.backend.fetch_value(backend) {
-						self.value = option_value;
-					}
+					self.value = self.backend.fetch_value(backend);
 				},
 				_ => (),
 			}
@@ -542,7 +540,7 @@ impl<N: TreeConf> Node<N> {
 		if !N::Backend::ACTIVE {
 			panic!("No backend");
 		}
-		self.backend.fetch_value_no_cache(backend)
+		self.backend.fetch_value(backend)
 	}
 
 	fn set_value(
@@ -562,7 +560,8 @@ impl<N: TreeConf> Node<N> {
 	) -> Option<N::Value> {
 		if N::Backend::ACTIVE {
 			if with_value {
-				self.backend.fetch_value(backend);
+				// Fetch value.
+				self.value_mut(backend);
 			}
 			self.backend.set_value_state(ValueState::Deleted);
 		}
@@ -599,7 +598,7 @@ impl<N: TreeConf> Node<N> {
 		}
 		// Note that no_cache cannot work with mutable (would need querying
 		// resolved nodes first).
-		self.backend.fetch_children_no_cache(index, backend)
+		self.backend.fetch_children(index, backend)
 	}
 
 	fn has_child(
@@ -660,7 +659,7 @@ impl<N: TreeConf> Node<N> {
 				false
 			};
 			if !resolved {
-				if let Some(Some(result)) = self.backend.fetch_children(index, backend) {
+				if let Some(result) = self.backend.fetch_children(index, backend) {
 					let result = ChildFor::<N>::from_state(ChildState::Resolved, Some(result));
 					self.children.set_child(index, result);
 				} else {
