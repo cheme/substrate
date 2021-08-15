@@ -25,7 +25,7 @@ use crate::{TreeConf, PositionFor, KeyIndexFor,
 	ValueState};
 use crate::children::NodeIndex;
 use alloc::vec;
-use codec::{Encode, Decode, Input};
+use codec::Encode;
 use crate::radix::{MaskFor, MaskKeyByte};
 use core::fmt::Debug;
 
@@ -346,6 +346,70 @@ impl $art {
 		self.0[0] as usize
 	}
 
+	fn fetch_value_index(&self) -> Option<u64> {
+		let index = read_u64(&self.0[$art_fix_len - 8 .. $art_fix_len]);
+		(index != 0).then(|| index)
+	}
+
+	fn set_value_index(&mut self, index: u64) {
+		let i = $art_fix_len - 8;
+		write_u64(index, &mut self.0[i .. i + 8]);
+	}
+
+	fn as_ref(&self) -> &[u8] {
+		&self.0[..]
+	}
+
+	fn set_prefix(&mut self, mut prefix: Vec<u8>) {
+		self.0.truncate($art_fix_len);
+		self.0.append(&mut prefix);
+	}
+}
+
+
+#[test]
+fn $art_test() {
+	let mut art4 = $art::empty();
+	assert_eq!(art4.nb_children(), 0);
+	assert_eq!(art4.fetch_children_index(0), None);
+	assert_eq!(art4.fetch_children_index(255), None);
+	assert!(art4.fetch_value_index().is_none());
+	assert!(art4.set_children_index(5, 44));
+	assert!(art4.set_children_index(0, 48));
+	assert!(art4.set_children_index(8, 50));
+	assert_eq!(art4.nb_children(), 3);
+	art4.set_value_index(83747);
+	assert_eq!(art4.fetch_children_index(0), Some(48));
+	assert_eq!(art4.fetch_children_index(1), None);
+	assert_eq!(art4.fetch_children_index(255), None);
+	assert_eq!(art4.fetch_children_index(5), Some(44));
+	assert_eq!(art4.fetch_children_index(8), Some(50));
+	assert_eq!(art4.fetch_value_index(), Some(83747));
+	assert!(art4.set_children_index(1, 15));
+	assert!(art4.set_children_index(8, 30));
+	if $art_nb == 4 {
+		assert!(art4.set_children_index(7, 30) == false);
+	}
+	assert_eq!(art4.fetch_children_index(0), Some(48));
+	assert_eq!(art4.fetch_children_index(1), Some(15));
+	assert_eq!(art4.fetch_children_index(8), Some(30));
+	assert_eq!(art4.fetch_value_index(), Some(83747));
+	let mut art4 = $art::empty();
+	assert!(art4.set_children_index(255, 2450));
+	assert_eq!(art4.fetch_children_index(255), Some(2450));
+}
+
+}}
+
+macro_rules! art_impl_2 {
+	(
+		$art: ident,
+		$art_nb: ident,
+		$art_fix_len: ident,
+		$art_test: ident
+	) => {
+
+impl $art {
 	fn get_next_child_index(&self, index: Option<usize>) -> Option<usize> {
 		for i in 0 .. $art_nb {
 			let v = self.0[i + 1] as usize;
@@ -357,11 +421,6 @@ impl $art {
 			}
 		}
 		None
-	}
-
-	fn fetch_value_index(&self) -> Option<u64> {
-		let index = read_u64(&self.0[$art_fix_len - 8 .. $art_fix_len]);
-		(index != 0).then(|| index)
 	}
 
 	fn fetch_children_index(&self, at: usize) -> Option<u64> {
@@ -378,11 +437,6 @@ impl $art {
 			}
 		}
 		None
-	}
-
-	fn set_value_index(&mut self, index: u64) {
-		let i = $art_fix_len - 8;
-		write_u64(index, &mut self.0[i .. i + 8]);
 	}
 
 	fn set_children_index(&mut self, at: usize, index: u64) -> bool {
@@ -447,148 +501,102 @@ impl $art {
 			}
 		}
 	}
-
-	fn as_ref(&self) -> &[u8] {
-		&self.0[..]
-	}
-
-	fn set_prefix(&mut self, mut prefix: Vec<u8>) {
-		self.0.truncate($art_fix_len);
-		self.0.append(&mut prefix);
-	}
-}
-
-
-#[test]
-fn $art_test() {
-	let mut art4 = $art::empty();
-	assert_eq!(art4.nb_children(), 0);
-	assert_eq!(art4.fetch_children_index(0), None);
-	assert_eq!(art4.fetch_children_index(255), None);
-	assert!(art4.fetch_value_index().is_none());
-	assert!(art4.set_children_index(5, 44));
-	assert!(art4.set_children_index(0, 48));
-	assert!(art4.set_children_index(8, 50));
-	assert_eq!(art4.nb_children(), 3);
-	art4.set_value_index(83747);
-	assert_eq!(art4.fetch_children_index(0), Some(48));
-	assert_eq!(art4.fetch_children_index(1), None);
-	assert_eq!(art4.fetch_children_index(255), None);
-	assert_eq!(art4.fetch_children_index(5), Some(44));
-	assert_eq!(art4.fetch_children_index(8), Some(50));
-	assert_eq!(art4.fetch_value_index(), Some(83747));
-	assert!(art4.set_children_index(1, 15));
-	assert!(art4.set_children_index(8, 30));
-	if $art_nb == 4 {
-		assert!(art4.set_children_index(7, 30) == false);
-	}
-	assert_eq!(art4.fetch_children_index(0), Some(48));
-	assert_eq!(art4.fetch_children_index(1), Some(15));
-	assert_eq!(art4.fetch_children_index(8), Some(30));
-	assert_eq!(art4.fetch_value_index(), Some(83747));
-	let mut art4 = $art::empty();
-	assert!(art4.set_children_index(255, 2450));
-	assert_eq!(art4.fetch_children_index(255), Some(2450));
 }
 
 }}
 
+
 const ART4_NB: usize = 4;
-const ART4_FIX_LEN: usize = 1 + 4 + 5 * 8;
+const ART4_FIX_LEN: usize = 1 + 4 + 4 * 8 + 8;
 const ART16_NB: usize = 16;
-const ART16_FIX_LEN: usize = 1 + 16 + 17 * 8;
+const ART16_FIX_LEN: usize = 1 + 16 + 16 * 8 + 8;
+const ART48_NB: usize = 48;
+const ART48_FIX_LEN: usize = 1 + 256 + 48 * 8 + 8;
+const ART256_NB: usize = 256;
+const ART256_FIX_LEN: usize = 1 + 256 * 8 + 8;
 art_impl_1!(Art4, ART4_NB, ART4_FIX_LEN, test_art4);
 art_impl_1!(Art16, ART16_NB, ART16_FIX_LEN, test_art16);
+art_impl_1!(Art48, ART48_NB, ART48_FIX_LEN, test_art48);
+art_impl_1!(Art256, ART256_NB, ART256_FIX_LEN, test_art256);
+art_impl_2!(Art4, ART4_NB, ART4_FIX_LEN, test_art4);
+art_impl_2!(Art16, ART16_NB, ART16_FIX_LEN, test_art16);
+
 
 impl Art48 {
-	fn empty() -> Self {
-		unimplemented!()
-	}
-
-	fn read(encoded: Vec<u8>) -> (Art48, usize) {
-		unimplemented!()
-	}
-
-	fn nb_children(&self) -> usize {
-		unimplemented!()
-	}
-
 	fn get_next_child_index(&self, index: Option<usize>) -> Option<usize> {
-		unimplemented!()
-	}
-
-	fn fetch_value_index (&self) -> Option<u64> {
-		unimplemented!()
+		for i in index.map(|i| i + 1).unwrap_or(0) .. ART48_FIX_LEN {
+			let v = self.0[i + 1] as usize;
+			if v != 0 {
+				let v = v - 1;
+				return Some(v);
+			}
+		}
+		None
 	}
 
 	fn fetch_children_index (&self, at: usize) -> Option<u64> {
-		unimplemented!()
-	}
-
-	fn set_value_index(&mut self, index: u64) {
-		unimplemented!()
+		let at = self.0[at + 1];
+		(at != 0).then(|| self.read_child_index(at as usize - 1))
 	}
 
 	fn set_children_index(&mut self, at: usize, index: u64) -> bool {
-		unimplemented!()
+		if self.nb_children() == 48 {
+			return false;
+		}
+		self.0[at + 1] = self.nb_children() as u8 + 1;
+		let i = ART48_NB + 1 - self.nb_children();
+		let i = ART48_FIX_LEN - i * 8;
+		if &self.0[i .. i + 8] == &[0; 8] {
+			self.0[0] += 1;
+		}
+		write_u64(index, &mut self.0[i .. i + 8]);
+		true
 	}
 
 	fn remove_children_index(&mut self, at: usize) {
-		unimplemented!()
-	}
-
-	fn as_ref(&self) -> &[u8] {
-		&self.0[..]
-	}
-
-	fn set_prefix(&mut self, prefix: Vec<u8>) {
-		unimplemented!()
+		self.0[at] = 0;
+		let i = ART48_NB + 1 - at;
+		let i = ART48_FIX_LEN - i * 8;
+		if &self.0[i .. i + 8] != &[0; 8] {
+			self.0[0] -= 1;
+		}
+		write_u64(0, &mut self.0[i .. i + 8]);
 	}
 }
 
 impl Art256 {
-	fn empty() -> Self {
-		unimplemented!()
-	}
-
-	fn read(encoded: Vec<u8>) -> (Art256, usize) {
-		unimplemented!()
-	}
-
-	fn nb_children(&self) -> usize {
-		unimplemented!()
-	}
-
 	fn get_next_child_index(&self, index: Option<usize>) -> Option<usize> {
-		unimplemented!()
-	}
-
-	fn fetch_value_index(&self) -> Option<u64> {
-		unimplemented!()
+		for i in index.map(|i| i + 1).unwrap_or(0) .. ART256_FIX_LEN {
+			let v = self.read_child_index(i);
+			if v != 0 {
+				return Some(i);
+			}
+		}
+		None
 	}
 
 	fn fetch_children_index(&self, at: usize) -> Option<u64> {
-		unimplemented!()
-	}
-
-	fn set_value_index(&mut self, index: u64) {
-		unimplemented!()
+		let v = self.read_child_index(at);
+		(v != 0).then(|| v)
 	}
 
 	fn set_children_index(&mut self, at: usize, index: u64) -> bool {
-		unimplemented!()
+		let i = ART256_NB + 1 - at;
+		let i = ART256_FIX_LEN - i * 8;
+		if &self.0[i .. i + 8] == &[0; 8] {
+			self.0[0] += 1;
+		}
+		write_u64(index, &mut self.0[i .. i + 8]);
+		true
 	}
 
 	fn remove_children_index(&mut self, at: usize) {
-		unimplemented!()
-	}
-
-	fn as_ref(&self) -> &[u8] {
-		&self.0[..]
-	}
-
-	fn set_prefix(&mut self, prefix: Vec<u8>) {
-		unimplemented!()
+		let i = ART256_NB + 1 - at;
+		let i = ART256_FIX_LEN - i * 8;
+		if &self.0[i .. i + 8] != &[0; 8] {
+			self.0[0] -= 1;
+		}
+		write_u64(0, &mut self.0[i .. i + 8]);
 	}
 }
 
