@@ -79,6 +79,8 @@ impl<S: TrieBackendStorage<H>, H: Hasher> Clone for TrieBackendEssence<S, H> {
 			storage: self.storage.clone(),
 			root: self.root.clone(),
 			empty: self.empty.clone(),
+			#[cfg(feature = "std")]
+			cache: self.cache.clone(),
 		}
 	}
 }
@@ -427,6 +429,8 @@ where
 			storage: self.storage.async_storage(),
 			root: self.root.clone(),
 			empty: self.empty.clone(),
+			#[cfg(feature = "std")]
+			cache: self.cache.clone(),
 		}
 	}
 }

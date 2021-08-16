@@ -41,9 +41,7 @@ use sp_core::{
 };
 use sp_tasks::common::with_externalities_safe;
 use sp_tasks::pool_spawn::RuntimeInstanceSpawn;
-use sp_tasks::new_async_externalities;
 use sp_version::{GetNativeVersion, NativeVersion, RuntimeVersion};
-use sp_externalities::ExternalitiesExt as _;
 use sp_wasm_interface::{Function, HostFunctions};
 
 /// Default num of pages for the heap
@@ -265,7 +263,7 @@ impl CodeExecutor for WasmExecutor {
 			false,
 			|module, instance, _onchain_version, mut ext| {
 				with_externalities_safe(&mut **ext, move || {
-					preregister_builtin_ext(module.clone());
+					RuntimeInstanceSpawn::preregister_builtin_ext(module.clone());
 					instance.call_export(method, data).map(NativeOrEncoded::Encoded)
 				})
 			},

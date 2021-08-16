@@ -117,6 +117,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ambassador"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "61874b33258f18ca7923047c12887078ccfe95c2811b03c1a09e309c19b7e50b"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "ansi_term"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1386,6 +1397,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "delegate"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0fd733b5bf0bb5ca3c7cdea2135c91234c80b730e6e8a270851455a63b46c830"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "derivative"
+version = "2.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fcc3dd5e9e9c0b295d6e1e4d811fb6f157d5ffd784b8d202fc62eac8035a770b"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "derive_more"
 version = "0.99.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1494,27 +1527,6 @@ name = "downcast-rs"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9ea835d29036a4087793836fa931b08837ad5e957da9e23886b29586fb9b6650"
-
-[[package]]
-name = "dyn-clonable"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e9232f0e607a262ceb9bd5141a3dfb3e4db6994b31989bbfd845878cba59fd4"
-dependencies = [
- "dyn-clonable-impl",
- "dyn-clone",
-]
-
-[[package]]
-name = "dyn-clonable-impl"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "558e40ea573c374cf53507fd240b7ee2f5477df7cfebdb97323ec61c719399c5"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
 
 [[package]]
 name = "dyn-clone"
@@ -6459,6 +6471,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "643f8f41a8ebc4c5dc4515c82bb8abd397b527fc20fd681b7c011c2aee5d44fb"
 
 [[package]]
+name = "radix-tree"
+version = "0.8.0"
+source = "git+https://github.com/cheme/substrate?branch=historied-db#f9393bc72fd82ace666b5cdbdf596e54635516de"
+dependencies = [
+ "derivative",
+ "hashbrown 0.9.1",
+ "parity-scale-codec",
+ "smallvec 1.6.1",
+]
+
+[[package]]
 name = "rand"
 version = "0.3.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7546,15 +7569,12 @@ dependencies = [
 name = "sc-executor-common"
 version = "0.10.0-dev"
 dependencies = [
- "derive_more",
  "parity-scale-codec",
  "pwasm-utils",
- "sc-allocator",
  "sp-core",
  "sp-maybe-compressed-blob",
- "sp-serializer",
+ "sp-tasks",
  "sp-wasm-interface",
- "thiserror",
  "wasmi",
 ]
 
@@ -8847,7 +8867,7 @@ dependencies = [
  "blake2-rfc",
  "byteorder",
  "criterion",
- "dyn-clonable",
+ "dyn-clone",
  "ed25519-dalek",
  "futures 0.3.16",
  "hash-db",
@@ -8907,6 +8927,7 @@ dependencies = [
 name = "sp-externalities"
 version = "0.10.0-dev"
 dependencies = [
+ "ambassador",
  "environmental",
  "parity-scale-codec",
  "sp-std",
@@ -8993,6 +9014,7 @@ dependencies = [
  "serde",
  "sp-core",
  "sp-externalities",
+ "sp-std",
 ]
 
 [[package]]
@@ -9213,6 +9235,7 @@ dependencies = [
 name = "sp-state-machine"
 version = "0.10.0-dev"
 dependencies = [
+ "delegate",
  "hash-db",
  "hex-literal",
  "log 0.4.14",
@@ -9220,6 +9243,7 @@ dependencies = [
  "parity-scale-codec",
  "parking_lot 0.11.1",
  "pretty_assertions 0.6.1",
+ "radix-tree",
  "rand 0.7.3",
  "smallvec 1.6.1",
  "sp-core",
@@ -9254,13 +9278,22 @@ dependencies = [
 name = "sp-tasks"
 version = "4.0.0-dev"
 dependencies = [
+ "ambassador",
+ "derive_more",
  "log 0.4.14",
  "parity-scale-codec",
+ "parking_lot 0.11.1",
+ "sc-allocator",
  "sp-core",
  "sp-externalities",
  "sp-io",
+ "sp-panic-handler",
  "sp-runtime-interface",
+ "sp-serializer",
  "sp-std",
+ "sp-wasm-interface",
+ "thiserror",
+ "wasmi",
 ]
 
 [[package]]
@@ -9664,6 +9697,7 @@ dependencies = [
  "sp-session",
  "sp-state-machine",
  "sp-std",
+ "sp-tasks",
  "sp-transaction-pool",
  "sp-trie",
  "sp-version",
