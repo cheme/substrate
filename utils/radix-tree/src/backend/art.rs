@@ -25,7 +25,6 @@ use crate::{TreeConf, PositionFor, KeyIndexFor,
 	ValueState};
 use crate::children::NodeIndex;
 use alloc::vec;
-use codec::Encode;
 use crate::radix::{MaskFor, MaskKeyByte};
 use core::fmt::Debug;
 
@@ -219,11 +218,16 @@ impl<N> ArtEncoded<N>
 		} else {
 			2
 		});
-		if <N::Radix as RadixConf>::Alignment::DEFAULT.is_some() {
+		let offset = if <N::Radix as RadixConf>::Alignment::DEFAULT.is_some() {
+			0
 		} else {
 			result.push(<N::Radix as RadixConf>::Alignment::encode_mask(key.start));
+			result.len()
 		};
-		key.data.encode_to(&mut result); // TODO use varint encode for len and replace its size for 1.
+		let nb = varint_encoded_len(key.data.len() as u64);
+		result.resize(offset + nb, 0);
+		varint_encode(key.data.len() as u64, &mut result[offset..], nb);
+		result.extend_from_slice(key.data.as_slice());
 		if <N::Radix as RadixConf>::Alignment::DEFAULT.is_some() {
 		} else {
 			result.push(<N::Radix as RadixConf>::Alignment::encode_mask(key.end));
@@ -332,10 +336,6 @@ impl $art {
 		let i = $art_nb + 1 - at;
 		let i = $art_fix_len - i * 8;
 		read_u64(&self.0[i .. i + 8])
-	}
-
-	fn empty() -> Self {
-		$art(vec![0; $art_fix_len])
 	}
 
 	fn read(encoded: Vec<u8>) -> ($art, usize) {
@@ -522,18 +522,36 @@ art_impl_1!(Art256, ART256_NB, ART256_FIX_LEN, test_art256);
 art_impl_2!(Art4, ART4_NB, ART4_FIX_LEN, test_art4);
 art_impl_2!(Art16, ART16_NB, ART16_FIX_LEN, test_art16);
 
+impl Art4 {
+	fn empty() -> Self {
+		Art4(vec![0; ART4_FIX_LEN])
+	}
+}
+
+impl Art16 {
+	fn empty() -> Self {
+		let mut result = Art16(vec![0; ART16_FIX_LEN]);
+		result.0[0] |= 1 << 6;
+		result
+	}
+}
 
 impl Art48 {
+	fn empty() -> Self {
+		let mut result = Art48(vec![0; ART48_FIX_LEN]);
+		result.0[0] |= 2 << 6;
+		result
+	}
+
 	fn nb_children(&self) -> usize {
 		(self.0[0] & 0b0011_1111) as usize
 	}
 
 	fn get_next_child_index(&self, index: Option<usize>) -> Option<usize> {
-		for i in index.map(|i| i + 1).unwrap_or(0) .. ART48_FIX_LEN {
+		for i in index.map(|i| i + 1).unwrap_or(0) .. 256 {
 			let v = self.0[i + 1] as usize;
 			if v != 0 {
-				let v = v - 1;
-				return Some(v);
+				return Some(i);
 			}
 		}
 		None
@@ -570,6 +588,12 @@ impl Art48 {
 }
 
 impl Art256 {
+	fn empty() -> Self {
+		let mut result = Art256(vec![0; ART256_FIX_LEN]);
+		result.0[0] |= 3 << 6;
+		result
+	}
+
 	fn nb_children(&self) -> usize {
 		if (self.0[0] & 0b0000_0001) > 0 {
 			256
@@ -864,8 +888,8 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 	}
 }
 
-fn varint_encode(mut size: u64, buf: &mut [u8; 10]) -> &[u8] {
-	let nb = varint_encoded_len(size);
+fn varint_encode(mut size: u64, buf: &mut [u8], encoded_len: usize) -> &[u8] {
+	let nb = encoded_len;
 	for i in (0..nb).rev() {
 		buf[i] = (size as u8) | 0b1000_0000;
 		size >>= 7;

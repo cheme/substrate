@@ -43,8 +43,9 @@ pub struct HashedTestBackend {
 impl Default for TestBackend {
 	fn default() -> Self {
 		TestBackend {
-			encoded_nodes: Vec::new(),
-			free_node: 0,
+			// empty root (ptr to del is defined).
+			encoded_nodes: vec![(Vec::new(), Some(0))],
+			free_node: 1,
 			new_node_on_update: true,
 			root_index: 0,
 		}

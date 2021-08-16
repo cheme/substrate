@@ -445,7 +445,7 @@ impl<'a, N: TreeConf> $iter<'a, N> {
 					let position = position.next_by::<N::Radix>(child.depth());
 
 					let first_key = child.get_next_child_index(None)
-						.unwrap_or(KeyIndexFor::<N>::zero());
+						.unwrap_or(KeyIndexFor::<N>::zero()); // TODO end iter instead of 0 useless query
 					self.stack.stack.push((position, child, first_key));
 					break;
 				}
