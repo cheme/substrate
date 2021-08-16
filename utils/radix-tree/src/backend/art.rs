@@ -65,7 +65,7 @@ impl<N> ArtLocalBackend<N>
 		encoded: Vec<u8>,
 		index: IndexFor<N>,
 	) -> (ArtLocalBackend<N>, PrefixKey<Vec<u8>, AlignmentFor<N>>) {
-		let (encoded, prefix) = ArtEncoded::read(encoded, index);
+		let (encoded, prefix) = ArtEncoded::read(encoded);
 		let original_nb_children = encoded.nb_children();
 
 		(ArtLocalBackend {
@@ -137,36 +137,37 @@ impl<N> ArtEncoded<N>
 {
 	pub fn read(
 		encoded: Vec<u8>,
-		index: IndexFor<N>,
 	) -> (ArtEncoded<N>, PrefixKey<Vec<u8>, AlignmentFor<N>>) {
-		// TODO could add a meta in backend to save this byte.
-		match encoded[0] {
-			0 => { 
+		// First byte contain size and type, only 256 uses a second byte
+		// for size with 0 being 0 or 256 when encoded do not contains
+		// a 0 size.
+		match (encoded[0] & 0b1100_0000) >> 6 {
+			0 => {
 				let (art, offset) = Art4::read(encoded);
-				let prefix = Self::read_prefix(&art.as_ref()[offset..], index);
+				let prefix = Self::read_prefix(&art.as_ref()[offset..]);
 				(ArtEncoded::Art4(art, core::marker::PhantomData), prefix)
 			},
 			1 => { 
 				let (art, offset) = Art16::read(encoded);
-				let prefix = Self::read_prefix(&art.as_ref()[offset..], index);
+				let prefix = Self::read_prefix(&art.as_ref()[offset..]);
 				(ArtEncoded::Art16(art), prefix)
 			},
 			2 => { 
 				let (art, offset) = Art48::read(encoded);
-				let prefix = Self::read_prefix(&art.as_ref()[offset..], index);
+				let prefix = Self::read_prefix(&art.as_ref()[offset..]);
 				(ArtEncoded::Art48(art), prefix)
 			},
-			3 => { 
+			3 => {
 				let (art, offset) = Art256::read(encoded);
-				let prefix = Self::read_prefix(&art.as_ref()[offset..], index);
+				let prefix = Self::read_prefix(&art.as_ref()[offset..]);
 				(ArtEncoded::Art256(art), prefix)
 			},
-			_ => panic!("Invalid art node type"),
+			_ => unreachable!(),
 		}
 	}
 
 	// TODO share code with node_test
-	pub fn read_prefix(mut encoded: &[u8], index: IndexFor<N>) -> PrefixKey<Vec<u8>, AlignmentFor<N>> {
+	pub fn read_prefix(mut encoded: &[u8]) -> PrefixKey<Vec<u8>, AlignmentFor<N>> {
 		if encoded.len() == 0 {
 			return PrefixKey {
 				data: Default::default(),
@@ -342,10 +343,6 @@ impl $art {
 		($art(encoded), $art_fix_len)
 	}
 
-	fn nb_children(&self) -> usize {
-		self.0[0] as usize
-	}
-
 	fn fetch_value_index(&self) -> Option<u64> {
 		let index = read_u64(&self.0[$art_fix_len - 8 .. $art_fix_len]);
 		(index != 0).then(|| index)
@@ -410,6 +407,10 @@ macro_rules! art_impl_2 {
 	) => {
 
 impl $art {
+	fn nb_children(&self) -> usize {
+		(self.0[0] & 0b0011_1111) as usize
+	}
+
 	fn get_next_child_index(&self, index: Option<usize>) -> Option<usize> {
 		for i in 0 .. $art_nb {
 			let v = self.0[i + 1] as usize;
@@ -513,7 +514,7 @@ const ART16_FIX_LEN: usize = 1 + 16 + 16 * 8 + 8;
 const ART48_NB: usize = 48;
 const ART48_FIX_LEN: usize = 1 + 256 + 48 * 8 + 8;
 const ART256_NB: usize = 256;
-const ART256_FIX_LEN: usize = 1 + 256 * 8 + 8;
+const ART256_FIX_LEN: usize = 1 + 1 + 256 * 8 + 8;
 art_impl_1!(Art4, ART4_NB, ART4_FIX_LEN, test_art4);
 art_impl_1!(Art16, ART16_NB, ART16_FIX_LEN, test_art16);
 art_impl_1!(Art48, ART48_NB, ART48_FIX_LEN, test_art48);
@@ -523,6 +524,10 @@ art_impl_2!(Art16, ART16_NB, ART16_FIX_LEN, test_art16);
 
 
 impl Art48 {
+	fn nb_children(&self) -> usize {
+		(self.0[0] & 0b0011_1111) as usize
+	}
+
 	fn get_next_child_index(&self, index: Option<usize>) -> Option<usize> {
 		for i in index.map(|i| i + 1).unwrap_or(0) .. ART48_FIX_LEN {
 			let v = self.0[i + 1] as usize;
@@ -565,6 +570,14 @@ impl Art48 {
 }
 
 impl Art256 {
+	fn nb_children(&self) -> usize {
+		if (self.0[0] & 0b0000_0001) > 0 {
+			256
+		} else {
+			self.0[1] as usize
+		}
+	}
+
 	fn get_next_child_index(&self, index: Option<usize>) -> Option<usize> {
 		for i in index.map(|i| i + 1).unwrap_or(0) .. ART256_FIX_LEN {
 			let v = self.read_child_index(i);
@@ -584,7 +597,11 @@ impl Art256 {
 		let i = ART256_NB + 1 - at;
 		let i = ART256_FIX_LEN - i * 8;
 		if &self.0[i .. i + 8] == &[0; 8] {
-			self.0[0] += 1;
+			if self.0[1] == 255 {
+				self.0[0] |= 0b0000_0001;
+			} else {
+				self.0[1] += 1;
+			}
 		}
 		write_u64(index, &mut self.0[i .. i + 8]);
 		true
@@ -594,7 +611,11 @@ impl Art256 {
 		let i = ART256_NB + 1 - at;
 		let i = ART256_FIX_LEN - i * 8;
 		if &self.0[i .. i + 8] != &[0; 8] {
-			self.0[0] -= 1;
+			if self.0[0] & 0b0000_0001 > 0 {
+				self.0[0] |= !0b0000_0001;
+			} else {
+				self.0[1] -= 1;
+			}
 		}
 		write_u64(0, &mut self.0[i .. i + 8]);
 	}
@@ -783,11 +804,12 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 		}
 		if node.backend.value_state == ValueState::Deleted {
 			if let Some(previous) = node.backend.encoded.fetch_value_index() {
-				node.backend.encoded.set_value_index(0);
+				backend.remove_node(previous);
 				encoded_change = true;
 			} else {
 				unreachable!("deleted should be some");
 			};
+			node.backend.encoded.set_value_index(0);
 			node.backend.value_state = ValueState::Resolved;
 		}
 

@@ -220,7 +220,7 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 		Some(self.nb_children)
 	}
 
-	fn fetch_value_index (&self) -> Option<IndexFor<N>> {
+	fn fetch_value_index(&self) -> Option<IndexFor<N>> {
 		debug_assert!(self.value_state == ValueState::Unfetched);
 		self.value.clone()
 	}

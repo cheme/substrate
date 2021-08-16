@@ -19,7 +19,7 @@
 
 #[cfg(any(test, feature = "fuzzer"))]
 use crate::{Node256NoBackend, Node256NoBackendART, Node256TestBackendART,
-	Node16NoBackend, Node4NoBackend, Node256TestBackend};
+	Node16NoBackend, Node4NoBackend, Node256TestBackend, ArtTestBackend};
 #[cfg(any(test, feature = "fuzzer"))]
 #[cfg(feature = "hash_backend")]
 use crate::Node256HashedTestBackend;
@@ -505,6 +505,7 @@ test_for!(test_4, Node4NoBackend, false);
 test_for!(test_16, Node16NoBackend, false);
 test_for!(test_256_art, Node256NoBackendART, false);
 test_for!(test_256_backend, Node256TestBackend, true);
+test_for!(test_art_backend, ArtTestBackend, true);
 test_for!(test_256_backend_art, Node256TestBackendART, true);
 #[cfg(feature = "hash_backend")]
 test_for!(test_256_hashed_backend, Node256HashedTestBackend, true);

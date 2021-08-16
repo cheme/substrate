@@ -1422,6 +1422,18 @@ impl <V: Value + Codec> TreeConf for Node256TestBackend<V> {
 	type NodeBackend = backend::node_test::NodeTestBackend<Self>;
 }
 
+#[derive(Derivative)]
+#[derivative(Clone)]
+#[derivative(Debug)]
+pub struct ArtTestBackend<V>(core::marker::PhantomData<V>);
+impl<V> TreeConf for ArtTestBackend<V> {
+	type Radix = Radix256Conf;
+	type Value = Vec<u8>;
+	type Children = Children256<ChildFor<Self>>;
+	type Backend = Rc<RefCell<TestBackend>>;
+	type NodeBackend = backend::art::ArtLocalBackend<Self>;
+}
+
 #[cfg(feature = "hash_backend")]
 #[derive(Derivative)]
 #[derivative(Clone)]
