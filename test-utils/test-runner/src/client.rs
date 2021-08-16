@@ -35,6 +35,7 @@ use sc_transaction_pool_api::TransactionPool;
 use sp_api::{ApiExt, ConstructRuntimeApi, Core, Metadata};
 use sp_block_builder::BlockBuilder;
 use sp_consensus_babe::BabeApi;
+use sp_finality_grandpa::GrandpaApi;
 use sp_keyring::sr25519::Keyring::Alice;
 use sp_offchain::OffchainWorkerApi;
 use sp_runtime::traits::{Block as BlockT, Header};
@@ -90,9 +91,11 @@ where
 		+ TaggedTransactionQueue<T::Block>
 		+ BlockBuilder<T::Block>
 		+ BabeApi<T::Block>
-		+ ApiExt<T::Block, StateBackend = <TFullBackend<T::Block> as Backend<T::Block>>::State>,
+		+ ApiExt<T::Block, StateBackend = <TFullBackend<T::Block> as Backend<T::Block>>::State>
+		+ GrandpaApi<T::Block>,
 	<T::Runtime as frame_system::Config>::Call: From<frame_system::Call<T::Runtime>>,
-	<<T as ChainInfo>::Block as BlockT>::Hash: FromStr,
+	<<T as ChainInfo>::Block as BlockT>::Hash: FromStr + Unpin,
+	<<T as ChainInfo>::Block as BlockT>::Header: Unpin,
 	<<<T as ChainInfo>::Block as BlockT>::Header as Header>::Number:
 		num_traits::cast::AsPrimitive<usize>,
 {
@@ -151,6 +154,7 @@ where
 			import_queue,
 			on_demand: None,
 			block_announce_validator_builder: None,
+			warp_sync: None,
 		};
 		build_network(params)?
 	};
@@ -189,7 +193,7 @@ where
 			rpc_extensions_builder: Box::new(move |_, _| {
 				let mut io = jsonrpc_core::IoHandler::default();
 				io.extend_with(ManualSealApi::to_delegate(ManualSeal::new(rpc_sink.clone())));
-				io
+				Ok(io)
 			}),
 			remote_blockchain: None,
 			network,

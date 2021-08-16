@@ -15,7 +15,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use futures_util::{future::Future, FutureExt};
+#[cfg(not(target_os = "unknown"))]
+use futures_util::future::Future;
+use prometheus::core::Collector;
 pub use prometheus::{
 	self,
 	core::{
@@ -25,7 +27,8 @@ pub use prometheus::{
 	exponential_buckets, Error as PrometheusError, Histogram, HistogramOpts, HistogramVec, Opts,
 	Registry,
 };
-use prometheus::{core::Collector, Encoder, TextEncoder};
+#[cfg(not(target_os = "unknown"))]
+use prometheus::{Encoder, TextEncoder};
 use std::net::SocketAddr;
 
 #[cfg(not(target_os = "unknown"))]
@@ -64,8 +67,9 @@ mod known_os {
 	use super::*;
 	use hyper::{
 		http::StatusCode,
+		server::Server,
 		service::{make_service_fn, service_fn},
-		Body, Request, Response, Server,
+		Body, Request, Response,
 	};
 
 	#[derive(Debug, derive_more::Display, derive_more::From)]
@@ -150,10 +154,8 @@ mod known_os {
 			}
 		});
 
-		let server = Server::builder(Incoming(listener.incoming()))
-			.executor(Executor)
-			.serve(service)
-			.boxed();
+		let server =
+			Server::builder(Incoming(listener.incoming())).executor(Executor).serve(service);
 
 		let result = server.await.map_err(Into::into);
 
