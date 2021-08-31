@@ -38,6 +38,8 @@ use frame_system::{
 	pallet_prelude::*, WeightInfo,
 };
 
+pub use pallet::*;
+
 // syntactic sugar for logging.
 #[macro_export]
 macro_rules! log {
@@ -264,6 +266,11 @@ impl<T: pallet::Config> PendingMigration<T> {
 			if let Some(current_top) = self.current_top.as_ref() {
 					if let Some(next_key)	= sp_io::storage::next_key(current_top) {
 						self.new_next();
+						if next_key == sp_core::storage::well_known_keys::CODE {
+							// skip as was already created on runtime update
+							// and is likely to oversize block, same could be done with event.
+							continue;
+						}
 						if next_key.starts_with(sp_core::storage::well_known_keys::CHILD_STORAGE_KEY_PREFIX) {
 							self.current_top = Some(next_key);
 							let _ = self.process_top_key();
@@ -301,5 +308,153 @@ impl<T: pallet::Config> PendingMigration<T> {
 				}
 			}
 		}
+	}
+}
+
+#[cfg(test)]
+mod mock {
+	use crate as pallet_state_migrate_0_to_1;
+	use super::*;
+	use frame_support::{
+		ord_parameter_types, parameter_types,
+	};
+	use sp_core::H256;
+	use sp_runtime::{
+		testing::Header,
+		traits::{BlakeTwo256, IdentityLookup},
+	};
+
+	type UncheckedExtrinsic = frame_system::mocking::MockUncheckedExtrinsic<Test>;
+	type Block = frame_system::mocking::MockBlock<Test>;
+
+	// Configure a mock runtime to test the pallet.
+	frame_support::construct_runtime!(
+		pub enum Test where
+			Block = Block,
+			NodeBlock = Block,
+			UncheckedExtrinsic = UncheckedExtrinsic,
+		{
+			System: frame_system::{Pallet, Call, Config, Storage, Event<T>},
+			StateMigrate0To1: pallet_state_migrate_0_to_1::{Pallet, Storage},
+		}
+	);
+
+	impl frame_system::Config for Test {
+		type BaseCallFilter = frame_support::traits::Everything;
+		type BlockWeights = ();
+		type BlockLength = ();
+		type Origin = Origin;
+		type Call = Call;
+		type Index = u64;
+		type BlockNumber = u64;
+		type Hash = H256;
+		type Hashing = BlakeTwo256;
+		type AccountId = u64;
+		type Lookup = IdentityLookup<Self::AccountId>;
+		type Header = Header;
+		type Event = Event;
+		type BlockHashCount = BlockHashCount;
+		type DbWeight = ();
+		type Version = ();
+		type PalletInfo = PalletInfo;
+		type AccountData = ();
+		type OnNewAccount = ();
+		type OnKilledAccount = ();
+		type SystemWeightInfo = ();
+		type SS58Prefix = SS58Prefix;
+		type OnSetCode = ();
+	}
+
+	pub struct MigrationWeightImpl;
+	impl Get<Weight> for MigrationWeightImpl {
+		fn get() -> Weight {
+			500_000_000 as Weight
+		}
+	}
+
+	pub struct MigrationMaxSizeImpl;
+	impl Get<u32> for MigrationMaxSizeImpl {
+		fn get() -> u32 {
+			500_000
+		}
+	}
+
+	pub struct ThresholdImpl;
+	impl Get<u32> for ThresholdImpl {
+		fn get() -> u32 {
+			33
+		}
+	}
+
+	parameter_types! {
+		pub const BlockHashCount: u64 = 250;
+		pub const SS58Prefix: u8 = 42;
+	}
+
+	impl pallet_state_migrate_0_to_1::Config for Test {
+		type MigrationWeight = MigrationWeightImpl;
+		type MigrationMaxSize = MigrationMaxSizeImpl;
+		type Threshold = ThresholdImpl;
+	}
+
+	pub fn new_test_ext() -> sp_io::TestExternalities {
+		use sp_core::storage::ChildInfo;
+		let t = frame_system::GenesisConfig::default();
+		let mut child_key1 = sp_core::storage::well_known_keys::DEFAULT_CHILD_STORAGE_KEY_PREFIX.to_vec();
+		child_key1.extend_from_slice(b"chk1");
+		let mut child_key2 = sp_core::storage::well_known_keys::DEFAULT_CHILD_STORAGE_KEY_PREFIX.to_vec();
+		child_key2.extend_from_slice(b"chk2");
+		let mut storage = sp_core::storage::Storage {
+			top: vec![
+				(b"key1".to_vec(), vec![1u8; 40]),
+				(sp_core::storage::well_known_keys::CODE.to_vec(), vec![1u8; 40]),
+			].into_iter().collect(),
+			children_default: vec![
+				(child_key1, sp_core::storage::StorageChild {
+					data: vec![
+						(b"key1".to_vec(), vec![2u8; 40]),
+						(b"key2".to_vec(), vec![2u8; 4]),
+					].into_iter().collect(),
+					child_info: ChildInfo::new_default(b"chk1"),
+				}),
+				(child_key2, sp_core::storage::StorageChild {
+					data: vec![
+						(b"key1".to_vec(), vec![3u8; 4]),
+						(b"key2".to_vec(), vec![3u8; 40]),
+					].into_iter().collect(),
+					child_info: ChildInfo::new_default(b"chk2"),
+				}),
+			].into_iter().collect(),
+		};
+		t.assimilate_storage::<Test>(&mut storage).unwrap();
+
+		(storage, StateVersion::V0).into()
+	}
+
+	pub fn run_to_block(n: u64) {
+		while System::block_number() < n {
+			System::on_finalize(System::block_number());
+			StateMigrate0To1::on_finalize(System::block_number());
+			System::set_block_number(System::block_number() + 1);
+			System::on_initialize(System::block_number());
+			StateMigrate0To1::on_initialize(System::block_number());
+		}
+	}
+}
+
+#[cfg(test)]
+mod test {
+	use super::*;
+	use crate::mock::*;
+
+	#[test]
+	fn run_test() {
+		new_test_ext().execute_with(|| {
+			run_to_block(1);
+			assert!(matches!(
+				StateMigrate0To1::state_migration_v0_v1_progress(),
+				MigrationState::Finished,
+			));
+		});
 	}
 }
