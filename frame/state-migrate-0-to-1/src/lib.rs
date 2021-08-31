@@ -236,7 +236,7 @@ impl<T: pallet::Config> PendingMigration<T> {
 
 		loop {
 			if let Some(current_child) = self.current_child.as_ref() {
-				if let Some(next_key)	=	if let Some(storage_key) = self.current_top.as_ref() {
+				if let Some(next_key) = if let Some(storage_key) = self.current_top.as_ref() {
 					sp_io::default_child_storage::next_key(storage_key, current_child)
 				} else {
 					None
@@ -264,9 +264,10 @@ impl<T: pallet::Config> PendingMigration<T> {
 		}
 		loop {
 			if let Some(current_top) = self.current_top.as_ref() {
-					if let Some(next_key)	= sp_io::storage::next_key(current_top) {
+					if let Some(next_key) = sp_io::storage::next_key(current_top) {
 						self.new_next();
 						if next_key == sp_core::storage::well_known_keys::CODE {
+							self.current_top = Some(next_key);
 							// skip as was already created on runtime update
 							// and is likely to oversize block, same could be done with event.
 							continue;
