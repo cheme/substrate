@@ -181,10 +181,10 @@ impl<T: pallet::Config> PendingMigration<T> {
 	// return true if can continue and false if limit reached
 	fn process_child_key(&mut self) -> bool {
 		if let (Some(storage_key), Some(current_key)) = (self.current_top.as_ref(), self.current_child.as_ref()) {
-			if let Some(encode)	= sp_io::default_child_storage::get(storage_key, current_key) {
+			if let Some(encode)	= sp_io::default_child_storage::get(child_io_key(storage_key), current_key) {
 				let len = encode.len() as u32;
 				if len >= self.threshold {
-					sp_io::default_child_storage::set(storage_key, current_key, encode.as_slice());
+					sp_io::default_child_storage::set(child_io_key(storage_key), current_key, encode.as_slice());
 					if self.new_write(len) {
 						return false;
 					}
@@ -237,7 +237,7 @@ impl<T: pallet::Config> PendingMigration<T> {
 		loop {
 			if let Some(current_child) = self.current_child.as_ref() {
 				if let Some(next_key) = if let Some(storage_key) = self.current_top.as_ref() {
-					sp_io::default_child_storage::next_key(storage_key, current_child)
+					sp_io::default_child_storage::next_key(child_io_key(storage_key), current_child)
 				} else {
 					None
 				} {
@@ -312,6 +312,15 @@ impl<T: pallet::Config> PendingMigration<T> {
 	}
 }
 
+fn child_io_key(storage_key: &Vec<u8>) -> &[u8] {
+	use sp_core::storage::{ChildType, PrefixedStorageKey};
+	match ChildType::from_prefixed_key(PrefixedStorageKey::new_ref(storage_key)) {
+		Some((ChildType::ParentKeyId, storage_key)) => storage_key,
+		None => &[], // Ignore
+	}
+}
+
+
 #[cfg(test)]
 mod mock {
 	use crate as pallet_state_migrate_0_to_1;
@@ -369,7 +378,7 @@ mod mock {
 	pub struct MigrationWeightImpl;
 	impl Get<Weight> for MigrationWeightImpl {
 		fn get() -> Weight {
-			500_000_000 as Weight
+			500_000_000_000 as Weight
 		}
 	}
 
