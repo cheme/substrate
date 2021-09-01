@@ -438,7 +438,13 @@ mod mock {
 		};
 		t.assimilate_storage::<Test>(&mut storage).unwrap();
 
-		(storage, StateVersion::V0).into()
+		let mut test_externalities: sp_io::TestExternalities = (storage, StateVersion::V0).into();
+
+		// rebuild backend with new version.
+		let root = test_externalities.backend.root().clone();
+		let storage = test_externalities.backend.into_storage();
+		test_externalities.backend = sp_api::InMemoryBackend::new(storage, root, sp_core::state_version::DEFAULT_STATE_VERSION);
+		test_externalities
 	}
 
 	pub fn run_to_block(n: u64) {
@@ -448,6 +454,7 @@ mod mock {
 			System::set_block_number(System::block_number() + 1);
 			System::on_initialize(System::block_number());
 			StateMigrate0To1::on_initialize(System::block_number());
+			System::finalize();
 		}
 	}
 }
@@ -460,7 +467,7 @@ mod test {
 	#[test]
 	fn run_test() {
 		new_test_ext().execute_with(|| {
-			run_to_block(1);
+			run_to_block(2);
 			assert!(matches!(
 				StateMigrate0To1::state_migration_v0_v1_progress(),
 				MigrationState::Finished,
