@@ -56,7 +56,18 @@ macro_rules! log {
 pub enum MigrationState {
 	/// Started migration and current progress.
 	Pending {
+		// If None, nothing was processed and current_child is also None.
+		// If Some, its value is already processed.
 		current_top: Option<Vec<u8>>,
+		// If Some, its value is already processed and additional content
+		// in child trie need processing. current_top is the child trie root
+		// in this case.
+		// If None, current top is NOT a child trie root and current processing is top trie.
+		//
+		// So when current top is a child trie root, this should always be paused on a `Some`
+		// varaiant.
+		// So when pausing on a child trie processing the algorithm must ensure at least first
+		// entry is processed.
 		current_child: Option<Vec<u8>>,
 	},
 	/// Finished migration, this module will not
@@ -407,7 +418,7 @@ mod mock {
 		type Threshold = ThresholdImpl;
 	}
 
-	pub fn new_test_ext() -> sp_io::TestExternalities {
+	pub fn new_test_ext(switch_version: bool) -> sp_io::TestExternalities {
 		use sp_core::storage::ChildInfo;
 		let t = frame_system::GenesisConfig::default();
 		let mut child_key1 = sp_core::storage::well_known_keys::DEFAULT_CHILD_STORAGE_KEY_PREFIX.to_vec();
@@ -438,6 +449,9 @@ mod mock {
 		};
 		t.assimilate_storage::<Test>(&mut storage).unwrap();
 
+		if !switch_version {
+			return (storage, StateVersion::V0).into();
+		}
 		let mut test_externalities: sp_io::TestExternalities = (storage, StateVersion::V0).into();
 
 		// rebuild backend with new version.
@@ -447,15 +461,18 @@ mod mock {
 		test_externalities
 	}
 
-	pub fn run_to_block(n: u64) {
+	pub fn run_to_block(n: u64) -> H256 {
+		use sp_api::HeaderT;
+		let mut root = Default::default();
 		while System::block_number() < n {
 			System::on_finalize(System::block_number());
 			StateMigrate0To1::on_finalize(System::block_number());
 			System::set_block_number(System::block_number() + 1);
 			System::on_initialize(System::block_number());
 			StateMigrate0To1::on_initialize(System::block_number());
-			System::finalize();
+			root = System::finalize().state_root().clone();
 		}
+		root
 	}
 }
 
@@ -466,12 +483,22 @@ mod test {
 
 	#[test]
 	fn run_test() {
-		new_test_ext().execute_with(|| {
-			run_to_block(2);
+		let mut test_ext_no_switch = new_test_ext(false);
+		let mut test_ext = new_test_ext(true);
+		let initial_root = test_ext.backend.root().clone();
+		// TODO simulate a multiblock
+		let final_root = test_ext.execute_with(|| {
+			let r = run_to_block(2);
 			assert!(matches!(
 				StateMigrate0To1::state_migration_v0_v1_progress(),
 				MigrationState::Finished,
 			));
+			r
 		});
+		let final_no_switch = test_ext_no_switch.execute_with(|| {
+			run_to_block(2)
+		});
+		assert!(final_root != initial_root);
+		assert!(final_root != final_no_switch);
 	}
 }
