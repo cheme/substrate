@@ -167,6 +167,10 @@ impl<T: pallet::Config> PendingMigration<T> {
 	}
 
 	fn new_write(&mut self, len: u32) -> bool {
+		if !self.touched {
+			// This need to force update (same value change are optimized otherwhise).
+			sp_io::storage::force_update(); // TODO could have a more generic io.
+		}
 		self.touched = true;
 		self.current_size += len;
 		self.current_weight += T::SystemWeightInfo::set_storage(len);
@@ -184,8 +188,9 @@ impl<T: pallet::Config> PendingMigration<T> {
 			if let Some(encode)	= sp_io::default_child_storage::get(child_io_key(storage_key), current_key) {
 				let len = encode.len() as u32;
 				if len >= self.threshold {
+					let done = self.new_write(len);
 					sp_io::default_child_storage::set(child_io_key(storage_key), current_key, encode.as_slice());
-					if self.new_write(len) {
+					if done {
 						return false;
 					}
 				} else {
@@ -208,8 +213,9 @@ impl<T: pallet::Config> PendingMigration<T> {
 			if let Some(encode)	= sp_io::storage::get(current_key) {
 				let len = encode.len() as u32;
 				if len >= self.threshold {
+					let done = self.new_write(len);
 					sp_io::storage::set(current_key, encode.as_slice());
-					if self.new_write(len) {
+					if done {
 						return false;
 					}
 				} else {
