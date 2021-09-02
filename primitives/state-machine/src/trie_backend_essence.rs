@@ -28,7 +28,7 @@ use sp_std::{boxed::Box, ops::Deref, vec::Vec};
 use sp_trie::{
 	empty_child_trie_root, read_child_trie_value, read_trie_value,
 	trie_types::{TrieDB, TrieError},
-	DBValue, KeySpacedDB, Layout, PrefixedMemoryDB, Trie, TrieDBIterator, TrieDBKeyIterator,
+	DBValue, KeySpacedDB, Layout, PrefixedMemoryDB, TrieDBIterator, TrieDBKeyIterator,
 };
 #[cfg(feature = "std")]
 use std::collections::HashMap;
@@ -57,6 +57,7 @@ pub trait Storage<H: Hasher>: Send + Sync {
 #[cfg(feature = "std")]
 pub(crate) struct Cache {
 	pub child_root: HashMap<Vec<u8>, Option<Vec<u8>>>,
+	pub top_last_iter: Option<(Vec<u8>, SuspendedTrieDBKeyIterator)>,
 }
 
 #[cfg(feature = "std")]
@@ -197,7 +198,7 @@ where
 
 		let trie =
 			TrieDB::<H>::new(dyn_eph, root).map_err(|e| format!("TrieDB creation error: {}", e))?;
-		let mut iter = trie.key_iter().map_err(|e| format!("TrieDB iteration error: {}", e))?;
+		let mut iter = TrieDBKeyIterator::new(&trie).map_err(|e| format!("TrieDB iteration error: {}", e))?;
 
 		// The key just after the one given in input, basically `key++0`.
 		// Note: We are sure this is the next key if:
@@ -207,6 +208,7 @@ where
 		potential_next_key.extend_from_slice(key);
 		potential_next_key.push(0);
 
+		use sp_trie::TrieIterator;
 		iter.seek(&potential_next_key)
 			.map_err(|e| format!("TrieDB iterator seek error: {}", e))?;
 

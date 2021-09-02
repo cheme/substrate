@@ -48,7 +48,7 @@ pub use trie_db::{
 	nibble_ops,
 	node::{NodePlan, ValuePlan},
 	CError, DBValue, Meta, Query, Recorder, Trie, TrieConfiguration, TrieDBIterator,
-	TrieDBKeyIterator, TrieLayout, TrieMut,
+	TrieDBKeyIterator, TrieLayout, TrieMut, TrieIterator, triedb::SuspendedTrieDBKeyIterator,
 };
 /// The Substrate format implementation of `TrieStream`.
 pub use trie_stream::TrieStream;
