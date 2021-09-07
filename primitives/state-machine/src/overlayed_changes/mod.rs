@@ -296,6 +296,14 @@ impl<Transaction: Default, H: Hasher, N: BlockNumber> Default
 	}
 }
 
+enum OverlayResult<'a> {
+	Unchanged,
+	Remove,
+	NewValue(&'a [u8]),
+	Appended(&'a [u8]),
+	IncCounter(usize),
+}
+
 impl OverlayedChanges {
 	/// Whether no changes are contained in the top nor in any of the child changes.
 	pub fn is_empty(&self) -> bool {
@@ -367,6 +375,17 @@ impl OverlayedChanges {
 		self.top.set(key, val.into(), extrinsic_index);
 	}
 
+	/// Append a value to encoded storage.
+	pub(crate) fn append_storage(&mut self, key: StorageKey, val: Option<StorageValue>) {
+		self.filters.guard_append(None, key.as_slice());
+		self.optimistic_logger.log_append(None, key.as_slice());
+		unimplemented!("Requires change without value in overlay");
+/* let current_value = self.value_mut_or_insert_with(&key, || {
+			backend.storage(&key).expect(EXT_NOT_ALLOWED_TO_FAIL).unwrap_or_default()
+		});
+		crate::ext::StorageAppend::new(current_value).append(value);*/
+	}
+	
 	/// Set a new value for the specified key and child.
 	///
 	/// `None` can be used to delete a value specified by the given key.
@@ -1089,7 +1108,7 @@ impl OverlayedChanges {
 		for key in delta.top.deleted.into_iter() {
 			self.set_storage(key, None);
 		}
-		for (key, _change) in delta.top.appended.into_iter() {
+		for (key, change) in delta.top.appended.into_iter() {
 			unimplemented!("Delta appended");
 		}
 		for (key, _change) in delta.top.incremented.into_iter() {
