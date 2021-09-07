@@ -300,8 +300,8 @@ enum OverlayResult<'a> {
 	Unchanged,
 	Remove,
 	NewValue(&'a [u8]),
-	Appended(&'a [u8]),
-	IncCounter(usize),
+	Appended(Option<&'a [u8]> , &'a [Vec<u8>]), // maybe &mut ref to fill it on value access (but then become a NewValue so )
+	IncCounter(Option<&'a [u8]>, usize),
 }
 
 impl OverlayedChanges {
@@ -318,6 +318,7 @@ impl OverlayedChanges {
 	/// Returns a double-Option: None if the key is unknown (i.e. and the query should be referred
 	/// to the backend); Some(None) if the key has been deleted. Some(Some(...)) for a key whose
 	/// value has been set.
+	/// TODO Option<&mut Changes>? or &mut OverlayResult (would mean removing Unchanged variant).
 	pub fn storage(&mut self, key: &[u8]) -> Option<Option<&[u8]>> {
 		self.filters.guard_read(None, key);
 		self.optimistic_logger.log_read(None, key);

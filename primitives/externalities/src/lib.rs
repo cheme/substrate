@@ -384,11 +384,13 @@ pub enum Change {
 	/// Write new value.
 	Write(StorageValue),
 	/// Append to existing value, 'join' order.
-	Append(StorageValue, Vec<StorageValue>),
+	/// TODO origin value seem useless
+	Append(Option<StorageValue>, Vec<StorageValue>),
 	/// Increment counter value.
 	/// TODO could also store original storage value.
 	/// TODO could be merge with append (trait +).
-	IncrementCounter(StorageValue, u32),
+	/// TODO origin value seem useless
+	IncrementCounter(Option<StorageValue>, u32),
 }
 
 impl Default for Change {
