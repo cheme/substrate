@@ -62,11 +62,6 @@ where
 		self.essence.backend_storage()
 	}
 
-	/// Get backend storage reference.
-	pub fn backend_storage_mut(&mut self) -> &mut S {
-		self.essence.backend_storage_mut()
-	}
-
 	/// Get trie root.
 	pub fn root(&self) -> &H::Out {
 		self.essence.root()
@@ -261,7 +256,7 @@ where
 		(root, is_default, write_overlay)
 	}
 
-	fn as_trie_backend(&mut self) -> Option<&TrieBackend<Self::TrieBackendStorage, H>> {
+	fn as_trie_backend(&self) -> Option<&TrieBackend<Self::TrieBackendStorage, H>> {
 		Some(self)
 	}
 

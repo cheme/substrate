@@ -284,6 +284,7 @@ impl RuntimeInstanceSpawn {
 									e,
 								);
 
+								// This will drop sender and receiver end will panic
 								return None
 							},
 						};
@@ -296,6 +297,7 @@ impl RuntimeInstanceSpawn {
 									e,
 								);
 
+								// This will drop sender and receiver end will panic
 								return None
 							},
 						};

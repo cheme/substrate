@@ -33,16 +33,12 @@ use prometheus_endpoint::{
 	exponential_buckets, register, CounterVec, HistogramOpts, HistogramVec, Opts, PrometheusError,
 	Registry, U64,
 };
-use sp_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver, TracingUnboundedSender};
-use std::{
-	panic,
-	pin::Pin,
-	result::Result,
-	sync::{
-		atomic::{AtomicUsize, Ordering},
-		Arc,
-	},
+use std::sync::{
+	atomic::{AtomicUsize, Ordering},
+	Arc,
 };
+use sc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver, TracingUnboundedSender};
+use std::{panic, pin::Pin, result::Result};
 use tracing_futures::Instrument;
 
 mod prometheus_future;
@@ -379,7 +375,13 @@ impl TaskManager {
 		Box::pin(async move {
 			join_all(children_shutdowns).await;
 			completion_future.await;
-			drop(keep_alive);
+
+			// The keep_alive stuff is holding references to some RPC handles etc. These
+			// RPC handles spawn their own tokio stuff and that doesn't like to be closed in an
+			// async context. So, we move the deletion to some other thread.
+			std::thread::spawn(move || {
+				let _ = keep_alive;
+			});
 		})
 	}
 
