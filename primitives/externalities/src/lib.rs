@@ -384,13 +384,9 @@ pub enum Change {
 	/// Write new value.
 	Write(StorageValue),
 	/// Append to existing value, 'join' order.
-	/// TODO origin value seem useless
-	Append(Option<StorageValue>, Vec<StorageValue>),
+	Append(Vec<StorageValue>),
 	/// Increment counter value.
-	/// TODO could also store original storage value.
-	/// TODO could be merge with append (trait +).
-	/// TODO origin value seem useless
-	IncrementCounter(Option<StorageValue>, u32),
+	IncrementCounter(u32),
 }
 
 impl Default for Change {
@@ -446,11 +442,9 @@ pub struct TrieDelta {
 	/// append log, but seems worth it as size
 	/// of trie delta will be way lower (unimplemented
 	/// at this point).
-	/// TODO do we need base storage value: problably not.
-	pub appended: Vec<(Vec<u8>, (StorageValue, Vec<StorageValue>))>,
+	pub appended: Vec<(Vec<u8>, Vec<StorageValue>)>,
 	/// Counter incremented.
-	/// TODO do we need base storage value: problably not.
-	pub incremented: Vec<(Vec<u8>, (StorageValue, u32))>,
+	pub incremented: Vec<(Vec<u8>, u32)>,
 	/// Keys deleted.
 	pub deleted: Vec<Vec<u8>>,
 	/// Key prefix deleted and subsequent.

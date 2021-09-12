@@ -182,8 +182,24 @@ impl<V> OverlayedEntry<V> {
 
 impl OverlayedEntry<Change> {
 	/// The value as seen by the current transaction.
-	pub fn value(&mut self) -> Option<&StorageValue> {
-		super::change_read_value_mut(self.value_mut()).map(|v| &*v)
+	pub fn value<H: hash_db::Hasher>(
+		&mut self,
+		key: &[u8],
+		backend: &impl crate::Backend<H>,
+	) -> Option<&StorageValue> {
+		// TODO also build from all transaction parent changes (or clone val every new tx, sounds bad) 
+		super::change_read_value_mut(key, self.value_mut(), backend).map(|v| &*v)
+		// TODO also check it register/guard read access for append case.
+	}
+
+	/// Check if has value, do not register a read access (no value aggregation as for `value`).
+	pub fn has_value(&self) -> bool {
+		match self.value_ref() {
+			Change::Delete => false,
+			Change::Write(..) => true,
+			Change::Append(..) => true,
+			Change::IncrementCounter(..) => true,
+		}
 	}
 }
 
@@ -419,6 +435,72 @@ impl OverlayedChangeSet {
 			overlayed.set(cloned, first_write_in_tx, at_extrinsic);
 		}
 		overlayed.value_mut()
+	}
+
+	/// Access to appendable change
+	pub fn append_storage(
+		&mut self,
+		key: StorageKey,
+		value: StorageValue,
+		at_extrinsic: Option<u32>,
+	) {
+		let overlayed = self.changes.entry(key.clone()).or_default();
+		let first_write_in_tx = insert_dirty(&mut self.dirty_keys, key);
+		let mut clone_into_new_tx = if let Some(tx) = overlayed.transactions.last() {
+			if first_write_in_tx {
+				true
+			} else {
+				false
+			}
+		} else {
+			true
+		};
+
+		if !clone_into_new_tx {
+			match overlayed.value_mut() {
+				Change::Append(changes) => { 
+					// TODO check if need to also add extrinsic index?
+					changes.push(value);
+				},
+				_ => { clone_into_new_tx = true; }, // just overwrite (TODO could panic)
+			}
+		}
+		if clone_into_new_tx {
+			overlayed.set(Change::Append(vec![value]), first_write_in_tx, at_extrinsic);
+		}
+	}
+
+	/// Access to appendable change
+	pub fn inc_counter(
+		&mut self,
+		key: StorageKey,
+		nb: u32,
+		at_extrinsic: Option<u32>,
+	) {
+		let overlayed = self.changes.entry(key.clone()).or_default();
+		let first_write_in_tx = insert_dirty(&mut self.dirty_keys, key);
+		let mut clone_into_new_tx = if let Some(tx) = overlayed.transactions.last() {
+			if first_write_in_tx {
+				true
+			} else {
+				false
+			}
+		} else {
+			true
+		};
+
+		if !clone_into_new_tx {
+			match overlayed.value_mut() {
+				Change::IncrementCounter(changes) => { 
+					// TODO check if need to also add extrinsic index?
+					*changes += nb;
+				},
+				_ => { clone_into_new_tx = true; }, // just overwrite (TODO could panic)
+			}
+		}
+		if clone_into_new_tx {
+			overlayed.set(Change::IncrementCounter(nb), first_write_in_tx, at_extrinsic);
+		}
 	}
 
 	/// Set all values to deleted which are matched by the predicate.

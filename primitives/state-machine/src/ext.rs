@@ -352,7 +352,7 @@ where
 						// If `backend_key` is less than the `overlay_key`, we found out next key.
 						if cmp == Some(Ordering::Less) {
 							return next_backend_key.clone()
-						} else if overlay_key.1.value().is_some() {
+						} else if overlay_key.1.has_value() {
 							// If there exists a value for the `overlay_key` in the overlay
 							// (aka the key is still valid), it means we have found our next key.
 							return Some(overlay_key.0.to_vec())
@@ -370,7 +370,7 @@ where
 				},
 				(None, Some(_)) => {
 					// Find the next overlay key that has a value attached.
-					overlay_changes.find_map(|k| k.1.value().is_some().then(|| k.0.to_vec()))
+					overlay_changes.find_map(|k| k.1.has_value().then(|| k.0.to_vec()))
 				},
 			}
 		}();
@@ -399,7 +399,7 @@ where
 						// If `backend_key` is less than the `overlay_key`, we found out next key.
 						if cmp == Some(Ordering::Less) {
 							return next_backend_key.clone()
-						} else if overlay_key.1.value().is_some() {
+						} else if overlay_key.1.has_value() {
 							// If there exists a value for the `overlay_key` in the overlay
 							// (aka the key is still valid), it means we have found our next key.
 							return Some(overlay_key.0.to_vec())
@@ -417,7 +417,7 @@ where
 				},
 				(None, Some(_)) => {
 					// Find the next overlay key that has a value attached.
-					overlay_changes.find_map(|k| k.1.value().is_some().then(|| k.0.to_vec()))
+					overlay_changes.find_map(|k| k.1.has_value().then(|| k.0.to_vec()))
 				},
 			}
 		}();
@@ -538,12 +538,7 @@ where
 
 		let _guard = guard();
 		self.mark_dirty();
-
-		let backend = &mut self.backend;
-		let current_value = self.overlay.value_mut_or_insert_with(&key, || {
-			backend.storage(&key).expect(EXT_NOT_ALLOWED_TO_FAIL).unwrap_or_default()
-		});
-		StorageAppend::new(current_value).append(value);
+		self.overlay.append_storage(key, value);
 	}
 
 	fn storage_root(&mut self) -> Vec<u8> {

@@ -194,7 +194,7 @@ impl Externalities for AsyncExt {
 						// If `backend_key` is less than the `overlay_key`, we found out next key.
 						if cmp == Some(Ordering::Less) {
 							return next_backend_key.clone()
-						} else if overlay_key.1.value().is_some() {
+						} else if overlay_key.1.has_value() {
 							// If there exists a value for the `overlay_key` in the overlay
 							// (aka the key is still valid), it means we have found our next key.
 							return Some(overlay_key.0.to_vec())
@@ -210,7 +210,7 @@ impl Externalities for AsyncExt {
 				},
 				(None, Some(_)) => {
 					// Find the next overlay key that has a value attached.
-					overlay_changes.find_map(|k| k.1.value().is_some().then(|| k.0.to_vec()))
+					overlay_changes.find_map(|k| k.1.has_value().then(|| k.0.to_vec()))
 				},
 			}
 		}();
@@ -239,7 +239,7 @@ impl Externalities for AsyncExt {
 						// If `backend_key` is less than the `overlay_key`, we found out next key.
 						if cmp == Some(Ordering::Less) {
 							return next_backend_key.clone()
-						} else if overlay_key.1.value().is_some() {
+						} else if overlay_key.1.has_value() {
 							// If there exists a value for the `overlay_key` in the overlay
 							// (aka the key is still valid), it means we have found our next key.
 							return Some(overlay_key.0.to_vec())
@@ -256,7 +256,7 @@ impl Externalities for AsyncExt {
 				},
 				(None, Some(_)) => {
 					// Find the next overlay key that has a value attached.
-					overlay_changes.find_map(|k| k.1.value().is_some().then(|| k.0.to_vec()))
+					overlay_changes.find_map(|k| k.1.has_value().then(|| k.0.to_vec()))
 				},
 			}
 		}();
@@ -305,11 +305,9 @@ impl Externalities for AsyncExt {
 		self.guard_read_only(
 			"`storage_append`: should not be used in read only worker externalities!",
 		);
-		let backend = &mut self.backend;
-		let current_value = self
+		self
 			.overlay
-			.value_mut_or_insert_with(&key, || backend.storage(&key).unwrap_or_default());
-		crate::ext::StorageAppend::new(current_value).append(value);
+			.append_storage(key, value);
 	}
 
 	fn storage_root(&mut self) -> Vec<u8> {
