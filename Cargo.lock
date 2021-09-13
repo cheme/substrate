@@ -7712,6 +7712,7 @@ dependencies = [
 name = "sc-executor-common"
 version = "0.10.0-dev"
 dependencies = [
+ "environmental",
  "parity-scale-codec",
  "pwasm-utils",
  "sp-core",

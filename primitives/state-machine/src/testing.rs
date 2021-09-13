@@ -23,7 +23,7 @@ use std::{
 };
 
 use crate::{
-	backend::Backend,
+	backend::{AsyncBackendAdapterRef, Backend},
 	changes_trie::{
 		BlockNumber as ChangesTrieBlockNumber, Configuration as ChangesTrieConfiguration,
 		InMemoryStorage as ChangesTrieInMemoryStorage, State as ChangesTrieState,
@@ -162,13 +162,13 @@ where
 	/// transactions.
 	fn as_backend(&mut self) -> InMemoryBackend<H> {
 		let top: Vec<_> =
-			self.overlay.changes().map(|(k, v)| (k.clone(), v.value().cloned())).collect();
+			self.overlay.resolved_changes(&AsyncBackendAdapterRef::new(&self.backend)).map(|(k, v)| (k.clone(), v.value_from_resolved().cloned())).collect();
 		let mut transaction = vec![(None, top)];
 
-		for (child_changes, child_info) in self.overlay.children() {
+		for (child_changes, child_info) in self.overlay.children_resolved(&AsyncBackendAdapterRef::new(&self.backend)) {
 			transaction.push((
 				Some(child_info.clone()),
-				child_changes.map(|(k, v)| (k.clone(), v.value().cloned())).collect(),
+				child_changes.map(|(k, v)| (k.clone(), v.value_from_resolved().cloned())).collect(),
 			))
 		}
 

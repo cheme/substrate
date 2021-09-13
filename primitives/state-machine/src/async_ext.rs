@@ -135,7 +135,7 @@ impl Externalities for AsyncExt {
 		let _guard = guard();
 		let result = self
 			.overlay
-			.storage(key)
+			.storage(key, &self.backend)
 			.map(|x| x.map(|x| x.to_vec()))
 			.unwrap_or_else(|| self.backend.storage(key));
 		trace!(target: "state", "{:?}: Th Get {}={:?}",
@@ -157,7 +157,7 @@ impl Externalities for AsyncExt {
 		let _guard = guard();
 		let result = self
 			.overlay
-			.child_storage(child_info, key)
+			.child_storage(child_info, key, &self.backend)
 			.map(|x| x.map(|x| x.to_vec()))
 			.unwrap_or_else(|| self.backend.child_storage(child_info, key));
 

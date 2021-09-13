@@ -121,7 +121,7 @@ impl sp_std::fmt::Display for DefaultError {
 }
 
 pub use crate::{
-	backend::{AsyncBackend, Backend},
+	backend::{AsyncBackend, AsyncBackendNonSend, Backend},
 	ext::Ext,
 	overlayed_changes::{
 		ChildStorageCollection, IndexOperation, OffchainChangesCollection,

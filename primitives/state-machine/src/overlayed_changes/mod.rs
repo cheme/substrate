@@ -25,7 +25,7 @@ mod markers;
 mod offchain;
 
 use self::changeset::OverlayedChangeSet;
-use crate::{backend::Backend, stats::StateMachineStats};
+use crate::{backend::{Backend, AsyncBackendNonSend, AsyncBackendAdapterRef}, stats::StateMachineStats};
 pub use offchain::OffchainOverlayedChanges;
 use sp_std::{
 	any::{Any, TypeId},
@@ -320,20 +320,20 @@ impl OverlayedChanges {
 	/// value has been set.
 	/// TODO Option<&mut Changes>? or &mut OverlayResult (would mean removing Unchanged variant).
 	/// TODO passing backend is ill design: just return enum
-	pub fn storage(&mut self, key: &[u8]) -> Option<Option<&[u8]>> {
+	pub fn storage(
+		&mut self,
+		key: &[u8],
+		backend: &impl AsyncBackendNonSend,
+	) -> Option<Option<&[u8]>> {
 		self.filters.guard_read(None, key);
 		self.optimistic_logger.log_read(None, key);
 		let stats = &mut self.stats;
 		self.top.get(key).map(|x| {
 			if x.need_resolve() {
-				unimplemented!("see commented block");
-				/*
-				let backend = unimplemented!("Don't pass backend, resolve from outside of overlay");
 				// gard and log already call
-        if let Some(aggregate) = change_to_change_set(key, &mut x.transactions[..], backend) {
+        if let Some(aggregate) = change_to_change_set(None, key, &mut x.transactions[..], backend) {
 					x.transactions.last_mut().map(|e| e.value = Change::Write(aggregate));
 				}
-				*/
 			}
 			let value = x.value_from_resolved();
 			let size_read = value.map(|x| x.len() as u64).unwrap_or(0);
@@ -368,14 +368,22 @@ impl OverlayedChanges {
 	/// Returns a double-Option: None if the key is unknown (i.e. and the query should be referred
 	/// to the backend); Some(None) if the key has been deleted. Some(Some(...)) for a key whose
 	/// value has been set.
-	pub fn child_storage(&mut self, child_info: &ChildInfo, key: &[u8]) -> Option<Option<&[u8]>> {
+	pub fn child_storage(
+		&mut self,
+		child_info: &ChildInfo,
+		key: &[u8],
+		backend: &impl AsyncBackendNonSend,
+	) -> Option<Option<&[u8]>> {
 		self.filters.guard_read(Some(child_info), key);
 		self.optimistic_logger.log_read(Some(child_info), key);
 		let map = self.children.get_mut(child_info.storage_key())?;
 
 		let value = map.0.get(key)?;
 		if value.need_resolve() {
-			unimplemented!("TODO return delta to apply over written value, and force write");
+			// gard and log already call
+       if let Some(aggregate) = change_to_change_set(Some(child_info), key, &mut value.transactions[..], backend) {
+				value.transactions.last_mut().map(|e| e.value = Change::Write(aggregate));
+			}
 		}
 		let value = value.value_from_resolved();
 		let size_read = value.map(|x| x.len() as u64).unwrap_or(0);
@@ -792,15 +800,16 @@ impl OverlayedChanges {
 			take(&mut self.top)
 				.drain()
 				.map(move |(k, mut change)| {
-					let change = change_to_change_set(k.as_slice(), &mut change.transactions[..], backend);
+					let change = change_to_change_set(None, k.as_slice(), &mut change.transactions[..], &AsyncBackendAdapterRef::new(backend));
 					(k, change)
 				}),
 			take(&mut self.children).into_iter().map(move |(key, (val, info))| {
+				let info_iter = info.clone();
 				(
 					key,
 					(
 						val.drain().map(move |(k, mut change)| {
-							let change = change_to_change_set(k.as_slice(), &mut change.transactions[..], backend);
+							let change = change_to_change_set(Some(&info_iter), k.as_slice(), &mut change.transactions[..], &AsyncBackendAdapterRef::new(backend));
 							(k, change)
 						}),
 						info,
@@ -830,6 +839,17 @@ impl OverlayedChanges {
 		self.children.iter_mut().map(|(_, v)| (v.0.changes(), &v.1))
 	}
 
+	/// Get an iterator over all child changes as seen by the current transaction.
+	pub fn children_resolved<'a>(
+		&'a mut self,
+		backend: &'a impl AsyncBackendNonSend,
+	) -> impl Iterator<Item = (impl Iterator<Item = (&StorageKey, &mut OverlayedValue)>, &ChildInfo)>
+	{
+		self.children.iter_mut().map(move |(_, v)| {
+			(v.0.resolved_changes(Some(&v.1), backend), &v.1)
+		})
+	}
+
 	/// Get an iterator over all top changes as been by the current transaction.
 	pub fn changes(&mut self) -> impl Iterator<Item = (&StorageKey, &mut OverlayedValue)> {
 		self.top.changes()
@@ -838,11 +858,11 @@ impl OverlayedChanges {
 	/// Get an iterator over all top changes as been by the current transaction.
 	///
 	/// Does resolve appendable values. TODO not sure why returning &mut then.
-	pub fn resolved_changes<'a, H: Hasher + 'static>(
+	pub fn resolved_changes<'a>(
 		&'a mut self,
-		backend: &'a impl crate::Backend<H>,
+		backend: &'a impl AsyncBackendNonSend,
 	) -> impl Iterator<Item = (&StorageKey, &mut OverlayedValue)> + 'a {
-		self.top.resolved_changes(None, &mut self.filters, &mut self.optimistic_logger, backend)
+		self.top.resolved_changes(None, backend)
 	}
 
 	/// Get an optional iterator over all child changes stored under the supplied key.
@@ -856,15 +876,13 @@ impl OverlayedChanges {
 	/// Get an optional iterator over all child changes stored under the supplied key.
 	///
 	/// Does resolve appendable values.
-	pub fn resolved_child_changes<'a, H: Hasher + 'static>(
+	pub fn resolved_child_changes<'a>(
 		&'a mut self,
 		key: &[u8],
-		backend: &'a impl crate::Backend<H>,
+		backend: &'a impl AsyncBackendNonSend,
 	) -> Option<(impl Iterator<Item = (&StorageKey, &mut OverlayedValue)>, &ChildInfo)> {
-		let filter = &mut self.filters;
-		let logger = &mut self.optimistic_logger;
 		self.children.get_mut(key).map(move |(overlay, info)| {
-			let iter = overlay.resolved_changes(Some(info), filter, logger, backend);
+			let iter = overlay.resolved_changes(Some(info), backend);
 			(iter, &*info)
 		})
 	}
@@ -963,7 +981,7 @@ impl OverlayedChanges {
 	fn extrinsic_index(&mut self) -> Option<u32> {
 		match self.collect_extrinsics {
 			true => Some(
-				self.storage(EXTRINSIC_INDEX)
+				self.storage(EXTRINSIC_INDEX, &()) // TODO here no backend for extrinsic index, but strictly will require just independant storage (see local)
 					.and_then(|idx| idx.and_then(|idx| Decode::decode(&mut &*idx).ok()))
 					.unwrap_or(NO_EXTRINSIC_INDEX),
 			),
@@ -986,13 +1004,14 @@ impl OverlayedChanges {
 		self.filters.guard_read_all();
 		self.optimistic_logger.log_read_all();
 
-		let delta = self.top.resolved_changes(backend).map(|(k, v)| (&k[..], v.value().map(|v| &v[..])));
+		let abackend = AsyncBackendAdapterRef::new(backend);
+		let delta = self.top.resolved_changes(None, &abackend).map(|(k, v)| (&k[..], v.value_from_resolved().map(|v| &v[..])));
 		let child_delta =
 			self.children
 				.iter_mut()
-				.map(|(_, v)| (v.0.resolved_changes(backend), &v.1))
+				.map(|(_, v)| (v.0.resolved_changes(Some(&v.1), &abackend), &v.1))
 				.map(|(changes, info)| {
-					(info, changes.map(|(k, v)| (&k[..], v.value().map(|v| &v[..]))))
+					(info, changes.map(|(k, v)| (&k[..], v.value_from_resolved().map(|v| &v[..]))))
 				});
 
 		let (root, transaction) = backend.full_storage_root(delta, child_delta);
@@ -1333,10 +1352,11 @@ pub mod radix_trees {
 /// Last change set is consumed (should only be use on dropped
 /// change or if rewriting afterward).
 /// TODO make a fully drop variant for into_committed?
-fn change_to_change_set<H: Hasher>(
+fn change_to_change_set(
+	child_info: Option<&ChildInfo>,
 	key: &[u8],
 	change: &mut [crate::overlayed_changes::changeset::InnerValue<Change>],
-	backend: &impl crate::Backend<H>,
+	backend: &impl AsyncBackendNonSend,
 ) -> Option<StorageValue> {
 	let (do_storage_change, do_increment) = match &mut change.last_mut()?.value {
 		Change::Delete => return None,
@@ -1352,7 +1372,7 @@ fn change_to_change_set<H: Hasher>(
 		let mut start = change.len();
 		let mut init_value = None;
 		for change in change.iter() {
-			match change {
+			match &change.value {
 				Change::Append(..) => {
 					start -= 1;
 				},
@@ -1371,17 +1391,22 @@ fn change_to_change_set<H: Hasher>(
 				},
 			}
 		}
-		let mut value = init_value
-			.unwrap_or_else(|| backend.storage(key).expect(crate::EXT_NOT_ALLOWED_TO_FAIL).unwrap_or_default());
+		let mut value = if let Some(info) = child_info {
+			init_value
+			.unwrap_or_else(|| backend.child_storage(info, key).unwrap_or_default())
+		} else {
+			init_value
+			.unwrap_or_else(|| backend.storage(key).unwrap_or_default())
+		};
 		let mut appendable = crate::ext::StorageAppend::new(&mut value);
 		for i in start..change.len() - 1 {
-			if let Change::Append(changes) = change[i] {
+			if let Change::Append(changes) = &change[i].value {
 				for change in changes.iter() {
 					appendable.append(change.clone());
 				}
 			}
 		}
-		if let Some(Change::Append(changes)) = change.last_mut() {
+		if let Some(Change::Append(changes)) = change.last_mut().map(|c| &mut c.value) {
 			for change in changes.drain(..) {
 				appendable.append(change.clone());
 			}
@@ -1392,7 +1417,7 @@ fn change_to_change_set<H: Hasher>(
 		let mut increment = 0;
 		let mut init_value = None;
 		for change in change.iter() {
-			match change {
+			match &change.value {
 				Change::IncrementCounter(nb) => {
 					increment += nb;
 				},
@@ -1410,8 +1435,13 @@ fn change_to_change_set<H: Hasher>(
 				},
 			}
 		}
-		let mut value = init_value
-			.unwrap_or_else(|| backend.storage(key).expect(crate::EXT_NOT_ALLOWED_TO_FAIL).unwrap_or_default());
+		let mut value = if let Some(info) = child_info {
+			init_value
+				.unwrap_or_else(|| backend.child_storage(info, key).unwrap_or_default())
+		} else {
+			init_value
+				.unwrap_or_else(|| backend.storage(key).unwrap_or_default())
+		};
 		for _ in 0..increment {
 			// TODO extract and test counter logic.
 			let mut nb_digit = value.len();
@@ -1430,48 +1460,6 @@ fn change_to_change_set<H: Hasher>(
 		return Some(value);
 	}
 	None
-}
-
-/*fn change_read_value(change: &Change) -> Option<StorageValue> {
-	//fn read_value(&mut self) -> Option<&StorageValue> {
-		// TODO consider mut access to overlay so that this function
-		// occurs no overhead by resolving write only operation on read.
-		// TODO this clone is not acceptable !!! (does clone value when not
-		// needed.
-	change_to_change_set(change.clone())
-}*/
-
-fn change_read_value_mut<'a, H: Hasher>(
-	key: &[u8],
-	change: &'a mut [Change],
-	backend: &impl crate::Backend<H>,
-) -> Option<&'a mut StorageValue> {
-	*change = match change_to_change_set(key, sp_std::mem::replace(change, Default::default()), backend) {
-		Some(value) => Change::Write(value),
-		None => Change::Delete,
-	};
-	match change.last() {
-		Change::Write(value) => Some(value),
-		Change::Delete => None,
-		_ => unreachable!("Initialized above"),
-	}
-}
-
-// TODO remove fn
-fn change_read_value_mut_default<'a, H: Hasher>(
-	key: &[u8],
-	change: &'a mut Change,
-	backend: &impl crate::Backend<H>,
-) -> &'a mut StorageValue {
-	*change = match change_to_change_set(key, sp_std::mem::replace(change, Default::default()), backend) {
-		Some(value) => Change::Write(value),
-		// deleted value is intiatialized back to empty value.
-		None => Change::Write(Default::default()),
-	};
-	match change {
-		Change::Write(value) => value,
-		_ => unreachable!("Initialized above"),
-	}
 }
 
 #[cfg(test)]

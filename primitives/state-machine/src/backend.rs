@@ -276,7 +276,14 @@ pub trait Backend<H: Hasher>: sp_std::fmt::Debug {
 ///
 /// This trait must be usable as `dyn AsyncBackend`,
 /// which is not the case for Backend trait.
-pub trait AsyncBackend: Send {
+pub trait AsyncBackend: AsyncBackendNonSend + Send {
+	/// Alternative to Clone for backend.
+	/// If dyn_clonable get compatible with no_std, this
+	/// function could be removed.
+	fn async_backend(&self) -> Box<dyn AsyncBackend>;
+}
+
+pub trait AsyncBackendNonSend {
 	/// Read runtime storage.
 	fn storage(&self, key: &[u8]) -> Option<Vec<u8>>;
 
@@ -290,15 +297,10 @@ pub trait AsyncBackend: Send {
 
 	/// Returns the key immediately following the given key, if it exists, in child storage.
 	fn next_child_storage_key(&self, child_info: &ChildInfo, key: &[u8]) -> Option<Vec<u8>>;
-
-	/// Alternative to Clone for backend.
-	/// If dyn_clonable get compatible with no_std, this
-	/// function could be removed.
-	fn async_backend(&self) -> Box<dyn AsyncBackend>;
 }
 
 /// '()' can be use as an epmty 'AsyncBackend'.
-impl AsyncBackend for () {
+impl AsyncBackendNonSend for () {
 	fn storage(&self, _key: &[u8]) -> Option<Vec<u8>> {
 		None
 	}
@@ -314,7 +316,9 @@ impl AsyncBackend for () {
 	fn next_child_storage_key(&self, _child_info: &ChildInfo, _key: &[u8]) -> Option<Vec<u8>> {
 		None
 	}
+}
 
+impl AsyncBackend for () {
 	fn async_backend(&self) -> Box<dyn AsyncBackend> {
 		Box::new(())
 	}
@@ -323,7 +327,53 @@ impl AsyncBackend for () {
 /// Async Backend implemented for a given state machine backend.
 pub struct AsyncBackendAdapter<H, B>(B, sp_std::marker::PhantomData<H>);
 
+/// Async Backend implemented for a given state machine backend.
+pub struct AsyncBackendAdapterRef<'a, H, B>(&'a B, sp_std::marker::PhantomData<H>);
+
+impl<H: Hasher, B: Backend<H>> AsyncBackendNonSend for AsyncBackendAdapter<H, B> {
+	fn storage(&self, key: &[u8]) -> Option<Vec<u8>> {
+		self.0.storage(key).expect(EXT_NOT_ALLOWED_TO_FAIL)
+	}
+
+	fn child_storage(&self, child_info: &ChildInfo, key: &[u8]) -> Option<Vec<u8>> {
+		self.0.child_storage(child_info, key).expect(EXT_NOT_ALLOWED_TO_FAIL)
+	}
+
+	fn next_storage_key(&self, key: &[u8]) -> Option<Vec<u8>> {
+		self.0.next_storage_key(key).expect(EXT_NOT_ALLOWED_TO_FAIL)
+	}
+
+	fn next_child_storage_key(&self, child_info: &ChildInfo, key: &[u8]) -> Option<Vec<u8>> {
+		self.0.next_child_storage_key(child_info, key).expect(EXT_NOT_ALLOWED_TO_FAIL)
+	}
+}
+
 impl<H: Hasher, B: Backend<H> + Send + 'static> AsyncBackend for AsyncBackendAdapter<H, B> {
+	fn async_backend(&self) -> Box<dyn AsyncBackend> {
+		self.0.async_backend()
+	}
+}
+
+impl AsyncBackendNonSend for Box<dyn AsyncBackend> {
+	fn storage(&self, key: &[u8]) -> Option<Vec<u8>> {
+		self.as_ref().storage(key)
+	}
+
+	fn child_storage(&self, child_info: &ChildInfo, key: &[u8]) -> Option<Vec<u8>> {
+		self.as_ref().child_storage(child_info, key)
+	}
+
+	fn next_storage_key(&self, key: &[u8]) -> Option<Vec<u8>> {
+		self.as_ref().next_storage_key(key)
+	}
+
+	fn next_child_storage_key(&self, child_info: &ChildInfo, key: &[u8]) -> Option<Vec<u8>> {
+		self.as_ref().next_child_storage_key(child_info, key)
+	}
+
+}
+
+impl<'a, H: Hasher, B: Backend<H>> AsyncBackendNonSend for AsyncBackendAdapterRef<'a, H, B> {
 	fn storage(&self, key: &[u8]) -> Option<Vec<u8>> {
 		self.0.storage(key).expect(EXT_NOT_ALLOWED_TO_FAIL)
 	}
@@ -340,15 +390,19 @@ impl<H: Hasher, B: Backend<H> + Send + 'static> AsyncBackend for AsyncBackendAda
 		self.0.next_child_storage_key(child_info, key).expect(EXT_NOT_ALLOWED_TO_FAIL)
 	}
 
-	fn async_backend(&self) -> Box<dyn AsyncBackend> {
-		self.0.async_backend()
-	}
 }
 
-impl<H: Hasher, B: Backend<H> + Send + 'static> AsyncBackendAdapter<H, B> {
+impl<H: Hasher, B: Backend<H>> AsyncBackendAdapter<H, B> {
 	/// Get an async backend from an existing backend.
 	pub fn new(backend: B) -> Self {
 		AsyncBackendAdapter(backend, sp_std::marker::PhantomData)
+	}
+}
+
+impl<'a, H: Hasher, B: Backend<H>> AsyncBackendAdapterRef<'a, H, B> {
+	/// Get an async backend from an existing backend.
+	pub fn new(backend: &'a B) -> Self {
+		AsyncBackendAdapterRef(backend, sp_std::marker::PhantomData)
 	}
 }
 
