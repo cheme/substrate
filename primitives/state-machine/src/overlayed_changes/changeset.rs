@@ -30,7 +30,6 @@ use sp_std::{
 	hash::Hash,
 	vec,
 };
-use sp_core::storage::ChildInfo;
 
 const PROOF_OVERLAY_NON_EMPTY: &str = "\
 	An OverlayValue is always created with at least one transaction and dropped as soon
@@ -487,7 +486,8 @@ impl OverlayedChangeSet {
 				},
 				_ => { clone_into_new_tx = true; }, // just overwrite (TODO could panic)
 			}
-		} else {
+		}
+		if clone_into_new_tx {
 			overlayed.set(Change::Append(vec![value]), first_write_in_tx, at_extrinsic);
 		}
 	}
@@ -550,30 +550,19 @@ impl OverlayedChangeSet {
 
 	/// Get a list of all changes as seen by current transaction.
 	/// And resolve appendable.
-	pub fn resolved_changes(
-		&mut self,
-		backend_resolve: impl Fn(&[u8]) -> Option<StorageValue>,
-	) -> impl Iterator<Item = (&StorageKey, &mut OverlayedEntry<Change>)> {
-		self.changes.iter_mut().map(move |(key, entry)| {
-			if entry.need_resolve() {
-				if let Some(aggregate) = super::change_to_change_set(&mut entry.transactions[..], || backend_resolve(key)) {
-					entry.transactions.last_mut().map(|e| e.value = Change::Write(aggregate));
-				}
-			}
-
-			(key, entry)
-		})
-	}
-	/// Get a list of all changes as seen by current transaction.
-	/// And resolve appendable.
-	pub fn resolved_child_changes<'a>(
+	/// TODO remove filters an loggers: is called after logging all read.
+	pub fn resolved_changes<'a, H: hash_db::Hasher>(
 		&'a mut self,
-		child_info: &'a ChildInfo,
-		backend_resolve: impl Fn(&ChildInfo, &[u8]) -> Option<StorageValue>,
-	) -> impl Iterator<Item = (&StorageKey, &mut OverlayedEntry<Change>)> {
+		child_info: Option<&'a sp_core::storage::ChildInfo>,
+		filters: &'a mut super::filters::Filters,
+		optimistic_logger: &'a mut super::loggers::AccessLogger,
+		backend: &'a impl crate::Backend<H>,
+	) -> impl Iterator<Item = (&StorageKey, &mut OverlayedEntry<Change>)> + 'a {
 		self.changes.iter_mut().map(move |(key, entry)| {
 			if entry.need_resolve() {
-				if let Some(aggregate) = super::change_to_change_set(&mut entry.transactions[..], || backend_resolve(&child_info, key)) {
+				filters.guard_read(child_info, key);
+				optimistic_logger.log_read(child_info, key);
+				if let Some(aggregate) = super::change_to_change_set(key, &mut entry.transactions[..], backend) {
 					entry.transactions.last_mut().map(|e| e.value = Change::Write(aggregate));
 				}
 			}
@@ -581,7 +570,6 @@ impl OverlayedChangeSet {
 			(key, entry)
 		})
 	}
-
 }
 
 #[cfg(test)]

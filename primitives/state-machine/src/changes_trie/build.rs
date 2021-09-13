@@ -101,7 +101,7 @@ where
 	let mut children_result = BTreeMap::new();
 
 	let overlay_unsafe = overlay as *mut OverlayedChanges;
-	for (child_changes, child_info) in overlay.children_resolved(move |info, key| backend.child_storage(info, key).expect("TODO")) {
+	for (child_changes, child_info) in overlay.children() {
 		let child_index = ChildIndex::<Number> {
 			block: block.clone(),
 			storage_key: child_info.prefixed_storage_key(),
@@ -163,7 +163,7 @@ where
 						// operation AND are not in storage at the beginning of operation
 						if let Some(child_info) = child_info.as_ref() {
 							if !overlay
-								.child_storage(child_info, k, |k| backend.child_storage(child_info, k).expect("TODO"))
+								.child_storage(child_info, k)
 								.map(|v| v.is_some())
 								.unwrap_or_default()
 							{
@@ -175,7 +175,7 @@ where
 								}
 							}
 						} else {
-							if !overlay.storage(k, |k| backend.storage(k).expect("TODO")).map(|v| v.is_some()).unwrap_or_default() {
+							if !overlay.storage(k).map(|v| v.is_some()).unwrap_or_default() {
 								if !backend.exists_storage(k).map_err(|e| format!("{}", e))? {
 									return Ok(map)
 								}
