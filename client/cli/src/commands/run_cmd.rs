@@ -127,10 +127,6 @@ pub struct RunCmd {
 	#[structopt(long = "ws-max-connections", value_name = "COUNT")]
 	pub ws_max_connections: Option<usize>,
 
-	/// Size of the RPC HTTP server thread pool.
-	#[structopt(long = "rpc-http-threads", value_name = "COUNT")]
-	pub rpc_http_threads: Option<usize>,
-
 	/// Specify browser Origins allowed to access the HTTP & WS RPC servers.
 	///
 	/// A comma-separated list of origins (protocol://domain or special `null`
@@ -388,10 +384,6 @@ impl CliConfiguration for RunCmd {
 
 	fn worker_limit(&self) -> Result<Option<usize>> {
 		Ok(self.worker_limit)
-	}
-
-	fn rpc_http_threads(&self) -> Result<Option<usize>> {
-		Ok(self.rpc_http_threads)
 	}
 
 	fn rpc_cors(&self, is_dev: bool) -> Result<Option<Vec<String>>> {
