@@ -162,13 +162,13 @@ where
 	/// transactions.
 	fn as_backend(&mut self) -> InMemoryBackend<H> {
 		let top: Vec<_> =
-			self.overlay.changes().map(|(k, v)| (k.clone(), v.value().cloned())).collect();
+			self.overlay.resolved_changes(|k| self.backend.storage(k).expect("TODO")).map(|(k, v)| (k.clone(), v.value_from_resolved().cloned())).collect();
 		let mut transaction = vec![(None, top)];
 
-		for (child_changes, child_info) in self.overlay.children() {
+		for (child_changes, child_info) in self.overlay.children_resolved(|i, k| self.backend.child_storage(i, k).expect("TODO")) {
 			transaction.push((
 				Some(child_info.clone()),
-				child_changes.map(|(k, v)| (k.clone(), v.value().cloned())).collect(),
+				child_changes.map(|(k, v)| (k.clone(), v.value_from_resolved().cloned())).collect(),
 			))
 		}
 

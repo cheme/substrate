@@ -210,7 +210,7 @@ where
 		let _guard = guard();
 		let result = self
 			.overlay
-			.storage(key)
+			.storage(key, |k| self.backend.storage(k).expect(EXT_NOT_ALLOWED_TO_FAIL))
 			.map(|x| x.map(|x| x.to_vec()))
 			.unwrap_or_else(|| self.backend.storage(key).expect(EXT_NOT_ALLOWED_TO_FAIL));
 
@@ -236,7 +236,7 @@ where
 		let _guard = guard();
 		let result = self
 			.overlay
-			.storage(key)
+			.storage(key, |k| self.backend.storage(k).expect(EXT_NOT_ALLOWED_TO_FAIL))
 			.map(|x| x.map(|x| H::hash(x)))
 			.unwrap_or_else(|| self.backend.storage_hash(key).expect(EXT_NOT_ALLOWED_TO_FAIL));
 
@@ -254,7 +254,7 @@ where
 		let _guard = guard();
 		let result = self
 			.overlay
-			.child_storage(child_info, key)
+			.child_storage(child_info, key, |k| self.backend.child_storage(child_info, k).expect(EXT_NOT_ALLOWED_TO_FAIL))
 			.map(|x| x.map(|x| x.to_vec()))
 			.unwrap_or_else(|| {
 				self.backend.child_storage(child_info, key).expect(EXT_NOT_ALLOWED_TO_FAIL)
@@ -276,7 +276,7 @@ where
 		let _guard = guard();
 		let result = self
 			.overlay
-			.child_storage(child_info, key)
+			.child_storage(child_info, key, |k| self.backend.child_storage(child_info, k).expect(EXT_NOT_ALLOWED_TO_FAIL))
 			.map(|x| x.map(|x| H::hash(x)))
 			.unwrap_or_else(|| {
 				self.backend.child_storage_hash(child_info, key).expect(EXT_NOT_ALLOWED_TO_FAIL)
@@ -296,7 +296,7 @@ where
 
 	fn exists_storage(&mut self, key: &[u8]) -> bool {
 		let _guard = guard();
-		let result = match self.overlay.storage(key) {
+		let result = match self.overlay.storage(key, |k| self.backend.storage(key).expect(EXT_NOT_ALLOWED_TO_FAIL)) {
 			Some(x) => x.is_some(),
 			_ => self.backend.exists_storage(key).expect(EXT_NOT_ALLOWED_TO_FAIL),
 		};
@@ -315,7 +315,7 @@ where
 	fn exists_child_storage(&mut self, child_info: &ChildInfo, key: &[u8]) -> bool {
 		let _guard = guard();
 
-		let result = match self.overlay.child_storage(child_info, key) {
+		let result = match self.overlay.child_storage(child_info, key, |k| self.backend.child_storage(child_info, k).expect(EXT_NOT_ALLOWED_TO_FAIL)) {
 			Some(x) => x.is_some(),
 			_ => self
 				.backend
@@ -584,7 +584,7 @@ where
 			);
 			root.encode()
 		} else {
-			let root = if let Some((changes, info)) = self.overlay.resolved_child_changes(storage_key, self.backend) {
+			let root = if let Some((changes, info)) = self.overlay.resolved_child_changes(storage_key, |i, k| self.backend.child_storage(i, k).expect("TODO")) {
 				let delta = changes.map(|(k, v)| (k.as_ref(), v.value_from_resolved().map(AsRef::as_ref)));
 				Some(self.backend.child_storage_root(info, delta))
 			} else {
