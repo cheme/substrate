@@ -319,12 +319,23 @@ impl OverlayedChanges {
 	/// to the backend); Some(None) if the key has been deleted. Some(Some(...)) for a key whose
 	/// value has been set.
 	/// TODO Option<&mut Changes>? or &mut OverlayResult (would mean removing Unchanged variant).
+	/// TODO passing backend is ill design: just return enum
 	pub fn storage(&mut self, key: &[u8]) -> Option<Option<&[u8]>> {
 		self.filters.guard_read(None, key);
 		self.optimistic_logger.log_read(None, key);
 		let stats = &mut self.stats;
 		self.top.get(key).map(|x| {
-			let value = x.value();
+			if x.need_resolve() {
+				unimplemented!("see commented block");
+				/*
+				let backend = unimplemented!("Don't pass backend, resolve from outside of overlay");
+				// gard and log already call
+        if let Some(aggregate) = change_to_change_set(key, &mut x.transactions[..], backend) {
+					x.transactions.last_mut().map(|e| e.value = Change::Write(aggregate));
+				}
+				*/
+			}
+			let value = x.value_from_resolved();
 			let size_read = value.map(|x| x.len() as u64).unwrap_or(0);
 			stats.tally_read_modified(size_read);
 			value.map(AsRef::as_ref)
@@ -361,7 +372,12 @@ impl OverlayedChanges {
 		self.filters.guard_read(Some(child_info), key);
 		self.optimistic_logger.log_read(Some(child_info), key);
 		let map = self.children.get_mut(child_info.storage_key())?;
-		let value = map.0.get(key)?.value();
+
+		let value = map.0.get(key)?;
+		if value.need_resolve() {
+			unimplemented!("TODO return delta to apply over written value, and force write");
+		}
+		let value = value.value_from_resolved();
 		let size_read = value.map(|x| x.len() as u64).unwrap_or(0);
 		self.stats.tally_read_modified(size_read);
 		Some(value.map(AsRef::as_ref))
@@ -774,17 +790,17 @@ impl OverlayedChanges {
 		use sp_std::mem::take;
 		(
 			take(&mut self.top)
-				.drain_commited()
-				.map(move |(k, change)| {
-					let change = change_to_change_set(k.as_slice(), change, backend);
+				.drain()
+				.map(move |(k, mut change)| {
+					let change = change_to_change_set(k.as_slice(), &mut change.transactions[..], backend);
 					(k, change)
 				}),
 			take(&mut self.children).into_iter().map(move |(key, (val, info))| {
 				(
 					key,
 					(
-						val.drain_commited().map(move |(k, change)| {
-							let change = change_to_change_set(k.as_slice(), change, backend);
+						val.drain().map(move |(k, mut change)| {
+							let change = change_to_change_set(k.as_slice(), &mut change.transactions[..], backend);
 							(k, change)
 						}),
 						info,
@@ -819,12 +835,38 @@ impl OverlayedChanges {
 		self.top.changes()
 	}
 
+	/// Get an iterator over all top changes as been by the current transaction.
+	///
+	/// Does resolve appendable values. TODO not sure why returning &mut then.
+	pub fn resolved_changes<'a, H: Hasher + 'static>(
+		&'a mut self,
+		backend: &'a impl crate::Backend<H>,
+	) -> impl Iterator<Item = (&StorageKey, &mut OverlayedValue)> + 'a {
+		self.top.resolved_changes(None, &mut self.filters, &mut self.optimistic_logger, backend)
+	}
+
 	/// Get an optional iterator over all child changes stored under the supplied key.
 	pub fn child_changes(
 		&mut self,
 		key: &[u8],
 	) -> Option<(impl Iterator<Item = (&StorageKey, &mut OverlayedValue)>, &ChildInfo)> {
 		self.children.get_mut(key).map(|(overlay, info)| (overlay.changes(), &*info))
+	}
+
+	/// Get an optional iterator over all child changes stored under the supplied key.
+	///
+	/// Does resolve appendable values.
+	pub fn resolved_child_changes<'a, H: Hasher + 'static>(
+		&'a mut self,
+		key: &[u8],
+		backend: &'a impl crate::Backend<H>,
+	) -> Option<(impl Iterator<Item = (&StorageKey, &mut OverlayedValue)>, &ChildInfo)> {
+		let filter = &mut self.filters;
+		let logger = &mut self.optimistic_logger;
+		self.children.get_mut(key).map(move |(overlay, info)| {
+			let iter = overlay.resolved_changes(Some(info), filter, logger, backend);
+			(iter, &*info)
+		})
 	}
 
 	/// Get an list of all index operations.
@@ -943,11 +985,12 @@ impl OverlayedChanges {
 	{
 		self.filters.guard_read_all();
 		self.optimistic_logger.log_read_all();
-		let delta = self.top.changes().map(|(k, v)| (&k[..], v.value().map(|v| &v[..])));
+
+		let delta = self.top.resolved_changes(backend).map(|(k, v)| (&k[..], v.value().map(|v| &v[..])));
 		let child_delta =
 			self.children
 				.iter_mut()
-				.map(|(_, v)| (v.0.changes(), &v.1))
+				.map(|(_, v)| (v.0.resolved_changes(backend), &v.1))
 				.map(|(changes, info)| {
 					(info, changes.map(|(k, v)| (&k[..], v.value().map(|v| &v[..]))))
 				});
@@ -1286,44 +1329,107 @@ pub mod radix_trees {
 	}
 }
 
+/// Return existing value or newly aggregated value.
+/// Last change set is consumed (should only be use on dropped
+/// change or if rewriting afterward).
+/// TODO make a fully drop variant for into_committed?
 fn change_to_change_set<H: Hasher>(
 	key: &[u8],
-	change: Change,
+	change: &mut [crate::overlayed_changes::changeset::InnerValue<Change>],
 	backend: &impl crate::Backend<H>,
 ) -> Option<StorageValue> {
-	match change {
-		Change::Delete => None,
-		Change::Write(value) => Some(value),
-		Change::Append(mut changes) => {
-			// This read access is not touching overlay (should do a read),
-			// because only call when producing into committed (so no concurrent accesses).
-			let mut value = backend.storage(key).expect(crate::EXT_NOT_ALLOWED_TO_FAIL).unwrap_or_default();
-			let mut appendable = crate::ext::StorageAppend::new(&mut value);
-			for change in changes.drain(..) {
-				appendable.append(change);
-			}
-			Some(value)
+	let (do_storage_change, do_increment) = match &mut change.last_mut()?.value {
+		Change::Delete => return None,
+		Change::Write(value) => return Some(sp_std::mem::take(value)),
+		Change::Append(..) => {
+			(true, false)
 		},
-		Change::IncrementCounter(nb) => {
-			let mut value = backend.storage(key).expect(crate::EXT_NOT_ALLOWED_TO_FAIL).unwrap_or_default();
-			for _ in 0..nb {
-				// TODO extract and test counter logic.
-				let mut nb_digit = value.len();
-				if value.last() == Some(&255) {
-					while nb_digit > 0 && value[nb_digit - 1] == 255 {
-						value[nb_digit - 1] = 0;
-						nb_digit -= 1;
-					}
-					if nb_digit == 0 {
-						value.insert(0, 1);
-					} else {
-						value[nb_digit] += 1;
-					}
+		Change::IncrementCounter(..) => {
+			(false, true)
+		},
+	};
+	if do_storage_change {
+		let mut start = change.len();
+		let mut init_value = None;
+		for change in change.iter() {
+			match change {
+				Change::Append(..) => {
+					start -= 1;
+				},
+				Change::Write(value) => {
+					// in previous tx, here only allowed to modifiy last tx
+					init_value = Some(value.clone());
+					break;
+				},
+				Change::Delete => {
+					init_value = Some(Vec::new());
+					break;
+				},
+				Change::IncrementCounter(..) => {
+					init_value = Some(Vec::new());
+					break;
+				},
+			}
+		}
+		let mut value = init_value
+			.unwrap_or_else(|| backend.storage(key).expect(crate::EXT_NOT_ALLOWED_TO_FAIL).unwrap_or_default());
+		let mut appendable = crate::ext::StorageAppend::new(&mut value);
+		for i in start..change.len() - 1 {
+			if let Change::Append(changes) = change[i] {
+				for change in changes.iter() {
+					appendable.append(change.clone());
 				}
 			}
-			Some(value)
-		},
+		}
+		if let Some(Change::Append(changes)) = change.last_mut() {
+			for change in changes.drain(..) {
+				appendable.append(change.clone());
+			}
+		}
+		return Some(value);
 	}
+	if do_increment {
+		let mut increment = 0;
+		let mut init_value = None;
+		for change in change.iter() {
+			match change {
+				Change::IncrementCounter(nb) => {
+					increment += nb;
+				},
+				Change::Write(value) => {
+					init_value = Some(value.clone());
+					break;
+				},
+				Change::Delete => {
+					init_value = Some(Vec::new());
+					break;
+				},
+				Change::Append(..) => {
+					init_value = Some(Vec::new());
+					break;
+				},
+			}
+		}
+		let mut value = init_value
+			.unwrap_or_else(|| backend.storage(key).expect(crate::EXT_NOT_ALLOWED_TO_FAIL).unwrap_or_default());
+		for _ in 0..increment {
+			// TODO extract and test counter logic.
+			let mut nb_digit = value.len();
+			if value.last() == Some(&255) {
+				while nb_digit > 0 && value[nb_digit - 1] == 255 {
+					value[nb_digit - 1] = 0;
+					nb_digit -= 1;
+				}
+				if nb_digit == 0 {
+					value.insert(0, 1);
+				} else {
+					value[nb_digit] += 1;
+				}
+			}
+		}
+		return Some(value);
+	}
+	None
 }
 
 /*fn change_read_value(change: &Change) -> Option<StorageValue> {
@@ -1337,14 +1443,14 @@ fn change_to_change_set<H: Hasher>(
 
 fn change_read_value_mut<'a, H: Hasher>(
 	key: &[u8],
-	change: &'a mut Change,
+	change: &'a mut [Change],
 	backend: &impl crate::Backend<H>,
 ) -> Option<&'a mut StorageValue> {
 	*change = match change_to_change_set(key, sp_std::mem::replace(change, Default::default()), backend) {
 		Some(value) => Change::Write(value),
 		None => Change::Delete,
 	};
-	match change {
+	match change.last() {
 		Change::Write(value) => Some(value),
 		Change::Delete => None,
 		_ => unreachable!("Initialized above"),

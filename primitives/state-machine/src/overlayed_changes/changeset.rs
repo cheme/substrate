@@ -23,12 +23,12 @@ use super::{Change, Extrinsics, StorageKey, StorageValue};
 use sp_std::collections::btree_set::BTreeSet as Set;
 #[cfg(feature = "std")]
 use std::collections::HashSet as Set;
-
 use crate::warn;
 use smallvec::SmallVec;
 use sp_std::{
 	collections::{btree_map::BTreeMap, btree_set::BTreeSet},
 	hash::Hash,
+	vec,
 };
 
 const PROOF_OVERLAY_NON_EMPTY: &str = "\
@@ -63,11 +63,13 @@ pub enum ExecutionMode {
 	Runtime,
 }
 
+// TODO remove pub super of inner value and transactions (expose some
+// value mut iterator). (or just move fn change_to_changeset)
 #[derive(Debug, Default, Clone)]
 #[cfg_attr(test, derive(PartialEq))]
-struct InnerValue<V> {
+pub(super) struct InnerValue<V> {
 	/// Current value. None if value has been deleted.
-	value: V,
+	pub(super) value: V,
 	/// The set of extrinsic indices where the values has been changed.
 	/// Is filled only if runtime has announced changes trie support.
 	extrinsics: Extrinsics,
@@ -79,7 +81,7 @@ struct InnerValue<V> {
 pub struct OverlayedEntry<V> {
 	/// The individual versions of that value.
 	/// One entry per transactions during that the value was actually written.
-	transactions: Transactions<V>,
+	pub(super) transactions: Transactions<V>,
 }
 
 impl<V> Default for OverlayedEntry<V> {
@@ -182,14 +184,13 @@ impl<V> OverlayedEntry<V> {
 
 impl OverlayedEntry<Change> {
 	/// The value as seen by the current transaction.
-	pub fn value<H: hash_db::Hasher>(
-		&mut self,
-		key: &[u8],
-		backend: &impl crate::Backend<H>,
-	) -> Option<&StorageValue> {
-		// TODO also build from all transaction parent changes (or clone val every new tx, sounds bad) 
-		super::change_read_value_mut(key, self.value_mut(), backend).map(|v| &*v)
-		// TODO also check it register/guard read access for append case.
+	pub fn value_from_resolved(&self) -> Option<&StorageValue> {
+		match self.value_ref() {
+			Change::Delete => return None,
+			Change::Write(value) => return Some(value),
+			Change::Append(..) => panic!("Value need to be resolved first"),
+			Change::IncrementCounter(..) => panic!("Value need to be resolved first"),
+		}
 	}
 
 	/// Check if has value, do not register a read access (no value aggregation as for `value`).
@@ -197,6 +198,16 @@ impl OverlayedEntry<Change> {
 		match self.value_ref() {
 			Change::Delete => false,
 			Change::Write(..) => true,
+			Change::Append(..) => true,
+			Change::IncrementCounter(..) => true,
+		}
+	}
+
+	/// Does change require to resolve original value.
+	pub fn need_resolve(&self) -> bool {
+		match self.value_ref() {
+			Change::Delete => false,
+			Change::Write(value) => false,
 			Change::Append(..) => true,
 			Change::IncrementCounter(..) => true,
 		}
@@ -261,6 +272,17 @@ impl<K: Ord + Hash + Clone, V> OverlayedMap<K, V> {
 
 	/// Consume this changeset and return all committed changes.
 	///
+	///	TODO remove?
+	/// Panics:
+	/// Panics if there are open transactions: `transaction_depth() > 0`
+	pub fn drain(self) -> impl Iterator<Item = (K, OverlayedEntry<V>)> {
+		assert!(self.transaction_depth() == 0, "Drain is not allowed with open transactions.");
+		self.changes.into_iter()
+	}
+
+	/// Consume this changeset and return all committed changes.
+	///
+	///	TODO remove?
 	/// Panics:
 	/// Panics if there are open transactions: `transaction_depth() > 0`
 	pub fn drain_commited(self) -> impl Iterator<Item = (K, V)> {
@@ -524,6 +546,29 @@ impl OverlayedChangeSet {
 		use sp_std::ops::Bound;
 		let range = (Bound::Excluded(key), Bound::Unbounded);
 		self.changes.range_mut::<[u8], _>(range).map(|(k, v)| (k.as_slice(), v))
+	}
+
+	/// Get a list of all changes as seen by current transaction.
+	/// And resolve appendable.
+	/// TODO remove filters an loggers: is called after logging all read.
+	pub fn resolved_changes<'a, H: hash_db::Hasher>(
+		&'a mut self,
+		child_info: Option<&'a sp_core::storage::ChildInfo>,
+		filters: &'a mut super::filters::Filters,
+		optimistic_logger: &'a mut super::loggers::AccessLogger,
+		backend: &'a impl crate::Backend<H>,
+	) -> impl Iterator<Item = (&StorageKey, &mut OverlayedEntry<Change>)> + 'a {
+		self.changes.iter_mut().map(move |(key, entry)| {
+			if entry.need_resolve() {
+				filters.guard_read(child_info, key);
+				optimistic_logger.log_read(child_info, key);
+				if let Some(aggregate) = super::change_to_change_set(key, &mut entry.transactions[..], backend) {
+					entry.transactions.last_mut().map(|e| e.value = Change::Write(aggregate));
+				}
+			}
+
+			(key, entry)
+		})
 	}
 }
 

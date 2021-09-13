@@ -584,8 +584,8 @@ where
 			);
 			root.encode()
 		} else {
-			let root = if let Some((changes, info)) = self.overlay.child_changes(storage_key) {
-				let delta = changes.map(|(k, v)| (k.as_ref(), v.value().map(AsRef::as_ref)));
+			let root = if let Some((changes, info)) = self.overlay.resolved_child_changes(storage_key, self.backend) {
+				let delta = changes.map(|(k, v)| (k.as_ref(), v.value_from_resolved().map(AsRef::as_ref)));
 				Some(self.backend.child_storage_root(info, delta))
 			} else {
 				None
