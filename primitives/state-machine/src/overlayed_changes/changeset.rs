@@ -432,34 +432,6 @@ impl<K: Ord + Hash + Clone, V> OverlayedMap<K, V> {
 }
 
 impl OverlayedChangeSet {
-	/// Get a mutable reference for a value.
-	///
-	/// Can be rolled back or committed when called inside a transaction.
-	#[must_use = "A change was registered, so this value MUST be modified."]
-	pub fn modify(
-		&mut self,
-		key: StorageKey,
-		init: impl Fn() -> StorageValue,
-		at_extrinsic: Option<u32>,
-	) -> &mut Change {
-		let overlayed = self.changes.entry(key.clone()).or_default();
-		let first_write_in_tx = insert_dirty(&mut self.dirty_keys, key);
-		let clone_into_new_tx = if let Some(tx) = overlayed.transactions.last() {
-			if first_write_in_tx {
-				Some(tx.value.clone())
-			} else {
-				None
-			}
-		} else {
-			Some(Change::Write(init()))
-		};
-
-		if let Some(cloned) = clone_into_new_tx {
-			overlayed.set(cloned, first_write_in_tx, at_extrinsic);
-		}
-		overlayed.value_mut()
-	}
-
 	/// Access to appendable change
 	pub fn append_storage(
 		&mut self,
@@ -469,12 +441,8 @@ impl OverlayedChangeSet {
 	) {
 		let overlayed = self.changes.entry(key.clone()).or_default();
 		let first_write_in_tx = insert_dirty(&mut self.dirty_keys, key);
-		let mut clone_into_new_tx = if let Some(tx) = overlayed.transactions.last() {
-			if first_write_in_tx {
-				true
-			} else {
-				false
-			}
+		let mut clone_into_new_tx = if overlayed.transactions.last().is_some() {
+			first_write_in_tx
 		} else {
 			true
 		};
@@ -484,10 +452,17 @@ impl OverlayedChangeSet {
 				Change::Append(changes) => { 
 					// TODO check if need to also add extrinsic index?
 					changes.push(value);
+					return;
+				},
+				Change::Write(changes) => {
+					let mut appendable = crate::ext::StorageAppend::new(changes);
+					appendable.append(value);
+					return;
 				},
 				_ => { clone_into_new_tx = true; }, // just overwrite (TODO could panic)
 			}
-		} else {
+		}
+		if clone_into_new_tx {
 			overlayed.set(Change::Append(vec![value]), first_write_in_tx, at_extrinsic);
 		}
 	}
@@ -501,12 +476,8 @@ impl OverlayedChangeSet {
 	) {
 		let overlayed = self.changes.entry(key.clone()).or_default();
 		let first_write_in_tx = insert_dirty(&mut self.dirty_keys, key);
-		let mut clone_into_new_tx = if let Some(tx) = overlayed.transactions.last() {
-			if first_write_in_tx {
-				true
-			} else {
-				false
-			}
+		let mut clone_into_new_tx = if overlayed.transactions.last().is_some() {
+			first_write_in_tx
 		} else {
 			true
 		};
@@ -516,6 +487,21 @@ impl OverlayedChangeSet {
 				Change::IncrementCounter(changes) => { 
 					// TODO check if need to also add extrinsic index?
 					*changes += nb;
+				},
+				Change::Write(value) => {
+					for _ in 0..nb {
+						// TODO extract and factor this with parent
+						let mut nb_digit = value.len();
+						while nb_digit > 0 && value[nb_digit - 1] == 255 {
+							value[nb_digit - 1] = 0;
+							nb_digit -= 1;
+						}
+						if nb_digit == 0 {
+							value.insert(0, 1);
+						} else {
+							value[nb_digit - 1] += 1;
+						}
+					}
 				},
 				_ => { clone_into_new_tx = true; }, // just overwrite (TODO could panic)
 			}
@@ -580,7 +566,7 @@ mod test {
 			.changes()
 			.map(|(k, v)| {
 				let extrinsics = v.extrinsics().into_iter().collect();
-				(k.as_ref(), (v.value().map(AsRef::as_ref), extrinsics))
+				(k.as_ref(), (v.value_from_resolved().map(AsRef::as_ref), extrinsics))
 			})
 			.collect();
 		assert_eq!(&is, expected);
@@ -593,6 +579,21 @@ mod test {
 			.map(|(k, v)| (k.to_vec(), v.0.map(Into::<Vec<u8>>::into).into()))
 			.collect::<Vec<_>>();
 		assert_eq!(is, expected);
+	}
+
+	fn assert_changes_resolved(
+		is: &mut OverlayedChangeSet,
+		backend: &impl AsyncBackendNonSend,
+		expected: &Changes,
+	) {
+		let is: Changes = is
+			.resolved_changes(None, backend)
+			.map(|(k, v)| {
+				let extrinsics = v.extrinsics().into_iter().collect();
+				(k.as_ref(), (v.value_from_resolved().map(AsRef::as_ref), extrinsics))
+			})
+			.collect();
+		assert_eq!(&is, expected);
 	}
 
 	fn assert_drained(is: OverlayedChangeSet, expected: Drained) {
@@ -743,64 +744,39 @@ mod test {
 	}
 
 	#[test]
-	fn modify_works() {
+	fn append_works() {
+		use codec::Encode;
+		let backend = crate::in_memory_backend::new_in_mem::<sp_runtime::traits::BlakeTwo256>();
+		let backend = backend.update(vec![(None, vec![
+			(b"key0".to_vec(), Some(vec![b"data".to_vec()].encode())),
+			(b"key1".to_vec(), Some(vec![5u8])),
+		])]);
+		let backend = crate::backend::AsyncBackendAdapterRef::new(&backend);
+
 		let mut changeset = OverlayedChangeSet::default();
-		assert_eq!(changeset.transaction_depth(), 0);
-		let init = || b"valinit".to_vec();
-
-		// committed set
-		changeset.set(b"key0".to_vec(), Some(b"val0".to_vec()).into(), Some(0));
-		changeset.set(b"key1".to_vec(), None.into(), Some(1));
-		let mut val = changeset.modify(b"key3".to_vec(), init, Some(3));
-		assert_eq!(val, &Some(b"valinit".to_vec()).into());
-		crate::overlayed_changes::change_read_value_mut(&mut val)
-			.unwrap()
-			.extend_from_slice(b"-modified");
-
+		changeset.append_storage(b"key0".to_vec(), b"val1".to_vec().encode(), Some(1));
+		changeset.inc_counter(b"key1".to_vec(), 2, Some(1));
 		changeset.start_transaction();
-		assert_eq!(changeset.transaction_depth(), 1);
-		changeset.start_transaction();
-		assert_eq!(changeset.transaction_depth(), 2);
+		changeset.append_storage(b"key0".to_vec(), b"val2".to_vec().encode(), Some(1));
+		changeset.inc_counter(b"key1".to_vec(), 3, Some(1));
+		assert_changes_resolved(
+			&mut changeset,
+			&backend,
+			&vec![
+				(b"key0", (Some(vec![b"data".to_vec(), b"val1".to_vec(), b"val2".to_vec()].encode().as_slice()), vec![1])),
+				(b"key1", (Some(&[10]), vec![1])),
+			],
+		);
 
-		// non existing value -> init value should be returned
-		let mut val = changeset.modify(b"key2".to_vec(), init, Some(2));
-		assert_eq!(val, &Some(b"valinit".to_vec()).into());
-		crate::overlayed_changes::change_read_value_mut(&mut val)
-			.unwrap()
-			.extend_from_slice(b"-modified");
-
-		// existing value should be returned by modify
-		let mut val = changeset.modify(b"key0".to_vec(), init, Some(10));
-		assert_eq!(val, &Some(b"val0".to_vec()).into());
-		crate::overlayed_changes::change_read_value_mut(&mut val)
-			.unwrap()
-			.extend_from_slice(b"-modified");
-
-		// should work for deleted keys
-		let val = changeset.modify(b"key1".to_vec(), init, Some(20));
-		assert_eq!(val, &None.into());
-		*val = Some(b"deleted-modified".to_vec()).into();
-
-		let all_changes: Changes = vec![
-			(b"key0", (Some(b"val0-modified"), vec![0, 10])),
-			(b"key1", (Some(b"deleted-modified"), vec![1, 20])),
-			(b"key2", (Some(b"valinit-modified"), vec![2])),
-			(b"key3", (Some(b"valinit-modified"), vec![3])),
-		];
-		assert_changes(&mut changeset, &all_changes);
-		changeset.commit_transaction().unwrap();
-		assert_eq!(changeset.transaction_depth(), 1);
-		assert_changes(&mut changeset, &all_changes);
-
-		changeset.rollback_transaction().unwrap();
-		assert_eq!(changeset.transaction_depth(), 0);
-		let rolled_back: Changes = vec![
-			(b"key0", (Some(b"val0"), vec![0])),
-			(b"key1", (None, vec![1])),
-			(b"key3", (Some(b"valinit-modified"), vec![3])),
-		];
-		assert_changes(&mut changeset, &rolled_back);
-		assert_drained_changes(changeset, rolled_back);
+		changeset.rollback_transaction();
+		assert_changes_resolved(
+			&mut changeset,
+			&backend,
+			&vec![
+				(b"key0", (Some(vec![b"data".to_vec(), b"val1".to_vec()].encode().as_slice()), vec![1])),
+				(b"key1", (Some(&[7]), vec![1])),
+			],
+		);
 	}
 
 	#[test]
@@ -855,27 +831,27 @@ mod test {
 
 		assert_eq!(changeset.changes_after(b"key0").next().unwrap().0, b"key1");
 		assert_eq!(
-			changeset.changes_after(b"key0").next().unwrap().1.value(),
+			changeset.changes_after(b"key0").next().unwrap().1.value_from_resolved(),
 			Some(&b"val1".to_vec())
 		);
 		assert_eq!(changeset.changes_after(b"key1").next().unwrap().0, b"key11");
 		assert_eq!(
-			changeset.changes_after(b"key1").next().unwrap().1.value(),
+			changeset.changes_after(b"key1").next().unwrap().1.value_from_resolved(),
 			Some(&b"val11".to_vec())
 		);
 		assert_eq!(changeset.changes_after(b"key11").next().unwrap().0, b"key2");
 		assert_eq!(
-			changeset.changes_after(b"key11").next().unwrap().1.value(),
+			changeset.changes_after(b"key11").next().unwrap().1.value_from_resolved(),
 			Some(&b"val2".to_vec())
 		);
 		assert_eq!(changeset.changes_after(b"key2").next().unwrap().0, b"key3");
 		assert_eq!(
-			changeset.changes_after(b"key2").next().unwrap().1.value(),
+			changeset.changes_after(b"key2").next().unwrap().1.value_from_resolved(),
 			Some(&b"val3".to_vec())
 		);
 		assert_eq!(changeset.changes_after(b"key3").next().unwrap().0, b"key4");
 		assert_eq!(
-			changeset.changes_after(b"key3").next().unwrap().1.value(),
+			changeset.changes_after(b"key3").next().unwrap().1.value_from_resolved(),
 			Some(&b"val4".to_vec())
 		);
 		assert_eq!(changeset.changes_after(b"key4").next(), None);
@@ -884,17 +860,17 @@ mod test {
 
 		assert_eq!(changeset.changes_after(b"key0").next().unwrap().0, b"key1");
 		assert_eq!(
-			changeset.changes_after(b"key0").next().unwrap().1.value(),
+			changeset.changes_after(b"key0").next().unwrap().1.value_from_resolved(),
 			Some(&b"val1".to_vec())
 		);
 		assert_eq!(changeset.changes_after(b"key1").next().unwrap().0, b"key2");
 		assert_eq!(
-			changeset.changes_after(b"key1").next().unwrap().1.value(),
+			changeset.changes_after(b"key1").next().unwrap().1.value_from_resolved(),
 			Some(&b"val2".to_vec())
 		);
 		assert_eq!(changeset.changes_after(b"key11").next().unwrap().0, b"key2");
 		assert_eq!(
-			changeset.changes_after(b"key11").next().unwrap().1.value(),
+			changeset.changes_after(b"key11").next().unwrap().1.value_from_resolved(),
 			Some(&b"val2".to_vec())
 		);
 		assert_eq!(changeset.changes_after(b"key2").next(), None);

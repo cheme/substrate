@@ -342,29 +342,6 @@ impl OverlayedChanges {
 		})
 	}
 
-	/// Returns mutable reference to current value.
-	/// If there is no value in the overlay, the given callback is used to initiate the value.
-	/// Warning this function registers a change, so the mutable reference MUST be modified.
-	///
-	/// Can be rolled back or committed when called inside a transaction.
-	/// TODO delete this function append now just append without reading
-	#[must_use = "A change was registered, so this value MUST be modified."]
-	pub fn value_mut_or_insert_with<H: Hasher>(
-		&mut self,
-		key: &[u8],
-		init: impl Fn() -> StorageValue,
-		backend: &impl crate::Backend<H>,
-	) -> &mut StorageValue {
-		self.filters.guard_write(None, key);
-		self.optimistic_logger.log_write(None, key);
-		let extrinsic_index = self.extrinsic_index();
-		let value = self.top.modify(key.to_vec(), init, extrinsic_index);
-
-		// if the value was deleted initialise it back with an empty vec
-		//change_read_value_mut_default(key, value, self, backend)
-		unimplemented!("TODO rem this fn");
-	}
-
 	/// Returns a double-Option: None if the key is unknown (i.e. and the query should be referred
 	/// to the backend); Some(None) if the key has been deleted. Some(Some(...)) for a key whose
 	/// value has been set.
@@ -1371,7 +1348,7 @@ fn change_to_change_set(
 	if do_storage_change {
 		let mut start = change.len();
 		let mut init_value = None;
-		for change in change.iter() {
+		for change in change.iter().rev() {
 			match &change.value {
 				Change::Append(..) => {
 					start -= 1;
@@ -1416,7 +1393,7 @@ fn change_to_change_set(
 	if do_increment {
 		let mut increment = 0;
 		let mut init_value = None;
-		for change in change.iter() {
+		for change in change.iter().rev() {
 			match &change.value {
 				Change::IncrementCounter(nb) => {
 					increment += nb;
@@ -1445,16 +1422,14 @@ fn change_to_change_set(
 		for _ in 0..increment {
 			// TODO extract and test counter logic.
 			let mut nb_digit = value.len();
-			if value.last() == Some(&255) {
-				while nb_digit > 0 && value[nb_digit - 1] == 255 {
-					value[nb_digit - 1] = 0;
-					nb_digit -= 1;
-				}
-				if nb_digit == 0 {
-					value.insert(0, 1);
-				} else {
-					value[nb_digit] += 1;
-				}
+			while nb_digit > 0 && value[nb_digit - 1] == 255 {
+				value[nb_digit - 1] = 0;
+				nb_digit -= 1;
+			}
+			if nb_digit == 0 {
+				value.insert(0, 1);
+			} else {
+				value[nb_digit - 1] += 1;
 			}
 		}
 		return Some(value);
@@ -1487,31 +1462,31 @@ mod tests {
 
 		let key = vec![42, 69, 169, 142];
 
-		assert!(overlayed.storage(&key).is_none());
+		assert!(overlayed.storage(&key, &()).is_none());
 
 		overlayed.start_transaction();
 
 		overlayed.set_storage(key.clone(), Some(vec![1, 2, 3]));
-		assert_eq!(overlayed.storage(&key).unwrap(), Some(&[1, 2, 3][..]));
+		assert_eq!(overlayed.storage(&key, &()).unwrap(), Some(&[1, 2, 3][..]));
 
 		overlayed.commit_transaction().unwrap();
 
-		assert_eq!(overlayed.storage(&key).unwrap(), Some(&[1, 2, 3][..]));
+		assert_eq!(overlayed.storage(&key, &()).unwrap(), Some(&[1, 2, 3][..]));
 
 		overlayed.start_transaction();
 
 		overlayed.set_storage(key.clone(), Some(vec![]));
-		assert_eq!(overlayed.storage(&key).unwrap(), Some(&[][..]));
+		assert_eq!(overlayed.storage(&key, &()).unwrap(), Some(&[][..]));
 
 		overlayed.set_storage(key.clone(), None);
-		assert!(overlayed.storage(&key).unwrap().is_none());
+		assert!(overlayed.storage(&key, &()).unwrap().is_none());
 
 		overlayed.rollback_transaction().unwrap();
 
-		assert_eq!(overlayed.storage(&key).unwrap(), Some(&[1, 2, 3][..]));
+		assert_eq!(overlayed.storage(&key, &()).unwrap(), Some(&[1, 2, 3][..]));
 
 		overlayed.set_storage(key.clone(), None);
-		assert!(overlayed.storage(&key).unwrap().is_none());
+		assert!(overlayed.storage(&key, &()).unwrap().is_none());
 	}
 
 	#[test]
@@ -1664,28 +1639,28 @@ mod tests {
 		// next_prospective < next_committed
 		let next_to_5 = overlay.iter_after(&[5]).next().unwrap();
 		assert_eq!(next_to_5.0.to_vec(), vec![10]);
-		assert_eq!(next_to_5.1.value(), Some(&vec![10]));
+		assert_eq!(next_to_5.1.value_from_resolved(), Some(&vec![10]));
 
 		// next_committed < next_prospective
 		let next_to_10 = overlay.iter_after(&[10]).next().unwrap();
 		assert_eq!(next_to_10.0.to_vec(), vec![20]);
-		assert_eq!(next_to_10.1.value(), Some(&vec![20]));
+		assert_eq!(next_to_10.1.value_from_resolved(), Some(&vec![20]));
 
 		// next_committed == next_prospective
 		let next_to_20 = overlay.iter_after(&[20]).next().unwrap();
 		assert_eq!(next_to_20.0.to_vec(), vec![30]);
-		assert_eq!(next_to_20.1.value(), None);
+		assert_eq!(next_to_20.1.value_from_resolved(), None);
 
 		// next_committed, no next_prospective
 		let next_to_30 = overlay.iter_after(&[30]).next().unwrap();
 		assert_eq!(next_to_30.0.to_vec(), vec![40]);
-		assert_eq!(next_to_30.1.value(), Some(&vec![40]));
+		assert_eq!(next_to_30.1.value_from_resolved(), Some(&vec![40]));
 
 		overlay.set_storage(vec![50], Some(vec![50]));
 		// next_prospective, no next_committed
 		let next_to_40 = overlay.iter_after(&[40]).next().unwrap();
 		assert_eq!(next_to_40.0.to_vec(), vec![50]);
-		assert_eq!(next_to_40.1.value(), Some(&vec![50]));
+		assert_eq!(next_to_40.1.value_from_resolved(), Some(&vec![50]));
 	}
 
 	#[test]
@@ -1705,27 +1680,27 @@ mod tests {
 		// next_prospective < next_committed
 		let next_to_5 = overlay.child_iter_after(child, &[5]).next().unwrap();
 		assert_eq!(next_to_5.0.to_vec(), vec![10]);
-		assert_eq!(next_to_5.1.value(), Some(&vec![10]));
+		assert_eq!(next_to_5.1.value_from_resolved(), Some(&vec![10]));
 
 		// next_committed < next_prospective
 		let next_to_10 = overlay.child_iter_after(child, &[10]).next().unwrap();
 		assert_eq!(next_to_10.0.to_vec(), vec![20]);
-		assert_eq!(next_to_10.1.value(), Some(&vec![20]));
+		assert_eq!(next_to_10.1.value_from_resolved(), Some(&vec![20]));
 
 		// next_committed == next_prospective
 		let next_to_20 = overlay.child_iter_after(child, &[20]).next().unwrap();
 		assert_eq!(next_to_20.0.to_vec(), vec![30]);
-		assert_eq!(next_to_20.1.value(), None);
+		assert_eq!(next_to_20.1.value_from_resolved(), None);
 
 		// next_committed, no next_prospective
 		let next_to_30 = overlay.child_iter_after(child, &[30]).next().unwrap();
 		assert_eq!(next_to_30.0.to_vec(), vec![40]);
-		assert_eq!(next_to_30.1.value(), Some(&vec![40]));
+		assert_eq!(next_to_30.1.value_from_resolved(), Some(&vec![40]));
 
 		overlay.set_child_storage(child_info, vec![50], Some(vec![50]));
 		// next_prospective, no next_committed
 		let next_to_40 = overlay.child_iter_after(child, &[40]).next().unwrap();
 		assert_eq!(next_to_40.0.to_vec(), vec![50]);
-		assert_eq!(next_to_40.1.value(), Some(&vec![50]));
+		assert_eq!(next_to_40.1.value_from_resolved(), Some(&vec![50]));
 	}
 }

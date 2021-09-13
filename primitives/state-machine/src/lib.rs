@@ -991,6 +991,7 @@ mod execution {
 mod tests {
 	use super::{changes_trie::Configuration as ChangesTrieConfig, ext::Ext, *};
 	use crate::execution::CallResult;
+	use crate::backend::AsyncBackendAdapterRef;
 	use codec::{Decode, Encode};
 	use sp_core::{
 		map,
@@ -1226,8 +1227,8 @@ mod tests {
 
 		assert_eq!(
 			overlay
-				.changes()
-				.map(|(k, v)| (k.clone(), v.value().cloned()))
+				.resolved_changes(&AsyncBackendAdapterRef::new(&state))
+				.map(|(k, v)| (k.clone(), v.value_from_resolved().cloned()))
 				.collect::<HashMap<_, _>>(),
 			map![
 				b"abc".to_vec() => None.into(),
@@ -1256,8 +1257,8 @@ mod tests {
 
 		assert_eq!(
 			overlay
-				.changes()
-				.map(|(k, v)| (k.clone(), v.value().cloned()))
+				.resolved_changes(&AsyncBackendAdapterRef::new(&state))
+				.map(|(k, v)| (k.clone(), v.value_from_resolved().cloned()))
 				.collect::<HashMap<_, _>>(),
 			map![
 				b"abb".to_vec() => None.into(),
@@ -1303,9 +1304,9 @@ mod tests {
 
 		assert_eq!(
 			overlay
-				.children()
+				.children_resolved(&AsyncBackendAdapterRef::new(&backend))
 				.flat_map(|(iter, _child_info)| iter)
-				.map(|(k, v)| (k.clone(), v.value().clone()))
+				.map(|(k, v)| (k.clone(), v.value_from_resolved().clone()))
 				.collect::<BTreeMap<_, _>>(),
 			map![
 				b"1".to_vec() => None.into(),
@@ -1804,17 +1805,17 @@ mod tests {
 			b"bbb".to_vec() => b"".to_vec()
 		];
 		let state = InMemoryBackend::<BlakeTwo256>::from(initial);
-		let backend = state.as_trie_backend().unwrap();
 
 		let mut overlay = OverlayedChanges::default();
 		overlay.start_transaction();
 		overlay.set_storage(b"ccc".to_vec(), Some(b"".to_vec()));
-		assert_eq!(overlay.storage(b"ccc"), Some(Some(&[][..])));
+		assert_eq!(overlay.storage(b"ccc", &AsyncBackendAdapterRef::new(&state)), Some(Some(&[][..])));
 		overlay.commit_transaction().unwrap();
 		overlay.start_transaction();
-		assert_eq!(overlay.storage(b"ccc"), Some(Some(&[][..])));
-		assert_eq!(overlay.storage(b"bbb"), None);
+		assert_eq!(overlay.storage(b"ccc", &AsyncBackendAdapterRef::new(&state)), Some(Some(&[][..])));
+		assert_eq!(overlay.storage(b"bbb", &AsyncBackendAdapterRef::new(&state)), None);
 
+		let backend = state.as_trie_backend().unwrap();
 		{
 			let mut cache = StorageTransactionCache::default();
 			let mut ext = Ext::new(
@@ -1830,7 +1831,7 @@ mod tests {
 			assert_eq!(ext.storage(b"ccc"), None);
 		}
 		overlay.commit_transaction().unwrap();
-		assert_eq!(overlay.storage(b"ccc"), Some(None));
+		assert_eq!(overlay.storage(b"ccc", &()), Some(None));
 	}
 
 	#[test]

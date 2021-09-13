@@ -187,7 +187,7 @@ where
 			.pairs()
 			.iter()
 			.map(|&(ref k, ref v)| (k.to_vec(), Some(v.to_vec())))
-			.chain(self.overlay.changes().map(|(k, v)| (k.clone(), v.value().cloned())))
+			.chain(self.overlay.resolved_changes(&AsyncBackendAdapterRef::new(self.backend)).map(|(k, v)| (k.clone(), v.value_from_resolved().cloned())))
 			.collect::<HashMap<_, _>>()
 			.into_iter()
 			.filter_map(|(k, maybe_val)| maybe_val.map(|val| (k, val)))
