@@ -296,6 +296,7 @@ impl<Transaction: Default, H: Hasher, N: BlockNumber> Default
 	}
 }
 
+/*
 enum OverlayResult<'a> {
 	Unchanged,
 	Remove,
@@ -303,6 +304,7 @@ enum OverlayResult<'a> {
 	Appended(Option<&'a [u8]> , &'a [Vec<u8>]), // maybe &mut ref to fill it on value access (but then become a NewValue so )
 	IncCounter(Option<&'a [u8]>, usize),
 }
+*/
 
 impl OverlayedChanges {
 	/// Whether no changes are contained in the top nor in any of the child changes.
@@ -389,6 +391,28 @@ impl OverlayedChanges {
 		self.stats.tally_write_overlay(size_write);
 		self.top.append_storage(key, val, extrinsic_index);
 	}
+
+	pub(crate) fn append_child_storage(
+		&mut self,
+		child_info: &ChildInfo,
+		key: StorageKey,
+		val: StorageValue,
+	) {
+		self.filters.guard_append(Some(child_info), key.as_slice());
+		self.optimistic_logger.log_append(Some(child_info), key.as_slice());
+		let extrinsic_index = self.extrinsic_index();
+		let size_write = val.len() as u64;
+		self.stats.tally_write_overlay(size_write);
+		let storage_key = child_info.storage_key().to_vec();
+		let top = &self.top;
+		let (changeset, info) = self
+			.children
+			.entry(storage_key)
+			.or_insert_with(|| (top.spawn_child(), child_info.clone()));
+		let updatable = info.try_update(child_info);
+		debug_assert!(updatable);
+		changeset.append_storage(key, val, extrinsic_index);
+	}
 	
 	/// Append a value to encoded storage.
 	pub(crate) fn increment_storage(&mut self, key: StorageKey, nb: u32) {
@@ -400,6 +424,28 @@ impl OverlayedChanges {
 		self.top.inc_counter(key, nb, extrinsic_index);
 	}
 
+	pub(crate) fn increment_child_storage(
+		&mut self,
+		child_info: &ChildInfo,
+		key: StorageKey,
+		nb: u32,
+	) {
+		self.filters.guard_append(Some(child_info), key.as_slice());
+		self.optimistic_logger.log_append(Some(child_info), key.as_slice());
+		let extrinsic_index = self.extrinsic_index();
+		let size_write = 2 as u64;
+		self.stats.tally_write_overlay(size_write);
+		let storage_key = child_info.storage_key().to_vec();
+		let top = &self.top;
+		let (changeset, info) = self
+			.children
+			.entry(storage_key)
+			.or_insert_with(|| (top.spawn_child(), child_info.clone()));
+		let updatable = info.try_update(child_info);
+		debug_assert!(updatable);
+		changeset.inc_counter(key, nb, extrinsic_index);
+	}
+	
 	/// Set a new value for the specified key and child.
 	///
 	/// `None` can be used to delete a value specified by the given key.
@@ -1168,10 +1214,12 @@ impl OverlayedChanges {
 			self.set_storage(key, None);
 		}
 		for (key, change) in delta.top.appended.into_iter() {
-			unimplemented!("Delta appended");
+			for change in change.into_iter() {
+				self.append_storage(key.clone(), change);
+			}
 		}
-		for (key, _change) in delta.top.incremented.into_iter() {
-			unimplemented!("Delta increment");
+		for (key, change) in delta.top.incremented.into_iter() {
+			self.increment_storage(key, change);
 		}
 		for key in delta.top.deleted_prefix.into_iter() {
 			unimplemented!("Deleted prefix delta optimisation.");
@@ -1183,11 +1231,13 @@ impl OverlayedChanges {
 			for key in delta.deleted.into_iter() {
 				self.set_child_storage(&child_info, key, None);
 			}
-			for (key, _change) in delta.appended.into_iter() {
-				unimplemented!("Delta appended");
+			for (key, change) in delta.appended.into_iter() {
+				for change in change.into_iter() {
+					self.append_child_storage(&child_info, key.clone(), change);
+				}
 			}
-			for (key, _change) in delta.incremented.into_iter() {
-				unimplemented!("Delta increment");
+			for (key, change) in delta.incremented.into_iter() {
+				self.increment_child_storage(&child_info, key, change);
 			}
 			for key in delta.deleted_prefix.into_iter() {
 				unimplemented!("Deleted prefix delta optimisation.");

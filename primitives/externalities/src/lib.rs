@@ -837,6 +837,7 @@ impl WorkerDeclaration {
 
 /// Access filters on storage.
 /// Please define key only once and sort them.
+/// TODO add child trie specific decl
 #[derive(Debug, Clone, codec::Encode, codec::Decode)]
 pub struct AccessDeclarations {
 	/// Read access, depending on mode, this should exclude a concurrent write access.

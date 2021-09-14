@@ -208,7 +208,7 @@ impl OverlayedEntry<Change> {
 	pub fn need_resolve(&self) -> bool {
 		match self.value_ref() {
 			Change::Delete => false,
-			Change::Write(value) => false,
+			Change::Write(..) => false,
 			Change::Append(..) => true,
 			Change::IncrementCounter(..) => true,
 		}
@@ -768,7 +768,7 @@ mod test {
 			],
 		);
 
-		changeset.rollback_transaction();
+		changeset.rollback_transaction().unwrap();
 		assert_changes_resolved(
 			&mut changeset,
 			&backend,

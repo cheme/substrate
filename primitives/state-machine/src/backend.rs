@@ -283,6 +283,7 @@ pub trait AsyncBackend: AsyncBackendNonSend + Send {
 	fn async_backend(&self) -> Box<dyn AsyncBackend>;
 }
 
+/// Async Backend base method, can be use in non send context.
 pub trait AsyncBackendNonSend {
 	/// Read runtime storage.
 	fn storage(&self, key: &[u8]) -> Option<Vec<u8>>;

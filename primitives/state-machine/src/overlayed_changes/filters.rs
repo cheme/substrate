@@ -343,10 +343,13 @@ impl Filters {
 	}
 
 	pub(super) fn guard_declare_child_filter_append(&mut self, filter: &AccessDeclaration) -> bool {
-		for top_prefix in filter.prefixes_lock.iter() {
-			if !self.guard_append_prefix_inner(None, top_prefix, true) {
+		for _top_prefix in filter.prefixes_lock.iter() {
+			// prefix for append got no use case (we got prefix for delete only and interval for read
+			// only).
+			return false;
+			/* if !self.guard_append_prefix_inner(None, top_prefix, true) {
 				return false
-			}
+			}*/
 		}
 		for top_key in filter.keys_lock.iter() {
 			if !self.guard_append_inner(None, top_key, true) {
@@ -591,7 +594,7 @@ impl Filters {
 				}
 			}
 		}
-		for (key, value) in iter.node_iter().iter_prefix().value_iter() {
+		for (_key, value) in iter.node_iter().iter_prefix().value_iter() {
 			if value.write_prefix.is_defined() {
 				blocked.push(&value.write_prefix);
 			}
@@ -625,7 +628,7 @@ impl Filters {
 				}
 			}
 		}
-		for (key, value) in iter.node_iter().iter_prefix().value_iter() {
+		for (_key, value) in iter.node_iter().iter_prefix().value_iter() {
 			if value.read_prefix.is_defined() {
 				blocked.push(&value.read_prefix);
 			}
@@ -636,6 +639,7 @@ impl Filters {
 		blocked
 	}
 
+	/*
 	fn key_append_forbid_prefix<'a>(
 		filters: &'a FilterTreesForbid,
 		child_info: Option<&ChildInfo>,
@@ -659,7 +663,7 @@ impl Filters {
 				}
 			}
 		}
-		for (key, value) in iter.node_iter().iter_prefix().value_iter() {
+		for (_key, value) in iter.node_iter().iter_prefix().value_iter() {
 			if value.append_prefix.is_defined() {
 				blocked.push(&value.append_prefix);
 			}
@@ -669,6 +673,7 @@ impl Filters {
 		}
 		blocked
 	}
+	*/
 
 	fn key_read_forbid_interval<'a>(
 		filters: &'a FilterTreesForbid,
@@ -880,6 +885,7 @@ impl Filters {
 		false
 	}
 
+	/*
 	fn guard_append_allow_prefix(
 		filters: &FilterTreesAllow,
 		child_info: Option<&ChildInfo>,
@@ -897,6 +903,7 @@ impl Filters {
 		}
 		false
 	}
+	*/
 
 	fn guard_read_prefix(&mut self, child_info: Option<&ChildInfo>, key: &[u8]) {
 		let _ = self.guard_read_prefix_inner(child_info, key, false);
@@ -954,6 +961,7 @@ impl Filters {
 		true
 	}
 
+	/*
 	pub(super) fn guard_append_prefix(&mut self, child_info: Option<&ChildInfo>, key: &[u8]) {
 		let _ = self.guard_append_prefix_inner(child_info, key, false);
 	}
@@ -981,6 +989,7 @@ impl Filters {
 		}
 		true
 	}
+	*/
 
 	pub(super) fn guard_read_interval(
 		&mut self,
