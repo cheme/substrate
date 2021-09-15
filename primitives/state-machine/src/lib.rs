@@ -980,19 +980,18 @@ mod execution {
 	}
 }
 
-#[cfg(feature = "std")]
 use sp_core::storage::ChildInfo;
-#[cfg(feature = "std")]
-use std::collections::{HashMap, BTreeMap};
+use sp_std::collections::btree_map::BTreeMap;
+use sp_std::vec::Vec;
+use sp_std::vec;
 
 /// Test helper to get some random storage.
-#[cfg(feature = "std")]
-pub fn build_random_storage(seed: u32) -> (
-	HashMap<Option<ChildInfo>, BTreeMap<Vec<u8>, Vec<u8>>>,
+pub fn build_random_storage(seed: u32, size: usize) -> (
+	BTreeMap<Option<ChildInfo>, BTreeMap<Vec<u8>, Vec<u8>>>,
 	Vec<ChildInfo>,
 ) {
 	use rand::{rngs::SmallRng, RngCore, SeedableRng};
-	let mut storage: HashMap<Option<ChildInfo>, BTreeMap<StorageKey, StorageValue>> =
+	let mut storage: BTreeMap<Option<ChildInfo>, BTreeMap<StorageKey, StorageValue>> =
 		Default::default();
 	let mut seed_bytes = [0; 16];
 	let mut child_infos = Vec::new();
@@ -1021,13 +1020,16 @@ pub fn build_random_storage(seed: u32) -> (
 		storage.insert(Some(child_info), items);
 	}
 
-	let nb_item = 1 + rand.next_u32() % 50;
+	let size = size as u32;
+	let nb_item = 1 + rand.next_u32() % 50 + (size - 1) * 1000;
 	let mut items = BTreeMap::new();
 	for item in 0..nb_item {
-		let key_len = 1 + (rand.next_u32() % 10);
+		let key_len = 1 + (rand.next_u32() % (10 * sp_std::cmp::min(10, size)));
 		let mut key = vec![0; key_len as usize];
 		rand.fill_bytes(&mut key[..]);
-		let value = vec![item as u8; item as usize + 28];
+		let value_size = item as usize + 28;
+		let value_size = sp_std::cmp::min(500, value_size);
+		let value = vec![item as u8; value_size];
 		items.insert(key, value);
 	}
 	storage.insert(None, items);
@@ -1647,7 +1649,7 @@ mod tests {
 		let mut seed = [0; 16];
 		let nb_iter = 50u32;
 		for i in 0..nb_iter {
-			let (storage, child_infos) = build_random_storage(i + nb_iter);
+			let (storage, child_infos) = build_random_storage(i + nb_iter, 1);
 			(&mut seed[0..4]).copy_from_slice(&i.to_be_bytes()[..]);
 			let mut rand = SmallRng::from_seed(seed);
 			let trie: InMemoryBackend<BlakeTwo256> = (storage.clone(), StateVersion::default()).into();

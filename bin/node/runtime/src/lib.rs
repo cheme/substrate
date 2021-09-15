@@ -1058,6 +1058,21 @@ impl pallet_vesting::Config for Runtime {
 	const MAX_VESTING_SCHEDULES: u32 = 28;
 }
 
+
+parameter_types! {
+	pub const MigrationCostToWeight: (Weight, Weight) = (1, 1);
+	pub const MigrationWeight: Weight = 500_000_000_000;
+	pub const MigrationMaxSize: u32 = u32::MAX;
+	pub const Threshold: u32 = 33;
+}
+
+impl pallet_state_migrate_0_to_1::Config for Runtime {
+	type MigrationCostToWeight = MigrationCostToWeight;
+	type MigrationWeight = MigrationWeight;
+	type MigrationMaxSize = MigrationMaxSize;
+	type Threshold = Threshold;
+}
+
 impl pallet_mmr::Config for Runtime {
 	const INDEXING_PREFIX: &'static [u8] = b"mmr";
 	type Hashing = <Runtime as frame_system::Config>::Hashing;
@@ -1217,6 +1232,7 @@ construct_runtime!(
 		Gilt: pallet_gilt::{Pallet, Call, Storage, Event<T>, Config},
 		Uniques: pallet_uniques::{Pallet, Call, Storage, Event<T>},
 		TransactionStorage: pallet_transaction_storage::{Pallet, Call, Storage, Inherent, Config<T>, Event<T>},
+		StateMigrate0To1: pallet_state_migrate_0_to_1::{Pallet, Storage},
 	}
 );
 
@@ -1573,6 +1589,7 @@ impl_runtime_apis! {
 			list_benchmark!(list, extra, pallet_uniques, Uniques);
 			list_benchmark!(list, extra, pallet_utility, Utility);
 			list_benchmark!(list, extra, pallet_vesting, Vesting);
+			list_benchmark!(list, extra, pallet_state_migrate_0_to_1, StateMigrate0To1);
 
 			let storage_info = AllPalletsWithSystem::storage_info();
 
@@ -1646,6 +1663,7 @@ impl_runtime_apis! {
 			add_benchmark!(params, batches, pallet_uniques, Uniques);
 			add_benchmark!(params, batches, pallet_utility, Utility);
 			add_benchmark!(params, batches, pallet_vesting, Vesting);
+			add_benchmark!(params, batches, pallet_state_migrate_0_to_1, StateMigrate0To1);
 
 			if batches.is_empty() { return Err("Benchmark not found for this pallet.".into()) }
 			Ok(batches)

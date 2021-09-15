@@ -21,8 +21,6 @@
 
 #[cfg(feature = "std")]
 use serde::{Deserialize, Serialize};
-#[cfg(feature = "std")]
-use std::collections::{HashMap, BTreeMap};
 use sp_debug_derive::RuntimeDebug;
 
 use codec::{Decode, Encode};
@@ -30,6 +28,7 @@ use ref_cast::RefCast;
 use sp_std::{
 	ops::{Deref, DerefMut},
 	vec::Vec,
+	collections::btree_map::BTreeMap,
 };
 
 /// Storage key.
@@ -153,11 +152,9 @@ pub struct StorageData(
 
 /// Map of data to use in a storage, it is a collection of
 /// byte key and values.
-#[cfg(feature = "std")]
 pub type StorageMap = BTreeMap<Vec<u8>, Vec<u8>>;
 
 /// Child trie storage data.
-#[cfg(feature = "std")]
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct StorageChild {
 	/// Child data for storage.
@@ -168,7 +165,6 @@ pub struct StorageChild {
 }
 
 /// Struct containing data needed for a storage.
-#[cfg(feature = "std")]
 #[derive(Default, Debug, Clone)]
 pub struct Storage {
 	/// Top trie storage data.
@@ -177,12 +173,11 @@ pub struct Storage {
 	/// The key does not including prefix, for the `default`
 	/// trie kind, so this is exclusively for the `ChildType::ParentKeyId`
 	/// tries.
-	pub children_default: HashMap<Vec<u8>, StorageChild>,
+	pub children_default: BTreeMap<Vec<u8>, StorageChild>,
 }
 
-#[cfg(feature = "std")]
-impl From<HashMap<Option<ChildInfo>, BTreeMap<Vec<u8>, Vec<u8>>>> for Storage {
-	fn from(data: HashMap<Option<ChildInfo>, BTreeMap<Vec<u8>, Vec<u8>>>) -> Storage {
+impl From<BTreeMap<Option<ChildInfo>, BTreeMap<Vec<u8>, Vec<u8>>>> for Storage {
+	fn from(data: BTreeMap<Option<ChildInfo>, BTreeMap<Vec<u8>, Vec<u8>>>) -> Storage {
 		let mut storage = Storage::default();
 		for (child_info, data) in data.into_iter() {
 			if let Some(child_info) = child_info {
@@ -256,8 +251,8 @@ pub mod well_known_keys {
 pub const DEFAULT_MAX_INLINE_VALUE: u32 = 33;
 
 /// Information related to a child state.
-#[derive(Debug, Clone)]
-#[cfg_attr(feature = "std", derive(PartialEq, Eq, Hash, PartialOrd, Ord))]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "std", derive(Hash))]
 pub enum ChildInfo {
 	/// This is the one used by default.
 	ParentKeyId(ChildTrieParentKeyId),
@@ -404,8 +399,8 @@ impl ChildType {
 /// that will be use only once.
 /// Those unique id also required to be long enough to avoid any
 /// unique id to be prefixed by an other unique id.
-#[derive(Debug, Clone)]
-#[cfg_attr(feature = "std", derive(PartialEq, Eq, Hash, PartialOrd, Ord))]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "std", derive(Hash))]
 pub struct ChildTrieParentKeyId {
 	/// Data is the storage key without prefix.
 	data: Vec<u8>,

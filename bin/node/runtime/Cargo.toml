@@ -81,6 +81,7 @@ pallet-session = { version = "4.0.0-dev", features = [
 ], path = "../../../frame/session", default-features = false }
 pallet-session-benchmarking = { version = "4.0.0-dev", path = "../../../frame/session/benchmarking", default-features = false, optional = true }
 pallet-staking = { version = "4.0.0-dev", default-features = false, path = "../../../frame/staking" }
+pallet-state-migrate-0-to-1 = { version = "4.0.0-dev", default-features = false, path = "../../../frame/state-migrate-0-to-1" }
 pallet-staking-reward-curve = { version = "4.0.0-dev", default-features = false, path = "../../../frame/staking/reward-curve" }
 pallet-scheduler = { version = "4.0.0-dev", default-features = false, path = "../../../frame/scheduler" }
 pallet-society = { version = "4.0.0-dev", default-features = false, path = "../../../frame/society" }
@@ -197,6 +198,7 @@ runtime-benchmarks = [
 	"pallet-scheduler/runtime-benchmarks",
 	"pallet-society/runtime-benchmarks",
 	"pallet-staking/runtime-benchmarks",
+	"pallet-state-migrate-0-to-1/runtime-benchmarks",
 	"pallet-timestamp/runtime-benchmarks",
 	"pallet-tips/runtime-benchmarks",
 	"pallet-transaction-storage/runtime-benchmarks",

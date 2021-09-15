@@ -21,7 +21,7 @@ use sc_client_api::{StorageProvider, UsageProvider};
 use sp_core::storage::{well_known_keys, ChildInfo, Storage, StorageChild, StorageKey, StorageMap};
 use sp_runtime::{generic::BlockId, traits::Block as BlockT};
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::BTreeMap, sync::Arc};
 
 /// Export the raw state at the given `block`. If `block` is `None`, the
 /// best block will be used.
@@ -38,7 +38,7 @@ where
 
 	let empty_key = StorageKey(Vec::new());
 	let mut top_storage = client.storage_pairs(&block, &empty_key)?;
-	let mut children_default = HashMap::new();
+	let mut children_default = BTreeMap::new();
 
 	// Remove all default child storage roots from the top storage and collect the child storage
 	// pairs.

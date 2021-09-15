@@ -37,8 +37,10 @@ use frame_support::{
 use frame_system::{
 	pallet_prelude::*, WeightInfo,
 };
-
+use sp_std::vec::Vec;
 pub use pallet::*;
+
+mod benchmarking;
 
 // syntactic sugar for logging.
 #[macro_export]
@@ -130,42 +132,7 @@ pub mod pallet {
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
 
 		fn on_initialize(_now: BlockNumberFor<T>) -> Weight {
-			let migration_progress = MigrationProgress::<T>::get();
-	
-			let (current_top, current_child, current_reserved) = match migration_progress {
-				MigrationState::Finished => return T::DbWeight::get().reads(1),
-				MigrationState::Pending { current_top, current_child, reserved_big } => (current_top, current_child, reserved_big),
-			};
-			let cost_to_weight = T::MigrationCostToWeight::get();
-			let max_weight = T::MigrationWeight::get();
-			let max_cost = (max_weight * cost_to_weight.1) / cost_to_weight.0;
-			let max_size = T::MigrationMaxSize::get();
-			let threshold = T::Threshold::get();
-			let mut pending = PendingMigration::<T> {
-				current_top,
-				current_child,
-				current_reserved,
-				current_cost: 0 as Weight,
-				current_size: 0u32,
-				max_cost,
-				max_size,
-				threshold,
-				touched: false,
-				_ph: sp_std::marker::PhantomData,
-			};
-			if pending.migrate() {
-				MigrationProgress::<T>::set(MigrationState::Finished);
-			} else {
-				MigrationProgress::<T>::set(MigrationState::Pending {
-					current_top: pending.current_top,
-					current_child: pending.current_child,
-					reserved_big: pending.current_reserved,
-				});
-			}
-			let cost = T::DbWeight::get().reads(1)
-				+ T::SystemWeightInfo::set_storage(1) // TODO size incorrect for migration pending
-				+ pending.current_cost;
-			(cost * cost_to_weight.0) / cost_to_weight.1
+			crate::on_initialize::<T>()
 		}
 
 		fn on_finalize(_n: BlockNumberFor<T>) {
@@ -358,6 +325,45 @@ impl<T: pallet::Config> PendingMigration<T> {
 	}
 }
 
+fn on_initialize<T: pallet::Config>() -> Weight {
+	let migration_progress = MigrationProgress::<T>::get();
+
+	let (current_top, current_child, current_reserved) = match migration_progress {
+		MigrationState::Finished => return T::DbWeight::get().reads(1),
+		MigrationState::Pending { current_top, current_child, reserved_big } => (current_top, current_child, reserved_big),
+	};
+	let cost_to_weight = T::MigrationCostToWeight::get();
+	let max_weight = T::MigrationWeight::get();
+	let max_cost = (max_weight * cost_to_weight.1) / cost_to_weight.0;
+	let max_size = T::MigrationMaxSize::get();
+	let threshold = T::Threshold::get();
+	let mut pending = PendingMigration::<T> {
+		current_top,
+		current_child,
+		current_reserved,
+		current_cost: 0 as Weight,
+		current_size: 0u32,
+		max_cost,
+		max_size,
+		threshold,
+		touched: false,
+		_ph: sp_std::marker::PhantomData,
+	};
+	if pending.migrate() {
+		MigrationProgress::<T>::set(MigrationState::Finished);
+	} else {
+		MigrationProgress::<T>::set(MigrationState::Pending {
+			current_top: pending.current_top,
+			current_child: pending.current_child,
+			reserved_big: pending.current_reserved,
+		});
+	}
+	let cost = T::DbWeight::get().reads(1)
+		+ T::SystemWeightInfo::set_storage(1) // TODO size incorrect for migration pending
+		+ pending.current_cost;
+	(cost * cost_to_weight.0) / cost_to_weight.1
+}
+
 fn child_io_key(storage_key: &Vec<u8>) -> &[u8] {
 	use sp_core::storage::{ChildType, PrefixedStorageKey};
 	match ChildType::from_prefixed_key(PrefixedStorageKey::new_ref(storage_key)) {
@@ -367,7 +373,8 @@ fn child_io_key(storage_key: &Vec<u8>) -> &[u8] {
 }
 
 
-#[cfg(test)]
+#[cfg(feature = "std")]
+#[cfg(any(test, feature = "runtime-benchmarks"))]
 mod mock {
 	use crate as pallet_state_migrate_0_to_1;
 	use super::*;
@@ -422,35 +429,11 @@ mod mock {
 		type OnSetCode = ();
 	}
 
-
-	pub struct MigrationCostToWeightImpl;
-	impl Get<(Weight, Weight)> for MigrationCostToWeightImpl {
-		fn get() -> (Weight, Weight) {
-			// without bench cost == weight
-			(1, 1)
-		}
-	}
-
-
-	pub struct MigrationWeightImpl;
-	impl Get<Weight> for MigrationWeightImpl {
-		fn get() -> Weight {
-			500_000_000_000 as Weight
-		}
-	}
-
-	pub struct MigrationMaxSizeImpl;
-	impl Get<u32> for MigrationMaxSizeImpl {
-		fn get() -> u32 {
-			300
-		}
-	}
-
-	pub struct ThresholdImpl;
-	impl Get<u32> for ThresholdImpl {
-		fn get() -> u32 {
-			33
-		}
+	parameter_types! {
+		pub const MigrationCostToWeight: (Weight, Weight) = (1, 1);
+		pub const MigrationWeight: Weight = 500_000_000_000;
+		pub const MigrationMaxSize: u32 = 300;
+		pub const Threshold: u32 = 33;
 	}
 
 	parameter_types! {
@@ -459,40 +442,46 @@ mod mock {
 	}
 
 	impl pallet_state_migrate_0_to_1::Config for Test {
-		type MigrationCostToWeight = MigrationCostToWeightImpl;
-		type MigrationWeight = MigrationWeightImpl;
-		type MigrationMaxSize = MigrationMaxSizeImpl;
-		type Threshold = ThresholdImpl;
+		type MigrationCostToWeight = MigrationCostToWeight;
+		type MigrationWeight = MigrationWeight;
+		type MigrationMaxSize = MigrationMaxSize;
+		type Threshold = Threshold;
 	}
 
-	pub fn new_test_ext(switch_version: bool) -> sp_io::TestExternalities {
+	pub fn new_test_ext(switch_version: bool, random: Option<(u32, usize)>) -> sp_io::TestExternalities {
 		use sp_core::storage::ChildInfo;
-		let t = frame_system::GenesisConfig::default();
-		let child_key1 = b"chk1".to_vec();
-		let child_key2 = b"chk2".to_vec();
-		let mut storage = sp_core::storage::Storage {
-			top: vec![
-				(b"key1".to_vec(), vec![1u8; 40]),
-				(sp_core::storage::well_known_keys::CODE.to_vec(), vec![1u8; 40]),
-			].into_iter().collect(),
-			children_default: vec![
-				(child_key1, sp_core::storage::StorageChild {
-					data: vec![
-						(b"key1".to_vec(), vec![2u8; 40]),
-						(b"key2".to_vec(), vec![2u8; 4]),
-					].into_iter().collect(),
-					child_info: ChildInfo::new_default(b"chk1"),
-				}),
-				(child_key2, sp_core::storage::StorageChild {
-					data: vec![
-						(b"key1".to_vec(), vec![3u8; 4]),
-						(b"key2".to_vec(), vec![3u8; 40]),
-					].into_iter().collect(),
-					child_info: ChildInfo::new_default(b"chk2"),
-				}),
-			].into_iter().collect(),
+		let storage: sp_core::storage::Storage = if let Some((seed, size)) = random {
+			let (storage, _) = sp_state_machine::build_random_storage(seed, size);
+			storage.into()
+		} else {
+			let t = frame_system::GenesisConfig::default();
+			let child_key1 = b"chk1".to_vec();
+			let child_key2 = b"chk2".to_vec();
+			let mut storage = sp_core::storage::Storage {
+				top: vec![
+					(b"key1".to_vec(), vec![1u8; 40]),
+					(sp_core::storage::well_known_keys::CODE.to_vec(), vec![1u8; 40]),
+				].into_iter().collect(),
+				children_default: vec![
+					(child_key1, sp_core::storage::StorageChild {
+						data: vec![
+							(b"key1".to_vec(), vec![2u8; 40]),
+							(b"key2".to_vec(), vec![2u8; 4]),
+						].into_iter().collect(),
+						child_info: ChildInfo::new_default(b"chk1"),
+					}),
+					(child_key2, sp_core::storage::StorageChild {
+						data: vec![
+							(b"key1".to_vec(), vec![3u8; 4]),
+							(b"key2".to_vec(), vec![3u8; 40]),
+						].into_iter().collect(),
+						child_info: ChildInfo::new_default(b"chk2"),
+					}),
+				].into_iter().collect(),
+			};
+			t.assimilate_storage::<Test>(&mut storage).unwrap();
+			storage
 		};
-		t.assimilate_storage::<Test>(&mut storage).unwrap();
 
 		if switch_version {
 			(storage, StateVersion::V0).into()
@@ -516,7 +505,8 @@ mod mock {
 	}
 }
 
-#[cfg(test)]
+#[cfg(feature = "std")]
+#[cfg(any(test, feature = "runtime-benchmarks"))]
 mod test {
 	use super::*;
 	use crate::mock::*;
@@ -524,8 +514,8 @@ mod test {
 
 	#[test]
 	fn run_test_small() {
-		let mut test_ext_no_switch = new_test_ext(false);
-		let mut test_ext = new_test_ext(true);
+		let mut test_ext_no_switch = new_test_ext(false, None);
+		let mut test_ext = new_test_ext(true, None);
 		let initial_root = test_ext.backend.root().clone();
 		let initial_root_no_switch = test_ext_no_switch.backend.root().clone();
 		assert!(initial_root != initial_root_no_switch);
@@ -547,7 +537,7 @@ mod test {
 	#[test]
 	fn run_test_stress() {
 		for i in 0..100u32 {
-			let (storage, _) = sp_state_machine::build_random_storage(i);
+			let (storage, _) = sp_state_machine::build_random_storage(i, 1);
 			let storage: sp_core::storage::Storage = storage.into();
 			let mut ext: sp_io::TestExternalities = (storage.clone(), StateVersion::V0).into();
 			// but use a backend with new version.

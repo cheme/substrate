@@ -4539,6 +4539,7 @@ dependencies = [
  "pallet-society",
  "pallet-staking",
  "pallet-staking-reward-curve",
+ "pallet-state-migrate-0-to-1",
  "pallet-sudo",
  "pallet-timestamp",
  "pallet-tips",
