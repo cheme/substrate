@@ -70,6 +70,7 @@ pub enum MigrationState {
 		// entry is processed.
 		current_child: Option<Vec<u8>>,
 	},
+
 	/// Finished migration, this module will not
 	/// do anything and can be removed.
 	Finished,
@@ -100,6 +101,8 @@ pub mod pallet {
 	#[pallet::config]
 	pub trait Config: frame_system::Config {
 		#[pallet::constant]
+		type MigrationCostToWeight: Get<(Weight, Weight)>;
+		#[pallet::constant]
 		type MigrationWeight: Get<Weight>;
 		#[pallet::constant]
 		type MigrationMaxSize: Get<u32>;
@@ -123,15 +126,17 @@ pub mod pallet {
 				MigrationState::Finished => return T::DbWeight::get().reads(1),
 				MigrationState::Pending { current_top, current_child } => (current_top, current_child),
 			};
+			let cost_to_weight = T::MigrationCostToWeight::get();
 			let max_weight = T::MigrationWeight::get();
+			let max_cost = (max_weight * cost_to_weight.1) / cost_to_weight.0;
 			let max_size = T::MigrationMaxSize::get();
 			let threshold = T::Threshold::get();
 			let mut pending = PendingMigration::<T> {
 				current_top,
 				current_child,
-				current_weight: 0 as Weight,
+				current_cost: 0 as Weight,
 				current_size: 0u32,
-				max_weight,
+				max_cost,
 				max_size,
 				threshold,
 				touched: false,
@@ -146,9 +151,10 @@ pub mod pallet {
 			} else {
 				MigrationProgress::<T>::set(MigrationState::Finished);
 			}
-			T::DbWeight::get().reads(1)
+			let cost = T::DbWeight::get().reads(1)
 				+ T::SystemWeightInfo::set_storage(1) // TODO size incorrect for migration pending
-				+ pending.current_weight
+				+ pending.current_cost;
+			(cost * cost_to_weight.0) / cost_to_weight.1
 		}
 
 		fn on_finalize(_n: BlockNumberFor<T>) {
@@ -159,10 +165,10 @@ pub mod pallet {
 struct PendingMigration<T> {
 	current_top: Option<Vec<u8>>,
 	current_child: Option<Vec<u8>>,
-	current_weight: Weight,
+	current_cost: Weight,
 	current_size: u32,
 	threshold: u32,
-	max_weight: Weight,
+	max_cost: Weight,
 	max_size: u32,
 	touched: bool,
 	_ph: sp_std::marker::PhantomData<T>,
@@ -171,22 +177,22 @@ struct PendingMigration<T> {
 impl<T: pallet::Config> PendingMigration<T> {
 	fn new_read(&mut self, len: u32) -> bool {
 		// TODO should it take size in account?
-		self.current_weight += T::DbWeight::get().reads(1);
+		self.current_cost += T::DbWeight::get().reads(1);
 		self.current_size += len;
 		self.current_size > self.max_size
-			|| self.current_weight > self.max_weight
+			|| self.current_cost > self.max_cost
 	}
 
 	fn new_write(&mut self, len: u32) -> bool {
 		self.touched = true;
 		self.current_size += len;
-		self.current_weight += T::SystemWeightInfo::set_storage(len);
+		self.current_cost += T::SystemWeightInfo::set_storage(len);
 		self.current_size > self.max_size
-			|| self.current_weight > self.max_weight
+			|| self.current_cost > self.max_cost
 	}
 
 	fn new_next(&mut self) {
-		self.current_weight += T::DbWeight::get().reads(1); // TODO what is next key weight?
+		self.current_cost += T::DbWeight::get().reads(1); // TODO what is next key weight?
 	}
 
 	// return true if can continue and false if limit reached
@@ -389,6 +395,16 @@ mod mock {
 		type OnSetCode = ();
 	}
 
+
+	pub struct MigrationCostToWeightImpl;
+	impl Get<(Weight, Weight)> for MigrationCostToWeightImpl {
+		fn get() -> (Weight, Weight) {
+			// without bench cost == weight
+			(1, 1)
+		}
+	}
+
+
 	pub struct MigrationWeightImpl;
 	impl Get<Weight> for MigrationWeightImpl {
 		fn get() -> Weight {
@@ -416,6 +432,7 @@ mod mock {
 	}
 
 	impl pallet_state_migrate_0_to_1::Config for Test {
+		type MigrationCostToWeight = MigrationCostToWeightImpl;
 		type MigrationWeight = MigrationWeightImpl;
 		type MigrationMaxSize = MigrationMaxSizeImpl;
 		type Threshold = ThresholdImpl;
