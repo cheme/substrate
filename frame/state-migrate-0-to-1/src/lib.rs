@@ -33,6 +33,7 @@ use sp_runtime::{
 };
 use frame_support::{
 	pallet_prelude::*,
+	weights::RuntimeDbWeight,
 };
 use frame_system::{
 	pallet_prelude::*, WeightInfo,
@@ -127,6 +128,8 @@ pub mod pallet {
 	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
 
 		fn on_initialize(_now: BlockNumberFor<T>) -> Weight {
+			0
+			/*
 			let migration_progress = MigrationProgress::<T>::get();
 	
 			let (current_top, current_child, current_reserved) = match migration_progress {
@@ -160,6 +163,7 @@ pub mod pallet {
 			T::DbWeight::get().reads(1)
 				+ T::SystemWeightInfo::set_storage(1) // TODO size incorrect for migration pending
 				+ pending.current_weight
+			*/
 		}
 
 		fn on_finalize(_n: BlockNumberFor<T>) {
@@ -167,7 +171,7 @@ pub mod pallet {
 	}
 }
 
-struct PendingMigration<T> {
+struct PendingMigration {
 	current_top: Option<Vec<u8>>,
 	current_child: Option<Vec<u8>>,
 	current_reserved: u32,
@@ -177,13 +181,39 @@ struct PendingMigration<T> {
 	max_weight: Weight,
 	max_size: u32,
 	touched: bool,
-	_ph: sp_std::marker::PhantomData<T>,
+}
+// warn from runtime/polkadot/src/weights/frame_system.rs  so only for a given chain
+
+pub const WEIGHT_PER_SECOND: Weight = 1_000_000_000_000;
+pub const WEIGHT_PER_MILLIS: Weight = WEIGHT_PER_SECOND / 1000; // 1_000_000_000
+pub const WEIGHT_PER_MICROS: Weight = WEIGHT_PER_MILLIS / 1000; // 1_000_000
+pub const WEIGHT_PER_NANOS: Weight = WEIGHT_PER_MICROS / 1000; // 1_000
+
+// this is rocksdb from support weight: TODO ask if in use in polkadot
+pub const db_weigts: RuntimeDbWeight = RuntimeDbWeight {
+	read: 25 * WEIGHT_PER_MICROS,   // ~25 µs @ 200,000 items
+	write: 100 * WEIGHT_PER_MICROS, // ~100 µs @ 200,000 items
+};
+
+fn weight_reads(nb: Weight) -> Weight {
+	db_weigts.read * nb
+}
+fn weight_writes(nb: Weight) -> Weight {
+	db_weigts.write * nb
 }
 
-impl<T: frame_system::Config> PendingMigration<T> {
+fn weight_set_storage(i: u32) -> Weight {
+	(0 as Weight)
+		// Standard Error: 0
+		.saturating_add((546_000 as Weight).saturating_mul(i as Weight))
+		.saturating_add(weight_writes((1 as Weight).saturating_mul(i as Weight)))
+}
+
+// end warn
+impl PendingMigration {
 	fn new_read(&mut self, len: u32) -> bool {
 		// TODO should it take size in account?
-		self.current_weight += T::DbWeight::get().reads(1);
+		self.current_weight += weight_reads(1);
 		self.current_size += len;
 		self.current_size > self.max_size
 			|| self.current_weight > self.max_weight
@@ -192,13 +222,13 @@ impl<T: frame_system::Config> PendingMigration<T> {
 	fn new_write(&mut self, len: u32) -> bool {
 		self.touched = true;
 		self.current_size += len;
-		self.current_weight += T::SystemWeightInfo::set_storage(len);
+		self.current_weight += weight_set_storage(len);
 		self.current_size > self.max_size
 			|| self.current_weight > self.max_weight
 	}
 
 	fn new_next(&mut self) {
-		self.current_weight += T::DbWeight::get().reads(1); // TODO what is next key weight?
+		self.current_weight += weight_reads(1); // TODO what is next key weight?
 	}
 
 	// return true if can continue and false if limit reached
@@ -207,7 +237,7 @@ impl<T: frame_system::Config> PendingMigration<T> {
 			if let Some(encode)	= sp_io::default_child_storage::get(child_io_key(storage_key), current_key) {
 				let len = encode.len() as u32;
 				if len >= self.threshold {
-					sp_io::default_child_storage::set(child_io_key(storage_key), current_key, encode.as_slice());
+//					sp_io::default_child_storage::set(child_io_key(storage_key), current_key, encode.as_slice());
 					if self.new_write(len) {
 						return false;
 					}
@@ -231,7 +261,7 @@ impl<T: frame_system::Config> PendingMigration<T> {
 			if let Some(encode)	= sp_io::storage::get(current_key) {
 				let len = encode.len() as u32;
 				if len >= self.threshold {
-					sp_io::storage::set(current_key, encode.as_slice());
+//					sp_io::storage::set(current_key, encode.as_slice());
 					if self.new_write(len) {
 						return false;
 					}
