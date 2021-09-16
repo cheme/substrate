@@ -33,7 +33,7 @@ use sp_runtime::{
 use sp_sandbox::Value;
 #[cfg(not(feature = "std"))]
 use sp_tasks::{
-	AccessDeclaration, DeclarationFailureHandling, WorkerDeclaration, WorkerDeclarationKind,
+	AccessDeclaration, LocalAccessDeclaration, DeclarationFailureHandling, WorkerDeclaration, WorkerDeclarationKind,
 };
 
 extern "C" {
@@ -189,8 +189,11 @@ sp_core::wasm_export_functions! {
 		sp_tasks::set_capacity(1);
 		let handle = sp_tasks::spawn(tasks::read_key, vec![], WorkerDeclarationKind::ReadDeclarative(
 			AccessDeclaration {
-				prefixes_lock: vec![b"key".to_vec()],
-				keys_lock: Default::default(),
+				top: LocalAccessDeclaration {
+					prefixes_lock: vec![b"key".to_vec()],
+					keys_lock: Default::default(),
+				},
+				children: Default::default(),
 			},
 			DeclarationFailureHandling::Panic,
 		).into());
@@ -208,8 +211,11 @@ sp_core::wasm_export_functions! {
 			vec![],
 			WorkerDeclarationKind::ReadDeclarative(
 				AccessDeclaration {
-					prefixes_lock: vec![b"key".to_vec()],
-					keys_lock: Default::default(),
+					top: LocalAccessDeclaration {
+						prefixes_lock: vec![b"key".to_vec()],
+						keys_lock: Default::default(),
+					},
+					children: Default::default(),
 				},
 				DeclarationFailureHandling::InvalidAtJoin,
 			).into(),
@@ -228,8 +234,11 @@ sp_core::wasm_export_functions! {
 			vec![],
 			WorkerDeclarationKind::ReadDeclarative(
 				AccessDeclaration {
-					prefixes_lock: vec![b"aey".to_vec()],
-					keys_lock: Default::default(),
+					top: LocalAccessDeclaration {
+						prefixes_lock: vec![b"aey".to_vec()],
+						keys_lock: Default::default(),
+					},
+					children: Default::default(),
 				},
 				DeclarationFailureHandling::InvalidAtJoin,
 			).into(),
@@ -247,8 +256,11 @@ sp_core::wasm_export_functions! {
 			vec![],
 			WorkerDeclarationKind::ReadDeclarative(
 				AccessDeclaration {
-					prefixes_lock: vec![b"key".to_vec()],
-					keys_lock: Default::default(),
+					top: LocalAccessDeclaration {
+						prefixes_lock: vec![b"key".to_vec()],
+						keys_lock: Default::default(),
+					},
+					children: Default::default(),
 				},
 				DeclarationFailureHandling::Panic,
 			).into(),
@@ -266,8 +278,11 @@ sp_core::wasm_export_functions! {
 			vec![],
 			WorkerDeclarationKind::WriteLightDeclarative(
 				AccessDeclaration {
-					prefixes_lock: vec![b"key".to_vec()],
-					keys_lock: Default::default(),
+					top: LocalAccessDeclaration {
+						prefixes_lock: vec![b"key".to_vec()],
+						keys_lock: Default::default(),
+					},
+					children: Default::default(),
 				},
 				DeclarationFailureHandling::Panic,
 			).into(),
@@ -277,8 +292,11 @@ sp_core::wasm_export_functions! {
 			vec![],
 			WorkerDeclarationKind::WriteLightDeclarative(
 				AccessDeclaration {
-					prefixes_lock: vec![b"key".to_vec()],
-					keys_lock: Default::default(),
+					top: LocalAccessDeclaration {
+						prefixes_lock: vec![b"key".to_vec()],
+						keys_lock: Default::default(),
+					},
+					children: Default::default(),
 				},
 				DeclarationFailureHandling::InvalidAtJoin,
 			).into(),
