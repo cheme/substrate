@@ -23,7 +23,7 @@ use super::StorageKey;
 use failure::{DeclFailureHandling, FailureHandlers};
 use sp_core::storage::{ChildInfo, ChildType, PrefixedStorageKey};
 use sp_externalities::{
-	AccessDeclaration, DeclarationFailureHandling, TaskId, WorkerDeclarationKind, WorkerResult,
+	AccessDeclaration, LocalAccessDeclaration, DeclarationFailureHandling, TaskId, WorkerDeclarationKind, WorkerResult,
 };
 use sp_std::{
 	collections::{btree_map::BTreeMap, btree_set::BTreeSet},
@@ -43,6 +43,15 @@ type FilterTreeAllow = super::radix_trees::FilterTree<Filter<bool>>;
 type FilterTreesForbid = super::radix_trees::FilterTrees<Filter<FilterOrigin>>;
 type FilterTreeForbid = super::radix_trees::FilterTree<Filter<FilterOrigin>>;
 
+fn prefixed_storage_key_to_child_info(prefixed_storage_key: &Vec<u8>) -> ChildInfo {
+	let prefixed_key = PrefixedStorageKey::new_ref(prefixed_storage_key);
+	match ChildType::from_prefixed_key(prefixed_key) {
+		Some((ChildType::ParentKeyId, storage_key)) =>
+			ChildInfo::new_default(storage_key),
+		None => panic!("Unsupported child key"), // actually should be unreachable.
+	}
+}
+
 /// Main filter state.
 #[derive(Debug, Clone)]
 pub(super) struct Filters {
@@ -50,7 +59,17 @@ pub(super) struct Filters {
 	allow_read_active: bool,
 	allow_write_active: bool,
 	allow_append_active: bool,
+	/* TODO instead of commented code, have a Allow child by prefix and forbid child by prefix
+	 * for parent: then all are allowed like if empty prefix defined in them.
+	 * Currently allow enable means we need to specify each child but we may not know.
+	/// if true all child state are forbid.
+	allow_read_child_active: bool,
+	allow_write_child_active: bool,
+	allow_append_child_active: bool,
+	*/
+	/// accesses allowed by parent.
 	filters_allow: FilterTreesAllow,
+	/// accesses forbid due to child.
 	filters_forbid: FilterTreesForbid,
 	/// keeping history to remove constraint on join or dismiss.
 	/// It contains constraint for the parent (child do not need
@@ -68,6 +87,9 @@ impl Default for Filters {
 			allow_read_active: Default::default(),
 			allow_write_active: Default::default(),
 			allow_append_active: Default::default(),
+			/*allow_read_child_active: Default::default(),
+			allow_write_child_active: Default::default(),
+			allow_append_child_active: Default::default(),*/
 			filters_allow: Default::default(),
 			filters_forbid: Default::default(),
 			changes: BTreeMap::new(),
@@ -92,12 +114,17 @@ impl Filters {
 		write: bool,
 		append: bool,
 	) {
-		Self::remove_filter_internal(&mut tree.top, filter, from_child, read, write, append);
+		Self::remove_filter_internal(&mut tree.top, filter.top, from_child, read, write, append);
+		for (prefixed_storage_key, filter_child) in filter.children {
+			if let Some(child) = tree.children.get_mut(&prefixed_storage_key) {
+				Self::remove_filter_internal(child, filter_child, from_child, read, write, append);
+			}
+		}
 	}
 
 	fn remove_filter_internal(
 		tree: &mut FilterTreeForbid,
-		filter: AccessDeclaration,
+		filter: LocalAccessDeclaration,
 		from_child: TaskId,
 		read: bool,
 		write: bool,
@@ -145,12 +172,16 @@ impl Filters {
 		write: bool,
 		append: bool,
 	) {
-		Self::set_filter_forbid_internal(&mut tree.top, filter, from_child, read, write, append);
+		Self::set_filter_forbid_internal(&mut tree.top, filter.top, from_child, read, write, append);
+		for (prefixed_storage_key, filter_child) in filter.children {
+			let mut child = tree.children.entry(prefixed_storage_key).or_default();
+			Self::set_filter_forbid_internal(&mut child, filter_child, from_child, read, write, append);
+		}
 	}
 
 	fn set_filter_forbid_internal(
 		tree: &mut FilterTreeForbid,
-		filter: AccessDeclaration,
+		filter: LocalAccessDeclaration,
 		from_child: TaskId,
 		read: bool,
 		write: bool,
@@ -207,12 +238,16 @@ impl Filters {
 		write: bool,
 		append: bool,
 	) {
-		Self::set_filter_allow_internal(&mut tree.top, filter, read, write, append);
+		Self::set_filter_allow_internal(&mut tree.top, filter.top, read, write, append);
+		for (prefixed_storage_key, filter_child) in filter.children {
+			let mut child = tree.children.entry(prefixed_storage_key).or_default();
+			Self::set_filter_allow_internal(&mut child, filter_child, read, write, append);
+		}
 	}
 
 	fn set_filter_allow_internal(
 		tree: &mut FilterTreeAllow,
-		filter: AccessDeclaration,
+		filter: LocalAccessDeclaration,
 		read: bool,
 		write: bool,
 		append: bool,
@@ -313,15 +348,28 @@ impl Filters {
 
 	// Declaring a child read access, we ensure access is allowed in the first place.
 	pub(super) fn guard_declare_child_filter_read(&mut self, filter: &AccessDeclaration) -> bool {
-		// This assumes small declaration (otherwhise first loading in a tree could save
-		// a few tree node access.
-		for top_prefix in filter.prefixes_lock.iter() {
-			if !self.guard_read_prefix_inner(None, top_prefix, true) {
+		if !self.guard_declare_child_filter_read_inner(None, &filter.top) {
+			return false
+		}
+		for (prefixed_storage_key, filter) in filter.children.iter() {
+			let child_info = prefixed_storage_key_to_child_info(prefixed_storage_key);
+			if !self.guard_declare_child_filter_read_inner(Some(&child_info), filter) {
 				return false
 			}
 		}
-		for top_key in filter.keys_lock.iter() {
-			if !self.guard_read_inner(None, top_key, true) {
+		true
+	}
+
+	fn guard_declare_child_filter_read_inner(&mut self, child_info: Option<&ChildInfo>, filter: &LocalAccessDeclaration) -> bool {
+		// This assumes small declaration (otherwhise first loading in a tree could save
+		// a few tree node access.
+		for prefix in filter.prefixes_lock.iter() {
+			if !self.guard_read_prefix_inner(child_info, prefix, true) {
+				return false
+			}
+		}
+		for key in filter.keys_lock.iter() {
+			if !self.guard_read_inner(child_info, key, true) {
 				return false
 			}
 		}
@@ -329,13 +377,26 @@ impl Filters {
 	}
 
 	pub(super) fn guard_declare_child_filter_write(&mut self, filter: &AccessDeclaration) -> bool {
-		for top_prefix in filter.prefixes_lock.iter() {
-			if !self.guard_write_prefix_inner(None, top_prefix, true) {
+		if !self.guard_declare_child_filter_write_inner(None, &filter.top) {
+			return false
+		}
+		for (prefixed_storage_key, filter) in filter.children.iter() {
+			let child_info = prefixed_storage_key_to_child_info(prefixed_storage_key);
+			if !self.guard_declare_child_filter_write_inner(Some(&child_info), filter) {
 				return false
 			}
 		}
-		for top_key in filter.keys_lock.iter() {
-			if !self.guard_write_inner(None, top_key, true) {
+		true
+	}
+
+	fn guard_declare_child_filter_write_inner(&mut self, child_info: Option<&ChildInfo>, filter: &LocalAccessDeclaration) -> bool {
+		for prefix in filter.prefixes_lock.iter() {
+			if !self.guard_write_prefix_inner(child_info, prefix, true) {
+				return false
+			}
+		}
+		for key in filter.keys_lock.iter() {
+			if !self.guard_write_inner(child_info, key, true) {
 				return false
 			}
 		}
@@ -343,7 +404,20 @@ impl Filters {
 	}
 
 	pub(super) fn guard_declare_child_filter_append(&mut self, filter: &AccessDeclaration) -> bool {
-		for _top_prefix in filter.prefixes_lock.iter() {
+		if !self.guard_declare_child_filter_append_inner(None, &filter.top) {
+			return false
+		}
+		for (prefixed_storage_key, filter) in filter.children.iter() {
+			let child_info = prefixed_storage_key_to_child_info(prefixed_storage_key);
+			if !self.guard_declare_child_filter_append_inner(Some(&child_info), filter) {
+				return false
+			}
+		}
+		true
+	}
+
+	fn guard_declare_child_filter_append_inner(&mut self, child_info: Option<&ChildInfo>, filter: &LocalAccessDeclaration) -> bool {
+		for _prefix in filter.prefixes_lock.iter() {
 			// prefix for append got no use case (we got prefix for delete only and interval for read
 			// only).
 			return false;
@@ -351,8 +425,8 @@ impl Filters {
 				return false
 			}*/
 		}
-		for top_key in filter.keys_lock.iter() {
-			if !self.guard_append_inner(None, top_key, true) {
+		for key in filter.keys_lock.iter() {
+			if !self.guard_append_inner(child_info, key, true) {
 				return false
 			}
 		}
@@ -387,14 +461,7 @@ impl Filters {
 			.filters_forbid
 			.children
 			.iter()
-			.map(|(storage_key, _child)| {
-				let prefixed_key = PrefixedStorageKey::new_ref(storage_key);
-				match ChildType::from_prefixed_key(prefixed_key) {
-					Some((ChildType::ParentKeyId, storage_key)) =>
-						ChildInfo::new_default(storage_key),
-					None => panic!("Unsupported child key"), // actually should be unreachable.
-				}
-			})
+			.map(|(storage_key, _child)| prefixed_storage_key_to_child_info(storage_key))
 			.collect();
 
 		for child_info in children.into_iter() {
@@ -725,7 +792,7 @@ impl Filters {
 		let filters = if let Some(filter) = filters.filter(child_info) {
 			filter
 		} else {
-			return true
+			return false;
 		};
 		let mut iter = filters.seek_iter(key).value_iter();
 		let mut start_interval = None;
@@ -777,7 +844,7 @@ impl Filters {
 		let filters = if let Some(filter) = filters.filter(child_info) {
 			filter
 		} else {
-			return true
+			return false;
 		};
 		let len = key.len();
 		for (key, value) in filters.seek_iter(key).value_iter() {
@@ -804,7 +871,7 @@ impl Filters {
 		let filters = if let Some(filter) = filters.filter(child_info) {
 			filter
 		} else {
-			return true
+			return false;
 		};
 		let len = key.len();
 		for (key, value) in filters.seek_iter(key).value_iter() {
@@ -831,7 +898,7 @@ impl Filters {
 		let filters = if let Some(filter) = filters.filter(child_info) {
 			filter
 		} else {
-			return true
+			return false;
 		};
 		let len = key.len();
 		for (key, value) in filters.seek_iter(key).value_iter() {
@@ -856,7 +923,7 @@ impl Filters {
 		let filters = if let Some(filter) = filters.filter(child_info) {
 			filter
 		} else {
-			return true
+			return false;
 		};
 		// parent or self allowed for prefix.
 		for (_key, value) in filters.seek_iter(key).value_iter() {
@@ -875,7 +942,7 @@ impl Filters {
 		let filters = if let Some(filter) = filters.filter(child_info) {
 			filter
 		} else {
-			return true
+			return false;
 		};
 		for (_key, value) in filters.seek_iter(key).value_iter() {
 			if value.write_prefix {
@@ -1212,8 +1279,11 @@ mod test {
 	fn test_guard_read_allow_interval() {
 		let mut filters1 = Filters::default();
 		filters1.allow_writes(AccessDeclaration {
-			prefixes_lock: vec![b"key".to_vec()],
-			keys_lock: vec![],
+			top: LocalAccessDeclaration {
+				prefixes_lock: vec![b"key".to_vec()],
+				keys_lock: vec![],
+			},
+			children: Default::default(),
 		});
 		assert!(Filters::guard_read_allow_interval(
 			&filters1.filters_allow,
@@ -1234,9 +1304,12 @@ mod test {
 			None,
 		));
 		//let mut filters1 = Filters::default();
-		filters1.allow_writes(AccessDeclaration {
-			prefixes_lock: vec![b"".to_vec()],
-			keys_lock: vec![],
+		filters1.allow_writes(AccessDeclaration{
+			top: LocalAccessDeclaration {
+				prefixes_lock: vec![b"".to_vec()],
+				keys_lock: vec![],
+			},
+			children: Default::default(),
 		});
 		assert!(Filters::guard_read_allow_interval(
 			&filters1.filters_allow,
@@ -1254,8 +1327,11 @@ mod test {
 
 		let mut filters1 = Filters::default();
 		filters1.allow_writes(AccessDeclaration {
-			prefixes_lock: vec![b"key".to_vec(), b"kez".to_vec()],
-			keys_lock: vec![],
+			top: LocalAccessDeclaration {
+				prefixes_lock: vec![b"key".to_vec(), b"kez".to_vec()],
+				keys_lock: vec![],
+			},
+			children: Default::default(),
 		});
 		assert!(Filters::guard_read_allow_interval(
 			&filters1.filters_allow,
@@ -1266,8 +1342,11 @@ mod test {
 
 		let mut filters1 = Filters::default();
 		filters1.allow_writes(AccessDeclaration {
-			prefixes_lock: vec![b"kex".to_vec(), b"kez".to_vec()],
-			keys_lock: vec![],
+			top: LocalAccessDeclaration {
+				prefixes_lock: vec![b"kex".to_vec(), b"kez".to_vec()],
+				keys_lock: vec![],
+			},
+			children: Default::default(),
 		});
 		assert!(!Filters::guard_read_allow_interval(
 			&filters1.filters_allow,

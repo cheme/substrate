@@ -407,7 +407,10 @@ impl From<Option<StorageValue>> for Change {
 /// Changes to state made by a worker.
 #[derive(codec::Encode, codec::Decode)]
 pub struct StateDelta {
+	/// Top state delta.
 	pub top: TrieDelta,
+
+	/// Children state delta
 	pub children: Vec<(ChildInfo, TrieDelta)>,
 }
 
@@ -837,13 +840,14 @@ impl WorkerDeclaration {
 
 /// Access filters on storage.
 /// Please define key only once and sort them.
-/// TODO add child trie specific decl
 #[derive(Debug, Clone, codec::Encode, codec::Decode)]
 pub struct AccessDeclarations {
 	/// Read access, depending on mode, this should exclude a concurrent write access.
 	pub read_only: AccessDeclaration,
+
 	/// A write access, it implies read access.
 	pub write: AccessDeclaration,
+
 	/// Append access, when value is modified without reading and
 	/// any modification order is fine with logic.
 	/// Eg: counter, list of value with order of insertion resolved
@@ -855,6 +859,16 @@ pub struct AccessDeclarations {
 /// Access filter on storage.
 #[derive(Debug, Clone, codec::Encode, codec::Decode)]
 pub struct AccessDeclaration {
+	/// Top state accesses.
+	pub top: LocalAccessDeclaration,
+
+	/// Children state accesses, by prefixed childen key. 
+	pub children: Vec<(Vec<u8>, LocalAccessDeclaration)>,
+}
+
+/// Access filter on a given local state (top trie or child trie).
+#[derive(Debug, Clone, codec::Encode, codec::Decode)]
+pub struct LocalAccessDeclaration {
 	/// Lock over a full prefix.
 	///
 	/// Gives access to all key starting with any of the declared prefixes.
@@ -864,7 +878,7 @@ pub struct AccessDeclaration {
 	pub keys_lock: Vec<Vec<u8>>,
 }
 
-impl AccessDeclaration {
+impl LocalAccessDeclaration {
 	/// Is there any declaration.
 	pub fn is_empty(&self) -> bool {
 		self.prefixes_lock.is_empty() && self.keys_lock.is_empty()
@@ -874,7 +888,13 @@ impl AccessDeclaration {
 impl AccessDeclaration {
 	/// Declaration for top prefix only.
 	pub fn top_prefix() -> Self {
-		AccessDeclaration { prefixes_lock: sp_std::vec![Vec::new()], keys_lock: Vec::new() }
+		AccessDeclaration { 
+			top: LocalAccessDeclaration {
+				prefixes_lock: sp_std::vec![Vec::new()],
+				keys_lock: Vec::new(),
+			},
+			children: Vec::new(),
+		}
 	}
 }
 
