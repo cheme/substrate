@@ -4590,6 +4590,7 @@ dependencies = [
  "sp-session",
  "sp-staking",
  "sp-std",
+ "sp-tasks",
  "sp-transaction-pool",
  "sp-version",
  "static_assertions",
@@ -4663,6 +4664,7 @@ dependencies = [
  "sp-runtime",
  "sp-session",
  "sp-std",
+ "sp-tasks",
  "sp-transaction-pool",
  "sp-version",
  "substrate-wasm-builder",
@@ -7297,6 +7299,7 @@ dependencies = [
  "sp-inherents",
  "sp-runtime",
  "sp-state-machine",
+ "sp-tasks",
  "substrate-test-runtime-client",
 ]
 
@@ -8905,6 +8908,7 @@ dependencies = [
  "sp-inherents",
  "sp-runtime",
  "sp-std",
+ "sp-tasks",
 ]
 
 [[package]]

@@ -36,6 +36,7 @@ sp-runtime = { version = "4.0.0-dev", default-features = false, path = "../../..
 sp-staking = { version = "4.0.0-dev", default-features = false, path = "../../../primitives/staking" }
 sp-keyring = { version = "4.0.0-dev", optional = true, path = "../../../primitives/keyring" }
 sp-session = { version = "4.0.0-dev", default-features = false, path = "../../../primitives/session" }
+sp-tasks = { version = "4.0.0-dev", default-features = false, path = "../../../primitives/tasks" }
 sp-transaction-pool = { version = "4.0.0-dev", default-features = false, path = "../../../primitives/transaction-pool" }
 sp-version = { version = "4.0.0-dev", default-features = false, path = "../../../primitives/version" }
 sp-npos-elections = { version = "4.0.0-dev", default-features = false, path = "../../../primitives/npos-elections" }

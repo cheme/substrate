@@ -59,6 +59,8 @@
 #![warn(missing_docs)]
 #![cfg_attr(not(feature = "std"), no_std)]
 
+use codec::{Encode, Decode};
+
 /// In no_std we skip log, this macro
 /// is a noops.
 #[cfg(not(feature = "std"))]
@@ -98,6 +100,7 @@ use sp_std::vec::Vec;
 /// This can be `join`-ed to get (blocking) the result of
 /// the spawned task execution.
 #[must_use]
+#[derive(Debug, Eq, PartialEq, Encode, Decode)]
 pub struct DataJoinHandle {
 	handle: u64,
 }

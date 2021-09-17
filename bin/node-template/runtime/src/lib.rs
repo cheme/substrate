@@ -349,6 +349,19 @@ impl_runtime_apis! {
 			Executive::apply_extrinsic(extrinsic)
 		}
 
+		fn spawn_extrinsic(
+			extrinsic: <Block as BlockT>::Extrinsic,
+			declaration: sp_tasks::WorkerDeclaration,
+		) -> Option<sp_tasks::DataJoinHandle> {
+			use codec::{Encode, Decode};
+			fn run(encoded_extrinsic: Vec<u8>) -> Vec<u8>  {
+				let extrinsic: <Block as BlockT>::Extrinsic = Decode::decode(&mut encoded_extrinsic.as_slice())
+					.expect("encoded in call");
+				Executive::apply_extrinsic(extrinsic).encode()
+			}
+			sp_tasks::spawn(run, extrinsic.encode(), declaration)
+		}
+
 		fn finalize_block() -> <Block as BlockT>::Header {
 			Executive::finalize_block()
 		}

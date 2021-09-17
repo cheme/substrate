@@ -709,6 +709,18 @@ cfg_if! {
 					system::execute_transaction(extrinsic)
 				}
 
+				fn spawn_extrinsic(
+					extrinsic: <Block as BlockT>::Extrinsic,
+					declaration: sp_tasks::WorkerDeclaration,
+				) -> Option<sp_tasks::DataJoinHandle> {
+					fn run(encoded_extrinsic: Vec<u8>) -> Vec<u8> {
+						let extrinsic: <Block as BlockT>::Extrinsic = Decode::decode(&mut encoded_extrinsic.as_slice())
+							.expect("encoded in call");
+						system::execute_transaction(extrinsic).encode()
+					}
+					sp_tasks::spawn(run, extrinsic.encode(), declaration)
+				}
+
 				fn finalize_block() -> <Block as BlockT>::Header {
 					system::finalize_block()
 				}
@@ -949,7 +961,7 @@ cfg_if! {
 					_: <Block as BlockT>::Hash,
 				) -> TransactionValidity {
 					if let Extrinsic::IncludeData(data) = utx {
-						return Ok(ValidTransaction{
+						return Ok(ValidTransaction {
 							priority: data.len() as u64,
 							requires: vec![],
 							provides: vec![data],
@@ -965,6 +977,18 @@ cfg_if! {
 			impl sp_block_builder::BlockBuilder<Block> for Runtime {
 				fn apply_extrinsic(extrinsic: <Block as BlockT>::Extrinsic) -> ApplyExtrinsicResult {
 					system::execute_transaction(extrinsic)
+				}
+
+				fn spawn_extrinsic(
+					extrinsic: <Block as BlockT>::Extrinsic,
+					declaration: sp_tasks::WorkerDeclaration,
+				) -> Option<sp_tasks::DataJoinHandle> {
+					fn run(encoded_extrinsic: Vec<u8>) -> Vec<u8>  {
+						let extrinsic: <Block as BlockT>::Extrinsic = Decode::decode(&mut encoded_extrinsic.as_slice())
+							.expect("encoded in call");
+						system::execute_transaction(extrinsic).encode()
+					}
+					sp_tasks::spawn(run, extrinsic.encode(), declaration)
 				}
 
 				fn finalize_block() -> <Block as BlockT>::Header {
