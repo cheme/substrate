@@ -1883,6 +1883,7 @@ where
 		mut import_block: BlockImportParams<Block, backend::TransactionFor<B, Block>>,
 		new_cache: HashMap<CacheKeyId, Vec<u8>>,
 	) -> Result<ImportResult, Self::Error> {
+
 		let span = tracing::span!(tracing::Level::DEBUG, "import_block");
 		let _enter = span.enter();
 
@@ -1972,10 +1973,12 @@ where
 #[async_trait::async_trait]
 impl<B, E, Block, RA> sc_consensus::BlockImport<Block> for Client<B, E, Block, RA>
 where
-	B: backend::Backend<Block>,
-	E: CallExecutor<Block> + Send + Sync,
+	B: backend::Backend<Block> + Send + Sync + 'static,
+	E: CallExecutor<Block> + Send + Sync + 'static,
 	Block: BlockT,
-	Self: ProvideRuntimeApi<Block>,
+	Self: ChainHeaderBackend<Block> + ProvideRuntimeApi<Block>,
+	<Self as ProvideRuntimeApi<Block>>::Api:
+		ApiExt<Block, StateBackend = backend::StateBackendFor<B, Block>> + BlockBuilderApi<Block>,
 	<Self as ProvideRuntimeApi<Block>>::Api:
 		CoreApi<Block> + ApiExt<Block, StateBackend = B::State>,
 	RA: Sync + Send,
@@ -1989,6 +1992,28 @@ where
 		import_block: BlockImportParams<Block, Self::Transaction>,
 		new_cache: HashMap<CacheKeyId, Vec<u8>>,
 	) -> Result<ImportResult, Self::Error> {
+		// TODO remove just for getting some number about possible thread gain.
+		// TODO maybe put a input param (so non need for two builds).
+		let parent = BlockId::Hash(import_block.header.parent_hash().clone());
+		if let Ok(mut block_builder) = (&*self).new_block_at(
+			&parent,
+			import_block.header.digest().clone(),
+			false,
+		) {
+			// code similar to build block propose.
+			if let Some(extrinsics) = import_block.body.as_ref() {
+				for extrinsic in extrinsics.iter() {
+					match block_builder.push_spawn(extrinsic.clone()) {
+						Ok(_) => (),
+						Err(_e) => (), // TODO log in report
+					}
+				}
+			} else {
+				// TODO log in report
+			}
+		}
+		// end remove
+
 		(&*self).import_block(import_block, new_cache).await
 	}
 
