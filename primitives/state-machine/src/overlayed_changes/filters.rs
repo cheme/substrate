@@ -38,9 +38,15 @@ const BROKEN_DECLARATION_ACCESS: &str = "Key access impossible due to worker acc
 type FilterTreesAllow = super::radix_trees::FilterTrees<Filter<bool>>;
 type FilterTreeAllow = super::radix_trees::FilterTree<Filter<bool>>;
 
+type FilterTreesAllowReadInterval = super::radix_trees::FilterTrees<FilterInterval<bool>>;
+type FilterTreesAllowWriteInterval = super::radix_trees::FilterTrees<FilterInterval<bool>>;
+
 // Forbid for parent worker. Forbid always override allow.
 type FilterTreesForbid = super::radix_trees::FilterTrees<Filter<FilterOrigin>>;
 type FilterTreeForbid = super::radix_trees::FilterTree<Filter<FilterOrigin>>;
+
+type FilterTreesForbidReadInterval = super::radix_trees::FilterTrees<FilterInterval<FilterOrigin>>;
+type FilterTreeForbidWriteInterval = super::radix_trees::FilterTree<FilterInterval<FilterOrigin>>;
 
 // TODO same consuming function?
 fn prefixed_storage_key_to_child_info(prefixed_storage_key: &Vec<u8>) -> ChildInfo {
@@ -875,10 +881,19 @@ impl Filters {
 
 #[derive(Debug, Clone, Default)]
 pub struct Filter<F: Debug + Clone + Default> {
-	read_prefix: F, // TODO switch prefix to inclusive interval.
+	read_prefix: F,
 	read_key: F,
-	write_prefix: F, // TODO switch prefix to inclusive interval.
+	write_prefix: F,
 	write_key: F,
+}
+
+
+/// TODO bad def, need a quick check algo.
+#[derive(Debug, Clone, Default)]
+pub struct FilterInterval<F: Debug + Clone + Default> {
+	start_of: Option<(F, u32)>,
+	end_of: Option<(F, u32)>,
+	key: F,
 }
 
 impl Filter<FilterOrigin> {
