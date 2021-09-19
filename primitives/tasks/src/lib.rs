@@ -89,7 +89,7 @@ pub use crate::common::with_externalities_safe;
 pub use async_externalities::new_async_externalities;
 pub use async_externalities::{new_inline_only_externalities, AsyncExternalities};
 pub use sp_externalities::{
-	AccessDeclarations, AccessDeclaration, LocalAccessDeclaration, DeclarationFailureHandling, WorkerDeclaration, WorkerDeclarationKind,
+	AccessDeclaration, LocalAccessDeclaration, DeclarationFailureHandling, WorkerDeclaration, WorkerDeclarationKind,
 	WorkerResult,
 };
 pub use sp_io::Crossing;

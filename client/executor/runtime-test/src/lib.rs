@@ -33,7 +33,7 @@ use sp_runtime::{
 use sp_sandbox::Value;
 #[cfg(not(feature = "std"))]
 use sp_tasks::{
-	AccessDeclarations, AccessDeclaration, LocalAccessDeclaration, DeclarationFailureHandling, WorkerDeclaration, WorkerDeclarationKind,
+	AccessDeclaration, LocalAccessDeclaration, DeclarationFailureHandling, WorkerDeclaration, WorkerDeclarationKind,
 };
 
 extern "C" {
@@ -164,7 +164,7 @@ sp_core::wasm_export_functions! {
 		let handle = sp_tasks::spawn(
 			tasks::write_key,
 			vec![],
-			WorkerDeclarationKind::WriteOptimistic.into(),
+			WorkerDeclarationKind::WriteLightOptimistic.into(),
 		);
 		sp_io::storage::set(b"key", b"val");
 		if handle.unwrap().join().is_none() {
@@ -276,17 +276,13 @@ sp_core::wasm_export_functions! {
 		let handle = sp_tasks::spawn(
 			tasks::read_key,
 			vec![],
-			WorkerDeclarationKind::WriteDeclarative(
-				AccessDeclarations {
-					write_only: AccessDeclaration {
-						top: LocalAccessDeclaration {
-							prefixes_lock: vec![b"key".to_vec()],
-							keys_lock: Default::default(),
-						},
-						children: Default::default(),
+			WorkerDeclarationKind::WriteLightDeclarative(
+				AccessDeclaration {
+					top: LocalAccessDeclaration {
+						prefixes_lock: vec![b"key".to_vec()],
+						keys_lock: Default::default(),
 					},
-					read_only: Default::default(),
-					read_write: Default::default(),
+					children: Default::default(),
 				},
 				DeclarationFailureHandling::Panic,
 			).into(),
@@ -294,17 +290,13 @@ sp_core::wasm_export_functions! {
 		let handle_2 = sp_tasks::spawn(
 			tasks::read_key,
 			vec![],
-			WorkerDeclarationKind::WriteDeclarative(
-				AccessDeclarations {
-					write_only: AccessDeclaration {
-						top: LocalAccessDeclaration {
-							prefixes_lock: vec![b"key".to_vec()],
-							keys_lock: Default::default(),
-						},
-						children: Default::default(),
+			WorkerDeclarationKind::WriteLightDeclarative(
+				AccessDeclaration {
+					top: LocalAccessDeclaration {
+						prefixes_lock: vec![b"key".to_vec()],
+						keys_lock: Default::default(),
 					},
-					read_only: Default::default(),
-					read_write: Default::default(),
+					children: Default::default(),
 				},
 				DeclarationFailureHandling::InvalidAtJoin,
 			).into(),
@@ -320,7 +312,7 @@ sp_core::wasm_export_functions! {
 		let handle = sp_tasks::spawn(
 			tasks::write_key,
 			vec![],
-			WorkerDeclarationKind::WriteOptimistic.into(),
+			WorkerDeclarationKind::WriteLightOptimistic.into(),
 		);
 		assert!(sp_io::storage::get(b"key").is_none());
 		if handle.unwrap().join().is_some() {
@@ -368,7 +360,7 @@ sp_core::wasm_export_functions! {
 		let handle = sp_tasks::spawn(
 			tasks::write_key,
 			vec![],
-			WorkerDeclarationKind::WriteOptimistic.into(),
+			WorkerDeclarationKind::WriteLightOptimistic.into(),
 		);
 		sp_io::storage::start_transaction();
 		assert!(sp_io::storage::get(b"key").is_none());
@@ -388,7 +380,7 @@ sp_core::wasm_export_functions! {
 		let handle = sp_tasks::spawn(
 			tasks::unclose_child_transaction,
 			vec![],
-			WorkerDeclarationKind::WriteOptimistic.into(),
+			WorkerDeclarationKind::WriteLightOptimistic.into(),
 		);
 		// unclose tx in child is a panic case as unclose tx in result, so we expect panic, code
 		// is hear to make it explicit join is called.
