@@ -384,8 +384,8 @@ impl OverlayedChanges {
 
 	/// Append a value to encoded storage.
 	pub(crate) fn append_storage(&mut self, key: StorageKey, val: StorageValue) {
-		self.filters.guard_append(None, key.as_slice());
-		self.optimistic_logger.log_append(None, key.as_slice());
+		self.filters.guard_write(None, key.as_slice());
+		self.optimistic_logger.log_write(None, key.as_slice());
 		let extrinsic_index = self.extrinsic_index();
 		let size_write = val.len() as u64;
 		self.stats.tally_write_overlay(size_write);
@@ -398,8 +398,8 @@ impl OverlayedChanges {
 		key: StorageKey,
 		val: StorageValue,
 	) {
-		self.filters.guard_append(Some(child_info), key.as_slice());
-		self.optimistic_logger.log_append(Some(child_info), key.as_slice());
+		self.filters.guard_write(Some(child_info), key.as_slice());
+		self.optimistic_logger.log_write(Some(child_info), key.as_slice());
 		let extrinsic_index = self.extrinsic_index();
 		let size_write = val.len() as u64;
 		self.stats.tally_write_overlay(size_write);
@@ -416,8 +416,8 @@ impl OverlayedChanges {
 	
 	/// Append a value to encoded storage.
 	pub(crate) fn increment_storage(&mut self, key: StorageKey, nb: u32) {
-		self.filters.guard_append(None, key.as_slice());
-		self.optimistic_logger.log_append(None, key.as_slice());
+		self.filters.guard_write(None, key.as_slice());
+		self.optimistic_logger.log_write(None, key.as_slice());
 		let extrinsic_index = self.extrinsic_index();
 		let size_write = 2;
 		self.stats.tally_write_overlay(size_write);
@@ -430,8 +430,8 @@ impl OverlayedChanges {
 		key: StorageKey,
 		nb: u32,
 	) {
-		self.filters.guard_append(Some(child_info), key.as_slice());
-		self.optimistic_logger.log_append(Some(child_info), key.as_slice());
+		self.filters.guard_write(Some(child_info), key.as_slice());
+		self.optimistic_logger.log_write(Some(child_info), key.as_slice());
 		let extrinsic_index = self.extrinsic_index();
 		let size_write = 2 as u64;
 		self.stats.tally_write_overlay(size_write);
@@ -551,15 +551,10 @@ impl OverlayedChanges {
 			WorkerDeclarationKind::WriteAtSpawn => (),
 			WorkerDeclarationKind::ReadOptimistic => {
 				self.optimistic_logger.log_writes_against(Some(child_marker));
-				self.optimistic_logger.log_appends_against(Some(child_marker));
-			},
-			WorkerDeclarationKind::WriteLightOptimistic => {
-				self.optimistic_logger.log_writes_against(Some(child_marker));
 			},
 			WorkerDeclarationKind::WriteOptimistic => {
 				self.optimistic_logger.log_reads_against(Some(child_marker));
 				self.optimistic_logger.log_writes_against(Some(child_marker));
-				self.optimistic_logger.log_appends_against(Some(child_marker));
 			},
 			WorkerDeclarationKind::ReadDeclarative(filter, failure) => {
 				if !self.filters.guard_declare_child_filter_read(&filter) {
@@ -571,28 +566,19 @@ impl OverlayedChanges {
 					WorkerDeclarationKind::ReadDeclarative(filter.clone(), failure),
 					child_marker,
 				);
-				self.filters.forbid_write_appends(filter, child_marker);
-			},
-			WorkerDeclarationKind::WriteLightDeclarative(filter, failure) => {
-				if !self.filters.guard_declare_child_filter_write(&filter) {
-					return false
-				}
-				self.filters.set_failure_handler(Some(child_marker), failure);
-				// TODO see if possible to only push worker type??
-				self.filters.add_change(
-					WorkerDeclarationKind::WriteLightDeclarative(filter.clone(), failure),
-					child_marker,
-				);
-				self.filters.forbid_all(filter, child_marker);
+				self.filters.forbid_writes(filter, child_marker);
 			},
 			WorkerDeclarationKind::WriteDeclarative(filters, failure) => {
 				if !self.filters.guard_declare_child_filter_read(&filters.read_only) {
 					return false
 				}
-				if !self.filters.guard_declare_child_filter_write(&filters.write) {
+				if !self.filters.guard_declare_child_filter_write(&filters.write_only) {
 					return false
 				}
-				if !self.filters.guard_declare_child_filter_append(&filters.append) {
+				if !self.filters.guard_declare_child_filter_read(&filters.read_write) {
+					return false
+				}
+				if !self.filters.guard_declare_child_filter_write(&filters.read_write) {
 					return false
 				}
 				self.filters.set_failure_handler(Some(child_marker), failure);
@@ -600,9 +586,9 @@ impl OverlayedChanges {
 					WorkerDeclarationKind::WriteDeclarative(filters.clone(), failure),
 					child_marker,
 				);
-				self.filters.forbid_all(filters.write, child_marker);
-				self.filters.forbid_write_appends(filters.read_only, child_marker);
-				self.filters.forbid_read_writes(filters.append, child_marker);
+				self.filters.forbid_all(filters.read_write, child_marker);
+				self.filters.forbid_writes(filters.read_only, child_marker);
+				self.filters.forbid_reads(filters.write_only, child_marker);
 			},
 		}
 		self.markers.set_marker(child_marker);
@@ -620,28 +606,19 @@ impl OverlayedChanges {
 			WorkerDeclarationKind::ReadOptimistic => {
 				self.optimistic_logger.log_reads_against(None);
 			},
-			WorkerDeclarationKind::WriteLightOptimistic => {
-				self.optimistic_logger.log_writes_against(None);
-				self.optimistic_logger.log_appends_against(None);
-			},
 			WorkerDeclarationKind::WriteOptimistic => {
 				self.optimistic_logger.log_reads_against(None);
 				self.optimistic_logger.log_writes_against(None);
-				self.optimistic_logger.log_appends_against(None);
 			},
 			WorkerDeclarationKind::ReadDeclarative(filter, failure) => {
 				self.filters.set_failure_handler(None, failure);
 				self.filters.allow_reads(filter);
 			},
-			WorkerDeclarationKind::WriteLightDeclarative(filter, failure) => {
-				self.filters.set_failure_handler(None, failure);
-				self.filters.allow_writes(filter);
-			},
 			WorkerDeclarationKind::WriteDeclarative(filters, failure) => {
 				self.filters.set_failure_handler(None, failure);
 				self.filters.allow_reads(filters.read_only);
-				self.filters.allow_writes(filters.write);
-				self.filters.allow_appends(filters.append);
+				self.filters.allow_writes(filters.write_only);
+				self.filters.allow_all(filters.read_write);
 			},
 		}
 	}

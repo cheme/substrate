@@ -117,8 +117,6 @@ impl AsyncExt {
 			WorkerType::ReadOptimistic |
 			WorkerType::ReadDeclarative => false,
 			WorkerType::WriteAtSpawn |
-			WorkerType::WriteLightOptimistic |
-			WorkerType::WriteLightDeclarative |
 			WorkerType::WriteOptimistic |
 			WorkerType::WriteDeclarative => true,
 		}
