@@ -38,15 +38,9 @@ const BROKEN_DECLARATION_ACCESS: &str = "Key access impossible due to worker acc
 type FilterTreesAllow = super::radix_trees::FilterTrees<Filter<bool>>;
 type FilterTreeAllow = super::radix_trees::FilterTree<Filter<bool>>;
 
-type FilterTreesAllowReadInterval = super::radix_trees::FilterTrees<FilterInterval<bool>>;
-type FilterTreesAllowWriteInterval = super::radix_trees::FilterTrees<FilterInterval<bool>>;
-
 // Forbid for parent worker. Forbid always override allow.
 type FilterTreesForbid = super::radix_trees::FilterTrees<Filter<FilterOrigin>>;
 type FilterTreeForbid = super::radix_trees::FilterTree<Filter<FilterOrigin>>;
-
-type FilterTreesForbidReadInterval = super::radix_trees::FilterTrees<FilterInterval<FilterOrigin>>;
-type FilterTreeForbidWriteInterval = super::radix_trees::FilterTree<FilterInterval<FilterOrigin>>;
 
 // TODO same consuming function?
 fn prefixed_storage_key_to_child_info(prefixed_storage_key: &Vec<u8>) -> ChildInfo {
@@ -887,15 +881,6 @@ pub struct Filter<F: Debug + Clone + Default> {
 	write_key: F,
 }
 
-
-/// TODO bad def, need a quick check algo.
-#[derive(Debug, Clone, Default)]
-pub struct FilterInterval<F: Debug + Clone + Default> {
-	start_of: Option<(F, u32)>,
-	end_of: Option<(F, u32)>,
-	key: F,
-}
-
 impl Filter<FilterOrigin> {
 	fn is_empty(&self) -> bool {
 		self.read_prefix.is_empty() &&
@@ -1043,6 +1028,71 @@ pub(super) mod failure {
 	}
 }
 
+
+mod interval_filters {
+	use super::*;
+	use crate::overlayed_changes::radix_trees::FilterTrees;
+
+	/// TODO bad def, need a quick check algo.
+	#[derive(Debug, Clone, Default)]
+	pub struct FilterInterval<F: Debug + Clone + Default> {
+		start_of: Option<(F, u32)>,
+		end_of: Option<(F, u32)>,
+		key: F,
+	}
+
+	pub(super) type FilterTreesAllowReadInterval = FilterTrees<FilterInterval<bool>>;
+	pub(super) type FilterTreesAllowWriteInterval = FilterTrees<FilterInterval<bool>>;
+
+	pub(super) type FilterTreesForbidReadInterval = FilterTrees<FilterInterval<FilterOrigin>>;
+	pub(super) type FilterTreeForbidWriteInterval = FilterTrees<FilterInterval<FilterOrigin>>;
+
+	pub(super) fn set_filter_allow(
+		filter: &mut FilterTrees<FilterInterval<bool>>,
+		decl: AccessDeclaration,
+	) {
+		unimplemented!()
+	}
+
+	pub(super) fn set_filter_forbid(
+		filter: &mut FilterTrees<FilterInterval<FilterOrigin>>,
+		decl: AccessDeclaration,
+		from_child: TaskId,
+	) {
+		unimplemented!()
+	}
+
+	pub(super) fn remove_filter_forbid(
+		filter: &mut FilterTrees<FilterInterval<FilterOrigin>>,
+		decl: AccessDeclaration,
+		from_child: TaskId,
+	) {
+		unimplemented!()
+	}
+
+	pub(super) fn check_key_inclusion<D: Default + Debug + Clone>(
+		filter: &mut FilterTrees<FilterInterval<D>>,
+		key: &[u8],
+	) -> bool {
+		unimplemented!()
+	}
+
+	pub(super) fn check_inclusive_interval_overlap<D: Default + Debug + Clone>(
+		filter: &mut FilterTrees<FilterInterval<D>>,
+		from: &[u8],
+		to: Option<&[u8]>,
+	) -> bool {
+		unimplemented!()
+	}
+
+	pub(super) fn check_prefix_overlap<D: Default + Debug + Clone>(
+		filter: &mut FilterTrees<FilterInterval<D>>,
+		prefix: &[u8],
+	) -> bool {
+		unimplemented!()
+	}
+}
+
 #[cfg(test)]
 mod test {
 	use super::*;
@@ -1054,6 +1104,7 @@ mod test {
 			top: LocalAccessDeclaration {
 				prefixes_lock: vec![b"key".to_vec()],
 				keys_lock: vec![],
+				intervals_lock: vec![],
 			},
 			children: Default::default(),
 		});
@@ -1080,6 +1131,7 @@ mod test {
 			top: LocalAccessDeclaration {
 				prefixes_lock: vec![b"".to_vec()],
 				keys_lock: vec![],
+				intervals_lock: vec![],
 			},
 			children: Default::default(),
 		});
@@ -1102,6 +1154,7 @@ mod test {
 			top: LocalAccessDeclaration {
 				prefixes_lock: vec![b"key".to_vec(), b"kez".to_vec()],
 				keys_lock: vec![],
+				intervals_lock: vec![],
 			},
 			children: Default::default(),
 		});
@@ -1117,6 +1170,7 @@ mod test {
 			top: LocalAccessDeclaration {
 				prefixes_lock: vec![b"kex".to_vec(), b"kez".to_vec()],
 				keys_lock: vec![],
+				intervals_lock: vec![],
 			},
 			children: Default::default(),
 		});

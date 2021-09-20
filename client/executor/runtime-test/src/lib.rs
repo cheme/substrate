@@ -192,6 +192,7 @@ sp_core::wasm_export_functions! {
 				top: LocalAccessDeclaration {
 					prefixes_lock: vec![b"key".to_vec()],
 					keys_lock: Default::default(),
+					intervals_lock: Default::default(),
 				},
 				children: Default::default(),
 			},
@@ -214,6 +215,7 @@ sp_core::wasm_export_functions! {
 					top: LocalAccessDeclaration {
 						prefixes_lock: vec![b"key".to_vec()],
 						keys_lock: Default::default(),
+						intervals_lock: Default::default(),
 					},
 					children: Default::default(),
 				},
@@ -237,6 +239,7 @@ sp_core::wasm_export_functions! {
 					top: LocalAccessDeclaration {
 						prefixes_lock: vec![b"aey".to_vec()],
 						keys_lock: Default::default(),
+						intervals_lock: Default::default(),
 					},
 					children: Default::default(),
 				},
@@ -259,6 +262,7 @@ sp_core::wasm_export_functions! {
 					top: LocalAccessDeclaration {
 						prefixes_lock: vec![b"key".to_vec()],
 						keys_lock: Default::default(),
+						intervals_lock: Default::default(),
 					},
 					children: Default::default(),
 				},
@@ -282,6 +286,7 @@ sp_core::wasm_export_functions! {
 						top: LocalAccessDeclaration {
 							prefixes_lock: vec![b"key".to_vec()],
 							keys_lock: Default::default(),
+							intervals_lock: Default::default(),
 						},
 						children: Default::default(),
 					},
@@ -300,6 +305,7 @@ sp_core::wasm_export_functions! {
 						top: LocalAccessDeclaration {
 							prefixes_lock: vec![b"key".to_vec()],
 							keys_lock: Default::default(),
+							intervals_lock: Default::default(),
 						},
 						children: Default::default(),
 					},

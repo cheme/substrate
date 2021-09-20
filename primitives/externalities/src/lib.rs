@@ -836,6 +836,9 @@ pub struct LocalAccessDeclaration {
 
 	/// Lock only over a given key.
 	pub keys_lock: Vec<Vec<u8>>,
+
+	/// Lock over an interval (inclusive start and exclusive start).
+	pub intervals_lock: Vec<(Vec<u8>, Vec<u8>)>,
 }
 
 impl LocalAccessDeclaration {
@@ -847,11 +850,13 @@ impl LocalAccessDeclaration {
 
 impl AccessDeclaration {
 	/// Declaration for top prefix only.
+	/// TODO rename : having a all top allowend is not really clean.
 	pub fn top_prefix() -> Self {
 		AccessDeclaration { 
 			top: LocalAccessDeclaration {
 				prefixes_lock: sp_std::vec![Vec::new()],
 				keys_lock: Vec::new(),
+				intervals_lock: Vec::new(),
 			},
 			children: Vec::new(),
 		}
