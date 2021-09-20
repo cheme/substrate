@@ -27,6 +27,8 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
+use sp_trie::trie_types::TrieDB;
+use sp_core::Hasher;
 use codec::{Decode, Encode};
 use sp_runtime::{
 	RuntimeDebug,
@@ -171,16 +173,18 @@ pub mod pallet {
 	}
 }
 
-struct PendingMigration {
-	current_top: Option<Vec<u8>>,
-	current_child: Option<Vec<u8>>,
-	current_reserved: u32,
-	current_weight: Weight,
-	current_size: u32,
-	threshold: u32,
-	max_weight: Weight,
-	max_size: u32,
-	touched: bool,
+pub struct PendingMigration<'a, H: Hasher> {
+	pub trie: TrieDB<'a, H>,
+	pub last_child_root: Option<(Vec<u8>, H::Out)>,
+	pub current_top: Option<Vec<u8>>,
+	pub current_child: Option<Vec<u8>>,
+	pub current_reserved: u32,
+	pub current_weight: Weight,
+	pub current_size: u32,
+	pub threshold: u32,
+	pub max_weight: Weight,
+	pub max_size: u32,
+	pub touched: bool,
 }
 // warn from runtime/polkadot/src/weights/frame_system.rs  so only for a given chain
 
@@ -210,7 +214,88 @@ fn weight_set_storage(i: u32) -> Weight {
 }
 
 // end warn
-impl PendingMigration {
+impl<'a, H: Hasher> PendingMigration<'a, H> {
+
+	fn get_child_root(&mut self, storage_key: &[u8]) -> Option<H::Out> {
+		if let Some((sk, root)) = self.last_child_root.as_ref() {
+			if sk.as_slice() == storage_key {
+				return Some(*root);
+			}
+		}
+		if let Some(r) = self.sp_io_storage_get(storage_key) {
+			let mut root = H::Out::default();
+			root.as_mut().copy_from_slice(r.as_slice());
+			self.last_child_root = Some((storage_key.to_vec(), root));
+			self.get_child_root(storage_key)
+		} else {
+			None
+		}
+	}
+
+	fn sp_io_default_child_storage_get(&mut self, storage_key: &[u8], key: &[u8]) -> Option<Vec<u8>> {
+		use sp_trie::Trie;
+		if let Some(root) = self.get_child_root(storage_key) {
+			let triedb = TrieDB::new(self.trie.db(), &root).unwrap();
+			triedb.get(key).unwrap()
+		} else {
+			None
+		}
+	}
+
+	fn sp_io_default_child_storage_next_key(&mut self, storage_key: &[u8], key: &[u8]) -> Option<Vec<u8>> {
+		use sp_trie::Trie;
+		if let Some(root) = self.get_child_root(storage_key) {
+			let triedb = TrieDB::new(self.trie.db(), &root).unwrap();
+			let mut iter = triedb.key_iter().map_err(|e| format!("TrieDB iteration error: {}", e)).unwrap();
+
+			let mut potential_next_key = Vec::with_capacity(key.len() + 1);
+			potential_next_key.extend_from_slice(key);
+			potential_next_key.push(0);
+
+			iter.seek(&potential_next_key)
+				.map_err(|e| format!("TrieDB iterator seek error: {}", e)).unwrap();
+
+			let next_element = iter.next();
+
+			if let Some(next_element) = next_element {
+				let next_key =
+					next_element.map_err(|e| format!("TrieDB iterator next error: {}", e)).unwrap();
+				Some(next_key)
+			} else {
+				None
+			}
+		} else {
+			None
+		}
+	}
+
+	fn sp_io_storage_next_key(&mut self, key: &[u8]) -> Option<Vec<u8>> {
+		use sp_trie::Trie;
+		let mut iter = self.trie.key_iter().map_err(|e| format!("TrieDB iteration error: {}", e)).unwrap();
+
+		let mut potential_next_key = Vec::with_capacity(key.len() + 1);
+		potential_next_key.extend_from_slice(key);
+		potential_next_key.push(0);
+
+		iter.seek(&potential_next_key)
+			.map_err(|e| format!("TrieDB iterator seek error: {}", e)).unwrap();
+
+		let next_element = iter.next();
+
+		if let Some(next_element) = next_element {
+			let next_key =
+				next_element.map_err(|e| format!("TrieDB iterator next error: {}", e)).unwrap();
+			Some(next_key)
+		} else {
+			None
+		}
+	}
+
+	fn sp_io_storage_get(&self, key: &[u8]) -> Option<Vec<u8>> {
+		use sp_trie::Trie;
+		self.trie.get(key).unwrap()
+	}
+
 	fn new_read(&mut self, len: u32) -> bool {
 		// TODO should it take size in account?
 		self.current_weight += weight_reads(1);
@@ -233,8 +318,8 @@ impl PendingMigration {
 
 	// return true if can continue and false if limit reached
 	fn process_child_key(&mut self) -> bool {
-		if let (Some(storage_key), Some(current_key)) = (self.current_top.as_ref(), self.current_child.as_ref()) {
-			if let Some(encode)	= sp_io::default_child_storage::get(child_io_key(storage_key), current_key) {
+		if let (Some(storage_key), Some(current_key)) = (self.current_top.clone(), self.current_child.clone()) {
+			if let Some(encode) = self.sp_io_default_child_storage_get(child_io_key(&storage_key), &current_key) {
 				let len = encode.len() as u32;
 				if len >= self.threshold {
 //					sp_io::default_child_storage::set(child_io_key(storage_key), current_key, encode.as_slice());
@@ -258,7 +343,7 @@ impl PendingMigration {
 	// return true if can continue and false if limit reached
 	fn process_top_key(&mut self) -> bool {
 		if let Some(current_key) = self.current_top.as_ref() {
-			if let Some(encode)	= sp_io::storage::get(current_key) {
+			if let Some(encode)	= self.sp_io_storage_get(current_key) {
 				let len = encode.len() as u32;
 				if len >= self.threshold {
 //					sp_io::storage::set(current_key, encode.as_slice());
@@ -287,9 +372,9 @@ impl PendingMigration {
 		}
 
 		loop {
-			if let Some(current_child) = self.current_child.as_ref() {
-				if let Some(next_key) = if let Some(storage_key) = self.current_top.as_ref() {
-					sp_io::default_child_storage::next_key(child_io_key(storage_key), current_child)
+			if let Some(current_child) = self.current_child.clone() {
+				if let Some(next_key) = if let Some(storage_key) = self.current_top.clone() {
+					self.sp_io_default_child_storage_next_key(child_io_key(&storage_key), &current_child)
 				} else {
 					None
 				} {
@@ -315,8 +400,8 @@ impl PendingMigration {
 			let _ = self.process_top_key();
 		}
 		loop {
-			if let Some(current_top) = self.current_top.as_ref() {
-					if let Some(next_key) = sp_io::storage::next_key(current_top) {
+			if let Some(current_top) = self.current_top.clone() {
+					if let Some(next_key) = self.sp_io_storage_next_key(&current_top) {
 						self.new_next();
 						if RESERVED_BIG_KEYS.iter().find(|key| **key == next_key.as_slice()).is_some() {
 							self.current_top = Some(next_key);
@@ -344,7 +429,7 @@ impl PendingMigration {
 	}
 
 	// return true when completed.
-	fn migrate(&mut self) -> bool {
+	pub fn migrate(&mut self) -> bool {
 		loop {
 			while (self.current_reserved as usize) < RESERVED_BIG_KEYS.len() {
 				// reserved are run one per one.

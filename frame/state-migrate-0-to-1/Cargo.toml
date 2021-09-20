@@ -23,6 +23,7 @@ frame-benchmarking = { version = "4.0.0-dev", default-features = false, path = "
 log = { version = "0.4.14", default-features = false }
 sp-core = { version = "4.0.0-dev", default-features = false, path = "../../primitives/core" }
 sp-state-machine = { version = "0.10.0-dev", default-features = false, path = "../../primitives/state-machine" }
+sp-trie = { version = "4.0.0-dev", default-features = false, path = "../../primitives/trie" }
 
 [dev-dependencies]
 sp-api = { version = "4.0.0-dev", default-features = false, path = "../../primitives/api" }
