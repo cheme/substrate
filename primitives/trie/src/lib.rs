@@ -396,6 +396,7 @@ where
 /// `HashDB` implementation that append a encoded prefix (unique id bytes) in addition to the
 /// prefix of every key value.
 pub struct KeySpacedDB<'a, DB, H>(&'a DB, &'a [u8], PhantomData<H>);
+pub struct KeySpacedDB2<'a,  H>(&'a dyn hash_db::HashDBRef<H, Vec<u8>>, &'a [u8], PhantomData<H>);
 
 /// `HashDBMut` implementation that append a encoded prefix (unique id bytes) in addition to the
 /// prefix of every key value.
@@ -422,6 +423,17 @@ where
 	}
 }
 
+impl<'a, H> KeySpacedDB2<'a, H>
+where
+	H: Hasher,
+{
+	/// instantiate new keyspaced db
+	pub fn new(db: &'a dyn hash_db::HashDBRef<H, Vec<u8>>, ks: &'a [u8]) -> Self {
+		KeySpacedDB2(db, ks, PhantomData)
+	}
+}
+
+
 impl<'a, DB, H> KeySpacedDBMut<'a, DB, H>
 where
 	H: Hasher,
@@ -431,6 +443,22 @@ where
 		KeySpacedDBMut(db, ks, PhantomData)
 	}
 }
+
+impl<'a, H> hash_db::HashDBRef<H, Vec<u8>> for KeySpacedDB2<'a, H>
+where
+	H: Hasher,
+{
+	fn get(&self, key: &H::Out, prefix: Prefix) -> Option<Vec<u8>> {
+		let derived_prefix = keyspace_as_prefix_alloc(self.1, prefix);
+		self.0.get(key, (&derived_prefix.0, derived_prefix.1))
+	}
+
+	fn contains(&self, key: &H::Out, prefix: Prefix) -> bool {
+		let derived_prefix = keyspace_as_prefix_alloc(self.1, prefix);
+		self.0.contains(key, (&derived_prefix.0, derived_prefix.1))
+	}
+}
+
 
 impl<'a, DB, H, T> hash_db::HashDBRef<H, T> for KeySpacedDB<'a, DB, H>
 where

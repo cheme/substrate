@@ -21,9 +21,11 @@ sp-std = { version = "4.0.0-dev", default-features = false, path = "../../primit
 sp-io = { version = "4.0.0-dev", default-features = false, path = "../../primitives/io" }
 frame-benchmarking = { version = "4.0.0-dev", default-features = false, path = "../benchmarking", optional = true }
 log = { version = "0.4.14", default-features = false }
+scale-info = { version = "1.0", default-features = false, features = ["derive"] }
 sp-core = { version = "4.0.0-dev", default-features = false, path = "../../primitives/core" }
 sp-state-machine = { version = "0.10.0-dev", default-features = false, path = "../../primitives/state-machine" }
 sp-trie = { version = "4.0.0-dev", default-features = false, path = "../../primitives/trie" }
+hash-db = { version = "0.15.2", default-features = false }
 
 [dev-dependencies]
 sp-api = { version = "4.0.0-dev", default-features = false, path = "../../primitives/api" }
@@ -35,7 +37,9 @@ std = [
 	"frame-benchmarking/std",
 	"frame-support/std",
 	"frame-system/std",
+	"hash-db/std",
 	"log/std",
+	"scale-info/std",
 	"sp-core/std",
 	"sp-io/std",
 	"sp-runtime/std",

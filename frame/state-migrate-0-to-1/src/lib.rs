@@ -33,6 +33,7 @@ use codec::{Decode, Encode};
 use sp_runtime::{
 	RuntimeDebug,
 };
+use sp_trie::KeySpacedDB2;
 use frame_support::{
 	pallet_prelude::*,
 	weights::RuntimeDbWeight,
@@ -40,6 +41,7 @@ use frame_support::{
 use frame_system::{
 	pallet_prelude::*, WeightInfo,
 };
+use scale_info::TypeInfo;
 
 pub use pallet::*;
 
@@ -62,7 +64,7 @@ macro_rules! log {
 const RESERVED_BIG_KEYS: &'static[&'static [u8]] = &[sp_core::storage::well_known_keys::CODE];
 
 /// State of state migration from V0 to V1.
-#[derive(Encode, Decode, RuntimeDebug)]
+#[derive(Encode, Decode, RuntimeDebug, TypeInfo)]
 pub enum MigrationState {
 	/// Started migration and current progress.
 	Pending {
@@ -235,7 +237,8 @@ impl<'a, H: Hasher> PendingMigration<'a, H> {
 	fn sp_io_default_child_storage_get(&mut self, storage_key: &[u8], key: &[u8]) -> Option<Vec<u8>> {
 		use sp_trie::Trie;
 		if let Some(root) = self.get_child_root(storage_key) {
-			let triedb = TrieDB::new(self.trie.db(), &root).unwrap();
+			let db2 = KeySpacedDB2::<H>::new(self.trie.db(), &storage_key[sp_core::storage::well_known_keys::DEFAULT_CHILD_STORAGE_KEY_PREFIX.len()..]);
+			let triedb = TrieDB::new(&db2, &root).unwrap();
 			triedb.get(key).unwrap()
 		} else {
 			None
@@ -245,7 +248,8 @@ impl<'a, H: Hasher> PendingMigration<'a, H> {
 	fn sp_io_default_child_storage_next_key(&mut self, storage_key: &[u8], key: &[u8]) -> Option<Vec<u8>> {
 		use sp_trie::Trie;
 		if let Some(root) = self.get_child_root(storage_key) {
-			let triedb = TrieDB::new(self.trie.db(), &root).unwrap();
+			let db2 = KeySpacedDB2::<H>::new(self.trie.db(), &storage_key[sp_core::storage::well_known_keys::DEFAULT_CHILD_STORAGE_KEY_PREFIX.len()..]);
+			let triedb = TrieDB::new(&db2, &root).unwrap();
 			let mut iter = triedb.key_iter().map_err(|e| format!("TrieDB iteration error: {}", e)).unwrap();
 
 			let mut potential_next_key = Vec::with_capacity(key.len() + 1);

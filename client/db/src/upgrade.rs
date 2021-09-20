@@ -18,20 +18,20 @@
 
 //! Database upgrade logic.
 
+use log::warn;
+use sp_runtime::traits::{Block as BlockT, HashFor, Header as HeaderT, NumberFor};
 use std::{
 	fmt, fs,
 	io::{self, ErrorKind, Read, Write},
-	path::{Path, PathBuf},
 	marker::PhantomData,
+	path::{Path, PathBuf},
 	sync::Arc,
 };
-use log::warn;
-use sp_runtime::traits::{Block as BlockT, HashFor, NumberFor, Header as HeaderT};
 
 use crate::{columns, utils::DatabaseType};
 use codec::{Decode, Encode};
-use kvdb_rocksdb::{Database, DatabaseConfig};
 use kvdb::KeyValueDB;
+use kvdb_rocksdb::{Database, DatabaseConfig};
 
 /// Version file name.
 const VERSION_FILE_NAME: &'static str = "db_version";
@@ -73,17 +73,17 @@ impl fmt::Display for UpgradeError {
 		match self {
 			UpgradeError::UnknownDatabaseVersion => {
 				write!(f, "Database version cannot be read from exisiting db_version file")
-			},
+			}
 			UpgradeError::MissingDatabaseVersionFile => write!(f, "Missing database version file"),
 			UpgradeError::UnsupportedVersion(version) => {
 				write!(f, "Database version no longer supported: {}", version)
-			},
+			}
 			UpgradeError::FutureDatabaseVersion(version) => {
 				write!(f, "Database version comes from future version of the client: {}", version)
-			},
+			}
 			UpgradeError::DecodingJustificationBlock => {
 				write!(f, "Decodoning justification block failed")
-			},
+			}
 			UpgradeError::Io(err) => write!(f, "Io error: {}", err),
 		}
 	}
@@ -97,15 +97,14 @@ pub fn upgrade_db<Block: BlockT>(db_path: &Path, db_type: DatabaseType) -> Upgra
 		1 => {
 			migrate_1_to_2::<Block>(db_path, db_type)?;
 			migrate_2_to_3::<Block>(db_path, db_type)?
-		},
+		}
 		2 => migrate_2_to_3::<Block>(db_path, db_type)?,
 		CURRENT_VERSION => (),
 		42 => {
-			simulate_migration::<Block>(db_path, db_type)
-				.map_err(|e| {
-					warn!("Simulate migration error {:?}", e);
-				});
-		},
+			simulate_migration::<Block>(db_path, db_type).map_err(|e| {
+				warn!("Simulate migration error {:?}", e);
+			});
+		}
 
 		_ => return Err(UpgradeError::FutureDatabaseVersion(db_version)),
 	}
@@ -154,14 +153,15 @@ fn migrate_2_to_3<Block: BlockT>(db_path: &Path, _db_type: DatabaseType) -> Upgr
 /// If the file does not exist returns 0.
 fn current_version(path: &Path) -> UpgradeResult<u32> {
 	match fs::File::open(version_file_path(path)) {
-		Err(ref err) if err.kind() == ErrorKind::NotFound =>
-			Err(UpgradeError::MissingDatabaseVersionFile),
+		Err(ref err) if err.kind() == ErrorKind::NotFound => {
+			Err(UpgradeError::MissingDatabaseVersionFile)
+		}
 		Err(_) => Err(UpgradeError::UnknownDatabaseVersion),
 		Ok(mut file) => {
 			let mut s = String::new();
 			file.read_to_string(&mut s).map_err(|_| UpgradeError::UnknownDatabaseVersion)?;
 			u32::from_str_radix(&s, 10).map_err(|_| UpgradeError::UnknownDatabaseVersion)
-		},
+		}
 	}
 }
 
@@ -181,10 +181,12 @@ fn version_file_path(path: &Path) -> PathBuf {
 	file_path
 }
 
-fn simulate_migration<Block: BlockT>(db_path: &Path, db_type: DatabaseType) -> sp_blockchain::Result<()> {
-
+fn simulate_migration<Block: BlockT>(
+	db_path: &Path,
+	db_type: DatabaseType,
+) -> sp_blockchain::Result<()> {
 	let db_config = kvdb_rocksdb::DatabaseConfig::with_columns(crate::utils::NUM_COLUMNS);
-/*   {
+	/*   {
 		let option = rocksdb::Options::default();
 		 let cfs = rocksdb::DB::list_cf(&option, db_path).unwrap();
 		 let db = rocksdb::DB::open_cf(&option, db_path, cfs.clone()).unwrap();
@@ -197,23 +199,27 @@ fn simulate_migration<Block: BlockT>(db_path: &Path, db_type: DatabaseType) -> s
 			 }
 		 }
 	}*/
-	let path = db_path.to_str()
+	let path = db_path
+		.to_str()
 		.ok_or_else(|| sp_blockchain::Error::Backend("Invalid database path".into()))?;
 	let db = kvdb_rocksdb::Database::open(&db_config, &path)
 		.map_err(|err| sp_blockchain::Error::Backend(format!("{}", err)))?;
-	
-	let (tree_root, block_hash) = match db.get(crate::utils::COLUMN_META, crate::meta_keys::BEST_BLOCK) {
-		Ok(id) => {
-			let id = id.unwrap();
-			let id = db.get(crate::columns::HEADER, &id).expect("s").map(|b| Block::Header::decode(&mut &b[..]).ok());
-			use sp_runtime::traits::Header;
-			let id = id.unwrap().expect("d");
-			warn!("Head is {:?}", id);
-			(id.state_root().clone(), id.hash().clone())
-		},
-		Err(e) => panic!("no best block is bad sign {:?}", e),
-	};
 
+	let (tree_root, block_hash) =
+		match db.get(crate::utils::COLUMN_META, crate::meta_keys::FINALIZED_BLOCK) {
+			Ok(id) => {
+				let id = id.unwrap();
+				let id = db
+					.get(crate::columns::HEADER, &id)
+					.expect("s")
+					.map(|b| Block::Header::decode(&mut &b[..]).ok());
+				use sp_runtime::traits::Header;
+				let id = id.unwrap().expect("d");
+				warn!("Head is {:?}", id);
+				(id.state_root().clone(), id.hash().clone())
+			}
+			Err(e) => panic!("no best block is bad sign {:?}", e),
+		};
 
 	let db = Arc::new(db);
 	let db_read = db.clone();
@@ -224,13 +230,9 @@ fn simulate_migration<Block: BlockT>(db_path: &Path, db_type: DatabaseType) -> s
 	// 0.5 megs
 	let max_size: u32 = 500_000;
 	let threshold: u32 = 33;
-	
-	let storage = StorageDb::<Block>(db, PhantomData);
-	let trie = sp_trie::trie_types::TrieDB::new(
-		&storage,
-		&tree_root,
-	).expect("build trie");
 
+	let storage = StorageDb::<Block>(db, PhantomData);
+	let trie = sp_trie::trie_types::TrieDB::new(&storage, &tree_root).expect("build trie");
 
 	let mut pending = pallet_state_migrate_0_to_1::PendingMigration {
 		trie,
@@ -249,7 +251,11 @@ fn simulate_migration<Block: BlockT>(db_path: &Path, db_type: DatabaseType) -> s
 	while !pending.migrate() {
 		// prints and all
 		if nb_blocks % 100 == 0 {
-			warn!("Progress, block {:?}, current key {:?}", nb_blocks, pending.current_top.as_ref().map(Vec::as_slice).unwrap_or(&[]));
+			warn!(
+				"Progress, block {:?}, current key {:?}",
+				nb_blocks,
+				pending.current_top.as_ref().map(Vec::as_slice).unwrap_or(&[])
+			);
 		}
 		nb_blocks += 1;
 		pending.current_weight = 0;
@@ -305,23 +311,34 @@ impl<D: KeyValueDB> KeyValueDB for ArcKVDB<D> {
 struct StorageDb<Block>(Arc<kvdb_rocksdb::Database>, PhantomData<Block>);
 
 impl<Block: BlockT> hash_db::HashDBRef<HashFor<Block>, Vec<u8>> for StorageDb<Block> {
-	fn contains(&self, key: &<HashFor::<Block> as hash_db::Hasher>::Out, prefix: hash_db::Prefix) -> bool {
+	fn contains(
+		&self,
+		key: &<HashFor<Block> as hash_db::Hasher>::Out,
+		prefix: hash_db::Prefix,
+	) -> bool {
 		self.get(key, prefix).is_some()
 	}
 
-	fn get(&self, key: &<HashFor::<Block> as hash_db::Hasher>::Out, prefix: hash_db::Prefix) -> Option<sp_trie::DBValue> {
+	fn get(
+		&self,
+		key: &<HashFor<Block> as hash_db::Hasher>::Out,
+		prefix: hash_db::Prefix,
+	) -> Option<sp_trie::DBValue> {
 		let key = sp_trie::prefixed_key::<HashFor<Block>>(key, prefix);
 		self.0.get(crate::columns::STATE, key.as_slice()).expect("bad script")
 	}
 }
 
 impl<Block: BlockT> sp_state_machine::Storage<HashFor<Block>> for StorageDb<Block> {
-	fn get(&self, key: &Block::Hash, prefix: hash_db::Prefix) -> Result<Option<sp_trie::DBValue>, String> {
+	fn get(
+		&self,
+		key: &Block::Hash,
+		prefix: hash_db::Prefix,
+	) -> Result<Option<sp_trie::DBValue>, String> {
 		let key = sp_trie::prefixed_key::<HashFor<Block>>(key, prefix);
 		Ok(self.0.get(crate::columns::STATE_META, key.as_slice()).expect("bad script"))
 	}
 }
-
 
 #[cfg(test)]
 mod tests {
