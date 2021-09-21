@@ -929,6 +929,10 @@ impl FilterOrigin {
 	fn is_empty(&self) -> bool {
 		self.children.as_ref().map(|c| c.is_empty()).unwrap_or(true)
 	}
+
+	fn nb_origin(&self) -> usize {
+		self.children.as_ref().map(|c| c.len()).unwrap_or(0)
+	}
 }
 
 pub(super) mod failure {
@@ -1031,14 +1035,19 @@ pub(super) mod failure {
 
 mod interval_filters {
 	use super::*;
-	use crate::overlayed_changes::radix_trees::FilterTrees;
+	use crate::overlayed_changes::radix_trees::{FilterTree, FilterTrees};
 
 	/// TODO bad def, need a quick check algo.
 	#[derive(Debug, Clone, Default)]
 	pub struct FilterInterval<F: Debug + Clone + Default> {
-		start_of: Option<(F, u32)>,
-		end_of: Option<(F, u32)>,
-		key: F,
+		start_of: F,
+		end_of: F,
+	}
+
+	impl FilterInterval<FilterOrigin> {
+		fn is_empty(&self) -> bool {
+			self.start_of.is_empty() && self.end_of.is_empty()
+		}
 	}
 
 	pub(super) type FilterTreesAllowReadInterval = FilterTrees<FilterInterval<bool>>;
@@ -1047,46 +1056,210 @@ mod interval_filters {
 	pub(super) type FilterTreesForbidReadInterval = FilterTrees<FilterInterval<FilterOrigin>>;
 	pub(super) type FilterTreeForbidWriteInterval = FilterTrees<FilterInterval<FilterOrigin>>;
 
+	pub(super) trait FilterBound: Default + Debug + Clone {
+		fn nb_origin(&self) -> usize;
+	}
+
+	impl FilterBound for bool {
+		fn nb_origin(&self) -> usize {
+			1
+		}
+	}
+
+	impl FilterBound for FilterOrigin {
+		fn nb_origin(&self) -> usize {
+			self.nb_origin()
+		}
+	}
+
 	pub(super) fn set_filter_allow(
 		filter: &mut FilterTrees<FilterInterval<bool>>,
-		decl: AccessDeclaration,
+		decl: &AccessDeclaration,
 	) {
-		unimplemented!()
+		set_filter_allow_internal(&mut filter.top, &decl.top);
+		for (storage_key, decl) in decl.children.iter() {
+			let child = filter.children.entry(storage_key.clone()).or_default();
+			set_filter_allow_internal(child, decl);
+		}
+	}
+
+	fn set_filter_allow_internal(
+		filter: &mut FilterTree<FilterInterval<bool>>,
+		decl: &LocalAccessDeclaration,
+	) {
+		for (start, end) in decl.intervals_lock.iter() {
+			// TODO implement entry api
+			if let Some(bound) = filter.get_mut(start.as_slice()) {
+				bound.start_of = true;
+			} else {
+				filter.insert(start.as_slice(), FilterInterval {
+					start_of: true,
+					end_of: false,
+				});
+			}
+			if let Some(bound) = filter.get_mut(end.as_slice()) {
+				bound.end_of = true;
+			} else {
+				filter.insert(end.as_slice(), FilterInterval {
+					start_of: false,
+					end_of: true,
+				});
+			}
+		}
 	}
 
 	pub(super) fn set_filter_forbid(
 		filter: &mut FilterTrees<FilterInterval<FilterOrigin>>,
-		decl: AccessDeclaration,
+		decl: &AccessDeclaration,
 		from_child: TaskId,
 	) {
-		unimplemented!()
+		set_filter_forbid_internal(&mut filter.top, &decl.top, from_child);
+		for (storage_key, decl) in decl.children.iter() {
+			let child = filter.children.entry(storage_key.clone()).or_default();
+			set_filter_forbid_internal(child, decl, from_child);
+		}
+	}
+
+	fn set_filter_forbid_internal(
+		filter: &mut FilterTree<FilterInterval<FilterOrigin>>,
+		decl: &LocalAccessDeclaration,
+		from_child: TaskId,
+	) {
+		unimplemented!("broken algo");
+		let mut insert_start;
+		for (start, end) in decl.intervals_lock.iter() {
+			insert_start = false;
+			let mut insert_end = false;
+			loop {
+				if insert_start {
+					let mut origin = FilterOrigin::default();
+					origin.set(from_child);
+					filter.insert(start.as_slice(), FilterInterval {
+						start_of: origin,
+						end_of: FilterOrigin::default(),
+					});
+					insert_start = false;
+					continue;
+				}
+				let mut iter = filter.seek_iter_mut(start).value_iter();
+				if let Some((k, value)) = (&mut iter).last() {
+					if k != start {
+						insert_start = true;
+						continue;
+					}
+					value.start_of.set(from_child);
+				} else {
+					insert_start = true;
+					continue;
+				}
+
+				for (k, value) in iter.node_iter().iter().value_iter() {
+					if &k < end {
+						value.end_of.set(from_child);
+					} else if &k == end {
+						value.end_of.set(from_child);
+						break;
+					} else {
+						insert_end = true;
+						break;
+					}
+				}
+				if insert_end {
+					let mut origin = FilterOrigin::default();
+					origin.set(from_child);
+					filter.insert(start.as_slice(), FilterInterval {
+						start_of: FilterOrigin::default(),
+						end_of: origin,
+					});
+				}
+
+				break;
+			}
+		}
 	}
 
 	pub(super) fn remove_filter_forbid(
 		filter: &mut FilterTrees<FilterInterval<FilterOrigin>>,
-		decl: AccessDeclaration,
+		decl: &AccessDeclaration,
 		from_child: TaskId,
 	) {
-		unimplemented!()
+		remove_filter_forbid_internal(&mut filter.top, &decl.top, from_child);
+		for (storage_key, decl) in decl.children.iter() {
+			if let Some(child) = filter.children.get_mut(storage_key) {
+				remove_filter_forbid_internal(child, decl, from_child);
+			}
+		}
 	}
 
-	pub(super) fn check_key_inclusion<D: Default + Debug + Clone>(
-		filter: &mut FilterTrees<FilterInterval<D>>,
+	fn remove_filter_forbid_internal(
+		filter: &mut FilterTree<FilterInterval<FilterOrigin>>,
+		decl: &LocalAccessDeclaration,
+		from_child: TaskId,
+	) {
+		unimplemented!("broken algo");
+		let mut to_remove = Vec::new();
+		for (start, end) in decl.intervals_lock.iter() {
+			let mut iter = filter.seek_iter_mut(start).value_iter();
+			if let Some((k, value)) = (&mut iter).last() {
+				value.start_of.remove(from_child);
+				if value.is_empty() {
+					to_remove.push(k.to_vec());
+				}
+			}
+			for (k, value) in iter.node_iter().iter().value_iter() {
+				if &k > end {
+					continue;
+				}
+				let at = &k == end;
+				value.end_of.remove(from_child);
+				if value.is_empty() {
+					to_remove.push(k);
+				}
+				if at {
+					continue;
+				}
+			}
+		}
+		for key in to_remove {
+			filter.remove(key.as_slice());
+		}
+	}
+
+	pub(super) fn check_key_inclusion<D: FilterBound>(
+		filter: &FilterTree<FilterInterval<D>>,
 		key: &[u8],
 	) -> bool {
-		unimplemented!()
+		let mut iter = filter.seek_iter(key).value_iter();
+		if let Some((k, value)) = (&mut iter).last() {
+			if k == key {
+				if value.start_of.nb_origin() > 0 {
+					return true;
+				}
+			}
+		}
+		let mut nb_start = 0;
+		for (k, value) in iter.node_iter().iter().value_iter() {
+			let origin_end = value.end_of.nb_origin();
+			if origin_end > nb_start {
+				return true;
+			} else if origin_end > 0 {
+				return false;
+			}
+			nb_start += value.start_of.nb_origin();
+		}
+		false
 	}
 
-	pub(super) fn check_inclusive_interval_overlap<D: Default + Debug + Clone>(
-		filter: &mut FilterTrees<FilterInterval<D>>,
+	pub(super) fn check_inclusive_interval_overlap<D: FilterBound>(
+		filter: &FilterTree<FilterInterval<D>>,
 		from: &[u8],
 		to: Option<&[u8]>,
 	) -> bool {
 		unimplemented!()
 	}
 
-	pub(super) fn check_prefix_overlap<D: Default + Debug + Clone>(
-		filter: &mut FilterTrees<FilterInterval<D>>,
+	pub(super) fn check_prefix_overlap<D: FilterBound>(
+		filter: &FilterTree<FilterInterval<D>>,
 		prefix: &[u8],
 	) -> bool {
 		unimplemented!()

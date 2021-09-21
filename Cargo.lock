@@ -6651,7 +6651,7 @@ checksum = "643f8f41a8ebc4c5dc4515c82bb8abd397b527fc20fd681b7c011c2aee5d44fb"
 [[package]]
 name = "radix-tree"
 version = "0.8.0"
-source = "git+https://github.com/cheme/substrate?branch=historied-db#f9393bc72fd82ace666b5cdbdf596e54635516de"
+source = "git+https://github.com/cheme/substrate?branch=historied-db#e3eaaac80056f74c41aa7eb9a394b54c3bb91e48"
 dependencies = [
  "derivative",
  "hashbrown 0.9.1",
