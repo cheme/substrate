@@ -611,13 +611,14 @@ impl<'a, N: TreeConf> Iterator for SeekIterMut<'a, N> {
 }
 
 impl<'a, N: TreeConf> Iterator for SeekValueIterMut<'a, N> {
-	type Item = (&'a [u8], &'a N::Value);
+	type Item = (&'a [u8], &'a mut N::Value);
 
 	fn next(&mut self) -> Option<Self::Item> {
 		loop {
 			if let Some((key, pos, node)) = self.0.next() {
-				if let Some(v) = node.value(&self.0.tree.backend) {
-					let pos = pos.next_by::<N::Radix>(node.depth());
+				let depth = node.depth();
+				if let Some(v) = node.value_mut(&self.0.tree.backend) {
+					let pos = pos.next_by::<N::Radix>(depth);
 					return Some((&key[..pos.index], v))
 				}
 			} else {

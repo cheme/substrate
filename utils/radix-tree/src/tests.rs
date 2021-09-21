@@ -39,7 +39,6 @@ pub mod $module_name {
 	#[cfg(test)]
 	use alloc::vec;
 
-	#[cfg(test)]
 	const CHECK_BACKEND: bool = $check_backend_ser;
 	type TreeConf = super::$backend_conf<Vec<u8>>;
 
