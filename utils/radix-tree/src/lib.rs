@@ -343,6 +343,7 @@ pub(crate) type PositionFor<N> = Position<<<N as TreeConf>::Radix as RadixConf>:
 pub(crate) type AlignmentFor<N> = <<N as TreeConf>::Radix as RadixConf>::Alignment;
 pub(crate) type KeyIndexFor<N> = <<N as TreeConf>::Radix as RadixConf>::KeyIndex;
 pub(crate) type IndexFor<N> = <<N as TreeConf>::Backend as Backend>::Index;
+pub(crate) type ValueIndexFor<N> = <<N as TreeConf>::Backend as Backend>::ValueIndex;
 pub type ChildFor<N> = <<N as TreeConf>::NodeBackend as NodeBackend<N>>::ChildState;
 
 /// Node of a tree.

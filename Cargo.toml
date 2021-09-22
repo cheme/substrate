@@ -2,7 +2,6 @@
 members = [
 	"utils/historied-db",
 	"utils/radix-tree",
-	"utils/radix-tree/kvdb-parity-db",
 ]
 
 # The list of dependencies below (which can be both direct and indirect dependencies) are crates

@@ -34,9 +34,11 @@ pub struct TestBackend {
 /// Set based backend containing encoded nodes
 /// with hash as key.
 /// Root is always stored at empty key.
+/// TODO since keys are blake hash, this needs rc.
 #[derive(Clone, Debug)]
 pub struct HashedTestBackend {
 	encoded_nodes: hashbrown::HashMap<Vec<u8>, Vec<u8>>,
+	values: hashbrown::HashMap<Vec<u8>, Vec<u8>>,
 	pub root: Option<Vec<u8>>,
 }
 
@@ -57,6 +59,7 @@ impl Default for HashedTestBackend {
 	fn default() -> Self {
 		HashedTestBackend {
 			encoded_nodes: Default::default(),
+			values: Default::default(),
 			root: None,
 		}
 	}
@@ -95,6 +98,7 @@ impl TestBackend {
 
 impl Backend for Rc<RefCell<TestBackend>> {
 	type Index = u64;
+	type ValueIndex = u64;
 
 	fn get_root(&self) -> Option<(Vec<u8>, u64)> {
 		let s = self.borrow();
@@ -103,6 +107,10 @@ impl Backend for Rc<RefCell<TestBackend>> {
 
 	fn get_node(&self, index: Self::Index) -> Option<Vec<u8>> {
 		self.borrow().get(index as usize)
+	}
+
+	fn get_value(&self, index: Self::ValueIndex) -> Option<Vec<u8>> {
+		self.get_node(index)
 	}
 
 	fn update_node(&self, index: Self::Index, node: Vec<u8>) -> Option<Self::Index> {
@@ -118,12 +126,24 @@ impl Backend for Rc<RefCell<TestBackend>> {
 		}
 	}
 
+	fn update_value(&self, index: Self::ValueIndex, value: Vec<u8>) -> Option<Self::Index> {
+		self.update_node(index, value)
+	}
+
 	fn remove_node(&self, index: Self::Index) {
 		self.borrow_mut().remove(index)
 	}
 
+	fn remove_value(&self, index: Self::ValueIndex) {
+		self.remove_node(index)
+	}
+
 	fn set_new_node(&self, node: Vec<u8>) -> Self::Index {
 		self.borrow_mut().insert(node)
+	}
+
+	fn set_new_value(&self, value: Vec<u8>) -> Self::ValueIndex {
+		self.set_new_node(value)
 	}
 
 	fn set_root(&self, root: Self::Index) {
@@ -133,7 +153,8 @@ impl Backend for Rc<RefCell<TestBackend>> {
 
 #[cfg(feature = "hash_backend")]
 impl Backend for Rc<RefCell<HashedTestBackend>> {
-	type Index = Vec<u8>; // TODO could switch to Blake2bResult (but need a reserved root key)
+	type Index = Vec<u8>;
+	type ValueIndex = Vec<u8>;
 	fn get_root(&self) -> Option<(Vec<u8>, Self::Index)> {
 		let s = self.borrow();
 		if let Some(root_hash) = s.root.clone() {
@@ -145,6 +166,10 @@ impl Backend for Rc<RefCell<HashedTestBackend>> {
 
 	fn get_node(&self, index: Self::Index) -> Option<Vec<u8>> {
 		self.borrow().encoded_nodes.get(&index).cloned()
+	}
+
+	fn get_value(&self, index: Self::ValueIndex) -> Option<Vec<u8>> {
+		self.borrow().values.get(&index).cloned()
 	}
 
 	fn update_node(&self, index: Self::Index, node: Vec<u8>) -> Option<Self::Index> {
@@ -160,8 +185,25 @@ impl Backend for Rc<RefCell<HashedTestBackend>> {
 		}
 	}
 
+	fn update_value(&self, index: Self::Index, value: Vec<u8>) -> Option<Self::Index> {
+		let mut s = self.borrow_mut();
+		let new_index = blake2_rfc::blake2b::blake2b(32, &[], &value).as_bytes().to_vec();
+		if new_index == index {
+			s.values.insert(index, value);
+			None
+		} else {
+			s.values.insert(new_index.clone(), value);
+			s.values.remove(&index);
+			Some(new_index)
+		}
+	}
+
 	fn remove_node(&self, index: Self::Index) {
 		self.borrow_mut().encoded_nodes.remove(&index);
+	}
+
+	fn remove_value(&self, index: Self::ValueIndex) {
+		self.borrow_mut().values.remove(&index);
 	}
 
 	fn set_new_node(&self, node: Vec<u8>) -> Self::Index {
@@ -170,6 +212,11 @@ impl Backend for Rc<RefCell<HashedTestBackend>> {
 		index
 	}
 
+	fn set_new_value(&self, value: Vec<u8>) -> Self::ValueIndex {
+		let index = blake2_rfc::blake2b::blake2b(32, &[], &value).as_bytes().to_vec();
+		self.borrow_mut().values.insert(index.clone(), value);
+		index
+	}
 	fn set_root(&self, root: Self::Index) {
 		self.borrow_mut().root = Some(root);
 	}

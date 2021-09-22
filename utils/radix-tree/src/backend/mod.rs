@@ -17,7 +17,7 @@
 
 //! Node backends for storing tree nodes.
 
-use crate::{TreeConf, KeyIndexFor,
+use crate::{TreeConf, KeyIndexFor, ValueIndexFor,
 	NodeBox, Node, ValueState, IndexFor};
 use alloc::vec::Vec;
 use alloc::boxed::Box;
@@ -32,16 +32,26 @@ pub trait Backend: Clone {
 
 	type Index: Eq;
 
+	type ValueIndex: Eq;
+
 	/// Get a root node from the backend.
 	fn get_root(&self) -> Option<(Vec<u8>, Self::Index)>;
 
 	fn get_node(&self, index: Self::Index) -> Option<Vec<u8>>;
 
+	fn get_value(&self, index: Self::ValueIndex) -> Option<Vec<u8>>;
+
 	fn update_node(&self, index: Self::Index, node: Vec<u8>) -> Option<Self::Index>;
+
+	fn update_value(&self, index: Self::ValueIndex, value: Vec<u8>) -> Option<Self::ValueIndex>;
 
 	fn remove_node(&self, index: Self::Index);
 
+	fn remove_value(&self, index: Self::ValueIndex);
+
 	fn set_new_node(&self, node: Vec<u8>) -> Self::Index;
+
+	fn set_new_value(&self, value: Vec<u8>) -> Self::ValueIndex;
 
 	/// Root call back.
 	fn set_root(&self, root: Self::Index);
@@ -50,15 +60,26 @@ pub trait Backend: Clone {
 impl Backend for () {
 	const ACTIVE: bool = false;
 	type Index = ();
+	type ValueIndex = ();
 	fn get_root(&self) -> Option<(Vec<u8>, Self::Index)> { None }
 
 	fn get_node(&self, _index: Self::Index) -> Option<Vec<u8>> { None }
 
+	fn get_value(&self, _index: Self::ValueIndex) -> Option<Vec<u8>> { None }
+
 	fn update_node(&self, _index: Self::Index, _node: Vec<u8>) -> Option<Self::Index> { None }
+
+	fn update_value(&self, _index: Self::ValueIndex, _value: Vec<u8>) -> Option<Self::ValueIndex> {
+		None
+	}
 
 	fn remove_node(&self, _index: Self::Index) { }
 
+	fn remove_value(&self, _index: Self::ValueIndex) { }
+
 	fn set_new_node(&self, _node: Vec<u8>) -> Self::Index { () }
+
+	fn set_new_value(&self, _value: Vec<u8>) -> Self::ValueIndex { () }
 
 	fn set_root(&self, _root: Self::Index) { }
 }
@@ -102,7 +123,7 @@ pub trait NodeBackend<N: TreeConf>: Clone {
 	fn decrease_number_of_children(&mut self);
 
 	// TODO replace by backend_hash_value -> bool ?
-	fn fetch_value_index (&self) -> Option<IndexFor<N>>;
+	fn fetch_value_index(&self) -> Option<ValueIndexFor<N>>;
 
 	fn fetch_value(&self, backend: &N::Backend) -> Option<N::Value>;
 
@@ -179,7 +200,7 @@ impl<N: TreeConf> NodeBackend<N> for () {
 		None
 	}
 
-	fn fetch_value_index(&self) -> Option<IndexFor<N>> {
+	fn fetch_value_index(&self) -> Option<ValueIndexFor<N>> {
 		None
 	}
 

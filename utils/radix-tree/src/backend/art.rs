@@ -20,7 +20,7 @@
 
 use super::{Backend, NodeBackend};
 use crate::{TreeConf, PositionFor, KeyIndexFor,
-	NodeBox, RadixConf, IndexFor,
+	NodeBox, RadixConf, IndexFor, ValueIndexFor,
 	PrefixKeyConf, Node, PrefixKey, AlignmentFor,
 	ValueState};
 use crate::children::NodeIndex;
@@ -255,7 +255,7 @@ impl<N> ArtEncoded<N>
 		}
 	}
 
-	fn fetch_value_index (&self) -> Option<IndexFor<N>> {
+	fn fetch_value_index(&self) -> Option<IndexFor<N>> {
 		match self {
 			ArtEncoded::Art4(art, _) => art.fetch_value_index(),
 			ArtEncoded::Art16(art) => art.fetch_value_index(),
@@ -264,7 +264,7 @@ impl<N> ArtEncoded<N>
 		}
 	}
 
-	fn fetch_children_index (&self, at: KeyIndexFor<N>) -> Option<IndexFor<N>> {
+	fn fetch_children_index(&self, at: KeyIndexFor<N>) -> Option<IndexFor<N>> {
 		let at = at.to_usize();
 		match self {
 			ArtEncoded::Art4(art, _) => art.fetch_children_index(at),
@@ -648,7 +648,7 @@ impl Art256 {
 impl<N> NodeBackend<N> for ArtLocalBackend<N>
 	where
 		N: TreeConf<NodeBackend = Self, Value = Vec<u8>>,
-		N::Backend: Backend<Index = u64>,
+		N::Backend: Backend<Index = u64, ValueIndex = u64>,
 //		N::Value: AsRef<[u8]>,
 {
 	const FUSE_ON_COMMIT: bool = true;
@@ -700,7 +700,7 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 		Some(self.original_nb_children)
 	}
 
-	fn fetch_value_index (&self) -> Option<IndexFor<N>> {
+	fn fetch_value_index(&self) -> Option<ValueIndexFor<N>> {
 		debug_assert!(self.value_state == ValueState::Unfetched);
 		self.encoded.fetch_value_index()
 	}

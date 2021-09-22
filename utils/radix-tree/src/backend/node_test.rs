@@ -20,7 +20,7 @@
 
 use super::{Backend, NodeBackend};
 use crate::{TreeConf, PositionFor, KeyIndexFor,
-	NodeBox, RadixConf, IndexFor,
+	NodeBox, RadixConf, IndexFor, ValueIndexFor,
 	PrefixKeyConf, Node, PrefixKey, AlignmentFor,
 	ValueState};
 use crate::children::NodeIndex;
@@ -33,7 +33,9 @@ use core::fmt::Debug;
 /// TODO Index as param
 #[derive(Clone, Debug)]
 pub struct NodeTestBackend<N: TreeConf>
-	where IndexFor<N>: Clone + Debug,
+	where
+		IndexFor<N>: Clone + Debug,
+		ValueIndexFor<N>: Clone + Debug,
 {
 	// None for new node only.
 	index: Option<IndexFor<N>>,
@@ -41,7 +43,7 @@ pub struct NodeTestBackend<N: TreeConf>
 	child_index: Vec<Option<IndexFor<N>>>,
 	nb_children: usize,
 	pending_nb_children: usize,
-	value: Option<IndexFor<N>>,
+	value: Option<ValueIndexFor<N>>,
 	value_state: ValueState,
 	children_changed: bool,
 	prefix_changed: bool,
@@ -57,9 +59,10 @@ fn decode<N>(
 		N: TreeConf,
 		N::Value: Decode,
 		IndexFor<N>: Clone + Debug + Decode,
+		ValueIndexFor<N>: Clone + Debug + Decode,
 {
 	let input = &mut encoded.as_slice();
-	let value: Option<IndexFor<N>> = Decode::decode(input).unwrap();
+	let value: Option<ValueIndexFor<N>> = Decode::decode(input).unwrap();
 	let mut child_index = Vec::new();
 	let mut nb_children = 0;
 	for _ in 0..<<N as TreeConf>::Radix as RadixConf>::CHILDREN_CAPACITY {
@@ -119,6 +122,7 @@ where
 	N: TreeConf<NodeBackend = NodeTestBackend<N>>,
 	N::Value: Encode,
 	IndexFor<N>: Clone + Debug + Encode,
+	ValueIndexFor<N>: Clone + Debug + Encode,
 {
 	let mut result = Vec::new();
 
@@ -161,6 +165,7 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 		N: TreeConf<NodeBackend = Self>,
 		N::Value: Decode + Encode,
 		IndexFor<N>: Clone + Debug + Decode + Encode,
+		ValueIndexFor<N>: Clone + Debug + Decode + Encode,
 {
 	const FUSE_ON_COMMIT: bool = true;
 	type ChildState = crate::Child<Node<N>>;
@@ -220,14 +225,14 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 		Some(self.nb_children)
 	}
 
-	fn fetch_value_index(&self) -> Option<IndexFor<N>> {
+	fn fetch_value_index(&self) -> Option<ValueIndexFor<N>> {
 		debug_assert!(self.value_state == ValueState::Unfetched);
 		self.value.clone()
 	}
 
 	fn fetch_value(&self, backend: &N::Backend) -> Option<N::Value> {
 		if let Some(ix) = self.value.clone() {
-			let value = backend.get_node(ix).expect("Value stored with node.");
+			let value = backend.get_value(ix).expect("Value stored with node.");
 			Some(Decode::decode(&mut value.as_slice()).unwrap())
 		} else {
 			None
@@ -312,9 +317,9 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 			if let Some(value) = node.value.as_ref() {
 				let encoded = value.encode();
 				let ix = if let Some(previous) = node.backend.value.clone() {
-					backend.update_node(previous.clone(), encoded).unwrap_or(previous)
+					backend.update_value(previous.clone(), encoded).unwrap_or(previous)
 				} else {
-					backend.set_new_node(encoded)
+					backend.set_new_value(encoded)
 				};
 
 				if node.backend.value.as_ref() != Some(&ix) {
@@ -328,7 +333,7 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 		}
 		if node.backend.value_state == ValueState::Deleted {
 			if let Some(previous) = node.backend.value.clone() {
-				backend.remove_node(previous);
+				backend.remove_value(previous);
 				encoded_change = true;
 			} else {
 				unreachable!("deleted should be some");
