@@ -965,7 +965,7 @@ fn varint_decode(buf: &[u8]) -> (u64, usize) {
 }
 
 fn varint_encoded_len(size: u64) -> usize {
-	let nb_bit = std::cmp::max(64 - size.leading_zeros(), 1);
+	let nb_bit = core::cmp::max(64 - size.leading_zeros(), 1);
 	(nb_bit as usize + 6) / 7
 }
 

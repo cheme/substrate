@@ -18,6 +18,7 @@
 //! Backends for test.
 
 use alloc::rc::Rc;
+use alloc::vec;
 use alloc::vec::Vec;
 use core::cell::RefCell;
 use crate::Backend;
