@@ -944,6 +944,11 @@ impl FilterOrigin {
 	fn is_empty(&self) -> bool {
 		self.children.as_ref().map(|c| c.is_empty()).unwrap_or(true)
 	}
+
+	fn is_single(&self) -> bool {
+		self.children.as_ref().map(|c| c.len() == 1).unwrap_or(false)
+	}
+
 }
 
 pub(super) mod failure {
@@ -1067,17 +1072,24 @@ mod interval_filters {
 
 	pub(super) trait FilterBound: Default + Debug + Clone {
 		fn is_empty(&self) -> bool;
+		fn is_single(&self) -> bool;
 	}
 
 	impl FilterBound for bool {
 		fn is_empty(&self) -> bool {
 			!self
 		}
+		fn is_single(&self) -> bool {
+			*self
+		}
 	}
 
 	impl FilterBound for FilterOrigin {
 		fn is_empty(&self) -> bool {
 			self.is_empty()
+		}
+		fn is_single(&self) -> bool {
+			self.is_single()
 		}
 	}
 
@@ -1286,10 +1298,54 @@ mod interval_filters {
 		!filter.1.end_of.is_empty()
 	}
 
-	pub(super) fn check_exclusive_interval_overlap<D: FilterBound>(
+	// TODO this only work if we do not allow both interval and prefix definition
+	// (prefix could complet interval).
+	pub(super) fn check_inclusive_interval_into<D: FilterBound>(
+		filter: &FilterTree<FilterInterval<D>>,
+		from: &[u8],
+		to: &[u8],
+	) -> bool {
+		let mut iter = filter.0.seek_iter(from).value_iter();
+		let mut nb_start = 0;
+		let _ = (&mut iter).last(); // seek
+		for (k, value) in iter.node_iter().iter().value_iter() {
+			if k.as_slice() <= to {
+				if value.end_of.is_empty() {
+					// start into interval
+					return false;
+				}
+				if value.end_of.is_single() && value.start_of.is_empty() {
+					// end interval without next interval
+					return false;
+				}
+			} else {
+				return !value.end_of.is_empty();
+			}
+		}
+		!filter.1.end_of.is_empty()
+	}
+	
+	pub(super) fn check_inclusive_interval_overlap<D: FilterBound>(
+		filter: &FilterTree<FilterInterval<D>>,
+		from: &[u8],
+		to: &[u8],
+	) -> bool {
+		check_interval_overlap(filter, from, Some(to), true)
+	}
+
+	fn check_exclusive_interval_overlap<D: FilterBound>( // TODO use prefix only?
 		filter: &FilterTree<FilterInterval<D>>,
 		from: &[u8],
 		to: Option<&[u8]>,
+	) -> bool {
+		check_interval_overlap(filter, from, to, false)
+	}
+
+	fn check_interval_overlap<D: FilterBound>( // TODO use prefix only?
+		filter: &FilterTree<FilterInterval<D>>,
+		from: &[u8],
+		to: Option<&[u8]>,
+		inclusive: bool,
 	) -> bool {
 		let mut iter = filter.0.seek_iter(from).value_iter();
 		if let Some((k, value)) = (&mut iter).last() {
@@ -1304,7 +1360,7 @@ mod interval_filters {
 			if !value.end_of.is_empty() {
 				return true;
 			}
-			if to.as_ref().map(|end| k.as_slice() >= end).unwrap_or(false) {
+			if to.as_ref().map(|end| (inclusive && k.as_slice() > end) || (!inclusive && k.as_slice() >= end)).unwrap_or(false) {
 				touched = true;
 				break;
 			}
@@ -1347,9 +1403,33 @@ mod interval_filters {
 			assert!(check_exclusive_interval_overlap(&filter, b"ke", None));
 			assert!(check_exclusive_interval_overlap(&filter, b"ken", Some(b"kez")));
 			assert!(!check_exclusive_interval_overlap(&filter, b"k", Some(b"ke")));
+			assert!(!check_inclusive_interval_overlap(&filter, b"k", b"kd"));
+			assert!(check_inclusive_interval_overlap(&filter, b"k", b"ke"));
 			assert!(!check_exclusive_interval_overlap(&filter, b"l", None));
 			assert!(!check_key_inclusion(&filter, b"test"));
 			assert!(check_key_inclusion(&filter, b"kenny"));
+			assert!(check_inclusive_interval_into(&filter, b"ke", b"keydddddd"));
+			assert!(check_inclusive_interval_into(&filter, b"kea", b"key"));
+			assert!(!check_inclusive_interval_into(&filter, b"kea", b"l"));
+			assert!(!check_inclusive_interval_into(&filter, b"kd", b"key"));
+			set_filter_forbid_internal(&mut filter, &LocalAccessDeclaration {
+				prefixes_lock: Default::default(),
+				keys_lock: Default::default(),
+				intervals_lock: vec![
+					(b"l".to_vec(), Some(b"op".to_vec()))
+				],
+			}, 1);
+			assert!(check_inclusive_interval_into(&filter, b"kea", b"l"));
+			assert!(check_inclusive_interval_into(&filter, b"kea", b"oo"));
+			assert!(!check_inclusive_interval_into(&filter, b"kea", b"op"));
+			set_filter_forbid_internal(&mut filter, &LocalAccessDeclaration {
+				prefixes_lock: Default::default(),
+				keys_lock: Default::default(),
+				intervals_lock: vec![
+					(b"opa".to_vec(), Some(b"z".to_vec()))
+				],
+			}, 1);
+			assert!(!check_inclusive_interval_into(&filter, b"o", b"p"));
 		}
 	}
 }
