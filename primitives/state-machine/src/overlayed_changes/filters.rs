@@ -132,7 +132,7 @@ impl Filters {
 					filter.write_prefix.remove(from_child);
 				}
 				if filter.is_empty() {
-					tree.remove(prefix.as_slice());
+					tree.remove(prefix.as_slice(), false);
 				}
 			}
 		}
@@ -145,7 +145,7 @@ impl Filters {
 					filter.write_key.remove(from_child);
 				}
 				if filter.is_empty() {
-					tree.remove(key.as_slice());
+					tree.remove(key.as_slice(), false);
 				}
 			}
 		}
@@ -1234,7 +1234,7 @@ mod interval_filters {
 			}
 		}
 		for key in to_remove {
-			filter.0.remove(key.as_slice());
+			filter.0.remove(key.as_slice(), false);
 		}
 	}
 

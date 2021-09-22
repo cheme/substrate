@@ -1311,21 +1311,23 @@ pub mod radix_trees {
 	use super::StorageKey;
 	use core::fmt::Debug;
 	use radix_tree::{
-		children::{Children, ART48_256},
-		radix::{impls::Radix256Conf, RadixConf},
-		Derivative, Node, TreeConf, Value,
+		children::ART48_256,
+		radix::impls::Radix256Conf,
+		TreeConf, ChildFor,
 	};
 	use sp_core::storage::ChildInfo;
-	use sp_std::{boxed::Box, collections::btree_map::BTreeMap};
+	use sp_std::collections::btree_map::BTreeMap;
 
-	radix_tree::flatten_children!(
-		Children256FlattenART,
-		Node256FlattenART,
-		Node256NoBackendART,
-		ART48_256,
-		Radix256Conf,
-		(),
-	);
+	#[derive(Clone, Debug)]
+	pub struct Node256NoBackendART<F>(sp_std::marker::PhantomData<F>);
+
+	impl<F: Clone + Debug + Default> TreeConf for Node256NoBackendART<F> {
+			type Radix = Radix256Conf;
+			type Value = F;
+			type Children = ART48_256<ChildFor<Self>>;
+			type NodeBackend = ();
+			type Backend = ();
+	}
 
 	/// Radix tree internally use for filtering key accesses.
 	pub type FilterTree<F> = radix_tree::Tree<Node256NoBackendART<F>>;

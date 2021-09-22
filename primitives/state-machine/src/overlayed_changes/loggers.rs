@@ -150,7 +150,7 @@ impl StateLogger {
 			}
 		}
 		for key in to_remove.into_iter() {
-			self.write_prefixes.remove(&key);
+			self.write_prefixes.remove(&key, false);
 		}
 	}
 
