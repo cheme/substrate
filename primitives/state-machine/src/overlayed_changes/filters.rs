@@ -69,6 +69,14 @@ pub(super) struct Filters {
 	filters_allow: FilterTreesAllow,
 	/// accesses forbid due to child.
 	filters_forbid: FilterTreesForbid,
+	/// accesses allowed by parent.
+	filters_interval_allow_read: interval_filters::FilterTreesAllowInterval,
+	/// accesses allowed by parent.
+	filters_interval_allow_write: interval_filters::FilterTreesAllowInterval,
+	/// accesses forbid due to child.
+	filters_interval_forbid_read: interval_filters::FilterTreesForbidInterval,
+	/// accesses forbid due to child.
+	filters_interval_forbid_write: interval_filters::FilterTreesForbidInterval,
 	/// Keeping history to remove constraint on join or dismiss.
 	changes: BTreeMap<TaskId, Vec<WorkerDeclarationKind>>,
 }
@@ -87,6 +95,10 @@ impl Default for Filters {
 			allow_append_child_active: Default::default(),*/
 			filters_allow: Default::default(),
 			filters_forbid: Default::default(),
+			filters_interval_allow_read: Default::default(),
+			filters_interval_allow_write: Default::default(),
+			filters_interval_forbid_read: Default::default(),
+			filters_interval_forbid_write: Default::default(),
 			changes: BTreeMap::new(),
 		}
 	}
@@ -285,16 +297,20 @@ impl Filters {
 
 	pub(super) fn allow_all(&mut self, filter: AccessDeclaration) {
 		self.allow_write_active = true;
+		interval_filters::set_filter_allow(&mut self.filters_interval_allow_read, &filter); // TODO return false if wrong declaration same for others allow
+		interval_filters::set_filter_allow(&mut self.filters_interval_allow_write, &filter);
 		Self::set_filter_allow(&mut self.filters_allow, filter, true, true);
 	}
 
 	pub(super) fn allow_writes(&mut self, filter: AccessDeclaration) {
 		self.allow_write_active = true;
+		interval_filters::set_filter_allow(&mut self.filters_interval_allow_write, &filter);
 		Self::set_filter_allow(&mut self.filters_allow, filter, false, true);
 	}
 
 	pub(super) fn allow_reads(&mut self, filter: AccessDeclaration) {
 		self.allow_read_active = true;
+		interval_filters::set_filter_allow(&mut self.filters_interval_allow_read, &filter);
 		Self::set_filter_allow(&mut self.filters_allow, filter, true, false);
 	}
 
@@ -303,26 +319,34 @@ impl Filters {
 	}
 
 	pub(super) fn forbid_all(&mut self, filter: AccessDeclaration, from_child: TaskId) {
+		interval_filters::set_filter_forbid(&mut self.filters_interval_forbid_read, &filter, from_child);
+		interval_filters::set_filter_forbid(&mut self.filters_interval_forbid_write, &filter, from_child);
 		Self::set_filter_forbid(&mut self.filters_forbid, filter, from_child, true, true);
 	}
 
 	fn remove_forbid_all(&mut self, filter: AccessDeclaration, from_child: TaskId) {
+		interval_filters::remove_filter_forbid(&mut self.filters_interval_forbid_read, &filter, from_child);
+		interval_filters::remove_filter_forbid(&mut self.filters_interval_forbid_write, &filter, from_child);
 		Self::remove_filter(&mut self.filters_forbid, filter, from_child, true, true);
 	}
 
 	pub(super) fn forbid_reads(&mut self, filter: AccessDeclaration, from_child: TaskId) {
+		interval_filters::set_filter_forbid(&mut self.filters_interval_forbid_read, &filter, from_child);
 		Self::set_filter_forbid(&mut self.filters_forbid, filter, from_child, true, false);
 	}
 
 	fn remove_forbid_reads(&mut self, filter: AccessDeclaration, from_child: TaskId) {
+		interval_filters::remove_filter_forbid(&mut self.filters_interval_forbid_read, &filter, from_child);
 		Self::remove_filter(&mut self.filters_forbid, filter, from_child, true, false);
 	}
 
 	pub(super) fn forbid_writes(&mut self, filter: AccessDeclaration, from_child: TaskId) {
+		interval_filters::set_filter_forbid(&mut self.filters_interval_forbid_write, &filter, from_child);
 		Self::set_filter_forbid(&mut self.filters_forbid, filter, from_child, false, true);
 	}
 
 	pub(super) fn remove_forbid_writes(&mut self, filter: AccessDeclaration, from_child: TaskId) {
+		interval_filters::remove_filter_forbid(&mut self.filters_interval_forbid_write, &filter, from_child);
 		Self::remove_filter(&mut self.filters_forbid, filter, from_child, false, true);
 	}
 
@@ -353,6 +377,11 @@ impl Filters {
 				return false
 			}
 		}
+		for interval in filter.intervals_lock.iter() {
+			if !self.guard_read_interval_inner(child_info, interval.0.as_slice(), interval.1.as_ref().map(|e| e.as_slice())) {
+				return false
+			}
+		}
 		true
 	}
 
@@ -377,6 +406,13 @@ impl Filters {
 		}
 		for key in filter.keys_lock.iter() {
 			if !self.guard_write_inner(child_info, key, true) {
+				return false
+			}
+		}
+		for interval in filter.intervals_lock.iter() {
+			// TODO guard write interval (do factor code)
+			unimplemented!("todo");
+			if !self.guard_write_interval_inner(child_info, interval.0.as_slice(), interval.1.as_ref().map(|e| e.as_slice())) {
 				return false
 			}
 		}
@@ -857,6 +893,25 @@ impl Filters {
 		}
 	}
 
+	pub(super) fn guard_read_interval_inner(
+		&mut self,
+		child_info: Option<&ChildInfo>,
+		key: &[u8],
+		key_end: Option<&[u8]>,
+	) -> bool {
+		let blocked =
+			Self::key_read_forbid_interval(&self.filters_forbid, child_info, key, key_end);
+		if blocked.len() > 0 {
+			return false;
+		}
+		if self.allow_read_active {
+			if !Self::guard_read_allow_interval(&self.filters_allow, child_info, key, key_end) {
+				return false;
+			}
+		}
+		true
+	}
+
 	pub(super) fn remove_worker(&mut self, task_id: TaskId) {
 		if let Some(decl) = self.changes.remove(&task_id) {
 			for declaration in decl.into_iter() {
@@ -1049,7 +1104,7 @@ pub(super) mod failure {
 }
 
 
-mod interval_filters {
+pub(super) mod interval_filters {
 	use super::*;
 	use crate::overlayed_changes::radix_trees::{FilterTreeEnd as FilterTree, FilterTreesEnd as FilterTrees};
 
