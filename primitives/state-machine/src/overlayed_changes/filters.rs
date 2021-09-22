@@ -1158,7 +1158,7 @@ mod interval_filters {
 			// find end parent intervals.
 			let mut end_origin = if end_has_parent_origin {
 				Default::default()
-			} else if let Some((k, value)) = iter.next() {
+			} else if let Some((_k, value)) = iter.next() {
 				value.end_of.clone()
 			} else {
 				filter.1.end_of.clone()
@@ -1261,14 +1261,43 @@ mod interval_filters {
 		from: &[u8],
 		to: Option<&[u8]>,
 	) -> bool {
-		unimplemented!()
+		let mut iter = filter.0.seek_iter(from).value_iter();
+		if let Some((k, value)) = (&mut iter).last() {
+			if k == from {
+				if !value.start_of.is_empty() {
+					return true;
+				}
+			}
+		}
+		let mut touched = false;
+		for (k, value) in iter.node_iter().iter().value_iter() {
+			if !value.end_of.is_empty() {
+				return true;
+			}
+			if to.as_ref().map(|end| k.as_slice() >= end).unwrap_or(false) {
+				touched = true;
+				break;
+			}
+		}
+		if !touched {
+			!filter.1.end_of.is_empty()
+		} else {
+			false
+		}
 	}
 
 	pub(super) fn check_prefix_overlap<D: FilterBound>(
 		filter: &FilterTree<FilterInterval<D>>,
 		prefix: &[u8],
 	) -> bool {
-		unimplemented!()
+		let end_prefix = crate::overlayed_changes::end_prefix(prefix); 
+		check_inclusive_interval_overlap::<D>(filter, prefix, end_prefix.as_ref().map(|e| e.as_slice()))
+	}
+
+	#[cfg(test)]
+	mod test {
+		use super::*;
+		// TODO simple test case but fuzzing against list of defined interval could be good.
 	}
 }
 

@@ -1474,6 +1474,20 @@ fn change_to_change_set(
 	None
 }
 
+/// Get exclusive end interval corresponding to a prefix.
+pub fn end_prefix(prefix: &[u8]) -> Option<Vec<u8>> {
+	let mut end_range = prefix.to_vec();
+	while let Some(0xff) = end_range.last() {
+		end_range.pop();
+	}
+	if let Some(byte) = end_range.last_mut() {
+		*byte += 1;
+		Some(end_range)
+	} else {
+		None
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
