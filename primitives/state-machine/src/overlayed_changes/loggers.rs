@@ -883,9 +883,5 @@ mod test {
 		let mut parent_access = parent_access_base.clone();
 		parent_access.log_read_interval(None, &b"key"[..], Some(&b"keyz"[..]));
 		assert!(!parent_access.top_logger.check_child_write(&child_access, task1));
-
-		let mut parent_access = parent_access_base.clone();
-		parent_access.log_write_prefix(None, &b"keyw"[..]);
-		assert!(!parent_access.top_logger.check_child_write(&child_access, task1));
 	}
 }

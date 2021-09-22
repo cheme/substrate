@@ -666,7 +666,6 @@ impl Filters {
 		let mut iter = filters.seek_iter(key).value_iter();
 		let mut start_interval = None;
 		while let Some((key, value)) = iter.next() {
-			// forbid write implies forbid read.
 			if value.read_prefix {
 				start_interval = Some(key);
 				break
@@ -1308,7 +1307,7 @@ mod test {
 	#[test]
 	fn test_guard_read_allow_interval() {
 		let mut filters1 = Filters::default();
-		filters1.allow_writes(AccessDeclaration {
+		filters1.allow_reads(AccessDeclaration {
 			top: LocalAccessDeclaration {
 				prefixes_lock: vec![b"key".to_vec()],
 				keys_lock: vec![],
@@ -1335,7 +1334,7 @@ mod test {
 			None,
 		));
 		//let mut filters1 = Filters::default();
-		filters1.allow_writes(AccessDeclaration{
+		filters1.allow_reads(AccessDeclaration{
 			top: LocalAccessDeclaration {
 				prefixes_lock: vec![b"".to_vec()],
 				keys_lock: vec![],
@@ -1358,7 +1357,7 @@ mod test {
 		));
 
 		let mut filters1 = Filters::default();
-		filters1.allow_writes(AccessDeclaration {
+		filters1.allow_reads(AccessDeclaration {
 			top: LocalAccessDeclaration {
 				prefixes_lock: vec![b"key".to_vec(), b"kez".to_vec()],
 				keys_lock: vec![],
@@ -1374,7 +1373,7 @@ mod test {
 		));
 
 		let mut filters1 = Filters::default();
-		filters1.allow_writes(AccessDeclaration {
+		filters1.allow_reads(AccessDeclaration {
 			top: LocalAccessDeclaration {
 				prefixes_lock: vec![b"kex".to_vec(), b"kez".to_vec()],
 				keys_lock: vec![],
