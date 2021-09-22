@@ -1330,6 +1330,8 @@ pub mod radix_trees {
 	/// Radix tree internally use for filtering key accesses.
 	pub type FilterTree<F> = radix_tree::Tree<Node256NoBackendART<F>>;
 
+	/// Radix tree internally use for filtering key accesses.
+	pub type FilterTreeEnd<F> = (radix_tree::Tree<Node256NoBackendART<F>>, F);
 	/// Write access logs with children origin.
 	pub(crate) type AccessTreeWrite =
 		radix_tree::Tree<Node256NoBackendART<super::loggers::OriginLog>>;
@@ -1339,6 +1341,14 @@ pub mod radix_trees {
 	pub(super) struct FilterTrees<F: Debug + Clone + Default> {
 		pub(super) top: FilterTree<F>,
 		pub(super) children: BTreeMap<StorageKey, FilterTree<F>>,
+	}
+
+	/// A tree of filter rules, a end of range content is addedç
+	/// to simple FilterTree
+	#[derive(Debug, Clone, Default)]
+	pub(super) struct FilterTreesEnd<F: Debug + Clone + Default> {
+		pub(super) top: FilterTreeEnd<F>,
+		pub(super) children: BTreeMap<StorageKey, FilterTreeEnd<F>>,
 	}
 
 	impl<F: Debug + Clone + Default> FilterTrees<F> {

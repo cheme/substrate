@@ -838,7 +838,7 @@ pub struct LocalAccessDeclaration {
 	pub keys_lock: Vec<Vec<u8>>,
 
 	/// Lock over an interval (inclusive start and exclusive start).
-	pub intervals_lock: Vec<(Vec<u8>, Vec<u8>)>,
+	pub intervals_lock: Vec<(Vec<u8>, Option<Vec<u8>>)>,
 }
 
 impl LocalAccessDeclaration {
