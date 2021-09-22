@@ -1418,7 +1418,7 @@ mod interval_filters {
 				intervals_lock: vec![
 					(b"l".to_vec(), Some(b"op".to_vec()))
 				],
-			}, 1);
+			}, 2);
 			assert!(check_inclusive_interval_into(&filter, b"kea", b"l"));
 			assert!(check_inclusive_interval_into(&filter, b"kea", b"oo"));
 			assert!(!check_inclusive_interval_into(&filter, b"kea", b"op"));
@@ -1428,7 +1428,18 @@ mod interval_filters {
 				intervals_lock: vec![
 					(b"opa".to_vec(), Some(b"z".to_vec()))
 				],
-			}, 1);
+			}, 3);
+			assert!(!check_inclusive_interval_into(&filter, b"o", b"p"));
+			let decl_4 = LocalAccessDeclaration {
+				prefixes_lock: Default::default(),
+				keys_lock: Default::default(),
+				intervals_lock: vec![
+					(b"o".to_vec(), Some(b"z".to_vec()))
+				],
+			};
+			set_filter_forbid_internal(&mut filter, &decl_4, 4);
+			assert!(check_inclusive_interval_into(&filter, b"o", b"p"));
+			remove_filter_forbid_internal(&mut filter, &decl_4, 4);
 			assert!(!check_inclusive_interval_into(&filter, b"o", b"p"));
 		}
 	}
