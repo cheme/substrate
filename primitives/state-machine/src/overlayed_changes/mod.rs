@@ -1347,6 +1347,8 @@ pub mod radix_trees {
 
 	/// A tree of filter rules, a end of range content is addedç
 	/// to simple FilterTree
+	/// TODO factor with filter trie or all struct with top and children:
+	/// pretty common
 	#[derive(Debug, Clone, Default)]
 	pub(super) struct FilterTreesEnd<F: Debug + Clone + Default> {
 		pub(super) top: FilterTreeEnd<F>,
@@ -1355,6 +1357,16 @@ pub mod radix_trees {
 
 	impl<F: Debug + Clone + Default> FilterTrees<F> {
 		pub(super) fn filter(&self, child_info: Option<&ChildInfo>) -> Option<&FilterTree<F>> {
+			if let Some(child_info) = child_info {
+				self.children.get(child_info.storage_key())
+			} else {
+				Some(&self.top)
+			}
+		}
+	}
+
+	impl<F: Debug + Clone + Default> FilterTreesEnd<F> {
+		pub(super) fn filter(&self, child_info: Option<&ChildInfo>) -> Option<&FilterTreeEnd<F>> {
 			if let Some(child_info) = child_info {
 				self.children.get(child_info.storage_key())
 			} else {

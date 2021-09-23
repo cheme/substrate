@@ -378,7 +378,7 @@ impl Filters {
 			}
 		}
 		for interval in filter.intervals_lock.iter() {
-			if !self.guard_read_interval_inner(child_info, interval.0.as_slice(), interval.1.as_ref().map(|e| e.as_slice())) {
+			if !self.guard_interval_inner(child_info, interval.0.as_slice(), interval.1.as_ref().map(|e| e.as_slice()), true, true, false) {
 				return false
 			}
 		}
@@ -410,9 +410,7 @@ impl Filters {
 			}
 		}
 		for interval in filter.intervals_lock.iter() {
-			// TODO guard write interval (do factor code)
-			unimplemented!("todo");
-			if !self.guard_write_interval_inner(child_info, interval.0.as_slice(), interval.1.as_ref().map(|e| e.as_slice())) {
+			if !self.guard_interval_inner(child_info, interval.0.as_slice(), interval.1.as_ref().map(|e| e.as_slice()), true, false, true) {
 				return false
 			}
 		}
@@ -466,7 +464,7 @@ impl Filters {
 		key: &[u8],
 		ret_result: bool,
 	) -> bool {
-		let blocked = Self::key_read_forbid(&self.filters_forbid, child_info, key);
+		let blocked = Self::key_read_forbid(&self.filters_forbid, &self.filters_interval_forbid_read, child_info, key);
 		for origin in blocked {
 			if ret_result {
 				return false
@@ -474,7 +472,7 @@ impl Filters {
 			self.failure_handlers.invalid_accesses(origin);
 		}
 		if self.allow_read_active {
-			if !Self::guard_read_allow(&self.filters_allow, child_info, key) {
+			if !Self::guard_read_allow(&self.filters_allow, &self.filters_interval_allow_read, child_info, key) {
 				if ret_result {
 					return false
 				}
@@ -495,7 +493,7 @@ impl Filters {
 		key: &[u8],
 		ret_result: bool,
 	) -> bool {
-		let blocked = Self::key_write_forbid(&self.filters_forbid, child_info, key);
+		let blocked = Self::key_write_forbid(&self.filters_forbid, &self.filters_interval_forbid_write, child_info, key);
 		for origin in blocked {
 			if ret_result {
 				return false
@@ -503,7 +501,7 @@ impl Filters {
 			self.failure_handlers.invalid_accesses(origin);
 		}
 		if self.allow_write_active {
-			if !Self::guard_write_allow(&self.filters_allow, child_info, key) {
+			if !Self::guard_write_allow(&self.filters_allow, &self.filters_interval_allow_write, child_info, key) {
 				if ret_result {
 					return false
 				}
@@ -515,10 +513,19 @@ impl Filters {
 
 	fn key_write_forbid<'a>(
 		filters: &'a FilterTreesForbid,
+		filters_interval: &'a interval_filters::FilterTreesForbidInterval,
 		child_info: Option<&ChildInfo>,
 		key: &'a [u8],
 	) -> Vec<&'a FilterOrigin> {
 		let mut blocked = Vec::new();
+
+		if let Some(filter) = filters_interval.filter(child_info) {
+			let origins = interval_filters::check_key_inclusion_origin(filter, key);
+			if origins.is_defined() {
+				blocked.push(origins);
+			}
+		}
+
 		let filters = if let Some(filter) = filters.filter(child_info) {
 			filter
 		} else {
@@ -541,10 +548,19 @@ impl Filters {
 	// TODO factor with key_write_forbid
 	fn key_read_forbid<'a>(
 		filters: &'a FilterTreesForbid,
+		filters_interval: &'a interval_filters::FilterTreesForbidInterval,
 		child_info: Option<&ChildInfo>,
 		key: &'a [u8],
 	) -> Vec<&'a FilterOrigin> {
 		let mut blocked = Vec::new();
+
+		if let Some(filter) = filters_interval.filter(child_info) {
+			let origins = interval_filters::check_prefix_overlap_origins(filter, key);
+			if origins.is_defined() {
+				blocked.push(origins);
+			}
+		}
+
 		let filters = if let Some(filter) = filters.filter(child_info) {
 			filter
 		} else {
@@ -561,6 +577,12 @@ impl Filters {
 				}
 			}
 		}
+		if let Some(filter) = filters_interval.filter(child_info) {
+			let origins = interval_filters::check_key_inclusion_origin(filter, key);
+			if origins.is_defined() {
+				blocked.push(origins);
+			}
+		}
 		blocked
 	}
 
@@ -571,10 +593,19 @@ impl Filters {
 	// But first factorize code.
 	fn key_write_forbid_prefix<'a>(
 		filters: &'a FilterTreesForbid,
+		filters_interval: &'a interval_filters::FilterTreesForbidInterval,
 		child_info: Option<&ChildInfo>,
 		key: &'a [u8],
 	) -> Vec<&'a FilterOrigin> {
 		let mut blocked = Vec::new();
+
+		if let Some(filter) = filters_interval.filter(child_info) {
+			let origins = interval_filters::check_prefix_overlap_origins(filter, key);
+			if origins.is_defined() {
+				blocked.push(origins);
+			}
+		}
+
 		let filters = if let Some(filter) = filters.filter(child_info) {
 			filter
 		} else {
@@ -605,10 +636,19 @@ impl Filters {
 
 	fn key_read_forbid_prefix<'a>(
 		filters: &'a FilterTreesForbid,
+		filters_interval: &'a interval_filters::FilterTreesForbidInterval,
 		child_info: Option<&ChildInfo>,
 		key: &'a [u8],
 	) -> Vec<&'a FilterOrigin> {
 		let mut blocked = Vec::new();
+
+		if let Some(filter) = filters_interval.filter(child_info) {
+			let origins = interval_filters::check_prefix_overlap_origins(filter, key);
+			if origins.is_defined() {
+				blocked.push(origins);
+			}
+		}
+
 		let filters = if let Some(filter) = filters.filter(child_info) {
 			filter
 		} else {
@@ -637,13 +677,25 @@ impl Filters {
 		blocked
 	}
 
-	fn key_read_forbid_interval<'a>(
+	// TODO  ret_result bool to return on first match
+	fn key_forbid_interval<'a>(
 		filters: &'a FilterTreesForbid,
+		filters_interval: &'a interval_filters::FilterTreesForbidInterval,
 		child_info: Option<&ChildInfo>,
 		key: &'a [u8],
 		key_end: Option<&'a [u8]>,
+		read: bool,
+		write: bool,
 	) -> Vec<&'a FilterOrigin> {
 		let mut blocked = Vec::new();
+
+		if let Some(filter) = filters_interval.filter(child_info) {
+			let origins = interval_filters::check_interval_overlap_origins(filter, key, key_end, false);
+			if origins.is_defined() {
+				blocked.push(origins);
+			}
+		}
+
 		let filters = if let Some(filter) = filters.filter(child_info) {
 			filter
 		} else {
@@ -652,37 +704,56 @@ impl Filters {
 		let len = key.len();
 		let mut iter = filters.seek_iter(key).value_iter();
 		while let Some((key, value)) = iter.next() {
-			if value.read_prefix.is_defined() {
+			if read && value.read_prefix.is_defined() {
 				blocked.push(&value.read_prefix);
 			}
+			if write && value.write_prefix.is_defined() {
+				blocked.push(&value.write_prefix);
+			}
 			if len == key.len() {
-				if value.read_key.is_defined() {
+				if read && value.read_key.is_defined() {
 					blocked.push(&value.read_key);
+				}
+				if write && value.write_key.is_defined() {
+					blocked.push(&value.write_key);
 				}
 			}
 		}
 		for (key, value) in iter.node_iter().iter().value_iter() {
 			if key_end.map(|end| key.as_slice() <= end).unwrap_or(true) {
-				if value.read_prefix.is_defined() {
+				if read && value.read_prefix.is_defined() {
 					blocked.push(&value.read_prefix);
 				}
-				if value.read_key.is_defined() {
+				if write && value.write_prefix.is_defined() {
+					blocked.push(&value.write_prefix);
+				}
+				if read && value.read_key.is_defined() {
 					blocked.push(&value.read_key);
+				}
+				if write && value.write_key.is_defined() {
+					blocked.push(&value.write_key);
 				}
 			} else {
 				break
 			}
 		}
-
 		blocked
 	}
 
 	/// Return false if blocked.
 	fn guard_read_allow(
 		filters: &FilterTreesAllow,
+		filters_interval: &interval_filters::FilterTreesAllowInterval,
 		child_info: Option<&ChildInfo>,
 		key: &[u8],
 	) -> bool {
+
+		if let Some(filter) = filters_interval.filter(child_info) {
+			if interval_filters::check_key_inclusion(filter, key) {
+				return true;
+			}
+		}
+
 		let filters = if let Some(filter) = filters.filter(child_info) {
 			filter
 		} else {
@@ -704,12 +775,23 @@ impl Filters {
 	}
 
 	/// allow iteration is only allowing interval definition.
-	fn guard_read_allow_interval(
+	fn guard_allow_interval(
 		filters: &FilterTreesAllow,
+		filters_interval: &interval_filters::FilterTreesAllowInterval,
 		child_info: Option<&ChildInfo>,
 		key: &[u8],
 		key_end: Option<&[u8]>,
+		read: bool,
+		write: bool,
 	) -> bool {
+		debug_assert!(!(read && write)); // TODO enum instead of both bool.
+
+		if let Some(filter) = filters_interval.filter(child_info) {
+			if interval_filters::check_interval_into(filter, key, key_end, false) {
+				return true;
+			}
+		}
+
 		let filters = if let Some(filter) = filters.filter(child_info) {
 			filter
 		} else {
@@ -718,7 +800,7 @@ impl Filters {
 		let mut iter = filters.seek_iter(key).value_iter();
 		let mut start_interval = None;
 		while let Some((key, value)) = iter.next() {
-			if value.read_prefix {
+			if (read && value.read_prefix) || (write && value.write_prefix) {
 				start_interval = Some(key);
 				break
 			}
@@ -732,7 +814,7 @@ impl Filters {
 			return false
 		};
 		for (key, value) in iter.node_iter().iter().value_iter() {
-			if value.read_prefix {
+			if (read && value.read_prefix) || (write && value.write_prefix) {
 				if !key.starts_with(previous_prefix.as_slice()) {
 					// only allow contigous prefix
 					while previous_prefix.last() == Some(&255u8) {
@@ -759,9 +841,15 @@ impl Filters {
 	/// Return false if blocked.
 	fn guard_write_allow(
 		filters: &FilterTreesAllow,
+		filters_interval: &interval_filters::FilterTreesAllowInterval,
 		child_info: Option<&ChildInfo>,
 		key: &[u8],
 	) -> bool {
+		if let Some(filter) = filters_interval.filter(child_info) {
+			if interval_filters::check_key_inclusion(filter, key) {
+				return true;
+			}
+		}
 		let filters = if let Some(filter) = filters.filter(child_info) {
 			filter
 		} else {
@@ -784,9 +872,16 @@ impl Filters {
 
 	fn guard_read_allow_prefix(
 		filters: &FilterTreesAllow,
+		filters_interval: &interval_filters::FilterTreesAllowInterval,
 		child_info: Option<&ChildInfo>,
 		key: &[u8],
 	) -> bool {
+		if let Some(filter) = filters_interval.filter(child_info) {
+			if interval_filters::check_prefix_into(filter, key) {
+				return true;
+			}
+		}
+
 		let filters = if let Some(filter) = filters.filter(child_info) {
 			filter
 		} else {
@@ -803,9 +898,16 @@ impl Filters {
 
 	fn guard_write_allow_prefix(
 		filters: &FilterTreesAllow,
+		filters_interval: &interval_filters::FilterTreesAllowInterval,
 		child_info: Option<&ChildInfo>,
 		key: &[u8],
 	) -> bool {
+		if let Some(filter) = filters_interval.filter(child_info) {
+			if interval_filters::check_prefix_into(filter, key) {
+				return true;
+			}
+		}
+
 		let filters = if let Some(filter) = filters.filter(child_info) {
 			filter
 		} else {
@@ -829,7 +931,7 @@ impl Filters {
 		key: &[u8],
 		ret_result: bool,
 	) -> bool {
-		let blocked = Self::key_read_forbid_prefix(&self.filters_forbid, child_info, key);
+		let blocked = Self::key_read_forbid_prefix(&self.filters_forbid, &self.filters_interval_forbid_read, child_info, key);
 		for origin in blocked {
 			if ret_result {
 				return false
@@ -837,7 +939,7 @@ impl Filters {
 			self.failure_handlers.invalid_accesses(origin);
 		}
 		if self.allow_write_active {
-			if !Self::guard_read_allow_prefix(&self.filters_allow, child_info, key) {
+			if !Self::guard_read_allow_prefix(&self.filters_allow, &self.filters_interval_allow_read, child_info, key) {
 				if ret_result {
 					return false
 				}
@@ -857,7 +959,7 @@ impl Filters {
 		key: &[u8],
 		ret_result: bool,
 	) -> bool {
-		let blocked = Self::key_write_forbid_prefix(&self.filters_forbid, child_info, key);
+		let blocked = Self::key_write_forbid_prefix(&self.filters_forbid, &self.filters_interval_forbid_write, child_info, key);
 		for origin in blocked {
 			if ret_result {
 				return false
@@ -865,7 +967,7 @@ impl Filters {
 			self.failure_handlers.invalid_accesses(origin);
 		}
 		if self.allow_write_active {
-			if !Self::guard_write_allow_prefix(&self.filters_allow, child_info, key) {
+			if !Self::guard_write_allow_prefix(&self.filters_allow, &self.filters_interval_allow_write, child_info, key) {
 				if ret_result {
 					return false
 				}
@@ -881,32 +983,66 @@ impl Filters {
 		key: &[u8],
 		key_end: Option<&[u8]>,
 	) {
-		let blocked =
-			Self::key_read_forbid_interval(&self.filters_forbid, child_info, key, key_end);
-		for origin in blocked {
-			self.failure_handlers.invalid_accesses(origin);
-		}
-		if self.allow_read_active {
-			if !Self::guard_read_allow_interval(&self.filters_allow, child_info, key, key_end) {
-				self.failure_handlers.invalid_allowed_access();
-			}
-		}
+		self.guard_interval(child_info, key, key_end, true, false)
 	}
 
-	pub(super) fn guard_read_interval_inner(
+	pub(super) fn guard_write_interval(
 		&mut self,
 		child_info: Option<&ChildInfo>,
 		key: &[u8],
 		key_end: Option<&[u8]>,
+	) {
+		self.guard_interval(child_info, key, key_end, true, false)
+	}
+
+	fn guard_interval(
+		&mut self,
+		child_info: Option<&ChildInfo>,
+		key: &[u8],
+		key_end: Option<&[u8]>,
+		read: bool,
+		write: bool,
+	) {
+		self.guard_interval_inner(child_info, key, key_end, false, read, write);
+	}
+
+	pub(super) fn guard_interval_inner(
+		&mut self,
+		child_info: Option<&ChildInfo>,
+		key: &[u8],
+		key_end: Option<&[u8]>,
+		ret_result: bool,
+		read: bool,
+		write: bool,
 	) -> bool {
+		debug_assert!(!(read && write)); // due to interval api
+		let forbid_intervals = if read {
+			&self.filters_interval_forbid_read
+		} else if write {
+			&self.filters_interval_forbid_write
+		} else {
+			unreachable!(); // TODO refact api to be at least one.
+		};
 		let blocked =
-			Self::key_read_forbid_interval(&self.filters_forbid, child_info, key, key_end);
-		if blocked.len() > 0 {
-			return false;
+			Self::key_forbid_interval(&self.filters_forbid, forbid_intervals, child_info, key, key_end, read, write);
+		for origin in blocked {
+			if ret_result {
+				return false;
+			}
+			self.failure_handlers.invalid_accesses(origin);
 		}
 		if self.allow_read_active {
-			if !Self::guard_read_allow_interval(&self.filters_allow, child_info, key, key_end) {
-				return false;
+			if read && !Self::guard_allow_interval(&self.filters_allow, &self.filters_interval_allow_read, child_info, key, key_end, read, false) {
+				if ret_result {
+					return false;
+				}
+				self.failure_handlers.invalid_allowed_access();
+			}
+			if write && !Self::guard_allow_interval(&self.filters_allow, &self.filters_interval_allow_write, child_info, key, key_end, false, write) {
+				if ret_result {
+					return false;
+				}
+				self.failure_handlers.invalid_allowed_access();
 			}
 		}
 		true
@@ -1111,6 +1247,8 @@ pub(super) mod interval_filters {
 	/// TODO bad def, need a quick check algo.
 	#[derive(Debug, Clone, Default)]
 	pub struct FilterInterval<F: Debug + Clone + Default> {
+		// TODO consider removing start of (we can avoid it by iterating next, which we do
+		// when we need origins). Not sure about all case.
 		start_of: F,
 		end_of: F,
 	}
@@ -1335,6 +1473,18 @@ pub(super) mod interval_filters {
 		}
 	}
 
+	pub(super) fn check_key_inclusion_origin<'a, D: FilterBound>(
+		filter: &'a FilterTree<FilterInterval<D>>,
+		key: &'a [u8],
+	) -> &'a D {
+		let mut iter = filter.0.seek_iter(key).value_iter();
+		let _ = (&mut iter).last();
+		if let Some((_k, value)) = iter.node_iter().iter().value_iter().next() {
+			return &value.end_of;
+		}
+		&filter.1.end_of
+	}
+
 	pub(super) fn check_key_inclusion<D: FilterBound>(
 		filter: &FilterTree<FilterInterval<D>>,
 		key: &[u8],
@@ -1355,18 +1505,19 @@ pub(super) mod interval_filters {
 
 	// TODO this only work if we do not allow both interval and prefix definition
 	// (prefix could complet interval).
-	pub(super) fn check_inclusive_interval_into<D: FilterBound>(
+	pub(super) fn check_interval_into<D: FilterBound>( // TODO use prefix only?
 		filter: &FilterTree<FilterInterval<D>>,
 		from: &[u8],
-		to: &[u8],
+		to: Option<&[u8]>,
+		inclusive: bool,
 	) -> bool {
 		let mut iter = filter.0.seek_iter(from).value_iter();
 		let mut nb_start = 0;
-		let _ = (&mut iter).last(); // seek
+		let _ = (&mut iter).last(); // seek, put k after start
 		for (k, value) in iter.node_iter().iter().value_iter() {
-			if k.as_slice() <= to {
+			if to.as_ref().map(|to| (inclusive && k.as_slice() <= to) || (!inclusive && k.as_slice() < to)).unwrap_or(true) {
 				if value.end_of.is_empty() {
-					// start into interval
+					// start not into interval
 					return false;
 				}
 				if value.end_of.is_single() && value.start_of.is_empty() {
@@ -1379,7 +1530,15 @@ pub(super) mod interval_filters {
 		}
 		!filter.1.end_of.is_empty()
 	}
-	
+
+	pub(super) fn check_inclusive_interval_into<D: FilterBound>(
+		filter: &FilterTree<FilterInterval<D>>,
+		from: &[u8],
+		to: &[u8],
+	) -> bool {
+		check_interval_into(filter, from, Some(to), true)
+	}
+
 	pub(super) fn check_inclusive_interval_overlap<D: FilterBound>(
 		filter: &FilterTree<FilterInterval<D>>,
 		from: &[u8],
@@ -1396,6 +1555,14 @@ pub(super) mod interval_filters {
 		check_interval_overlap(filter, from, to, false)
 	}
 
+	fn check_exclusive_interval_overlap_origins<'a, D: FilterBound>( // TODO use prefix only?
+		filter: &'a FilterTree<FilterInterval<D>>,
+		from: &'a [u8],
+		to: Option<&[u8]>,
+	) -> &'a D {
+		check_interval_overlap_origins(filter, from, to, false)
+	}
+
 	fn check_interval_overlap<D: FilterBound>( // TODO use prefix only?
 		filter: &FilterTree<FilterInterval<D>>,
 		from: &[u8],
@@ -1410,21 +1577,34 @@ pub(super) mod interval_filters {
 				}
 			}
 		}
-		let mut touched = false;
 		for (k, value) in iter.node_iter().iter().value_iter() {
 			if !value.end_of.is_empty() {
 				return true;
 			}
 			if to.as_ref().map(|end| (inclusive && k.as_slice() > end) || (!inclusive && k.as_slice() >= end)).unwrap_or(false) {
-				touched = true;
-				break;
+				return false;
 			}
 		}
-		if !touched {
-			!filter.1.end_of.is_empty()
-		} else {
-			false
+		!filter.1.end_of.is_empty()
+	}
+
+	pub(super) fn check_interval_overlap_origins<'a, D: FilterBound>( // TODO use prefix only?
+		filter: &'a FilterTree<FilterInterval<D>>,
+		from: &'a [u8],
+		to: Option<&[u8]>,
+		inclusive: bool,
+	) -> &'a D {
+		let mut iter = filter.0.seek_iter(from).value_iter();
+		let _ = (&mut iter).last();
+		for (k, value) in iter.node_iter().iter().value_iter() {
+			if !value.end_of.is_empty() {
+				return &value.end_of;
+			}
+			if to.as_ref().map(|end| (inclusive && k.as_slice() > end) || (!inclusive && k.as_slice() >= end)).unwrap_or(false) {
+				return &value.end_of;
+			}
 		}
+		&filter.1.end_of
 	}
 
 	pub(super) fn check_prefix_overlap<D: FilterBound>(
@@ -1433,6 +1613,25 @@ pub(super) mod interval_filters {
 	) -> bool {
 		let end_prefix = crate::overlayed_changes::end_prefix(prefix); 
 		check_exclusive_interval_overlap::<D>(filter, prefix, end_prefix.as_ref().map(|e| e.as_slice()))
+	}
+
+	pub(super) fn check_prefix_into<D: FilterBound>(
+		filter: &FilterTree<FilterInterval<D>>,
+		prefix: &[u8],
+	) -> bool {
+		let end_prefix = crate::overlayed_changes::end_prefix(prefix); 
+		check_interval_into::<D>(filter, prefix, end_prefix.as_ref().map(|e| e.as_slice()), false)
+	}
+
+	pub(super) fn check_prefix_overlap_origins<'a, D: FilterBound>(
+		filter: &'a FilterTree<FilterInterval<D>>,
+		// TODO this 'a is needed due to radix iter needing 'a, but if iter would manage two lifetime
+		// one for the iterator and one for the actual iterated value.
+		// Then we would not need it this is a bit everywhere.
+		prefix: &'a [u8],
+	) -> &'a D {
+		let end_prefix = crate::overlayed_changes::end_prefix(prefix); 
+		check_exclusive_interval_overlap_origins::<D>(filter, prefix, end_prefix.as_ref().map(|e| e.as_slice()))
 	}
 
 	#[cfg(test)]
@@ -1461,8 +1660,12 @@ pub(super) mod interval_filters {
 			assert!(!check_inclusive_interval_overlap(&filter, b"k", b"kd"));
 			assert!(check_inclusive_interval_overlap(&filter, b"k", b"ke"));
 			assert!(!check_exclusive_interval_overlap(&filter, b"l", None));
+			assert!(!check_key_inclusion(&filter, b"a"));
+			assert!(check_key_inclusion_origin(&filter, b"a").is_empty());
 			assert!(!check_key_inclusion(&filter, b"test"));
 			assert!(check_key_inclusion(&filter, b"kenny"));
+			assert!(check_key_inclusion(&filter, b"ke"));
+			assert!(!check_key_inclusion_origin(&filter, b"ke").is_empty());
 			assert!(check_inclusive_interval_into(&filter, b"ke", b"keydddddd"));
 			assert!(check_inclusive_interval_into(&filter, b"kea", b"key"));
 			assert!(!check_inclusive_interval_into(&filter, b"kea", b"l"));
@@ -1515,23 +1718,29 @@ mod test {
 			},
 			children: Default::default(),
 		});
-		assert!(Filters::guard_read_allow_interval(
+		assert!(Filters::guard_allow_interval(
 			&filters1.filters_allow,
+			&filters1.filters_interval_allow_read,
 			None,
 			&b"key"[..],
 			Some(&b"key8"[..]),
+			true, false,
 		));
-		assert!(!Filters::guard_read_allow_interval(
+		assert!(!Filters::guard_allow_interval(
 			&filters1.filters_allow,
+			&filters1.filters_interval_allow_read,
 			None,
 			&b"key"[..],
 			Some(&b"kez"[..]),
+			true, false,
 		));
-		assert!(!Filters::guard_read_allow_interval(
+		assert!(!Filters::guard_allow_interval(
 			&filters1.filters_allow,
+			&filters1.filters_interval_allow_read,
 			None,
 			&b"key"[..],
 			None,
+			true, false,
 		));
 		//let mut filters1 = Filters::default();
 		filters1.allow_reads(AccessDeclaration{
@@ -1542,18 +1751,29 @@ mod test {
 			},
 			children: Default::default(),
 		});
-		assert!(Filters::guard_read_allow_interval(
+		assert!(Filters::guard_allow_interval(
 			&filters1.filters_allow,
+			&filters1.filters_interval_allow_read,
 			None,
 			&b"a"[..],
 			Some(&b"kez"[..]),
+			true, false,
 		));
-		assert!(Filters::guard_read_allow_interval(&filters1.filters_allow, None, &b""[..], None,));
-		assert!(Filters::guard_read_allow_interval(
+		assert!(Filters::guard_allow_interval(
 			&filters1.filters_allow,
+			&filters1.filters_interval_allow_read,
+			None,
+			&b""[..],
+			None,
+			true, false,
+		));
+		assert!(Filters::guard_allow_interval(
+			&filters1.filters_allow,
+			&filters1.filters_interval_allow_read,
 			None,
 			&b"key"[..],
 			None,
+			true, false,
 		));
 
 		let mut filters1 = Filters::default();
@@ -1565,11 +1785,13 @@ mod test {
 			},
 			children: Default::default(),
 		});
-		assert!(Filters::guard_read_allow_interval(
+		assert!(Filters::guard_allow_interval(
 			&filters1.filters_allow,
+			&filters1.filters_interval_allow_read,
 			None,
 			&b"key"[..],
 			Some(&b"kez"[..]),
+			true, false,
 		));
 
 		let mut filters1 = Filters::default();
@@ -1581,11 +1803,13 @@ mod test {
 			},
 			children: Default::default(),
 		});
-		assert!(!Filters::guard_read_allow_interval(
+		assert!(!Filters::guard_allow_interval(
 			&filters1.filters_allow,
+			&filters1.filters_interval_allow_read,
 			None,
 			&b"kex"[..],
 			Some(&b"kez"[..]),
+			true, false,
 		));
 	}
 }
