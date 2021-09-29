@@ -1240,6 +1240,8 @@ impl<N: TreeConf> Tree<N> {
 	pub fn clear(&mut self) {
 		// TODO use iter mut.
 		// TODO might not work with backend: consider just removal.
+		// TODO also a remove_prefix could be good.
+		// TODO also a key iter api is really needed!!.
 		let keys: Vec<_> = self.iter().value_iter().map(|v| v.0).collect();
 		for key in keys {
 			self.remove(key.as_slice(), false);
