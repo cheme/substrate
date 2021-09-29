@@ -52,33 +52,6 @@ impl<'a, N: TreeConf> NodeStack<'a, N> {
 }
 
 /// Stack of Node to reach a position.
-struct NodeStackNoCache<N: TreeConf> {
-	// TODO consider &root to avoid root clone?
-	// TODO use smallvec instead?
-	stack: Vec<(PositionFor<N>, Node<N>)>,
-}
-
-impl<N: TreeConf> NodeStackNoCache<N> {
-	fn new() -> Self {
-		NodeStackNoCache {
-			stack: Vec::new(),
-		}
-	}
-}
-
-impl<N: TreeConf> NodeStackNoCache<N> {
-	// TODO useless??
-	fn descend(&self, key: &[u8], dest_position: PositionFor<N>) -> Descent<N::Radix> {
-		if let Some(top) = self.stack.last() {
-			top.1.descend(key, top.0, dest_position)
-		} else {
-			// using a random key index for root element
-			Descent::Child(PositionFor::<N>::zero(), KeyIndexFor::<N>::zero())
-		}
-	}
-}
-
-/// Stack of Node to reach a position.
 struct NodeStackMut<N: TreeConf> {
 	// TODO use smallvec instead?
 	stack: Vec<(PositionFor<N>, *mut Node<N>)>,
@@ -118,16 +91,6 @@ struct IterStack<'a, N: TreeConf> {
 }
 
 /// Stack of Node to reach a position.
-struct IterStackNoCache<N: TreeConf> {
-	// TODO use smallvec instead
-	// The index is the current index where to descend into if going
-	// downward, or where we descend from if going upward.
-	stack: Vec<(PositionFor<N>, Node<N>, KeyIndexFor<N>)>,
-	// The key used with the stack.
-	key: Key,
-}
-
-/// Stack of Node to reach a position.
 struct IterStackMut<N: TreeConf> {
 	// TODO use smallvec instead
 	// The index is the current index where to descend into if going
@@ -140,15 +103,6 @@ struct IterStackMut<N: TreeConf> {
 impl<'a, N: TreeConf> IterStack<'a, N> {
 	fn new() -> Self {
 		IterStack {
-			stack: Vec::new(),
-			key: Default::default(),
-		}
-	}
-}
-
-impl<N: TreeConf> IterStackNoCache<N> {
-	fn new() -> Self {
-		IterStackNoCache {
 			stack: Vec::new(),
 			key: Default::default(),
 		}
@@ -536,32 +490,13 @@ fn from_stack<'a, N: TreeConf>(s: &'a Node<N>) -> &'a Node<N> {
 fn to_stack<'a, N: TreeConf>(s: &'a Node<N>) -> &'a Node<N> {
 	s
 }
-fn from_stack_no_cache<N: TreeConf>(s: Node<N>) -> Node<N> {
-	s
-}
-fn to_stack_no_cache<'a, N: TreeConf>(s: Node<N>) -> Node<N> {
-	s
-}
+
 fn unsafe_from_stack_mut<'a, N: TreeConf>(s: *mut Node<N>) -> &'a mut Node<N> {
 	unsafe { s.as_mut().unwrap() }
 }
 fn to_stack_mut<'a, N: TreeConf>(s: &'a mut Node<N>) -> *mut Node<N> {
 	s as *mut _
 }
-
-iter_impl!(
-	SeekIterNoCache,
-	IterNoCache,
-	SeekIterItem,
-	NextNode,
-	ValueIterNoCache,
-	SeekValueIterNoCache,
-	IterStack,
-	from_stack_no_cache,
-	to_stack_no_cache,
-	as_ref,
-	get_child_no_cache,
-);
 
 iter_impl!(
 	SeekIter,
@@ -644,50 +579,6 @@ impl<'a, N: TreeConf> Iterator for SeekValueIter<'a, N> {
 	}
 }
 
-pub struct SeekIterNoCache<'a, N: TreeConf> {
-	tree: &'a Tree<N>,
-	dest: &'a [u8],
-	dest_position: PositionFor<N>,
-	stack: NodeStackNoCache<N>,
-	next: Descent<N::Radix>,
-	reach_dest: bool,
-}
-
-/// Iterator on values seeked when fetching a given key.
-pub struct SeekValueIterNoCache<'a, N: TreeConf>(SeekIterNoCache<'a, N>);
-
-impl<'a, N: TreeConf> SeekValueIterNoCache<'a, N> {
-	/// Get back node iterator.
-	pub fn node_iter(self) -> SeekIterNoCache<'a, N> {
-		self.0
-	}
-}
-
-impl<'a, N: TreeConf> Iterator for SeekIterNoCache<'a, N> {
-	type Item = (&'a [u8], PositionFor<N>, &'a Node<N>);
-
-	fn next(&mut self) -> Option<Self::Item> {
-		self.next_node().map(|(pos, node)| (self.dest, pos, node))
-	}
-}
-
-impl<'a, N: TreeConf> Iterator for SeekValueIterNoCache<'a, N> {
-	type Item = (&'a [u8], &'a N::Value);
-
-	fn next(&mut self) -> Option<Self::Item> {
-		loop {
-			if let Some((key, pos, node)) = self.0.next() {
-				if let Some(v) = node.value(&self.0.tree.backend) {
-					let pos = pos.next_by::<N::Radix>(node.depth());
-					return Some((&key[..pos.index], v))
-				}
-			} else {
-				return None;
-			}
-		}
-	}
-}
-
 /// Mutable variant of seek iterator.
 pub struct SeekIterMut<'a, N: TreeConf> {
 	tree: &'a mut Tree<N>,
@@ -743,13 +634,6 @@ pub struct Iter<'a, N: TreeConf> {
 	finished: bool,
 }
 
-/// Iterator over the nodes of a tree.
-pub struct IterNoCache<'a, N: TreeConf> {
-	tree: &'a Tree<N>,
-	stack: IterStackNoCache<N>,
-	finished: bool,
-}
-
 /// Mutable aterator over the nodes of a tree.
 pub struct IterMut<'a, N: TreeConf> {
 	tree: &'a mut Tree<N>,
@@ -759,9 +643,6 @@ pub struct IterMut<'a, N: TreeConf> {
 
 /// Iterator over the values of a tree.
 pub struct ValueIter<'a, N: TreeConf>(Iter<'a, N>);
-
-/// Iterator over the values of a tree.
-pub struct ValueIterNoCache<'a, N: TreeConf>(IterNoCache<'a, N>);
 
 /// Mutable iterator over the values of a tree.
 pub struct ValueIterMut<'a, N: TreeConf>(IterMut<'a, N>);
@@ -787,16 +668,6 @@ impl<N: TreeConf> Tree<N> {
 }
 
 impl<'a, N: TreeConf> Iterator for Iter<'a, N> {
-	// TODO key as slice, but usual lifetime issue.
-	// TODO at leas use a stack type for key (smallvec).
-	type Item = (Key, PositionFor<N>, &'a Node<N>);
-
-	fn next(&mut self) -> Option<Self::Item> {
-		self.next_node().map(|(p, n)| (self.stack.key.clone(), p, n))
-	}
-}
-
-impl<'a, N: TreeConf> Iterator for IterNoCache<'a, N> {
 	// TODO key as slice, but usual lifetime issue.
 	// TODO at leas use a stack type for key (smallvec).
 	type Item = (Key, PositionFor<N>, &'a Node<N>);
@@ -841,33 +712,6 @@ impl<'a, N: TreeConf> ValueIter<'a, N> {
 		self.0
 	}
 }
-
-impl<'a, N: TreeConf> Iterator for ValueIterNoCache<'a, N> {
-	// TODO key as slice, but usual lifetime issue.
-	// TODO at leas use a stack type for key (smallvec).
-	type Item = (Key, &'a N::Value);
-
-	fn next(&mut self) -> Option<Self::Item> {
-		loop {
-			if let Some((mut key, pos, node)) = self.0.next() {
-				if let Some(v) = node.value(&self.0.tree.backend) {
-					key.truncate(pos.index);
-					return Some((key, v))
-				}
-			} else {
-				return None;
-			}
-		}
-	}
-}
-
-impl<'a, N: TreeConf> ValueIterNoCache<'a, N> {
-	/// Get back node iterator.
-	pub fn node_iter(self) -> IterNoCache<'a, N> {
-		self.0
-	}
-}
-
 
 impl<'a, N: TreeConf> Iterator for ValueIterMut<'a, N> {
 	// TODO key as slice, but usual lifetime issue (key being
