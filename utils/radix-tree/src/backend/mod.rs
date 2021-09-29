@@ -95,20 +95,20 @@ pub trait NodeBackend<N: TreeConf>: Clone {
 	type ChildState: crate::WithChildState<crate::Node<N>>;
 
 	/// Get a root node from the backend.
-	fn init_root(encoded_root: Vec<u8>, root_index: IndexFor<N>) -> Option<NodeBox<N>>;
+	fn init_root(encoded_root: Vec<u8>, root_index: IndexFor<N>) -> Option<Node<N>>;
 
 	fn new_node_backend() -> Self;
 
 	/// Get next defined node.
 	fn get_next_child_index(&self, from: Option<KeyIndexFor<N>>) -> Option<KeyIndexFor<N>>;
 
-	fn get_node(&self, index: IndexFor<N>, backend: &N::Backend) -> Option<NodeBox<N>>;
+	fn get_node(&self, index: IndexFor<N>, backend: &N::Backend) -> Option<Node<N>>;
 
 	// TODO replace by backend_hash_index -> bool ?
 	fn fetch_children_index(&self, at: KeyIndexFor<N>) -> Option<IndexFor<N>>;
 
 	/// Get a child node from the backend.
-	fn fetch_children(&self, at: KeyIndexFor<N>, backend: &N::Backend) -> Option<NodeBox<N>>;
+	fn fetch_children(&self, at: KeyIndexFor<N>, backend: &N::Backend) -> Option<Node<N>>;
 
 	/// Original number of children stored in backend.
 	fn fetch_nb_children(&mut self) -> Option<usize>;
@@ -177,18 +177,18 @@ pub trait NodeBackend<N: TreeConf>: Clone {
 impl<N: TreeConf> NodeBackend<N> for () {
 	type ChildState = Box<Node<N>>;
 
-	fn init_root(_encoded_root: Vec<u8>, _root_index: IndexFor<N>) -> Option<NodeBox<N>> {
+	fn init_root(_encoded_root: Vec<u8>, _root_index: IndexFor<N>) -> Option<Node<N>> {
 		None
 	}
 
-	fn get_node(&self, _index: IndexFor<N>, _backend: &N::Backend) -> Option<NodeBox<N>> {
+	fn get_node(&self, _index: IndexFor<N>, _backend: &N::Backend) -> Option<Node<N>> {
 		None
 	}
 
 	fn get_next_child_index(&self, _index: Option<KeyIndexFor<N>>) -> Option<KeyIndexFor<N>> {
 		None
 	}
-	fn fetch_children(&self, _at: KeyIndexFor<N>, _backend: &N::Backend) -> Option<NodeBox<N>> {
+	fn fetch_children(&self, _at: KeyIndexFor<N>, _backend: &N::Backend) -> Option<Node<N>> {
 		None
 	}
 

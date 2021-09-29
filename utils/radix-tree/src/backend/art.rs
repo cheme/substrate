@@ -704,18 +704,18 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 
 	type ChildState = crate::Child<Node<N>>;
 
-	fn init_root(encoded: Vec<u8>, index: IndexFor<N>) -> Option<NodeBox<N>> {
+	fn init_root(encoded: Vec<u8>, index: IndexFor<N>) -> Option<Node<N>> {
 		let (backend, prefix) = ArtLocalBackend::<N>::read(encoded, index);
-		Some(Node::<N>::new_box_unfetched(
+		Some(Node::<N>::new_unfetched(
 			prefix,
 			backend,
 		))
 	}
 
-	fn get_node(&self, index: IndexFor<N>, backend: &N::Backend) -> Option<NodeBox<N>> {
+	fn get_node(&self, index: IndexFor<N>, backend: &N::Backend) -> Option<Node<N>> {
 		if let Some(encoded) = backend.get_node(index.clone()) {
 			let (backend, prefix) = ArtLocalBackend::<N>::read(encoded, index);
-			Some(Node::<N>::new_box_unfetched(
+			Some(Node::<N>::new_unfetched(
 				prefix,
 				backend,
 			))
@@ -738,7 +738,7 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 		None
 	}
 
-	fn fetch_children(&self, at: KeyIndexFor<N>, backend: &N::Backend) -> Option<NodeBox<N>> {
+	fn fetch_children(&self, at: KeyIndexFor<N>, backend: &N::Backend) -> Option<Node<N>> {
 		if let Some(index) = self.fetch_children_index(at) {
 			return self.get_node(index, backend);
 		}

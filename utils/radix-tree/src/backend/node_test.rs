@@ -172,18 +172,18 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 	type ChildState = crate::Child<Node<N>>;
 	//type ChildState = Box<Node<N>>;
 
-	fn init_root(encoded: Vec<u8>, index: IndexFor<N>) -> Option<NodeBox<N>> {
+	fn init_root(encoded: Vec<u8>, index: IndexFor<N>) -> Option<Node<N>> {
 		let (backend, prefix) = decode::<N>(encoded, index);
-		Some(Node::<N>::new_box_unfetched(
+		Some(Node::<N>::new_unfetched(
 			prefix,
 			backend,
 		))
 	}
 
-	fn get_node(&self, index: IndexFor<N>, backend: &N::Backend) -> Option<NodeBox<N>> {
+	fn get_node(&self, index: IndexFor<N>, backend: &N::Backend) -> Option<Node<N>> {
 		if let Some(encoded) = backend.get_node(index.clone()) {
 			let (backend, prefix) = decode::<N>(encoded, index);
-			Some(Node::<N>::new_box_unfetched(
+			Some(Node::<N>::new_unfetched(
 				prefix,
 				backend,
 			))
@@ -213,7 +213,7 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 		}
 	}
 
-	fn fetch_children(&self, at: KeyIndexFor<N>, backend: &N::Backend) -> Option<NodeBox<N>> {
+	fn fetch_children(&self, at: KeyIndexFor<N>, backend: &N::Backend) -> Option<Node<N>> {
 		if let Some(child) = self.child_index.get(at.to_usize()) {
 			if let Some(index) = child.clone() {
 				return self.get_node(index, backend);

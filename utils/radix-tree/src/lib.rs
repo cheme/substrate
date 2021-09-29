@@ -417,7 +417,7 @@ impl<N: TreeConf> Node<N> {
 			N::Children::empty(nb_children)
 		}
 	}
-	
+
 	fn new(
 		key: &[u8],
 		start_position: PositionFor<N>,
@@ -434,17 +434,17 @@ impl<N: TreeConf> Node<N> {
 		}
 	}
 
-	fn new_box_unfetched(
+	fn new_unfetched(
 		prefix: PrefixKey<NodeKeyBuff, AlignmentFor<N>>,
 		mut backend: N::NodeBackend,
-	) -> NodeBox<N> {
+	) -> Node<N> {
 		let children = Self::children_with_backend(&mut backend);
-		Box::new(Node {
+		Node {
 			key: prefix,
 			value: None,
 			children,
 			backend,
-		})
+		}
 	}
 
 	fn descend(
@@ -589,11 +589,11 @@ impl<N: TreeConf> Node<N> {
 		}
 		self.children.get_child(index).and_then(|c| c.node())
 	}
-	fn get_child_no_cache( // TODO useless except if backend non mutable no_cache get 
+	fn get_child_no_cache( // TODO useless except if backend non mutable no_cache get
 		&self,
 		index: KeyIndexFor<N>,
 		backend: &N::Backend,
-	) -> Option<NodeBox<N>> {
+	) -> Option<Node<N>> {
 		if !N::Backend::ACTIVE {
 			panic!("No backend");
 		}
@@ -647,7 +647,7 @@ impl<N: TreeConf> Node<N> {
 			_ => self.value.is_some(),
 		}
 	}
-	
+
 	fn get_child_mut(
 		&mut self,
 		index: KeyIndexFor<N>,
@@ -661,7 +661,7 @@ impl<N: TreeConf> Node<N> {
 			};
 			if !resolved {
 				if let Some(result) = self.backend.fetch_children(index, backend) {
-					let result = ChildFor::<N>::from_state(ChildState::Resolved, Some(result));
+					let result = ChildFor::<N>::from_state(ChildState::Resolved, Some(Box::new(result)));
 					self.children.set_child(index, result);
 				} else {
 					// TODO add Resolved None to children!!
@@ -728,7 +728,7 @@ impl<N: TreeConf> Node<N> {
 			key: parent_prefix,
 			value: None,
 			children: N::Children::empty(0),
-			backend, 
+			backend,
 		});
 		let child = replace(node, parent);
 		let child = ChildFor::<N>::from_state(ChildState::Resolved, Some(child));
@@ -800,7 +800,7 @@ impl<N: TreeConf> Node<N> {
 			stack[node_position.index] = self.key.start.mask_start(stack[node_position.index]) | start;
 			if node_position_end.mask != MaskFor::<N::Radix>::FIRST {
 				stack[node_position_end.index] = node_position_end.mask.mask_end_excl(stack[node_position_end.index]);
-			};			
+			};
 		}
 	}
 
@@ -871,7 +871,7 @@ impl<N> Default for Tree<N>
 		}
 	}
 }
-	
+
 impl<N> Tree<N>
 	where
 		N: TreeConf,
@@ -884,12 +884,12 @@ impl<N> Tree<N>
 			removed_node: Vec::new(),
 		}
 	}
-	
+
 	/// Instantiate an existing tree from its serializing
 	/// backend.
 	pub fn from_backend(backend: N::Backend) -> Self {
 		let tree = N::Backend::get_root(&backend).and_then(|(enc_root, root_ix)| {
-			N::NodeBackend::init_root(enc_root, root_ix)
+			N::NodeBackend::init_root(enc_root, root_ix).map(Box::new)
 		});
 		Tree {
 			tree,
@@ -1009,7 +1009,7 @@ impl<N: TreeConf> Tree<N> {
 	/// Get reference to a tree value for a given key, do not cache backend query.
 	pub fn get_no_cache(&self, key: &[u8]) -> Option<N::Value> {
 		if let Some(top) = &self.tree {
-			let mut current = top;
+			let mut current: &Node<N> = top.borrow();
 			// TODO is this limit condition of any use
 			if key.len() == 0 {
 				if current.depth() == 0 {

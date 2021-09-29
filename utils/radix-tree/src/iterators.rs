@@ -190,6 +190,31 @@ impl<N: TreeConf> Tree<N> {
 		}
 	}
 
+	/// Seek iteration following a giving key.
+	pub fn seek_iter_no_cache<'a>(&'a self, key: &'a [u8]) -> SeekIterNoCache<'a, N> {
+		let dest_position = Position {
+			index: key.len(),
+			mask: MaskFor::<N::Radix>::FIRST,
+		};
+		self.seek_iter_at_no_cache(key, dest_position)
+	}
+
+	/// Seek iteration following a giving node key, a postion on the key is used for unalingned
+	/// radix.
+	pub fn seek_iter_at_no_cache<'a>(&'a self, key: &'a [u8], dest_position: PositionFor<N>) -> SeekIterNoCache<'a, N> {
+		let stack = NodeStackNoCache::new();
+		let reach_dest = false;
+		let next = stack.descend(key, dest_position);
+		SeekIterNoCache {
+			tree: self,
+			dest: key,
+			dest_position,
+			stack,
+			reach_dest,
+			next,
+		}
+	}
+
 	/// Seek nodes iterator over a given key with mutable access.
 	pub fn seek_iter_mut<'a>(&'a mut self, key: &'a [u8]) -> SeekIterMut<'a, N> {
 		let dest_position = Position {
@@ -215,6 +240,13 @@ impl<N: TreeConf> Tree<N> {
 	}
 }
 
+macro_rules! no_ref {($seek_iter: expr) => {
+	$seek_iter
+}}
+macro_rules! use_ref {($seek_iter: expr) => {
+	&$seek_iter
+}}
+
 macro_rules! iter_impl {
 	(
 		$seek_iter: ident,
@@ -225,7 +257,10 @@ macro_rules! iter_impl {
 		$seek_value_iter: ident,
 		$iter_stack: ident,
 		$from_stack: ident,
+		$from_stack2: ident,
+		$use_ref: ident,
 		$to_stack: ident,
+		$to_stack2: ident,
 		$as_ref: ident,
 		$get_child: ident,
 	) => {
@@ -255,7 +290,7 @@ impl<'a, N: TreeConf> $seek_iter<'a, N> {
 					} else {
 						PositionFor::<N>::zero()
 					};
-					let index = $from_stack(stack[stack.len() - 1].1).partial_index(node_position, *position)
+					let index = $from_stack($use_ref!(stack[stack.len() - 1].1)).partial_index(node_position, *position)
 						.expect("Middle variant");
 					debug_assert!(index != key_index);
 					if index > key_index {
@@ -267,7 +302,7 @@ impl<'a, N: TreeConf> $seek_iter<'a, N> {
 						while do_pop {
 							stack.pop();
 							if let Some(last) = stack.last_mut() {
-								if let Some(next) = $from_stack(last.1).get_next_child_index(Some(last.2)) {
+								if let Some(next) = $from_stack($use_ref!(last.1)).get_next_child_index(Some(last.2)) {
 									last.2 = next;
 								} else {
 									continue;
@@ -300,7 +335,7 @@ impl<'a, N: TreeConf> $seek_iter<'a, N> {
 		}
 
 		let mut stack = self.stack.stack.into_iter().map(|(pos, node)| {
-			let node_depth = $from_stack(node).depth();
+			let node_depth = $from_stack($use_ref!(node)).depth();
 			let pos = pos.next_by::<N::Radix>(node_depth);
 			let key = pos.index::<N::Radix>(dest)
 				// out of dest we use the first child
@@ -354,7 +389,7 @@ impl<'a, N: TreeConf> $seek_iter<'a, N> {
 
 		let stack = if !finished {
 			self.stack.stack.pop().map(|(pos, node)| {
-				let node_depth = $from_stack(node).depth();
+				let node_depth = $from_stack($use_ref!(node)).depth();
 				let pos = pos.next_by::<N::Radix>(node_depth);
 				let key = pos.index::<N::Radix>(dest)
 					.unwrap_or_else(|| KeyIndexFor::<N>::zero());
@@ -363,7 +398,7 @@ impl<'a, N: TreeConf> $seek_iter<'a, N> {
 		} else {
 			Default::default()
 		};
-	
+
 		$iter {
 			tree: self.tree,
 			stack: $iter_stack {
@@ -386,7 +421,7 @@ impl<'a, N: TreeConf> $seek_iter<'a, N> {
 		match self.next {
 			Descent::Child(position, index) => {
 				if let Some(parent) = self.stack.stack.last() {
-					if let Some(child) = $from_stack(parent.1).$get_child(index, &self.tree.backend) {
+					if let Some(child) = $from_stack($use_ref!(parent.1)).$get_child(index, &self.tree.backend) {
 						let position = position.next::<N::Radix>();
 						match child.descend(
 							&self.dest,
@@ -397,7 +432,7 @@ impl<'a, N: TreeConf> $seek_iter<'a, N> {
 								self.next = next;
 								self.reach_dest = true;
 								// need to stack in order to convert to iter later.
-								self.stack.stack.push((position, $to_stack(child)));
+								self.stack.stack.push((position, $to_stack2(child)));
 								return None;
 							},
 							Descent::Match(..) => {
@@ -407,7 +442,7 @@ impl<'a, N: TreeConf> $seek_iter<'a, N> {
 								self.next = next;
 							},
 						}
-						self.stack.stack.push((position, $to_stack(child)));
+						self.stack.stack.push((position, $to_stack2(child)));
 					} else {
 						self.reach_dest = true;
 						return None;
@@ -446,7 +481,9 @@ impl<'a, N: TreeConf> $seek_iter<'a, N> {
 				unreachable!();
 			},
 		}
-		self.stack.stack.last().map(|last| (last.0, $from_stack(last.1)))
+		self.stack.stack.last().map(|last| {
+			(last.0, $from_stack2($use_ref!(last.1)))
+		})
 	}
 }
 
@@ -466,7 +503,7 @@ impl<'a, N: TreeConf> $iter<'a, N> {
 				self.stack.stack.pop();
 				if let Some(last) = self.stack.stack.last_mut() {
 					// move cursor to next
-					if let Some(next) = $from_stack(last.1).get_next_child_index(Some(last.2)) {
+					if let Some(next) = $from_stack($use_ref!(last.1)).get_next_child_index(Some(last.2)) {
 						last.2 = next;
 					} else {
 						// try descend in next from parent
@@ -480,7 +517,7 @@ impl<'a, N: TreeConf> $iter<'a, N> {
 				do_pop = false;
 			}
 			if let Some(last) = self.stack.stack.last_mut() {
-				let last_1 = $from_stack(last.1);
+				let last_1 = $from_stack($use_ref!(last.1));
 				// try descend
 				if let Some(child) = last_1.$get_child(last.2, &self.tree.backend) {
 					//let position = last.0.next::<N::Radix>();
@@ -495,9 +532,9 @@ impl<'a, N: TreeConf> $iter<'a, N> {
 					self.stack.stack.push((position, child, first_key));
 					break;
 				}
-	
+
 				// try descend in next
-				if let Some(next) = $from_stack(last.1).get_next_child_index(Some(last.2)) {
+				if let Some(next) = $from_stack($use_ref!(last.1)).get_next_child_index(Some(last.2)) {
 					last.2 = next;
 				} else {
 					// try descend in next from parent
@@ -519,7 +556,7 @@ impl<'a, N: TreeConf> $iter<'a, N> {
 			}
 		}
 
-		self.stack.stack.last_mut().map(|(p, n, _i)| (*p, $from_stack(*n)))
+		self.stack.stack.last_mut().map(|(p, n, _i)| (*p, $from_stack2($use_ref!(*n))))
 	}
 }
 
@@ -528,6 +565,8 @@ impl<'a, N: TreeConf> $iter<'a, N> {
 
 type SeekIterItem<'a, N> = (PositionFor<N>, &'a Node<N>, KeyIndexFor<N>);
 type NextNode<'a, N> = (PositionFor<N>, &'a Node<N>);
+type SeekIterItemNoCache<'a, N> = (PositionFor<N>, Node<N>, KeyIndexFor<N>);
+type NextNodeNoCache<'a, N> = (PositionFor<N>, Node<N>);
 type SeekIterItemMut<'a, N> = (PositionFor<N>, *mut Node<N>, KeyIndexFor<N>);
 type NextNodeMut<'a, N> = (PositionFor<N>, &'a mut Node<N>);
 fn from_stack<'a, N: TreeConf>(s: &'a Node<N>) -> &'a Node<N> {
@@ -536,10 +575,16 @@ fn from_stack<'a, N: TreeConf>(s: &'a Node<N>) -> &'a Node<N> {
 fn to_stack<'a, N: TreeConf>(s: &'a Node<N>) -> &'a Node<N> {
 	s
 }
-fn from_stack_no_cache<N: TreeConf>(s: Node<N>) -> Node<N> {
+fn from_stack_no_cache<'a, N: TreeConf>(s: &Node<N>) -> &Node<N> {
 	s
 }
-fn to_stack_no_cache<'a, N: TreeConf>(s: Node<N>) -> Node<N> {
+fn from_stack_no_cache_clone<'a, N: TreeConf>(s: &Node<N>) -> Node<N> {
+	s.clone()
+}
+fn to_stack_no_cache<'a, N: TreeConf>(s: &'a Node<N>) -> Node<N> { // TODO try using directly node as param (using different as_ref function)
+	s.clone()
+}
+fn to_stack_no_cache2<N: TreeConf>(s: Node<N>) -> Node<N> { // TODO try using directly node as param (using different as_ref function)
 	s
 }
 fn unsafe_from_stack_mut<'a, N: TreeConf>(s: *mut Node<N>) -> &'a mut Node<N> {
@@ -550,20 +595,6 @@ fn to_stack_mut<'a, N: TreeConf>(s: &'a mut Node<N>) -> *mut Node<N> {
 }
 
 iter_impl!(
-	SeekIterNoCache,
-	IterNoCache,
-	SeekIterItem,
-	NextNode,
-	ValueIterNoCache,
-	SeekValueIterNoCache,
-	IterStack,
-	from_stack_no_cache,
-	to_stack_no_cache,
-	as_ref,
-	get_child_no_cache,
-);
-
-iter_impl!(
 	SeekIter,
 	Iter,
 	SeekIterItem,
@@ -572,9 +603,29 @@ iter_impl!(
 	SeekValueIter,
 	IterStack,
 	from_stack,
+	from_stack,
+	no_ref,
+	to_stack,
 	to_stack,
 	as_ref,
 	get_child,
+);
+
+iter_impl!(
+	SeekIterNoCache,
+	IterNoCache,
+	SeekIterItemNoCache,
+	NextNodeNoCache,
+	ValueIterNoCache,
+	SeekValueIterNoCache,
+	IterStackNoCache,
+	from_stack_no_cache,
+	from_stack_no_cache_clone,
+	use_ref,
+	to_stack_no_cache,
+	to_stack_no_cache2,
+	as_ref,
+	get_child_no_cache,
 );
 
 iter_impl!(
@@ -586,6 +637,9 @@ iter_impl!(
 	SeekValueIterMut,
 	IterStackMut,
 	unsafe_from_stack_mut,
+	unsafe_from_stack_mut,
+	no_ref,
+	to_stack_mut,
 	to_stack_mut,
 	as_mut,
 	get_child_mut_deref,
@@ -597,7 +651,7 @@ pub struct SeekIter<'a, N: TreeConf> {
 	tree: &'a Tree<N>,
 	dest: &'a [u8],
 	dest_position: PositionFor<N>,
-	// TODO seekiter could be lighter and avoid using stack, 
+	// TODO seekiter could be lighter and avoid using stack,
 	// just keep latest: a stack trait could be use.
 	stack: NodeStack<'a, N>,
 	// state for next iter, we calculate it before
@@ -664,7 +718,7 @@ impl<'a, N: TreeConf> SeekValueIterNoCache<'a, N> {
 }
 
 impl<'a, N: TreeConf> Iterator for SeekIterNoCache<'a, N> {
-	type Item = (&'a [u8], PositionFor<N>, &'a Node<N>);
+	type Item = (&'a [u8], PositionFor<N>, Node<N>);
 
 	fn next(&mut self) -> Option<Self::Item> {
 		self.next_node().map(|(pos, node)| (self.dest, pos, node))
@@ -672,12 +726,12 @@ impl<'a, N: TreeConf> Iterator for SeekIterNoCache<'a, N> {
 }
 
 impl<'a, N: TreeConf> Iterator for SeekValueIterNoCache<'a, N> {
-	type Item = (&'a [u8], &'a N::Value);
+	type Item = (&'a [u8], N::Value);
 
 	fn next(&mut self) -> Option<Self::Item> {
 		loop {
 			if let Some((key, pos, node)) = self.0.next() {
-				if let Some(v) = node.value(&self.0.tree.backend) {
+				if let Some(v) = node.value_no_cache(&self.0.tree.backend) {
 					let pos = pos.next_by::<N::Radix>(node.depth());
 					return Some((&key[..pos.index], v))
 				}
@@ -776,6 +830,15 @@ impl<N: TreeConf> Tree<N> {
 		}
 	}
 
+	/// Get node iterator for this tree.
+	pub fn iter_no_cache<'a>(&'a self) -> IterNoCache<'a, N> {
+		IterNoCache {
+			tree: self,
+			stack: IterStackNoCache::new(),
+			finished: false,
+		}
+	}
+
 	/// Get mutable node iterator for this tree.
 	pub fn iter_mut<'a>(&'a mut self) -> IterMut<'a, N> {
 		IterMut {
@@ -799,7 +862,7 @@ impl<'a, N: TreeConf> Iterator for Iter<'a, N> {
 impl<'a, N: TreeConf> Iterator for IterNoCache<'a, N> {
 	// TODO key as slice, but usual lifetime issue.
 	// TODO at leas use a stack type for key (smallvec).
-	type Item = (Key, PositionFor<N>, &'a Node<N>);
+	type Item = (Key, PositionFor<N>, Node<N>);
 
 	fn next(&mut self) -> Option<Self::Item> {
 		self.next_node().map(|(p, n)| (self.stack.key.clone(), p, n))
@@ -845,12 +908,12 @@ impl<'a, N: TreeConf> ValueIter<'a, N> {
 impl<'a, N: TreeConf> Iterator for ValueIterNoCache<'a, N> {
 	// TODO key as slice, but usual lifetime issue.
 	// TODO at leas use a stack type for key (smallvec).
-	type Item = (Key, &'a N::Value);
+	type Item = (Key, N::Value);
 
 	fn next(&mut self) -> Option<Self::Item> {
 		loop {
 			if let Some((mut key, pos, node)) = self.0.next() {
-				if let Some(v) = node.value(&self.0.tree.backend) {
+				if let Some(v) = node.value_no_cache(&self.0.tree.backend) {
 					key.truncate(pos.index);
 					return Some((key, v))
 				}
@@ -900,6 +963,7 @@ impl<'a, N: TreeConf> Iterator for ValueIterMut<'a, N> {
 ///
 /// Owned iterator do not modify the inner tree,
 /// and iterated content is always cloned.
+/// TODO switch it to use NoCache as here we still cache in memory.
 pub struct OwnedIter<N: TreeConf + 'static> {
 	inner: Tree<N>,
 	iter: ValueIterMut<'static, N>,
