@@ -1075,3 +1075,26 @@ impl<N: TreeConf + 'static> Iterator for OwnedIterSeek<N> {
 		self.iter.next().map(|(key, value)| (key.to_vec(), value))
 	}
 }
+
+impl<N: TreeConf> OwnedIterSeek<N> {
+	/// Node iterator from a seek iterator.
+	/// This allow doing seek first then iterationg nodes
+	/// with the same context.
+	pub fn iter(self) -> OwnedIter<N> {
+		OwnedIter {
+			inner: self.inner,
+			iter: self.iter.0.iter().value_iter(),
+		}
+	}
+
+	/// Node iterator from a seek iterator.
+	/// This differs from `iter` because the iteration
+	/// will only happen on nodes starting with the prefix
+	/// of the current node for the seek iterator.
+	pub fn iter_prefix(self) -> OwnedIter<N> {
+		OwnedIter {
+			inner: self.inner,
+			iter: self.iter.0.iter_prefix().value_iter(),
+		}
+	}
+}
