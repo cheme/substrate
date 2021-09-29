@@ -963,10 +963,16 @@ impl<'a, N: TreeConf> Iterator for ValueIterMut<'a, N> {
 ///
 /// Owned iterator do not modify the inner tree,
 /// and iterated content is always cloned.
-/// TODO switch it to use NoCache as here we still cache in memory.
 pub struct OwnedIter<N: TreeConf + 'static> {
 	inner: Tree<N>,
-	iter: ValueIterMut<'static, N>,
+	iter: ValueIterNoCache<'static, N>,
+}
+
+/// Seek variant of OwnedIter.
+pub struct OwnedIterSeek<N: TreeConf + 'static> {
+	inner: Tree<N>,
+	prefix: Key,
+	iter: SeekValueIterNoCache<'static, N>,
 }
 
 impl<N: TreeConf + 'static> OwnedIter<N> {
@@ -982,30 +988,40 @@ impl<N: TreeConf + 'static> OwnedIter<N> {
 	}
 }
 
+impl<N: TreeConf + 'static> OwnedIterSeek<N> {
+	/// After iteration, we can use back the
+	/// tree content back.
+	pub fn extract_inner(self) -> Tree<N> {
+		let OwnedIterSeek {
+			inner,
+			iter,
+			prefix,
+		} = self;
+		drop(iter);
+		drop(prefix);
+		inner
+	}
+}
+
 impl<N: TreeConf> Tree<N> {
 	/// Use tree as a value iterator.
-	pub fn owned_iter(mut self) -> OwnedIter<N> {
-		let self_ptr = &mut self as *mut Self;
-		let unsafe_ptr: &'static mut Self = unsafe { self_ptr.as_mut().unwrap() };
+	pub fn owned_iter(self) -> OwnedIter<N> {
+		let self_ptr = &self as *const Self;
+		let unsafe_ptr: &'static Self = unsafe { self_ptr.as_ref().unwrap() };
+		let iter = unsafe_ptr.iter_no_cache().value_iter();
 		OwnedIter {
 			inner: self,
-			iter: ValueIterMut (
-				IterMut {
-					tree: unsafe_ptr,
-					stack: IterStackMut::new(),
-					finished: false,
-				}
-			),
+			iter,
 		}
 	}
 
 	/// Use tree as a value iterator for keys starting with a given prefix.
-	pub fn owned_prefix_iter(mut self, prefix: &[u8]) -> OwnedIter<N> {
-		let self_ptr = &mut self as *mut Self;
-		let unsafe_ptr: &'static mut Self = unsafe { self_ptr.as_mut().unwrap() };
+	pub fn owned_prefix_iter(self, prefix: &[u8]) -> OwnedIter<N> {
+		let self_ptr = &self as *const Self;
+		let unsafe_ptr: &'static Self = unsafe { self_ptr.as_ref().unwrap() };
 		let static_prefix = prefix as *const [u8];
 		let static_prefix: &'static [u8] = unsafe { static_prefix.as_ref().unwrap() };
-		let mut seek_iter = unsafe_ptr.seek_iter_mut(static_prefix);
+		let mut seek_iter = unsafe_ptr.seek_iter_no_cache(static_prefix);
 		while seek_iter.next().is_some() { }
 		let iter = seek_iter.iter_prefix().value_iter();
 		OwnedIter {
@@ -1015,16 +1031,30 @@ impl<N: TreeConf> Tree<N> {
 	}
 
 	/// Use tree as a value iterator for keys starting with a given key.
-	pub fn owned_iter_from(mut self, start_key: &[u8]) -> OwnedIter<N> {
-		let self_ptr = &mut self as *mut Self;
-		let unsafe_ptr: &'static mut Self = unsafe { self_ptr.as_mut().unwrap() };
+	pub fn owned_iter_from(self, start_key: &[u8]) -> OwnedIter<N> {
+		let self_ptr = &self as *const Self;
+		let unsafe_ptr: &'static Self = unsafe { self_ptr.as_ref().unwrap() };
 		let static_prefix = start_key as *const [u8];
 		let static_prefix: &'static [u8] = unsafe { static_prefix.as_ref().unwrap() };
-		let mut seek_iter = unsafe_ptr.seek_iter_mut(static_prefix);
+		let mut seek_iter = unsafe_ptr.seek_iter_no_cache(static_prefix);
 		while seek_iter.next().is_some() { }
 		let iter = seek_iter.iter().value_iter();
 		OwnedIter {
 			inner: self,
+			iter,
+		}
+	}
+
+	/// Use tree as a seek value iterator.
+	pub fn owned_iter_seek(self, prefix: Key) -> OwnedIterSeek<N> {
+		let self_ptr = &self as *const Self;
+		let unsafe_ptr: &'static Self = unsafe { self_ptr.as_ref().unwrap() };
+		let prefix_ptr = prefix.as_slice() as *const [u8];
+		let unsafe_prefix_ptr: &'static [u8] = unsafe { prefix_ptr.as_ref().unwrap() };
+		let iter = unsafe_ptr.seek_iter_no_cache(unsafe_prefix_ptr).value_iter();
+		OwnedIterSeek {
+			inner: self,
+			prefix,
 			iter,
 		}
 	}
@@ -1034,6 +1064,14 @@ impl<N: TreeConf + 'static> Iterator for OwnedIter<N> {
 	type Item = (Key, N::Value);
 
 	fn next(&mut self) -> Option<Self::Item> {
-		self.iter.next().map(|(key, value)| (key, value.clone()))
+		self.iter.next()
+	}
+}
+
+impl<N: TreeConf + 'static> Iterator for OwnedIterSeek<N> {
+	type Item = (Key, N::Value);
+
+	fn next(&mut self) -> Option<Self::Item> {
+		self.iter.next().map(|(key, value)| (key.to_vec(), value))
 	}
 }
