@@ -780,7 +780,7 @@ impl<N: TreeConf> Node<N> {
 		if <N::Radix as RadixConf>::Alignment::ALIGNED {
 			let new_len = node_position.index + depth;
 			stack.resize(new_len, 0);
-			&mut stack[node_position.index..new_len].copy_from_slice(self.key.data.borrow());
+			stack[node_position.index..new_len].copy_from_slice(self.key.data.borrow());
 		} else {
 			// exclusive end.
 			let node_position_end = node_position.next_by::<N::Radix>(depth);
@@ -795,7 +795,7 @@ impl<N: TreeConf> Node<N> {
 			// TODO maybe change prefix key code to never update byte??
 			let start: u8 = self.key.start.mask_end_excl(stack[node_position.index]);
 			// end index exclusive semantic.
-			&mut stack[node_position.index..node_position_end.index + 1 - shift].copy_from_slice(self.key.data.borrow());
+			stack[node_position.index..node_position_end.index + 1 - shift].copy_from_slice(self.key.data.borrow());
 			// this requires that the stack end position is cleared
 			stack[node_position.index] = self.key.start.mask_start(stack[node_position.index]) | start;
 			if node_position_end.mask != MaskFor::<N::Radix>::FIRST {
@@ -1007,8 +1007,8 @@ tree_get!(
 
 impl<N: TreeConf> Tree<N> {
 	/// Get reference to a tree value for a given key, do not cache backend query.
-	pub fn get_no_cache(self, key: &[u8]) -> Option<N::Value> {
-		if let Some(top) = self.tree {
+	pub fn get_no_cache(&self, key: &[u8]) -> Option<N::Value> {
+		if let Some(top) = &self.tree {
 			let mut current = top;
 			// TODO is this limit condition of any use
 			if key.len() == 0 {
@@ -1023,12 +1023,14 @@ impl<N: TreeConf> Tree<N> {
 				mask: MaskFor::<N::Radix>::FIRST,
 			};
 			let mut position = PositionFor::<N>::zero();
+			let mut allocated_node;
 			loop {
 				match current.descend(key, position, dest_position) {
 					Descent::Child(child_position, index) => {
 						if let Some(child) = current.get_child_no_cache(index, &self.backend) {
 							position = child_position.next::<N::Radix>();
-							current = child;
+							allocated_node = child;
+							current = &allocated_node;
 						} else {
 							return None;
 						}
