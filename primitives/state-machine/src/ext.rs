@@ -151,7 +151,7 @@ where
 		storage_transaction_cache: &'a mut StorageTransactionCache<B::Transaction, H, N>,
 		backend: &'a B,
 		changes_trie_state: Option<ChangesTrieState<'a, H, N>>,
-		extensions: Option<&'a mut sp_externalities::Extensions>,
+		extensions: Option<&'a mut Extensions>,
 	) -> Self {
 		Self {
 			overlay,

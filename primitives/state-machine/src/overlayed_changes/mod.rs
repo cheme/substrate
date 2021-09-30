@@ -42,7 +42,6 @@ use crate::{
 };
 use codec::{Decode, Encode};
 use hash_db::Hasher;
-pub use offchain::OffchainOverlayedChanges;
 use sp_core::{
 	offchain::OffchainOverlayedChange,
 	storage::{well_known_keys::EXTRINSIC_INDEX, ChildInfo},
@@ -50,16 +49,11 @@ use sp_core::{
 use sp_externalities::{
 	Change, Extension, Extensions, TaskId, WorkerDeclaration, WorkerDeclarationKind, WorkerResult,
 };
-#[cfg(not(feature = "std"))]
-use sp_std::collections::btree_map::BTreeMap as Map;
-use sp_std::{collections::btree_set::BTreeSet, vec::Vec};
+use sp_std::collections::btree_set::BTreeSet;
 #[cfg(feature = "std")]
 use std::collections::{hash_map::Entry as MapEntry, HashMap as Map};
-#[cfg(feature = "std")]
-use std::{
-	any::{Any, TypeId},
-	boxed::Box,
-};
+#[cfg(not(feature = "std"))]
+use sp_std::collections::btree_map::{Entry as MapEntry, BTreeMap as Map};
 
 pub use self::changeset::{AlreadyInRuntime, NoOpenTransaction, NotInRuntime, OverlayedValue};
 
@@ -941,8 +935,6 @@ impl OverlayedChanges {
 			self.changes_trie_root(backend, changes_trie_state, parent_hash, false, &mut cache)
 				.map_err(|_| "Failed to generate changes trie transaction")?;
 		}
-		#[cfg(not(feature = "std"))]
-		let _ = parent_hash;
 
 		#[cfg(feature = "std")]
 		let changes_trie_transaction = cache
@@ -1256,7 +1248,6 @@ where
 
 /// An overlayed extension is either a mutable reference
 /// or an owned extension.
-#[cfg(feature = "std")]
 pub enum OverlayedExtension<'a> {
 	MutRef(&'a mut Box<dyn Extension>),
 	Owned(Box<dyn Extension>),
@@ -1269,12 +1260,10 @@ pub enum OverlayedExtension<'a> {
 /// as owned references. After the execution of a runtime function, we
 /// can safely drop this object while not having modified the original
 /// list.
-#[cfg(feature = "std")]
 pub struct OverlayedExtensions<'a> {
 	extensions: Map<TypeId, OverlayedExtension<'a>>,
 }
 
-#[cfg(feature = "std")]
 impl<'a> OverlayedExtensions<'a> {
 	/// Create a new instance of overlayed extensions from the given extensions.
 	pub fn new(extensions: &'a mut Extensions) -> Self {

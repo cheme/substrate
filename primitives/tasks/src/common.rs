@@ -18,7 +18,7 @@
 //! Common utilities and types for implementing `RuntimeSpawn` trait.
 
 #[cfg(feature = "std")]
-use crate::error::Error;
+use crate::error::{Error, WasmError};
 #[cfg(feature = "std")]
 use crate::wasm_runtime::{InvokeMethod, WasmInstance, WasmModule};
 #[cfg(feature = "std")]
@@ -115,7 +115,9 @@ pub trait LazyInstanciate<'a> {
 	///
 	/// Can return `None` when no module was defined or an error occurs, this should
 	/// be considered as a panicking situation.
-	fn instantiate(self) -> Option<&'a AssertUnwindSafe<Box<dyn WasmInstance>>>;
+	///
+	/// A fonction callback is also return to be called on panic (to handle `AssertUnwindSafe`).
+	fn instantiate(self) -> Option<(AssertUnwindSafe<&'a mut Box<dyn WasmInstance>>, Box<dyn FnMut()> + 'a)>;
 }
 
 /// Lazy instantiate for non owned wasm instance.
@@ -124,12 +126,12 @@ pub struct InlineInstantiateRef<'a> {
 	/// Thread safe reference counted to the module.
 	pub module: &'a Option<Arc<dyn WasmModule>>,
 	/// Thread safe reference to the instance.
-	pub instance: &'a mut Option<AssertUnwindSafe<Box<dyn WasmInstance>>>,
+	pub instance: &'a mut Option<Box<dyn WasmInstance>>,
 }
 
 #[cfg(feature = "std")]
 impl<'a> LazyInstanciate<'a> for InlineInstantiateRef<'a> {
-	fn instantiate(self) -> Option<&'a AssertUnwindSafe<Box<dyn WasmInstance>>> {
+	fn instantiate(self) -> Option<(AssertUnwindSafe<&'a mut Box<dyn WasmInstance>>, Box<dyn FnMut()> + 'a)> {
 		if self.instance.is_none() {
 			*self.instance = if let Some(instance) = instantiate_inline(self.module) {
 				Some(instance)
@@ -137,19 +139,28 @@ impl<'a> LazyInstanciate<'a> for InlineInstantiateRef<'a> {
 				return None
 			}
 		};
-		self.instance.as_ref()
+		let instance_h = self.instance as *mut Option<Box<dyn WasmInstance>>;
+		if let Some(i) = self.instance.as_mut() {
+			let handle = move || {
+				let instance: &mut Option<Box<dyn WasmInstance>> = unsafe { instance_h.as_mut().unwrap() }; 
+				*instance = None;
+			};
+			Some((AssertUnwindSafe(i), Box::new(handle)))
+		} else {
+			None
+		}
 	}
 }
 
 #[cfg(feature = "std")]
 /// Instantiate a wasm module.
 /// This function is rather unsafe and should only be
-/// use when `AssertUwindSafe` assertion stands.
+/// use when `AssertUnwindSafe` assertion stands.
 pub fn instantiate(
 	module: Option<&dyn WasmModule>,
-) -> Option<AssertUnwindSafe<Box<dyn WasmInstance>>> {
+) -> Option<Box<dyn WasmInstance>> {
 	Some(match module.map(|m| m.new_instance()) {
-		Some(Ok(val)) => AssertUnwindSafe(val),
+		Some(Ok(val)) => val,
 		Some(Err(e)) => {
 			log_error!(
 				target: "executor",
@@ -169,7 +180,7 @@ pub fn instantiate(
 #[cfg(feature = "std")]
 pub fn instantiate_inline(
 	module: &Option<Arc<dyn WasmModule>>,
-) -> Option<AssertUnwindSafe<Box<dyn WasmInstance>>> {
+) -> Option<Box<dyn WasmInstance>> {
 	instantiate(module.as_ref().map(AsRef::as_ref))
 }
 
@@ -206,16 +217,21 @@ pub(crate) fn process_task_inner<
 			if HostLocal::HOST_LOCAL {
 				panic!("HOST_LOCAL is only expected for a wasm no_std call");
 			} else {
-				let instance = if let Some(instance) = instance_ref.instantiate() {
+				let (mut instance, panic_h) = if let Some(instance) = instance_ref.instantiate() {
 					instance
 				} else {
 					return WorkerResult::HardPanic
 				};
-				match with_externalities_safe(&mut async_ext, || {
+				match with_externalities_safe(&mut async_ext, move || {
 					instance
 						.call(InvokeMethod::TableWithWrapper { dispatcher_ref, func }, &data[..])
 				}) {
 					Ok(Ok(result)) => result,
+					Ok(Err(Error::RuntimePanicked(error))) => {
+						panic_h();
+						log_error!("Runtime panic error in wasm task: {:?}", error);
+						return WorkerResult::RuntimePanic
+					},
 					Ok(Err(error)) | Err(error) => {
 						log_error!("Runtime panic error in wasm task: {:?}", error);
 						return WorkerResult::RuntimePanic

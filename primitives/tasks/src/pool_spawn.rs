@@ -52,7 +52,7 @@ struct InlineInstantiate<'a, 'b> {
 }
 
 impl<'a, 'b> crate::common::LazyInstanciate<'a> for InlineInstantiate<'a, 'b> {
-	fn instantiate(self) -> Option<&'a AssertUnwindSafe<Box<dyn WasmInstance>>> {
+	fn instantiate(self) -> Option<&'a mut AssertUnwindSafe<Box<dyn WasmInstance>>> {
 		if self.guard.is_none() {
 			**self.guard = if let Some(instance) = instantiate_inline(self.module) {
 				Some(instance)
@@ -61,7 +61,7 @@ impl<'a, 'b> crate::common::LazyInstanciate<'a> for InlineInstantiate<'a, 'b> {
 			};
 		}
 
-		self.guard.as_ref()
+		self.guard.as_mut()
 	}
 }
 
@@ -414,13 +414,17 @@ impl RuntimeSpawn for RuntimeInstanceSpawn {
 				let instance_ref = InlineInstantiate { module: &self.module, guard: &mut instance };
 
 				let runtime_spawn = Box::new(self.nested_instance());
-				crate::inline_spawn::process_task_inline(
+				let result = crate::inline_spawn::process_task_inline(
 					task.task,
 					task.ext,
 					handle,
 					runtime_spawn,
 					instance_ref,
-				)
+				);
+				if instance.panicked() {
+					*instance = None;
+				}
+				result
 			},
 			// handle has been removed due to dismiss or
 			// invalid externality condition.
