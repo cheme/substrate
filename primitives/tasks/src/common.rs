@@ -18,7 +18,7 @@
 //! Common utilities and types for implementing `RuntimeSpawn` trait.
 
 #[cfg(feature = "std")]
-use crate::error::{Error, WasmError};
+use crate::error::Error;
 #[cfg(feature = "std")]
 use crate::wasm_runtime::{InvokeMethod, WasmInstance, WasmModule};
 #[cfg(feature = "std")]
@@ -117,7 +117,9 @@ pub trait LazyInstanciate<'a> {
 	/// be considered as a panicking situation.
 	///
 	/// A fonction callback is also return to be called on panic (to handle `AssertUnwindSafe`).
-	fn instantiate(self) -> Option<(AssertUnwindSafe<&'a mut Box<dyn WasmInstance>>, Box<dyn FnMut()> + 'a)>;
+	/// Calling the callback if there was no panic is unsafe (callback usually requires this unsafe code
+	/// assertion).
+	fn instantiate(self) -> Option<(AssertUnwindSafe<&'a mut Box<dyn WasmInstance>>, Box<dyn FnOnce() + 'a>)>;
 }
 
 /// Lazy instantiate for non owned wasm instance.
@@ -131,7 +133,7 @@ pub struct InlineInstantiateRef<'a> {
 
 #[cfg(feature = "std")]
 impl<'a> LazyInstanciate<'a> for InlineInstantiateRef<'a> {
-	fn instantiate(self) -> Option<(AssertUnwindSafe<&'a mut Box<dyn WasmInstance>>, Box<dyn FnMut()> + 'a)> {
+	fn instantiate(self) -> Option<(AssertUnwindSafe<&'a mut Box<dyn WasmInstance>>, Box<dyn FnOnce() + 'a>)> {
 		if self.instance.is_none() {
 			*self.instance = if let Some(instance) = instantiate_inline(self.module) {
 				Some(instance)

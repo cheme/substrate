@@ -1512,7 +1512,6 @@ pub(super) mod interval_filters {
 		inclusive: bool,
 	) -> bool {
 		let mut iter = filter.0.seek_iter(from).value_iter();
-		let mut nb_start = 0;
 		let _ = (&mut iter).last(); // seek, put k after start
 		for (k, value) in iter.node_iter().iter().value_iter() {
 			if to.as_ref().map(|to| (inclusive && k.as_slice() <= to) || (!inclusive && k.as_slice() < to)).unwrap_or(true) {

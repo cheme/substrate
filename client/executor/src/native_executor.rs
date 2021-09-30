@@ -148,7 +148,7 @@ impl WasmExecutor {
 			self.default_heap_pages,
 			&*self.host_functions,
 			allow_missing_host_functions,
-			|module, mut instance, version, ext| {
+			|module, instance, version, ext| {
 				let module = AssertUnwindSafe(module);
 				let instance = AssertUnwindSafe(instance);
 				let ext = AssertUnwindSafe(ext);

@@ -27,7 +27,7 @@ use std::{
 		mpsc, Arc,
 	},
 };
-
+use parking_lot::{Mutex, MutexGuard};
 use crate::{
 	common::{
 		instantiate_inline, InlineInstantiateRef, NativeTask, PendingTask as InlineTask, Task,
@@ -48,11 +48,11 @@ type PoolThreadId = u64;
 
 struct InlineInstantiate<'a, 'b> {
 	module: &'a Option<Arc<dyn WasmModule>>,
-	guard: &'a mut parking_lot::MutexGuard<'b, Option<AssertUnwindSafe<Box<dyn WasmInstance>>>>,
+	guard: &'a mut MutexGuard<'b, Option<Box<dyn WasmInstance>>>,
 }
 
 impl<'a, 'b> crate::common::LazyInstanciate<'a> for InlineInstantiate<'a, 'b> {
-	fn instantiate(self) -> Option<&'a mut AssertUnwindSafe<Box<dyn WasmInstance>>> {
+	fn instantiate(self) -> Option<(AssertUnwindSafe<&'a mut Box<dyn WasmInstance>>, Box<dyn FnOnce() + 'a>)> {
 		if self.guard.is_none() {
 			**self.guard = if let Some(instance) = instantiate_inline(self.module) {
 				Some(instance)
@@ -61,7 +61,16 @@ impl<'a, 'b> crate::common::LazyInstanciate<'a> for InlineInstantiate<'a, 'b> {
 			};
 		}
 
-		self.guard.as_mut()
+		let instance_h = self.guard as *mut MutexGuard<'b, Option<Box<dyn WasmInstance>>>;
+		if let Some(i) = self.guard.as_mut() {
+			let handle = move || {
+				let instance: &'a mut MutexGuard<'b, Option<Box<dyn WasmInstance>>> = unsafe { instance_h.as_mut().unwrap() }; 
+				**instance = None;
+			};
+			Some((AssertUnwindSafe(i), Box::new(handle)))
+		} else {
+			None
+		}
 	}
 }
 
@@ -69,12 +78,12 @@ impl<'a, 'b> crate::common::LazyInstanciate<'a> for InlineInstantiate<'a, 'b> {
 #[derive(Clone)]
 pub struct RuntimeInstanceSpawn {
 	module: Option<Arc<dyn WasmModule>>,
-	instance: Arc<parking_lot::Mutex<Option<AssertUnwindSafe<Box<dyn WasmInstance>>>>>,
-	tasks: Arc<parking_lot::Mutex<HashMap<TaskId, PendingTask>>>,
-	infos: Arc<parking_lot::Mutex<RuntimeInstanceSpawnInfo>>,
+	instance: Arc<Mutex<Option<Box<dyn WasmInstance>>>>,
+	tasks: Arc<Mutex<HashMap<TaskId, PendingTask>>>,
+	infos: Arc<Mutex<RuntimeInstanceSpawnInfo>>,
 	counter: Arc<AtomicU64>,
 	scheduler: Box<dyn sp_core::traits::SpawnNamed>,
-	task_receiver: Arc<parking_lot::Mutex<mpsc::Receiver<RemoteTask>>>,
+	task_receiver: Arc<Mutex<mpsc::Receiver<RemoteTask>>>,
 	task_sender: mpsc::Sender<RemoteTask>,
 	task_handles: task_handle::TaskHandles,
 }
@@ -85,7 +94,7 @@ mod task_handle {
 	use std::collections::BTreeMap;
 
 	#[derive(Default, Clone)]
-	pub(super) struct TaskHandles(Arc<parking_lot::Mutex<TaskHandlesInner>>);
+	pub(super) struct TaskHandles(Arc<Mutex<TaskHandlesInner>>);
 
 	struct TaskHandlesInner {
 		/// Threads handle with associated pthread.
@@ -218,7 +227,7 @@ impl RuntimeInstanceSpawn {
 		RuntimeInstanceSpawn {
 			// For inline recursive call would dead lock,
 			// this instance is the one for inline, reinit here.
-			instance: Arc::new(parking_lot::Mutex::new(None)),
+			instance: Arc::new(Mutex::new(None)),
 			counter: Default::default(),
 			tasks: Default::default(),
 			task_handles: Default::default(),
@@ -268,7 +277,7 @@ impl RuntimeInstanceSpawn {
 			"executor-extra-runtime-instance",
 			Box::pin(async move {
 				let task_receiver = task_receiver.clone();
-				let mut instance: Option<AssertUnwindSafe<Box<dyn WasmInstance>>> = None;
+				let mut instance: Option<Box<dyn WasmInstance>> = None;
 				while let Ok(RemoteTask { handle, task, ext, result_sender }) = {
 					let task_receiver_locked = task_receiver.lock();
 					task_receiver_locked.recv()
@@ -414,17 +423,13 @@ impl RuntimeSpawn for RuntimeInstanceSpawn {
 				let instance_ref = InlineInstantiate { module: &self.module, guard: &mut instance };
 
 				let runtime_spawn = Box::new(self.nested_instance());
-				let result = crate::inline_spawn::process_task_inline(
+				crate::inline_spawn::process_task_inline(
 					task.task,
 					task.ext,
 					handle,
 					runtime_spawn,
 					instance_ref,
-				);
-				if instance.panicked() {
-					*instance = None;
-				}
-				result
+				)
 			},
 			// handle has been removed due to dismiss or
 			// invalid externality condition.
@@ -460,11 +465,11 @@ impl RuntimeInstanceSpawn {
 			module,
 			scheduler,
 			counter: Arc::new(0.into()),
-			tasks: Arc::new(parking_lot::Mutex::new(Default::default())),
-			infos: Arc::new(parking_lot::Mutex::new(infos)),
-			task_receiver: Arc::new(parking_lot::Mutex::new(task_receiver)),
+			tasks: Arc::new(Mutex::new(Default::default())),
+			infos: Arc::new(Mutex::new(infos)),
+			task_receiver: Arc::new(Mutex::new(task_receiver)),
 			task_sender,
-			instance: Arc::new(parking_lot::Mutex::new(None)),
+			instance: Arc::new(Mutex::new(None)),
 			task_handles: Default::default(),
 		}
 	}

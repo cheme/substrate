@@ -112,7 +112,7 @@ where
 				..Default::default()
 			}));
 
-			let new_ext =
+			let mut new_ext =
 				builder.inject_key_value(&[(code_key.clone(), code.clone())]).build().await?;
 			log::info!(
 				target: LOG_TARGET,
