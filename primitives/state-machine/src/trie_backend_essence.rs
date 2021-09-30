@@ -24,7 +24,7 @@ use hash_db::{self, Hasher, Prefix};
 #[cfg(feature = "std")]
 use parking_lot::RwLock;
 use sp_core::storage::ChildInfo;
-use sp_std::{boxed::Box, ops::Deref, vec::Vec};
+use sp_std::{boxed::Box, vec::Vec};
 use sp_trie::{
 	empty_child_trie_root, read_child_trie_value, read_trie_value,
 	trie_types::{Layout, TrieDB, TrieError},
@@ -37,8 +37,11 @@ use std::sync::Arc;
 
 #[cfg(not(feature = "std"))]
 macro_rules! format {
-	($($arg:tt)+) => {
-		crate::DefaultError
+	( $message:expr, $( $arg:expr )* ) => {
+		{
+			$( let _ = &$arg; )*
+			crate::DefaultError
+		}
 	};
 }
 
@@ -550,7 +553,7 @@ impl<H: Hasher + 'static> TrieBackendStorage<H> for Arc<dyn Storage<H>> {
 	type AsyncStorage = Self;
 
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Result<Option<DBValue>> {
-		Storage::<H>::get(self.deref(), key, prefix)
+		Storage::<H>::get(std::ops::Deref::deref(self), key, prefix)
 	}
 	fn async_storage(&self) -> Self::AsyncStorage {
 		self.clone()

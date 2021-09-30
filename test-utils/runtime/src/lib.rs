@@ -24,10 +24,15 @@ pub mod genesismap;
 pub mod system;
 
 use codec::{Decode, Encode, Error, Input};
+use scale_info::TypeInfo;
 use sp_std::{marker::PhantomData, prelude::*};
 
 use cfg_if::cfg_if;
-use frame_support::{parameter_types, traits::KeyOwnerProofSystem, weights::RuntimeDbWeight};
+use frame_support::{
+	parameter_types,
+	traits::{CrateVersion, KeyOwnerProofSystem},
+	weights::RuntimeDbWeight,
+};
 use frame_system::limits::{BlockLength, BlockWeights};
 use sp_api::{decl_runtime_apis, impl_runtime_apis};
 use sp_application_crypto::{ecdsa, ed25519, sr25519, RuntimeAppPublic};
@@ -419,7 +424,7 @@ cfg_if! {
 	}
 }
 
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq, TypeInfo)]
 pub struct Runtime;
 
 impl GetNodeBlockType for Runtime {
@@ -487,7 +492,7 @@ impl frame_support::traits::OriginTrait for Origin {
 	}
 }
 
-#[derive(Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug)]
+#[derive(Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug, TypeInfo)]
 pub struct Event;
 
 impl From<frame_system::Event<Runtime>> for Event {
@@ -521,6 +526,35 @@ impl frame_support::traits::PalletInfo for Runtime {
 		}
 		if type_id == sp_std::any::TypeId::of::<pallet_babe::Pallet<Runtime>>() {
 			return Some("Babe")
+		}
+
+		None
+	}
+	fn module_name<P: 'static>() -> Option<&'static str> {
+		let type_id = sp_std::any::TypeId::of::<P>();
+		if type_id == sp_std::any::TypeId::of::<system::Pallet<Runtime>>() {
+			return Some("system")
+		}
+		if type_id == sp_std::any::TypeId::of::<pallet_timestamp::Pallet<Runtime>>() {
+			return Some("pallet_timestamp")
+		}
+		if type_id == sp_std::any::TypeId::of::<pallet_babe::Pallet<Runtime>>() {
+			return Some("pallet_babe")
+		}
+
+		None
+	}
+	fn crate_version<P: 'static>() -> Option<CrateVersion> {
+		use frame_support::traits::PalletInfoAccess as _;
+		let type_id = sp_std::any::TypeId::of::<P>();
+		if type_id == sp_std::any::TypeId::of::<system::Pallet<Runtime>>() {
+			return Some(system::Pallet::<Runtime>::crate_version())
+		}
+		if type_id == sp_std::any::TypeId::of::<pallet_timestamp::Pallet<Runtime>>() {
+			return Some(pallet_timestamp::Pallet::<Runtime>::crate_version())
+		}
+		if type_id == sp_std::any::TypeId::of::<pallet_babe::Pallet<Runtime>>() {
+			return Some(pallet_babe::Pallet::<Runtime>::crate_version())
 		}
 
 		None
@@ -577,6 +611,7 @@ impl pallet_timestamp::Config for Runtime {
 parameter_types! {
 	pub const EpochDuration: u64 = 6;
 	pub const ExpectedBlockTime: u64 = 10_000;
+	pub const MaxAuthorities: u32 = 10;
 }
 
 impl pallet_babe::Config for Runtime {
@@ -599,8 +634,9 @@ impl pallet_babe::Config for Runtime {
 	)>>::IdentificationTuple;
 
 	type HandleEquivocation = ();
-
 	type WeightInfo = ();
+
+	type MaxAuthorities = MaxAuthorities;
 }
 
 /// Adds one to the given input and returns the final result.

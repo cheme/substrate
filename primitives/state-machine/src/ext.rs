@@ -41,7 +41,7 @@ use sp_std::{
 	any::{Any, TypeId},
 	boxed::Box,
 	cmp::Ordering,
-	fmt, vec,
+	vec,
 	vec::Vec,
 };
 #[cfg(feature = "std")]
@@ -77,8 +77,8 @@ pub enum Error<B, E> {
 }
 
 #[cfg(feature = "std")]
-impl<B: fmt::Display, E: fmt::Display> fmt::Display for Error<B, E> {
-	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl<B: std::fmt::Display, E: std::fmt::Display> std::fmt::Display for Error<B, E> {
+	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
 		match *self {
 			Error::Backend(ref e) => write!(f, "Storage backend error: {}", e),
 			Error::Executor(ref e) => write!(f, "Sub-call execution error: {}", e),
@@ -151,7 +151,7 @@ where
 		storage_transaction_cache: &'a mut StorageTransactionCache<B::Transaction, H, N>,
 		backend: &'a B,
 		changes_trie_state: Option<ChangesTrieState<'a, H, N>>,
-		extensions: Option<&'a mut Extensions>,
+		extensions: Option<&'a mut sp_externalities::Extensions>,
 	) -> Self {
 		Self {
 			overlay,

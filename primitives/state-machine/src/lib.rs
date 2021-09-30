@@ -58,11 +58,19 @@ const EXT_NOT_ALLOWED_TO_FAIL: &str = "Externalities not allowed to fail within 
 #[cfg(not(feature = "std"))]
 #[macro_export]
 macro_rules! warn {
-	(target: $target:expr, $($arg:tt)+) => {
-		()
+	(target: $target:expr, $message:expr $( , $arg:ident )* $( , )?) => {
+		{
+			$(
+				let _ = &$arg;
+			)*
+		}
 	};
-	($($arg:tt)+) => {
-		()
+	($message:expr, $( $arg:expr, )*) => {
+		{
+			$(
+				let _ = &$arg;
+			)*
+		}
 	};
 }
 
@@ -71,11 +79,12 @@ macro_rules! warn {
 #[cfg(not(feature = "std"))]
 #[macro_export]
 macro_rules! debug {
-	(target: $target:expr, $($arg:tt)+) => {
-		()
-	};
-	($($arg:tt)+) => {
-		()
+	(target: $target:expr, $message:expr $( , $arg:ident )* $( , )?) => {
+		{
+			$(
+				let _ = &$arg;
+			)*
+		}
 	};
 }
 

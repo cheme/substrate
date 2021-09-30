@@ -74,8 +74,6 @@ pub struct WasmExecutor {
 	host_functions: Arc<Vec<&'static dyn Function>>,
 	/// WASM runtime cache.
 	cache: Arc<RuntimeCache>,
-	/// The size of the instances cache.
-	max_runtime_instances: usize,
 	/// The path to a directory which the executor can leverage for a file cache, e.g. put there
 	/// compiled artifacts.
 	cache_path: Option<PathBuf>,
@@ -111,7 +109,6 @@ impl WasmExecutor {
 			default_heap_pages: default_heap_pages.unwrap_or(DEFAULT_HEAP_PAGES),
 			host_functions: Arc::new(host_functions),
 			cache: Arc::new(RuntimeCache::new(max_runtime_instances, cache_path.clone())),
-			max_runtime_instances,
 			cache_path,
 		}
 	}
@@ -139,7 +136,7 @@ impl WasmExecutor {
 	where
 		F: FnOnce(
 			AssertUnwindSafe<&Arc<dyn WasmModule>>,
-			AssertUnwindSafe<&dyn WasmInstance>,
+			AssertUnwindSafe<&mut dyn WasmInstance>,
 			Option<&RuntimeVersion>,
 			AssertUnwindSafe<&mut dyn Externalities>,
 		) -> Result<Result<R>>,
@@ -165,7 +162,7 @@ impl WasmExecutor {
 
 	/// Perform a call into the given runtime.
 	///
-	/// The runtime is passed as a [`RuntimeBlob`]. The runtime will be isntantiated with the
+	/// The runtime is passed as a [`RuntimeBlob`]. The runtime will be instantiated with the
 	/// parameters this `WasmExecutor` was initialized with.
 	///
 	/// In case of problems with during creation of the runtime or instantation, a `Err` is
@@ -193,7 +190,7 @@ impl WasmExecutor {
 			.new_instance()
 			.map_err(|e| format!("Failed to create instance: {:?}", e))?;
 
-		let instance = AssertUnwindSafe(instance);
+		let mut instance = AssertUnwindSafe(instance);
 		let mut ext = AssertUnwindSafe(ext);
 		let module = AssertUnwindSafe(module);
 
@@ -223,7 +220,7 @@ impl sp_core::traits::ReadRuntimeVersion for WasmExecutor {
 		}
 
 		// If the blob didn't have embedded runtime version section, we fallback to the legacy
-		// way of fetching the verison: i.e. instantiating the given instance and calling
+		// way of fetching the version: i.e. instantiating the given instance and calling
 		// `Core_version` on it.
 
 		self.uncached_call(
@@ -259,7 +256,7 @@ impl CodeExecutor for WasmExecutor {
 			runtime_code,
 			ext,
 			false,
-			|module, instance, _onchain_version, mut ext| {
+			|module, mut instance, _onchain_version, mut ext| {
 				with_externalities_safe(&mut **ext, move || {
 					RuntimeInstanceSpawn::preregister_builtin_ext(module.clone());
 					instance.call_export(method, data).map(NativeOrEncoded::Encoded)
@@ -376,7 +373,7 @@ impl<D: NativeExecutionDispatch + 'static> CodeExecutor for NativeElseWasmExecut
 			runtime_code,
 			ext,
 			false,
-			|module, instance, onchain_version, mut ext| {
+			|module, mut instance, onchain_version, mut ext| {
 				let onchain_version =
 					onchain_version.ok_or_else(|| Error::ApiError("Unknown version".into()))?;
 
