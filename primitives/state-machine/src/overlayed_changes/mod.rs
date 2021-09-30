@@ -714,15 +714,15 @@ impl OverlayedChanges {
 	#[must_use]
 	pub fn commit_transaction(&mut self) -> Result<Vec<TaskId>, NoOpenTransaction> {
 		let to_kill = self.markers.commit_transaction();
-		self.top.commit_transaction()?;
+		self.top.commit_transaction(apply_commit_change)?;
 		for (_, (changeset, _)) in self.children.iter_mut() {
 			changeset
-				.commit_transaction()
+				.commit_transaction(apply_commit_change)
 				.expect("Top and children changesets are started in lockstep; qed");
 		}
 		self.offchain
 			.overlay_mut()
-			.commit_transaction()
+			.commit_transaction(apply_commit_default)
 			.expect("Top and offchain changesets are started in lockstep; qed");
 		Ok(to_kill)
 	}
@@ -1491,6 +1491,68 @@ fn change_to_change_set(
 		return Some(value)
 	}
 	None
+}
+
+fn apply_commit_change(
+	parent: &mut Change,
+	child: Change,
+) {
+	match child {
+		change@Change::Write(..) 
+			| change@Change::Delete => {
+			*parent = change;
+		},
+		Change::Append(mut changes) => {
+			match parent {
+				Change::Append(parent) => {
+					parent.append(&mut changes);
+					return;
+				},
+				Change::Write(parent) => {
+					let mut appendable = crate::ext::StorageAppend::new(parent);
+					for change in changes {
+						appendable.append(change);
+					}
+					return;
+				},
+				_ => ()
+			}
+			*parent = Change::Append(changes);
+		},
+		Change::IncrementCounter(increment) => {
+			match parent {
+				Change::IncrementCounter(parent) => {
+					*parent += increment;
+					return;
+				},
+				Change::Write(value) => {
+					for _ in 0..increment {
+						// TODO extract and test counter logic.
+						let mut nb_digit = value.len();
+						while nb_digit > 0 && value[nb_digit - 1] == 255 {
+							value[nb_digit - 1] = 0;
+							nb_digit -= 1;
+						}
+						if nb_digit == 0 {
+							value.insert(0, 1);
+						} else {
+							value[nb_digit - 1] += 1;
+						}
+						return;
+					}
+				},
+				_ => ()
+			}
+			*parent = Change::IncrementCounter(increment);
+		},
+	}
+}
+
+fn apply_commit_default<V>(
+	parent: &mut V,
+	child: V,
+) {
+	*parent = child;
 }
 
 /// Get exclusive end interval corresponding to a prefix.

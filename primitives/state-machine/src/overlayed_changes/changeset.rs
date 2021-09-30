@@ -365,18 +365,18 @@ impl<K: Ord + Hash + Clone, V> OverlayedMap<K, V> {
 	/// Any changes made during that transaction are discarded. Returns an error if
 	/// there is no open transaction that can be rolled back.
 	pub fn rollback_transaction(&mut self) -> Result<(), NoOpenTransaction> {
-		self.close_transaction(true)
+		self.close_transaction(None)
 	}
 
 	/// Commit the last transaction started by `start_transaction`.
 	///
 	/// Any changes made during that transaction are committed. Returns an error if
 	/// there is no open transaction that can be committed.
-	pub fn commit_transaction(&mut self) -> Result<(), NoOpenTransaction> {
-		self.close_transaction(false)
+	pub fn commit_transaction(&mut self, apply_commit: fn(&mut V, V)) -> Result<(), NoOpenTransaction> {
+		self.close_transaction(Some(apply_commit))
 	}
 
-	fn close_transaction(&mut self, rollback: bool) -> Result<(), NoOpenTransaction> {
+	fn close_transaction(&mut self, apply_commit: Option<fn(&mut V, V)>) -> Result<(), NoOpenTransaction> {
 		// runtime is not allowed to close transactions started by the client
 		if let ExecutionMode::Runtime = self.execution_mode {
 			if !self.has_open_runtime_transactions() {
@@ -393,15 +393,7 @@ impl<K: Ord + Hash + Clone, V> OverlayedMap<K, V> {
 			",
 			);
 
-			if rollback {
-				overlayed.pop_transaction();
-
-				// We need to remove the key as an `OverlayValue` with no transactions
-				// violates its invariant of always having at least one transaction.
-				if overlayed.transactions.is_empty() {
-					self.changes.remove(&key);
-				}
-			} else {
+			if let Some(apply_commit) = apply_commit {
 				let has_predecessor = if let Some(dirty_keys) = self.dirty_keys.last_mut() {
 					// Not the last tx: Did the previous tx write to this key?
 					!dirty_keys.insert(key)
@@ -416,8 +408,16 @@ impl<K: Ord + Hash + Clone, V> OverlayedMap<K, V> {
 				// the previous transaction or a value committed without any open transaction.
 				if has_predecessor {
 					let dropped_tx = overlayed.pop_transaction();
-					*overlayed.value_mut() = dropped_tx.value;
+					apply_commit(overlayed.value_mut(), dropped_tx.value);
 					overlayed.transaction_extrinsics_mut().extend(dropped_tx.extrinsics);
+				}
+			} else {
+				overlayed.pop_transaction();
+
+				// We need to remove the key as an `OverlayValue` with no transactions
+				// violates its invariant of always having at least one transaction.
+				if overlayed.transactions.is_empty() {
+					self.changes.remove(&key);
 				}
 			}
 		}
