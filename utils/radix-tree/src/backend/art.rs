@@ -63,6 +63,20 @@ impl Index for u32 {
 	}
 }
 
+#[cfg(test)]
+impl Index for u128 {
+	const SIZE: usize = 16;
+	const UNDEFINED: Self = 0;
+
+	fn read_index(enc: &[u8]) -> Self {
+		read_u128(enc)
+	}
+	fn write_index(&self, dest: &mut [u8]) {
+		write_u128(*self, dest)
+	}
+}
+
+
 /// Art Encoded nodes backend.
 /// Index is fix u64, but could be parameterizable
 /// to any fix length serializable type.
@@ -375,24 +389,24 @@ macro_rules! art_impl_1 {
 
 impl<I: Index, VI: Index> $art<I, VI> {
 	fn read_child_index(&self, at: usize) -> I {
-		let i = $art_nb + 1 - at;
-		let i = $art_fix_len - i * 8;
-		I::read_index(&self.0[i .. i + 8])
+		let i = $art_nb - at;
+		let i = $art_fix_len(I::SIZE, VI::SIZE) - i * I::SIZE - VI::SIZE;
+		I::read_index(&self.0[i .. i + I::SIZE])
 	}
 
 	fn read(encoded: Vec<u8>) -> ($art<I, VI>, usize) {
-		debug_assert!(encoded.len() >= $art_fix_len);
-		($art(encoded, PhantomData), $art_fix_len)
+		debug_assert!(encoded.len() >= $art_fix_len(I::SIZE, VI::SIZE));
+		($art(encoded, PhantomData), $art_fix_len(I::SIZE, VI::SIZE))
 	}
 
 	fn fetch_value_index(&self) -> Option<VI> {
-		let index = VI::read_index(&self.0[$art_fix_len - 8 .. $art_fix_len]);
+		let index = VI::read_index(&self.0[$art_fix_len(I::SIZE, VI::SIZE) - VI::SIZE .. $art_fix_len(I::SIZE, VI::SIZE)]);
 		(index != VI::UNDEFINED).then(|| index)
 	}
 
 	fn set_value_index(&mut self, index: &VI) {
-		let i = $art_fix_len - 8;
-		index.write_index(&mut self.0[i .. i + 8]);
+		let i = $art_fix_len(I::SIZE, VI::SIZE) - VI::SIZE;
+		index.write_index(&mut self.0[i .. i + VI::SIZE]);
 	}
 
 	fn as_ref(&self) -> &[u8] {
@@ -400,7 +414,7 @@ impl<I: Index, VI: Index> $art<I, VI> {
 	}
 
 	fn set_prefix(&mut self, mut prefix: Vec<u8>) {
-		self.0.truncate($art_fix_len);
+		self.0.truncate($art_fix_len(I::SIZE, VI::SIZE));
 		self.0.append(&mut prefix);
 	}
 }
@@ -410,36 +424,39 @@ impl<I: Index, VI: Index> $art<I, VI> {
 fn $art_test() {
 	macro_rules! inner {
 		($i: ty, $vi: ty) => {
-		let mut art4 = $art::<$i, $vi>::empty();
-		assert_eq!(art4.nb_children(), 0);
-		assert_eq!(art4.fetch_children_index(0), None);
-		assert_eq!(art4.fetch_children_index(255), None);
-		assert!(art4.fetch_value_index().is_none());
-		assert!(art4.set_children_index(5, &44));
-		assert!(art4.set_children_index(0, &48));
-		assert!(art4.set_children_index(8, &50));
-		assert_eq!(art4.nb_children(), 3);
-		art4.set_value_index(&83747);
-		assert_eq!(art4.fetch_children_index(0), Some(48));
-		assert_eq!(art4.fetch_children_index(1), None);
-		assert_eq!(art4.fetch_children_index(255), None);
-		assert_eq!(art4.fetch_children_index(5), Some(44));
-		assert_eq!(art4.fetch_children_index(8), Some(50));
-		assert_eq!(art4.fetch_value_index(), Some(83747));
-		assert!(art4.set_children_index(1, &15));
-		assert!(art4.set_children_index(8, &30));
+		let mut art = $art::<$i, $vi>::empty();
+		assert_eq!(art.nb_children(), 0);
+		assert_eq!(art.fetch_children_index(0), None);
+		assert_eq!(art.fetch_children_index(255), None);
+		assert!(art.fetch_value_index().is_none());
+		assert!(art.set_children_index(5, &44));
+		assert!(art.set_children_index(0, &48));
+		assert!(art.set_children_index(8, &50));
+		assert_eq!(art.nb_children(), 3);
+		art.set_value_index(&83747);
+		assert_eq!(art.fetch_children_index(0), Some(48));
+		assert_eq!(art.fetch_children_index(1), None);
+		assert_eq!(art.fetch_children_index(255), None);
+		assert_eq!(art.fetch_children_index(5), Some(44));
+		assert_eq!(art.fetch_children_index(8), Some(50));
+		assert_eq!(art.fetch_value_index(), Some(83747));
+		assert!(art.set_children_index(1, &15));
+		assert!(art.set_children_index(8, &30));
 		if $art_nb == 4 {
-			assert!(art4.set_children_index(7, &30) == false);
+			assert!(art.set_children_index(7, &30) == false);
 		}
-		assert_eq!(art4.fetch_children_index(0), Some(48));
-		assert_eq!(art4.fetch_children_index(1), Some(15));
-		assert_eq!(art4.fetch_children_index(8), Some(30));
-		assert_eq!(art4.fetch_value_index(), Some(83747));
-		let mut art4 = $art::<$i, $vi>::empty();
-		assert!(art4.set_children_index(255, &2450));
-		assert_eq!(art4.fetch_children_index(255), Some(2450));
+		assert_eq!(art.fetch_children_index(0), Some(48));
+		assert_eq!(art.fetch_children_index(1), Some(15));
+		assert_eq!(art.fetch_children_index(8), Some(30));
+		assert_eq!(art.fetch_value_index(), Some(83747));
+		let mut art = $art::<$i, $vi>::empty();
+		assert!(art.set_children_index(255, &2450));
+		assert_eq!(art.fetch_children_index(255), Some(2450));
 		}
 	}
+	inner!(u128, u128);
+	inner!(u128, u32);
+	inner!(u32, u128);
 	inner!(u64, u64);
 	inner!(u64, u32);
 	inner!(u32, u64);
@@ -512,18 +529,18 @@ impl<I: Index, VI: Index> $art<I, VI> {
 				self.0[0] += 1;
 				four_ix = i;
 				self.0.copy_within(i + 1 .. $art_nb, i + 2);
-				let i = $art_nb + 1 - four_ix;
-				let i = $art_fix_len - i * 8;
-				let ie = $art_fix_len - 2 * 8;
-				self.0.copy_within(i .. ie, i + 8);
+				let i = $art_nb - four_ix;
+				let i = $art_fix_len(I::SIZE, VI::SIZE) - i * I::SIZE - VI::SIZE;
+				let ie = $art_fix_len(I::SIZE, VI::SIZE) - I::SIZE - VI::SIZE;
+				self.0.copy_within(i .. ie, i + I::SIZE);
 				break;
 			}
 		}
 		if four_ix != $art_nb {
 			self.0[four_ix + 1] = at as u8;
-			let i = $art_nb + 1 - four_ix;
-			let i = $art_fix_len - i * 8;
-			index.write_index(&mut self.0[i .. i + 8]);
+			let i = $art_nb - four_ix;
+			let i = $art_fix_len(I::SIZE, VI::SIZE) - i * I::SIZE - VI::SIZE;
+			index.write_index(&mut self.0[i .. i + I::SIZE]);
 			true
 		} else {
 			false
@@ -540,11 +557,11 @@ impl<I: Index, VI: Index> $art<I, VI> {
 				self.0[0] -= 1;
 				self.0.copy_within(i + 2 .. $art_nb + 1, i + 1);
 				self.0[$art_nb] = 0;
-				let i = $art_nb - i;
-				let i =	$art_fix_len - i * 8;
-				let ie = $art_fix_len - 1 * 8;
-				self.0.copy_within(i .. ie, i - 8);
-				I::UNDEFINED.write_index(&mut self.0[i - 8 .. i]);
+				let i = $art_nb - i - 1;
+				let i =	$art_fix_len(I::SIZE, VI::SIZE) - i * I::SIZE - VI::SIZE;
+				let ie = $art_fix_len(I::SIZE, VI::SIZE) - VI::SIZE;
+				self.0.copy_within(i .. ie, i - I::SIZE);
+				I::UNDEFINED.write_index(&mut self.0[i - I::SIZE .. i]);
 				break;
 			} else if ix < at {
 				break;
@@ -557,29 +574,42 @@ impl<I: Index, VI: Index> $art<I, VI> {
 
 
 const ART4_NB: usize = 4;
-const ART4_FIX_LEN: usize = 1 + 4 + 4 * 8 + 8;
 const ART16_NB: usize = 16;
-const ART16_FIX_LEN: usize = 1 + 16 + 16 * 8 + 8;
 const ART48_NB: usize = 48;
-const ART48_FIX_LEN: usize = 1 + 256 + 48 * 8 + 8;
 const ART256_NB: usize = 256;
-const ART256_FIX_LEN: usize = 1 + 1 + 256 * 8 + 8;
-art_impl_1!(Art4, ART4_NB, ART4_FIX_LEN, test_art4);
-art_impl_1!(Art16, ART16_NB, ART16_FIX_LEN, test_art16);
-art_impl_1!(Art48, ART48_NB, ART48_FIX_LEN, test_art48);
-art_impl_1!(Art256, ART256_NB, ART256_FIX_LEN, test_art256);
-art_impl_2!(Art4, ART4_NB, ART4_FIX_LEN, test_art4);
-art_impl_2!(Art16, ART16_NB, ART16_FIX_LEN, test_art16);
 
-impl<I, VI> Art4<I, VI> {
+const fn art4_fix_len(index_size: usize, value_index_size: usize) -> usize {
+	1 + 4 + 4 * index_size + value_index_size
+}
+
+const fn art16_fix_len(index_size: usize, value_index_size: usize) -> usize {
+	1 + 16 + 16 * index_size + value_index_size
+}
+
+const fn art48_fix_len(index_size: usize, value_index_size: usize) -> usize {
+	1 + 256 + 48 * index_size + value_index_size
+}
+
+const fn art256_fix_len(index_size: usize, value_index_size: usize) -> usize {
+	1 + 1 + 256 * index_size + value_index_size
+}
+
+art_impl_1!(Art4, ART4_NB, art4_fix_len, test_art4);
+art_impl_1!(Art16, ART16_NB, art16_fix_len, test_art16);
+art_impl_1!(Art48, ART48_NB, art48_fix_len, test_art48);
+art_impl_1!(Art256, ART256_NB, art256_fix_len, test_art256);
+art_impl_2!(Art4, ART4_NB, art4_fix_len, test_art4);
+art_impl_2!(Art16, ART16_NB, art16_fix_len, test_art16);
+
+impl<I: Index, VI: Index> Art4<I, VI> {
 	fn empty() -> Self {
-		Art4(vec![0; ART4_FIX_LEN], PhantomData)
+		Art4(vec![0; art4_fix_len(I::SIZE, VI::SIZE)], PhantomData)
 	}
 }
 
-impl<I, VI> Art16<I, VI> {
+impl<I: Index, VI: Index> Art16<I, VI> {
 	fn empty() -> Self {
-		let mut result = Art16(vec![0; ART16_FIX_LEN], PhantomData);
+		let mut result = Art16(vec![0; art16_fix_len(I::SIZE, VI::SIZE)], PhantomData);
 		result.0[0] |= 1 << 6;
 		result
 	}
@@ -587,7 +617,7 @@ impl<I, VI> Art16<I, VI> {
 
 impl<I: Index, VI: Index> Art48<I, VI> {
 	fn empty() -> Self {
-		let mut result = Art48(vec![0; ART48_FIX_LEN], PhantomData);
+		let mut result = Art48(vec![0; art48_fix_len(I::SIZE, VI::SIZE)], PhantomData);
 		result.0[0] |= 2 << 6;
 		result
 	}
@@ -617,7 +647,7 @@ impl<I: Index, VI: Index> Art48<I, VI> {
 		}
 		self.0[at + 1] = self.nb_children() as u8 + 1;
 		let i = ART48_NB + 1 - self.nb_children();
-		let i = ART48_FIX_LEN - i * 8;
+		let i = art48_fix_len(I::SIZE, VI::SIZE) - i * 8;
 		if &self.0[i .. i + 8] == &[0; 8] {
 			self.0[0] += 1;
 		}
@@ -628,7 +658,7 @@ impl<I: Index, VI: Index> Art48<I, VI> {
 	fn remove_children_index(&mut self, at: usize) {
 		self.0[at] = 0;
 		let i = ART48_NB + 1 - at;
-		let i = ART48_FIX_LEN - i * 8;
+		let i = art48_fix_len(I::SIZE, VI::SIZE) - i * 8;
 		if &self.0[i .. i + 8] != &[0; 8] {
 			self.0[0] -= 1;
 		}
@@ -638,7 +668,7 @@ impl<I: Index, VI: Index> Art48<I, VI> {
 
 impl<I: Index, VI: Index> Art256<I, VI> {
 	fn empty() -> Self {
-		let mut result = Art256(vec![0; ART256_FIX_LEN], PhantomData);
+		let mut result = Art256(vec![0; art256_fix_len(I::SIZE, VI::SIZE)], PhantomData);
 		result.0[0] |= 3 << 6;
 		result
 	}
@@ -652,7 +682,7 @@ impl<I: Index, VI: Index> Art256<I, VI> {
 	}
 
 	fn get_next_child_index(&self, index: Option<usize>) -> Option<usize> {
-		for i in index.map(|i| i + 1).unwrap_or(0) .. ART256_FIX_LEN {
+		for i in index.map(|i| i + 1).unwrap_or(0) .. art256_fix_len(I::SIZE, VI::SIZE) {
 			let v = self.read_child_index(i);
 			if v != I::UNDEFINED {
 				return Some(i);
@@ -668,7 +698,7 @@ impl<I: Index, VI: Index> Art256<I, VI> {
 
 	fn set_children_index(&mut self, at: usize, index: &I) -> bool {
 		let i = ART256_NB + 1 - at;
-		let i = ART256_FIX_LEN - i * 8;
+		let i = art256_fix_len(I::SIZE, VI::SIZE) - i * 8;
 		if &self.0[i .. i + 8] == &[0; 8] {
 			if self.0[1] == 255 {
 				self.0[0] |= 0b0000_0001;
@@ -682,7 +712,7 @@ impl<I: Index, VI: Index> Art256<I, VI> {
 
 	fn remove_children_index(&mut self, at: usize) {
 		let i = ART256_NB + 1 - at;
-		let i = ART256_FIX_LEN - i * 8;
+		let i = art256_fix_len(I::SIZE, VI::SIZE) - i * 8;
 		if &self.0[i .. i + 8] != &[0; 8] {
 			if self.0[0] & 0b0000_0001 > 0 {
 				self.0[0] |= !0b0000_0001;
@@ -989,4 +1019,17 @@ fn read_u32(enc: &[u8]) -> u32 {
 fn write_u32(ix: u32, dest: &mut [u8]) {
 	let buf = ix.to_le_bytes();
 	dest[..4].copy_from_slice(&buf[..]);
+}
+
+#[cfg(test)]
+fn read_u128(enc: &[u8]) -> u128 {
+	let mut buf = [0; 16];
+	buf[..].copy_from_slice(&enc[..16]);
+	u128::from_le_bytes(buf)
+}
+
+#[cfg(test)]
+fn write_u128(ix: u128, dest: &mut [u8]) {
+	let buf = ix.to_le_bytes();
+	dest[..16].copy_from_slice(&buf[..]);
 }
