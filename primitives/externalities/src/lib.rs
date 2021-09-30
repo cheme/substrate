@@ -730,6 +730,7 @@ impl WorkerType {
 		true
 	}
 }
+
 /// Access filter on storage when spawning worker.
 #[derive(Debug, Clone, codec::Encode, codec::Decode)]
 pub struct WorkerDeclaration {

@@ -52,6 +52,8 @@ impl Default for Filter {
 
 impl WriteLocalScope {
 	pub(super) fn set_write_local_scope(&mut self, scope: Option<AccessDeclaration>) {
-		unimplemented!();
+		if let Some(declaration) = scope {
+			unimplemented!();
+		}
 	}
 }
