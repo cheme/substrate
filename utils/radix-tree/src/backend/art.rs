@@ -33,6 +33,8 @@ use core::marker::PhantomData;
 /// Fix size index that can be read or written for these art.
 pub trait Index: Clone + Debug + Eq {
 	const SIZE: usize;
+	// TODO with current code UNDEFINED must be 0 encoded (no specific initializing).
+	// can be ok, just need proper doc
 	const UNDEFINED: Self;
 
 	fn read_index(enc: &[u8]) -> Self;
@@ -646,23 +648,23 @@ impl<I: Index, VI: Index> Art48<I, VI> {
 			return false;
 		}
 		self.0[at + 1] = self.nb_children() as u8 + 1;
-		let i = ART48_NB + 1 - self.nb_children();
-		let i = art48_fix_len(I::SIZE, VI::SIZE) - i * 8;
-		if &self.0[i .. i + 8] == &[0; 8] {
+		let i = ART48_NB - self.nb_children();
+		let i = art48_fix_len(I::SIZE, VI::SIZE) - i * I::SIZE - VI::SIZE;
+		if I::read_index(&self.0[i .. i + I::SIZE]) == I::UNDEFINED {
 			self.0[0] += 1;
 		}
-		index.write_index(&mut self.0[i .. i + 8]);
+		index.write_index(&mut self.0[i .. i + I::SIZE]);
 		true
 	}
 
 	fn remove_children_index(&mut self, at: usize) {
 		self.0[at] = 0;
-		let i = ART48_NB + 1 - at;
-		let i = art48_fix_len(I::SIZE, VI::SIZE) - i * 8;
-		if &self.0[i .. i + 8] != &[0; 8] {
+		let i = ART48_NB - at;
+		let i = art48_fix_len(I::SIZE, VI::SIZE) - i * I::SIZE - VI::SIZE;
+		if I::read_index(&self.0[i .. i + I::SIZE]) != I::UNDEFINED {
 			self.0[0] -= 1;
 		}
-		I::UNDEFINED.write_index(&mut self.0[i .. i + 8]);
+		I::UNDEFINED.write_index(&mut self.0[i .. i + I::SIZE]);
 	}
 }
 
@@ -697,30 +699,30 @@ impl<I: Index, VI: Index> Art256<I, VI> {
 	}
 
 	fn set_children_index(&mut self, at: usize, index: &I) -> bool {
-		let i = ART256_NB + 1 - at;
-		let i = art256_fix_len(I::SIZE, VI::SIZE) - i * 8;
-		if &self.0[i .. i + 8] == &[0; 8] {
+		let i = ART256_NB - at;
+		let i = art256_fix_len(I::SIZE, VI::SIZE) - i * I::SIZE - VI::SIZE;
+		if I::read_index(&self.0[i .. i + I::SIZE]) == I::UNDEFINED {
 			if self.0[1] == 255 {
 				self.0[0] |= 0b0000_0001;
 			} else {
 				self.0[1] += 1;
 			}
 		}
-		index.write_index(&mut self.0[i .. i + 8]);
+		index.write_index(&mut self.0[i .. i + I::SIZE]);
 		true
 	}
 
 	fn remove_children_index(&mut self, at: usize) {
-		let i = ART256_NB + 1 - at;
-		let i = art256_fix_len(I::SIZE, VI::SIZE) - i * 8;
-		if &self.0[i .. i + 8] != &[0; 8] {
+		let i = ART256_NB - at;
+		let i = art256_fix_len(I::SIZE, VI::SIZE) - i * I::SIZE - VI::SIZE;
+		if I::read_index(&self.0[i .. i + I::SIZE]) != I::UNDEFINED {
 			if self.0[0] & 0b0000_0001 > 0 {
 				self.0[0] |= !0b0000_0001;
 			} else {
 				self.0[1] -= 1;
 			}
 		}
-		I::UNDEFINED.write_index(&mut self.0[i .. i + 8]);
+		I::UNDEFINED.write_index(&mut self.0[i .. i + I::SIZE]);
 	}
 }
 
