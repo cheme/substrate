@@ -116,11 +116,8 @@ pub trait LazyInstanciate<'a> {
 	/// Can return `None` when no module was defined or an error occurs, this should
 	/// be considered as a panicking situation.
 	///
-	/// Pointer is meant to be use under `AssertUnwnindSafe`.
-	fn instantiate(&'a mut self) -> Option<&'a mut Box<dyn WasmInstance>>;
-
-	/// A fonction that MUST be call on catch_unwind to ensure `AssertUnwindSafe`.
-	fn handle_catched_panic(&'a mut self);
+	/// A fonction callback is also return to be called on panic (to handle `AssertUnwindSafe`).
+	fn instantiate(self) -> Option<(AssertUnwindSafe<&'a mut Box<dyn WasmInstance>>, Box<dyn FnMut()> + 'a)>;
 }
 
 /// Lazy instantiate for non owned wasm instance.
@@ -134,7 +131,7 @@ pub struct InlineInstantiateRef<'a> {
 
 #[cfg(feature = "std")]
 impl<'a> LazyInstanciate<'a> for InlineInstantiateRef<'a> {
-	fn instantiate(&'a mut self) -> Option<&'a mut Box<dyn WasmInstance>> {
+	fn instantiate(self) -> Option<(AssertUnwindSafe<&'a mut Box<dyn WasmInstance>>, Box<dyn FnMut()> + 'a)> {
 		if self.instance.is_none() {
 			*self.instance = if let Some(instance) = instantiate_inline(self.module) {
 				Some(instance)
@@ -142,11 +139,16 @@ impl<'a> LazyInstanciate<'a> for InlineInstantiateRef<'a> {
 				return None
 			}
 		};
-		self.instance.as_mut()
-	}
-
-	fn handle_catched_panic(&'a mut self) {
-		*self.instance = None;
+		let instance_h = self.instance as *mut Option<Box<dyn WasmInstance>>;
+		if let Some(i) = self.instance.as_mut() {
+			let handle = move || {
+				let instance: &mut Option<Box<dyn WasmInstance>> = unsafe { instance_h.as_mut().unwrap() }; 
+				*instance = None;
+			};
+			Some((AssertUnwindSafe(i), Box::new(handle)))
+		} else {
+			None
+		}
 	}
 }
 
@@ -207,7 +209,7 @@ pub(crate) fn process_task_inner<
 	task: Task,
 	mut async_ext: crate::AsyncExternalities,
 	handle: TaskId,
-	#[cfg(feature = "std")] mut instance_ref: I,
+	#[cfg(feature = "std")] instance_ref: I,
 ) -> WorkerResult {
 	let result = match task {
 		Task::Wasm(WasmTask { dispatcher_ref, func, data }) => {
@@ -215,21 +217,18 @@ pub(crate) fn process_task_inner<
 			if HostLocal::HOST_LOCAL {
 				panic!("HOST_LOCAL is only expected for a wasm no_std call");
 			} else {
-				let result = {
-				let mut instance = if let Some(instance) = instance_ref.instantiate() {
+				let (mut instance, panic_h) = if let Some(instance) = instance_ref.instantiate() {
 					instance
 				} else {
 					return WorkerResult::HardPanic
 				};
-				with_externalities_safe(&mut async_ext, || {
+				match with_externalities_safe(&mut async_ext, move || {
 					instance
 						.call(InvokeMethod::TableWithWrapper { dispatcher_ref, func }, &data[..])
-				})
-				};
-				match result {
+				}) {
 					Ok(Ok(result)) => result,
 					Ok(Err(Error::RuntimePanicked(error))) => {
-						//instance_ref.handle_catched_panic();
+						panic_h();
 						log_error!("Runtime panic error in wasm task: {:?}", error);
 						return WorkerResult::RuntimePanic
 					},

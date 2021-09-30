@@ -48,11 +48,11 @@ type PoolThreadId = u64;
 
 struct InlineInstantiate<'a, 'b> {
 	module: &'a Option<Arc<dyn WasmModule>>,
-	guard: &'a mut parking_lot::MutexGuard<'b, Option<Box<dyn WasmInstance>>>,
+	guard: &'a mut parking_lot::MutexGuard<'b, Option<AssertUnwindSafe<Box<dyn WasmInstance>>>>,
 }
 
 impl<'a, 'b> crate::common::LazyInstanciate<'a> for InlineInstantiate<'a, 'b> {
-	fn instantiate(&'a mut self) -> Option<AssertUnwindSafe<&'a mut Box<dyn WasmInstance>>> {
+	fn instantiate(self) -> Option<&'a mut AssertUnwindSafe<Box<dyn WasmInstance>>> {
 		if self.guard.is_none() {
 			**self.guard = if let Some(instance) = instantiate_inline(self.module) {
 				Some(instance)
@@ -61,11 +61,7 @@ impl<'a, 'b> crate::common::LazyInstanciate<'a> for InlineInstantiate<'a, 'b> {
 			};
 		}
 
-		self.guard.as_mut().map(AssertUnwindSafe)
-	}
-
-	fn handle_catched_panic(&'a mut self) {
-		**self.guard = None;
+		self.guard.as_mut()
 	}
 }
 
@@ -73,7 +69,7 @@ impl<'a, 'b> crate::common::LazyInstanciate<'a> for InlineInstantiate<'a, 'b> {
 #[derive(Clone)]
 pub struct RuntimeInstanceSpawn {
 	module: Option<Arc<dyn WasmModule>>,
-	instance: Arc<parking_lot::Mutex<Option<Box<dyn WasmInstance>>>>,
+	instance: Arc<parking_lot::Mutex<Option<AssertUnwindSafe<Box<dyn WasmInstance>>>>>,
 	tasks: Arc<parking_lot::Mutex<HashMap<TaskId, PendingTask>>>,
 	infos: Arc<parking_lot::Mutex<RuntimeInstanceSpawnInfo>>,
 	counter: Arc<AtomicU64>,
@@ -272,7 +268,7 @@ impl RuntimeInstanceSpawn {
 			"executor-extra-runtime-instance",
 			Box::pin(async move {
 				let task_receiver = task_receiver.clone();
-				let mut instance: Option<Box<dyn WasmInstance>> = None;
+				let mut instance: Option<AssertUnwindSafe<Box<dyn WasmInstance>>> = None;
 				while let Ok(RemoteTask { handle, task, ext, result_sender }) = {
 					let task_receiver_locked = task_receiver.lock();
 					task_receiver_locked.recv()
@@ -418,13 +414,17 @@ impl RuntimeSpawn for RuntimeInstanceSpawn {
 				let instance_ref = InlineInstantiate { module: &self.module, guard: &mut instance };
 
 				let runtime_spawn = Box::new(self.nested_instance());
-				crate::inline_spawn::process_task_inline(
+				let result = crate::inline_spawn::process_task_inline(
 					task.task,
 					task.ext,
 					handle,
 					runtime_spawn,
 					instance_ref,
-				)
+				);
+				if instance.panicked() {
+					*instance = None;
+				}
+				result
 			},
 			// handle has been removed due to dismiss or
 			// invalid externality condition.
