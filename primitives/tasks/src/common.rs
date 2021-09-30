@@ -117,9 +117,11 @@ pub trait LazyInstanciate<'a> {
 	/// be considered as a panicking situation.
 	///
 	/// A fonction callback is also return to be called on panic (to handle `AssertUnwindSafe`).
-	/// Calling the callback if there was no panic is unsafe (callback usually requires this unsafe code
-	/// assertion).
-	fn instantiate(self) -> Option<(AssertUnwindSafe<&'a mut Box<dyn WasmInstance>>, Box<dyn FnOnce() + 'a>)>;
+	/// Calling the callback if there was no panic is unsafe (callback usually requires this unsafe
+	/// code assertion).
+	fn instantiate(
+		self,
+	) -> Option<(AssertUnwindSafe<&'a mut Box<dyn WasmInstance>>, Box<dyn FnOnce() + 'a>)>;
 }
 
 /// Lazy instantiate for non owned wasm instance.
@@ -133,7 +135,9 @@ pub struct InlineInstantiateRef<'a> {
 
 #[cfg(feature = "std")]
 impl<'a> LazyInstanciate<'a> for InlineInstantiateRef<'a> {
-	fn instantiate(self) -> Option<(AssertUnwindSafe<&'a mut Box<dyn WasmInstance>>, Box<dyn FnOnce() + 'a>)> {
+	fn instantiate(
+		self,
+	) -> Option<(AssertUnwindSafe<&'a mut Box<dyn WasmInstance>>, Box<dyn FnOnce() + 'a>)> {
 		if self.instance.is_none() {
 			*self.instance = if let Some(instance) = instantiate_inline(self.module) {
 				Some(instance)
@@ -144,7 +148,8 @@ impl<'a> LazyInstanciate<'a> for InlineInstantiateRef<'a> {
 		let instance_h = self.instance as *mut Option<Box<dyn WasmInstance>>;
 		if let Some(i) = self.instance.as_mut() {
 			let handle = move || {
-				let instance: &mut Option<Box<dyn WasmInstance>> = unsafe { instance_h.as_mut().unwrap() }; 
+				let instance: &mut Option<Box<dyn WasmInstance>> =
+					unsafe { instance_h.as_mut().unwrap() };
 				*instance = None;
 			};
 			Some((AssertUnwindSafe(i), Box::new(handle)))
@@ -158,9 +163,7 @@ impl<'a> LazyInstanciate<'a> for InlineInstantiateRef<'a> {
 /// Instantiate a wasm module.
 /// This function is rather unsafe and should only be
 /// use when `AssertUnwindSafe` assertion stands.
-pub fn instantiate(
-	module: Option<&dyn WasmModule>,
-) -> Option<Box<dyn WasmInstance>> {
+pub fn instantiate(module: Option<&dyn WasmModule>) -> Option<Box<dyn WasmInstance>> {
 	Some(match module.map(|m| m.new_instance()) {
 		Some(Ok(val)) => val,
 		Some(Err(e)) => {
@@ -180,9 +183,7 @@ pub fn instantiate(
 
 /// Helper method for `instantiate` function using a module arc reference.
 #[cfg(feature = "std")]
-pub fn instantiate_inline(
-	module: &Option<Arc<dyn WasmModule>>,
-) -> Option<Box<dyn WasmInstance>> {
+pub fn instantiate_inline(module: &Option<Arc<dyn WasmModule>>) -> Option<Box<dyn WasmInstance>> {
 	instantiate(module.as_ref().map(AsRef::as_ref))
 }
 

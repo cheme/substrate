@@ -21,7 +21,7 @@
 
 use sp_inherents::{CheckInherentsResult, InherentData};
 use sp_runtime::{traits::Block as BlockT, ApplyExtrinsicResult};
-use sp_tasks::{WorkerDeclaration, DataJoinHandle};
+use sp_tasks::{DataJoinHandle, WorkerDeclaration};
 
 sp_api::decl_runtime_apis! {
 	/// The `BlockBuilder` api trait that provides the required functionality for building a block.

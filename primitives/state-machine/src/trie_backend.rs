@@ -20,7 +20,7 @@
 use crate::{
 	debug,
 	trie_backend_essence::{Ephemeral, TrieBackendEssence, TrieBackendStorage},
-	warn, Backend, AsyncBackend, StorageKey, StorageValue,
+	warn, AsyncBackend, Backend, StorageKey, StorageValue,
 };
 use codec::{Codec, Decode};
 use hash_db::Hasher;

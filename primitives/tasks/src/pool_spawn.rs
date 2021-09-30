@@ -19,15 +19,6 @@
 //! `RuntimeSpawn` implementation implementing
 //! a pool or running worker for a given execution.
 
-use std::{
-	collections::HashMap,
-	panic::AssertUnwindSafe,
-	sync::{
-		atomic::{AtomicU64, Ordering},
-		mpsc, Arc,
-	},
-};
-use parking_lot::{Mutex, MutexGuard};
 use crate::{
 	common::{
 		instantiate_inline, InlineInstantiateRef, NativeTask, PendingTask as InlineTask, Task,
@@ -37,11 +28,20 @@ use crate::{
 	wasm_runtime::{WasmInstance, WasmModule},
 };
 use log::trace;
+use parking_lot::{Mutex, MutexGuard};
 use sp_core::traits::{
 	AsyncExternalities, BoxFuture, Externalities, RuntimeSpawn, RuntimeSpawnExt, SpawnLimit,
 	TaskHandle,
 };
 use sp_externalities::{ExternalitiesExt as _, TaskId, WorkerDeclaration, WorkerResult};
+use std::{
+	collections::HashMap,
+	panic::AssertUnwindSafe,
+	sync::{
+		atomic::{AtomicU64, Ordering},
+		mpsc, Arc,
+	},
+};
 
 /// Inner id for a thread in pool.
 type PoolThreadId = u64;
@@ -52,7 +52,9 @@ struct InlineInstantiate<'a, 'b> {
 }
 
 impl<'a, 'b> crate::common::LazyInstanciate<'a> for InlineInstantiate<'a, 'b> {
-	fn instantiate(self) -> Option<(AssertUnwindSafe<&'a mut Box<dyn WasmInstance>>, Box<dyn FnOnce() + 'a>)> {
+	fn instantiate(
+		self,
+	) -> Option<(AssertUnwindSafe<&'a mut Box<dyn WasmInstance>>, Box<dyn FnOnce() + 'a>)> {
 		if self.guard.is_none() {
 			**self.guard = if let Some(instance) = instantiate_inline(self.module) {
 				Some(instance)
@@ -64,7 +66,8 @@ impl<'a, 'b> crate::common::LazyInstanciate<'a> for InlineInstantiate<'a, 'b> {
 		let instance_h = self.guard as *mut MutexGuard<'b, Option<Box<dyn WasmInstance>>>;
 		if let Some(i) = self.guard.as_mut() {
 			let handle = move || {
-				let instance: &'a mut MutexGuard<'b, Option<Box<dyn WasmInstance>>> = unsafe { instance_h.as_mut().unwrap() }; 
+				let instance: &'a mut MutexGuard<'b, Option<Box<dyn WasmInstance>>> =
+					unsafe { instance_h.as_mut().unwrap() };
 				**instance = None;
 			};
 			Some((AssertUnwindSafe(i), Box::new(handle)))
@@ -326,7 +329,8 @@ impl RuntimeInstanceSpawn {
 					if let &WorkerResult::RuntimePanic = &result {
 						log::error!("Panic error in spawned task, dropping instance");
 						// Here we don't just shut all because panic will only transmit to parent
-						// if 'join' is call, if 'dismiss' is call then it is fine to ignore a panic.
+						// if 'join' is call, if 'dismiss' is call then it is fine to ignore a
+						// panic.
 						instance = None; // will be lazily re-instantiated
 					}
 					if let &WorkerResult::HardPanic = &result {

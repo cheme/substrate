@@ -25,7 +25,10 @@ mod markers;
 mod offchain;
 
 use self::changeset::OverlayedChangeSet;
-use crate::{backend::{Backend, AsyncBackendNonSend, AsyncBackendAdapterRef}, stats::StateMachineStats};
+use crate::{
+	backend::{AsyncBackendAdapterRef, AsyncBackendNonSend, Backend},
+	stats::StateMachineStats,
+};
 pub use offchain::OffchainOverlayedChanges;
 use sp_std::{
 	any::{Any, TypeId},
@@ -49,11 +52,11 @@ use sp_core::{
 use sp_externalities::{
 	Change, Extension, Extensions, TaskId, WorkerDeclaration, WorkerDeclarationKind, WorkerResult,
 };
+#[cfg(not(feature = "std"))]
+use sp_std::collections::btree_map::{BTreeMap as Map, Entry as MapEntry};
 use sp_std::collections::btree_set::BTreeSet;
 #[cfg(feature = "std")]
 use std::collections::{hash_map::Entry as MapEntry, HashMap as Map};
-#[cfg(not(feature = "std"))]
-use sp_std::collections::btree_map::{Entry as MapEntry, BTreeMap as Map};
 
 pub use self::changeset::{AlreadyInRuntime, NoOpenTransaction, NotInRuntime, OverlayedValue};
 
@@ -333,7 +336,9 @@ impl OverlayedChanges {
 		self.top.get(key).map(|x| {
 			if x.need_resolve() {
 				// gard and log already call
-        if let Some(aggregate) = change_to_change_set(None, key, &mut x.transactions[..], backend) {
+				if let Some(aggregate) =
+					change_to_change_set(None, key, &mut x.transactions[..], backend)
+				{
 					x.transactions.last_mut().map(|e| e.value = Change::Write(aggregate));
 				}
 			}
@@ -360,7 +365,9 @@ impl OverlayedChanges {
 		let value = map.0.get(key)?;
 		if value.need_resolve() {
 			// gard and log already call
-       if let Some(aggregate) = change_to_change_set(Some(child_info), key, &mut value.transactions[..], backend) {
+			if let Some(aggregate) =
+				change_to_change_set(Some(child_info), key, &mut value.transactions[..], backend)
+			{
 				value.transactions.last_mut().map(|e| e.value = Change::Write(aggregate));
 			}
 		}
@@ -413,7 +420,7 @@ impl OverlayedChanges {
 		debug_assert!(updatable);
 		changeset.append_storage(key, val, extrinsic_index);
 	}
-	
+
 	/// Append a value to encoded storage.
 	pub(crate) fn increment_storage(&mut self, key: StorageKey, nb: u32) {
 		self.filters.guard_write(None, key.as_slice());
@@ -445,7 +452,7 @@ impl OverlayedChanges {
 		debug_assert!(updatable);
 		changeset.inc_counter(key, nb, extrinsic_index);
 	}
-	
+
 	/// Set a new value for the specified key and child.
 	///
 	/// `None` can be used to delete a value specified by the given key.
@@ -789,27 +796,35 @@ impl OverlayedChanges {
 	) -> (
 		impl Iterator<Item = (StorageKey, Option<StorageValue>)> + 'a,
 		impl Iterator<
-			Item = (
-				StorageKey,
-				(impl Iterator<Item = (StorageKey, Option<StorageValue>)> + 'a, ChildInfo),
-			),
-		> + 'a,
+				Item = (
+					StorageKey,
+					(impl Iterator<Item = (StorageKey, Option<StorageValue>)> + 'a, ChildInfo),
+				),
+			> + 'a,
 	) {
 		use sp_std::mem::take;
 		(
-			take(&mut self.top)
-				.drain()
-				.map(move |(k, mut change)| {
-					let change = change_to_change_set(None, k.as_slice(), &mut change.transactions[..], &AsyncBackendAdapterRef::new(backend));
-					(k, change)
-				}),
+			take(&mut self.top).drain().map(move |(k, mut change)| {
+				let change = change_to_change_set(
+					None,
+					k.as_slice(),
+					&mut change.transactions[..],
+					&AsyncBackendAdapterRef::new(backend),
+				);
+				(k, change)
+			}),
 			take(&mut self.children).into_iter().map(move |(key, (val, info))| {
 				let info_iter = info.clone();
 				(
 					key,
 					(
 						val.drain().map(move |(k, mut change)| {
-							let change = change_to_change_set(Some(&info_iter), k.as_slice(), &mut change.transactions[..], &AsyncBackendAdapterRef::new(backend));
+							let change = change_to_change_set(
+								Some(&info_iter),
+								k.as_slice(),
+								&mut change.transactions[..],
+								&AsyncBackendAdapterRef::new(backend),
+							);
 							(k, change)
 						}),
 						info,
@@ -845,9 +860,9 @@ impl OverlayedChanges {
 		backend: &'a impl AsyncBackendNonSend,
 	) -> impl Iterator<Item = (impl Iterator<Item = (&StorageKey, &mut OverlayedValue)>, &ChildInfo)>
 	{
-		self.children.iter_mut().map(move |(_, v)| {
-			(v.0.resolved_changes(Some(&v.1), backend), &v.1)
-		})
+		self.children
+			.iter_mut()
+			.map(move |(_, v)| (v.0.resolved_changes(Some(&v.1), backend), &v.1))
 	}
 
 	/// Get an iterator over all top changes as been by the current transaction.
@@ -981,7 +996,8 @@ impl OverlayedChanges {
 	fn extrinsic_index(&mut self) -> Option<u32> {
 		match self.collect_extrinsics {
 			true => Some(
-				self.storage(EXTRINSIC_INDEX, &()) // TODO here no backend for extrinsic index, but strictly will require just independant storage (see local)
+				self.storage(EXTRINSIC_INDEX, &()) // TODO here no backend for extrinsic index, but strictly will require just
+					// independant storage (see local)
 					.and_then(|idx| idx.and_then(|idx| Decode::decode(&mut &*idx).ok()))
 					.unwrap_or(NO_EXTRINSIC_INDEX),
 			),
@@ -1005,14 +1021,17 @@ impl OverlayedChanges {
 		self.optimistic_logger.log_read_all();
 
 		let abackend = AsyncBackendAdapterRef::new(backend);
-		let delta = self.top.resolved_changes(None, &abackend).map(|(k, v)| (&k[..], v.value_from_resolved().map(|v| &v[..])));
-		let child_delta =
-			self.children
-				.iter_mut()
-				.map(|(_, v)| (v.0.resolved_changes(Some(&v.1), &abackend), &v.1))
-				.map(|(changes, info)| {
-					(info, changes.map(|(k, v)| (&k[..], v.value_from_resolved().map(|v| &v[..]))))
-				});
+		let delta = self
+			.top
+			.resolved_changes(None, &abackend)
+			.map(|(k, v)| (&k[..], v.value_from_resolved().map(|v| &v[..])));
+		let child_delta = self
+			.children
+			.iter_mut()
+			.map(|(_, v)| (v.0.resolved_changes(Some(&v.1), &abackend), &v.1))
+			.map(|(changes, info)| {
+				(info, changes.map(|(k, v)| (&k[..], v.value_from_resolved().map(|v| &v[..]))))
+			});
 
 		let (root, transaction) = backend.full_storage_root(delta, child_delta);
 
@@ -1123,8 +1142,7 @@ impl OverlayedChanges {
 					Change::Write(value) => added.push((key, value)),
 					Change::Delete => deleted.push(key),
 					Change::Append(changes) => appended.push((key, changes)),
-					Change::IncrementCounter(increment) =>
-						incremented.push((key, increment)),
+					Change::IncrementCounter(increment) => incremented.push((key, increment)),
 				}
 			}
 			// TODO implement extraction of delta for logged delete prefix
@@ -1152,8 +1170,7 @@ impl OverlayedChanges {
 				Change::Write(value) => added.push((key, value)),
 				Change::Delete => deleted.push(key),
 				Change::Append(changes) => appended.push((key, changes)),
-				Change::IncrementCounter(increment) =>
-					incremented.push((key, increment)),
+				Change::IncrementCounter(increment) => incremented.push((key, increment)),
 			}
 		}
 		sp_externalities::StateDelta {
@@ -1310,11 +1327,7 @@ impl<'a> OverlayedExtensions<'a> {
 pub mod radix_trees {
 	use super::StorageKey;
 	use core::fmt::Debug;
-	use radix_tree::{
-		children::ART48_256,
-		radix::impls::Radix256Conf,
-		TreeConf, ChildFor,
-	};
+	use radix_tree::{children::ART48_256, radix::impls::Radix256Conf, ChildFor, TreeConf};
 	use sp_core::storage::ChildInfo;
 	use sp_std::collections::btree_map::BTreeMap;
 
@@ -1322,11 +1335,11 @@ pub mod radix_trees {
 	pub struct Node256NoBackendART<F>(sp_std::marker::PhantomData<F>);
 
 	impl<F: Clone + Debug + Default> TreeConf for Node256NoBackendART<F> {
-			type Radix = Radix256Conf;
-			type Value = F;
-			type Children = ART48_256<ChildFor<Self>>;
-			type NodeBackend = ();
-			type Backend = ();
+		type Radix = Radix256Conf;
+		type Value = F;
+		type Children = ART48_256<ChildFor<Self>>;
+		type NodeBackend = ();
+		type Backend = ();
 	}
 
 	/// Radix tree internally use for filtering key accesses.
@@ -1389,12 +1402,8 @@ fn change_to_change_set(
 	let (do_storage_change, do_increment) = match &mut change.last_mut()?.value {
 		Change::Delete => return None,
 		Change::Write(value) => return Some(sp_std::mem::take(value)),
-		Change::Append(..) => {
-			(true, false)
-		},
-		Change::IncrementCounter(..) => {
-			(false, true)
-		},
+		Change::Append(..) => (true, false),
+		Change::IncrementCounter(..) => (false, true),
 	};
 	if do_storage_change {
 		let mut start = change.len();
@@ -1407,24 +1416,22 @@ fn change_to_change_set(
 				Change::Write(value) => {
 					// in previous tx, here only allowed to modifiy last tx
 					init_value = Some(value.clone());
-					break;
+					break
 				},
 				Change::Delete => {
 					init_value = Some(Vec::new());
-					break;
+					break
 				},
 				Change::IncrementCounter(..) => {
 					init_value = Some(Vec::new());
-					break;
+					break
 				},
 			}
 		}
 		let mut value = if let Some(info) = child_info {
-			init_value
-			.unwrap_or_else(|| backend.child_storage(info, key).unwrap_or_default())
+			init_value.unwrap_or_else(|| backend.child_storage(info, key).unwrap_or_default())
 		} else {
-			init_value
-			.unwrap_or_else(|| backend.storage(key).unwrap_or_default())
+			init_value.unwrap_or_else(|| backend.storage(key).unwrap_or_default())
 		};
 		let mut appendable = crate::ext::StorageAppend::new(&mut value);
 		for i in start..change.len() - 1 {
@@ -1439,7 +1446,7 @@ fn change_to_change_set(
 				appendable.append(change.clone());
 			}
 		}
-		return Some(value);
+		return Some(value)
 	}
 	if do_increment {
 		let mut increment = 0;
@@ -1451,24 +1458,22 @@ fn change_to_change_set(
 				},
 				Change::Write(value) => {
 					init_value = Some(value.clone());
-					break;
+					break
 				},
 				Change::Delete => {
 					init_value = Some(Vec::new());
-					break;
+					break
 				},
 				Change::Append(..) => {
 					init_value = Some(Vec::new());
-					break;
+					break
 				},
 			}
 		}
 		let mut value = if let Some(info) = child_info {
-			init_value
-				.unwrap_or_else(|| backend.child_storage(info, key).unwrap_or_default())
+			init_value.unwrap_or_else(|| backend.child_storage(info, key).unwrap_or_default())
 		} else {
-			init_value
-				.unwrap_or_else(|| backend.storage(key).unwrap_or_default())
+			init_value.unwrap_or_else(|| backend.storage(key).unwrap_or_default())
 		};
 		for _ in 0..increment {
 			// TODO extract and test counter logic.
@@ -1483,7 +1488,7 @@ fn change_to_change_set(
 				value[nb_digit - 1] += 1;
 			}
 		}
-		return Some(value);
+		return Some(value)
 	}
 	None
 }

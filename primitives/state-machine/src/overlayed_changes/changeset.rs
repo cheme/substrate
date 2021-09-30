@@ -19,18 +19,17 @@
 
 use super::{Change, Extrinsics, StorageKey, StorageValue};
 
+use crate::{backend::AsyncBackendNonSend, warn};
+use smallvec::SmallVec;
 #[cfg(not(feature = "std"))]
 use sp_std::collections::btree_set::BTreeSet as Set;
-#[cfg(feature = "std")]
-use std::collections::HashSet as Set;
-use crate::warn;
-use smallvec::SmallVec;
 use sp_std::{
 	collections::{btree_map::BTreeMap, btree_set::BTreeSet},
 	hash::Hash,
 	vec,
 };
-use crate::backend::AsyncBackendNonSend;
+#[cfg(feature = "std")]
+use std::collections::HashSet as Set;
 
 const PROOF_OVERLAY_NON_EMPTY: &str = "\
 	An OverlayValue is always created with at least one transaction and dropped as soon
@@ -441,25 +440,24 @@ impl OverlayedChangeSet {
 	) {
 		let overlayed = self.changes.entry(key.clone()).or_default();
 		let first_write_in_tx = insert_dirty(&mut self.dirty_keys, key);
-		let mut clone_into_new_tx = if overlayed.transactions.last().is_some() {
-			first_write_in_tx
-		} else {
-			true
-		};
+		let mut clone_into_new_tx =
+			if overlayed.transactions.last().is_some() { first_write_in_tx } else { true };
 
 		if !clone_into_new_tx {
 			match overlayed.value_mut() {
-				Change::Append(changes) => { 
+				Change::Append(changes) => {
 					// TODO check if need to also add extrinsic index?
 					changes.push(value);
-					return;
+					return
 				},
 				Change::Write(changes) => {
 					let mut appendable = crate::ext::StorageAppend::new(changes);
 					appendable.append(value);
-					return;
+					return
 				},
-				_ => { clone_into_new_tx = true; }, // just overwrite (TODO could panic)
+				_ => {
+					clone_into_new_tx = true;
+				}, // just overwrite (TODO could panic)
 			}
 		}
 		if clone_into_new_tx {
@@ -468,23 +466,15 @@ impl OverlayedChangeSet {
 	}
 
 	/// Access to appendable change
-	pub fn inc_counter(
-		&mut self,
-		key: StorageKey,
-		nb: u32,
-		at_extrinsic: Option<u32>,
-	) {
+	pub fn inc_counter(&mut self, key: StorageKey, nb: u32, at_extrinsic: Option<u32>) {
 		let overlayed = self.changes.entry(key.clone()).or_default();
 		let first_write_in_tx = insert_dirty(&mut self.dirty_keys, key);
-		let mut clone_into_new_tx = if overlayed.transactions.last().is_some() {
-			first_write_in_tx
-		} else {
-			true
-		};
+		let mut clone_into_new_tx =
+			if overlayed.transactions.last().is_some() { first_write_in_tx } else { true };
 
 		if !clone_into_new_tx {
 			match overlayed.value_mut() {
-				Change::IncrementCounter(changes) => { 
+				Change::IncrementCounter(changes) => {
 					// TODO check if need to also add extrinsic index?
 					*changes += nb;
 				},
@@ -503,7 +493,9 @@ impl OverlayedChangeSet {
 						}
 					}
 				},
-				_ => { clone_into_new_tx = true; }, // just overwrite (TODO could panic)
+				_ => {
+					clone_into_new_tx = true;
+				}, // just overwrite (TODO could panic)
 			}
 		}
 		if clone_into_new_tx {
@@ -543,7 +535,12 @@ impl OverlayedChangeSet {
 	) -> impl Iterator<Item = (&StorageKey, &mut OverlayedEntry<Change>)> + 'a {
 		self.changes.iter_mut().map(move |(key, entry)| {
 			if entry.need_resolve() {
-				if let Some(aggregate) = super::change_to_change_set(child_info, key, &mut entry.transactions[..], backend) {
+				if let Some(aggregate) = super::change_to_change_set(
+					child_info,
+					key,
+					&mut entry.transactions[..],
+					backend,
+				) {
 					entry.transactions.last_mut().map(|e| e.value = Change::Write(aggregate));
 				}
 			}
@@ -747,10 +744,13 @@ mod test {
 	fn append_works() {
 		use codec::Encode;
 		let backend = crate::in_memory_backend::new_in_mem::<sp_runtime::traits::BlakeTwo256>();
-		let backend = backend.update(vec![(None, vec![
-			(b"key0".to_vec(), Some(vec![b"data".to_vec()].encode())),
-			(b"key1".to_vec(), Some(vec![5u8])),
-		])]);
+		let backend = backend.update(vec![(
+			None,
+			vec![
+				(b"key0".to_vec(), Some(vec![b"data".to_vec()].encode())),
+				(b"key1".to_vec(), Some(vec![5u8])),
+			],
+		)]);
 		let backend = crate::backend::AsyncBackendAdapterRef::new(&backend);
 
 		let mut changeset = OverlayedChangeSet::default();
@@ -763,7 +763,17 @@ mod test {
 			&mut changeset,
 			&backend,
 			&vec![
-				(b"key0", (Some(vec![b"data".to_vec(), b"val1".to_vec(), b"val2".to_vec()].encode().as_slice()), vec![1])),
+				(
+					b"key0",
+					(
+						Some(
+							vec![b"data".to_vec(), b"val1".to_vec(), b"val2".to_vec()]
+								.encode()
+								.as_slice(),
+						),
+						vec![1],
+					),
+				),
 				(b"key1", (Some(&[10]), vec![1])),
 			],
 		);
@@ -773,7 +783,10 @@ mod test {
 			&mut changeset,
 			&backend,
 			&vec![
-				(b"key0", (Some(vec![b"data".to_vec(), b"val1".to_vec()].encode().as_slice()), vec![1])),
+				(
+					b"key0",
+					(Some(vec![b"data".to_vec(), b"val1".to_vec()].encode().as_slice()), vec![1]),
+				),
 				(b"key1", (Some(&[7]), vec![1])),
 			],
 		);

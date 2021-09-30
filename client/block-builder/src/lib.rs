@@ -254,18 +254,21 @@ where
 			},
 			Ok(None) => {
 				// TODO new error for spawn error.
-				Err(
-					ApplyExtrinsicFailed::Validity(sp_runtime::transaction_validity::UnknownTransaction::Custom(88).into()).into(),
+				Err(ApplyExtrinsicFailed::Validity(
+					sp_runtime::transaction_validity::UnknownTransaction::Custom(88).into(),
 				)
+				.into())
 			},
 			Err(e) => Err(Error::from(e)),
 		}
 	}
 
 	pub fn enact_pending(&self) -> Result<(), Error> {
-		unimplemented!("TODO run join simulations and look for good ordonancement, add them to block \
-		send back to proposer non include tx + at first just do some reports over all included?")
-			// TODO remember result is `Result<(), Error>` encoded.
+		unimplemented!(
+			"TODO run join simulations and look for good ordonancement, add them to block \
+		send back to proposer non include tx + at first just do some reports over all included?"
+		)
+		// TODO remember result is `Result<(), Error>` encoded.
 	}
 
 	/// Consume the builder to build a valid `Block` containing all pushed extrinsics.

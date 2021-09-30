@@ -39,8 +39,7 @@ use sp_core::{
 	traits::{CodeExecutor, Externalities, RuntimeCode},
 	NativeOrEncoded,
 };
-use sp_tasks::common::with_externalities_safe;
-use sp_tasks::pool_spawn::RuntimeInstanceSpawn;
+use sp_tasks::{common::with_externalities_safe, pool_spawn::RuntimeInstanceSpawn};
 use sp_version::{GetNativeVersion, NativeVersion, RuntimeVersion};
 use sp_wasm_interface::{Function, HostFunctions};
 

@@ -161,14 +161,21 @@ where
 	/// In contrast to [`commit_all`](Self::commit_all) this will not panic if there are open
 	/// transactions.
 	pub fn as_backend(&mut self) -> InMemoryBackend<H> {
-		let top: Vec<_> =
-			self.overlay.resolved_changes(&AsyncBackendAdapterRef::new(&self.backend)).map(|(k, v)| (k.clone(), v.value_from_resolved().cloned())).collect();
+		let top: Vec<_> = self
+			.overlay
+			.resolved_changes(&AsyncBackendAdapterRef::new(&self.backend))
+			.map(|(k, v)| (k.clone(), v.value_from_resolved().cloned()))
+			.collect();
 		let mut transaction = vec![(None, top)];
 
-		for (child_changes, child_info) in self.overlay.children_resolved(&AsyncBackendAdapterRef::new(&self.backend)) {
+		for (child_changes, child_info) in
+			self.overlay.children_resolved(&AsyncBackendAdapterRef::new(&self.backend))
+		{
 			transaction.push((
 				Some(child_info.clone()),
-				child_changes.map(|(k, v)| (k.clone(), v.value_from_resolved().cloned())).collect(),
+				child_changes
+					.map(|(k, v)| (k.clone(), v.value_from_resolved().cloned()))
+					.collect(),
 			))
 		}
 

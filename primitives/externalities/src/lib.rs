@@ -822,7 +822,7 @@ pub struct AccessDeclaration {
 	/// Top state accesses.
 	pub top: LocalAccessDeclaration,
 
-	/// Children state accesses, by prefixed childen key. 
+	/// Children state accesses, by prefixed childen key.
 	pub children: Vec<(Vec<u8>, LocalAccessDeclaration)>,
 }
 
@@ -852,7 +852,7 @@ impl AccessDeclaration {
 	/// Declaration for top prefix only.
 	/// TODO rename : having a all top allowend is not really clean.
 	pub fn top_prefix() -> Self {
-		AccessDeclaration { 
+		AccessDeclaration {
 			top: LocalAccessDeclaration {
 				prefixes_lock: sp_std::vec![Vec::new()],
 				keys_lock: Vec::new(),

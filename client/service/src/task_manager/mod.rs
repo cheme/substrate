@@ -29,12 +29,16 @@ use prometheus_endpoint::{
 	exponential_buckets, register, CounterVec, HistogramOpts, HistogramVec, Opts, PrometheusError,
 	Registry, U64,
 };
-use std::sync::{
-	atomic::{AtomicUsize, Ordering},
-	Arc,
-};
 use sc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver, TracingUnboundedSender};
-use std::{panic, pin::Pin, result::Result};
+use std::{
+	panic,
+	pin::Pin,
+	result::Result,
+	sync::{
+		atomic::{AtomicUsize, Ordering},
+		Arc,
+	},
+};
 use tokio::{runtime::Handle, task::JoinHandle};
 use tracing_futures::Instrument;
 

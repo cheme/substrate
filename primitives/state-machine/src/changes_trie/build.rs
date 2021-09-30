@@ -18,7 +18,7 @@
 //! Structures and functions required to build changes trie for given block.
 
 use crate::{
-	backend::{Backend, AsyncBackendAdapterRef},
+	backend::{AsyncBackendAdapterRef, Backend},
 	changes_trie::{
 		build_iterator::digest_build_iterator,
 		input::{ChildIndex, DigestIndex, ExtrinsicIndex, InputKey, InputPair},
@@ -175,7 +175,11 @@ where
 								}
 							}
 						} else {
-							if !overlay.storage(k, &AsyncBackendAdapterRef::new(backend)).map(|v| v.is_some()).unwrap_or_default() {
+							if !overlay
+								.storage(k, &AsyncBackendAdapterRef::new(backend))
+								.map(|v| v.is_some())
+								.unwrap_or_default()
+							{
 								if !backend.exists_storage(k).map_err(|e| format!("{}", e))? {
 									return Ok(map)
 								}

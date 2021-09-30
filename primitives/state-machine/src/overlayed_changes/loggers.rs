@@ -432,8 +432,8 @@ impl AccessLogger {
 
 					// merge accesses with parent if needed
 					if self.log_write.parent {
-						// relative to the current three configs when write is logged for child, it is also for
-						// parent.
+						// relative to the current three configs when write is logged for child, it
+						// is also for parent.
 						for key in accesses.top_logger.write_keys.iter() {
 							self.log_write(None, key.as_slice());
 						}
@@ -456,8 +456,8 @@ impl AccessLogger {
 						}
 					}
 					if self.log_read.parent && accesses.read_all {
-						// relative to the current three configs when read is logged for child, it is also for
-						// parent.
+						// relative to the current three configs when read is logged for child, it
+						// is also for parent.
 						self.log_read_all();
 					} else if self.log_read.parent {
 						for key in accesses.top_logger.read_keys.iter() {

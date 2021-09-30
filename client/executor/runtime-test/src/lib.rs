@@ -33,7 +33,8 @@ use sp_runtime::{
 use sp_sandbox::Value;
 #[cfg(not(feature = "std"))]
 use sp_tasks::{
-	AccessDeclarations, AccessDeclaration, LocalAccessDeclaration, DeclarationFailureHandling, WorkerDeclaration, WorkerDeclarationKind,
+	AccessDeclaration, AccessDeclarations, DeclarationFailureHandling, LocalAccessDeclaration,
+	WorkerDeclaration, WorkerDeclarationKind,
 };
 
 extern "C" {

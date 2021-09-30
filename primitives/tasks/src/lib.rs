@@ -29,8 +29,8 @@
 //!    }
 //!    fn test(dynamic_variable: i32) {
 //!       for _ in 0..dynamic_variable {
-//!					sp_tasks::spawn(my_parallel_computator, vec![], WorkerDeclaration::stateless());
-//!				}
+//! 					sp_tasks::spawn(my_parallel_computator, vec![], WorkerDeclaration::stateless());
+//! 				}
 //!    }
 //! ```
 //!
@@ -59,7 +59,7 @@
 #![warn(missing_docs)]
 #![cfg_attr(not(feature = "std"), no_std)]
 
-use codec::{Encode, Decode};
+use codec::{Decode, Encode};
 
 /// In no_std we skip log, this macro
 /// is a noops.
@@ -89,8 +89,8 @@ pub use crate::common::with_externalities_safe;
 pub use async_externalities::new_async_externalities;
 pub use async_externalities::{new_inline_only_externalities, AsyncExternalities};
 pub use sp_externalities::{
-	AccessDeclarations, AccessDeclaration, LocalAccessDeclaration, DeclarationFailureHandling, WorkerDeclaration, WorkerDeclarationKind,
-	WorkerResult,
+	AccessDeclaration, AccessDeclarations, DeclarationFailureHandling, LocalAccessDeclaration,
+	WorkerDeclaration, WorkerDeclarationKind, WorkerResult,
 };
 pub use sp_io::Crossing;
 use sp_std::vec::Vec;

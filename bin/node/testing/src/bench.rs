@@ -51,8 +51,11 @@ use sc_executor::{NativeElseWasmExecutor, WasmExecutionMethod};
 use sp_api::ProvideRuntimeApi;
 use sp_block_builder::BlockBuilder;
 use sp_consensus::BlockOrigin;
-use sp_core::{blake2_256, ed25519, sr25519, ExecutionContext, Pair, Public};
-use sp_core::traits::{SpawnLimit, SpawnNamed, TaskHandle};
+use sp_core::{
+	blake2_256, ed25519, sr25519,
+	traits::{SpawnLimit, SpawnNamed, TaskHandle},
+	ExecutionContext, Pair, Public,
+};
 use sp_inherents::InherentData;
 use sp_runtime::{
 	generic::BlockId,

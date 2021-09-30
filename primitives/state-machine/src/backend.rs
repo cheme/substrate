@@ -371,7 +371,6 @@ impl AsyncBackendNonSend for Box<dyn AsyncBackend> {
 	fn next_child_storage_key(&self, child_info: &ChildInfo, key: &[u8]) -> Option<Vec<u8>> {
 		self.as_ref().next_child_storage_key(child_info, key)
 	}
-
 }
 
 impl<'a, H: Hasher, B: Backend<H>> AsyncBackendNonSend for AsyncBackendAdapterRef<'a, H, B> {
@@ -390,7 +389,6 @@ impl<'a, H: Hasher, B: Backend<H>> AsyncBackendNonSend for AsyncBackendAdapterRe
 	fn next_child_storage_key(&self, child_info: &ChildInfo, key: &[u8]) -> Option<Vec<u8>> {
 		self.0.next_child_storage_key(child_info, key).expect(EXT_NOT_ALLOWED_TO_FAIL)
 	}
-
 }
 
 impl<H: Hasher, B: Backend<H>> AsyncBackendAdapter<H, B> {

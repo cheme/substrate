@@ -999,8 +999,7 @@ mod execution {
 #[cfg(test)]
 mod tests {
 	use super::{changes_trie::Configuration as ChangesTrieConfig, ext::Ext, *};
-	use crate::execution::CallResult;
-	use crate::backend::AsyncBackendAdapterRef;
+	use crate::{backend::AsyncBackendAdapterRef, execution::CallResult};
 	use codec::{Decode, Encode};
 	use sp_core::{
 		map,
@@ -1818,10 +1817,16 @@ mod tests {
 		let mut overlay = OverlayedChanges::default();
 		overlay.start_transaction();
 		overlay.set_storage(b"ccc".to_vec(), Some(b"".to_vec()));
-		assert_eq!(overlay.storage(b"ccc", &AsyncBackendAdapterRef::new(&state)), Some(Some(&[][..])));
+		assert_eq!(
+			overlay.storage(b"ccc", &AsyncBackendAdapterRef::new(&state)),
+			Some(Some(&[][..]))
+		);
 		overlay.commit_transaction().unwrap();
 		overlay.start_transaction();
-		assert_eq!(overlay.storage(b"ccc", &AsyncBackendAdapterRef::new(&state)), Some(Some(&[][..])));
+		assert_eq!(
+			overlay.storage(b"ccc", &AsyncBackendAdapterRef::new(&state)),
+			Some(Some(&[][..]))
+		);
 		assert_eq!(overlay.storage(b"bbb", &AsyncBackendAdapterRef::new(&state)), None);
 
 		let backend = state.as_trie_backend().unwrap();

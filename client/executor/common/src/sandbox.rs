@@ -20,7 +20,10 @@
 //!
 //! Sandboxing is backed by wasmi and wasmer, depending on the configuration.
 
-use crate::util;
+use crate::{
+	error::{Error, Result},
+	util,
+};
 use codec::{Decode, Encode};
 use sp_core::sandbox as sandbox_primitives;
 use sp_wasm_interface::{FunctionContext, Pointer, WordSize};
@@ -29,7 +32,6 @@ use wasmi::{
 	memory_units::Pages, Externals, ImportResolver, MemoryInstance, Module, ModuleInstance,
 	RuntimeArgs, RuntimeValue, Trap, TrapKind,
 };
-use crate::error::{Result, Error};
 
 #[cfg(feature = "wasmer-sandbox")]
 use util::wasmer::MemoryWrapper as WasmerMemoryWrapper;

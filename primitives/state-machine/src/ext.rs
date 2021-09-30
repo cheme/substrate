@@ -18,8 +18,9 @@
 //! Concrete externalities implementation.
 
 use crate::{
-	backend::{Backend, AsyncBackendAdapterRef}, overlayed_changes::OverlayedExtensions, IndexOperation, OverlayedChanges,
-	StorageKey, StorageValue,
+	backend::{AsyncBackendAdapterRef, Backend},
+	overlayed_changes::OverlayedExtensions,
+	IndexOperation, OverlayedChanges, StorageKey, StorageValue,
 };
 use codec::{Decode, Encode, EncodeAppend};
 use hash_db::Hasher;
@@ -187,7 +188,11 @@ where
 			.pairs()
 			.iter()
 			.map(|&(ref k, ref v)| (k.to_vec(), Some(v.to_vec())))
-			.chain(self.overlay.resolved_changes(&AsyncBackendAdapterRef::new(self.backend)).map(|(k, v)| (k.clone(), v.value_from_resolved().cloned())))
+			.chain(
+				self.overlay
+					.resolved_changes(&AsyncBackendAdapterRef::new(self.backend))
+					.map(|(k, v)| (k.clone(), v.value_from_resolved().cloned())),
+			)
 			.collect::<HashMap<_, _>>()
 			.into_iter()
 			.filter_map(|(k, maybe_val)| maybe_val.map(|val| (k, val)))
@@ -315,7 +320,11 @@ where
 	fn exists_child_storage(&mut self, child_info: &ChildInfo, key: &[u8]) -> bool {
 		let _guard = guard();
 
-		let result = match self.overlay.child_storage(child_info, key, &AsyncBackendAdapterRef::new(self.backend)) {
+		let result = match self.overlay.child_storage(
+			child_info,
+			key,
+			&AsyncBackendAdapterRef::new(self.backend),
+		) {
 			Some(x) => x.is_some(),
 			_ => self
 				.backend
@@ -357,9 +366,9 @@ where
 							// (aka the key is still valid), it means we have found our next key.
 							return Some(overlay_key.0.to_vec())
 						} else if cmp == Some(Ordering::Equal) {
-							// If the `backend_key` and `overlay_key` are equal, it means that we need
-							// to search for the next backend key, because the overlay has overwritten
-							// this key.
+							// If the `backend_key` and `overlay_key` are equal, it means that we
+							// need to search for the next backend key, because the overlay has
+							// overwritten this key.
 							*next_backend_key = backend
 								.next_storage_key(&overlay_key.0)
 								.expect(EXT_NOT_ALLOWED_TO_FAIL);
@@ -404,9 +413,9 @@ where
 							// (aka the key is still valid), it means we have found our next key.
 							return Some(overlay_key.0.to_vec())
 						} else if cmp == Some(Ordering::Equal) {
-							// If the `backend_key` and `overlay_key` are equal, it means that we need
-							// to search for the next backend key, because the overlay has overwritten
-							// this key.
+							// If the `backend_key` and `overlay_key` are equal, it means that we
+							// need to search for the next backend key, because the overlay has
+							// overwritten this key.
 							*next_backend_key = backend
 								.next_child_storage_key(child_info, &overlay_key.0)
 								.expect(EXT_NOT_ALLOWED_TO_FAIL);
@@ -584,8 +593,12 @@ where
 			);
 			root.encode()
 		} else {
-			let root = if let Some((changes, info)) = self.overlay.resolved_child_changes(storage_key, &AsyncBackendAdapterRef::new(self.backend)) {
-				let delta = changes.map(|(k, v)| (k.as_ref(), v.value_from_resolved().map(AsRef::as_ref)));
+			let root = if let Some((changes, info)) = self
+				.overlay
+				.resolved_child_changes(storage_key, &AsyncBackendAdapterRef::new(self.backend))
+			{
+				let delta =
+					changes.map(|(k, v)| (k.as_ref(), v.value_from_resolved().map(AsRef::as_ref)));
 				Some(self.backend.child_storage_root(info, delta))
 			} else {
 				None

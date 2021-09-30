@@ -1883,7 +1883,6 @@ where
 		mut import_block: BlockImportParams<Block, backend::TransactionFor<B, Block>>,
 		new_cache: HashMap<CacheKeyId, Vec<u8>>,
 	) -> Result<ImportResult, Self::Error> {
-
 		let span = tracing::span!(tracing::Level::DEBUG, "import_block");
 		let _enter = span.enter();
 
@@ -1995,11 +1994,9 @@ where
 		// TODO remove just for getting some number about possible thread gain.
 		// TODO maybe put a input param (so non need for two builds).
 		let parent = BlockId::Hash(import_block.header.parent_hash().clone());
-		if let Ok(mut block_builder) = (&*self).new_block_at(
-			&parent,
-			import_block.header.digest().clone(),
-			false,
-		) {
+		if let Ok(mut block_builder) =
+			(&*self).new_block_at(&parent, import_block.header.digest().clone(), false)
+		{
 			// code similar to build block propose.
 			if let Some(extrinsics) = import_block.body.as_ref() {
 				for extrinsic in extrinsics.iter() {

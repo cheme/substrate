@@ -197,9 +197,9 @@ impl Externalities for AsyncExt {
 							// (aka the key is still valid), it means we have found our next key.
 							return Some(overlay_key.0.to_vec())
 						} else if cmp == Some(Ordering::Equal) {
-							// If the `backend_key` and `overlay_key` are equal, it means that we need
-							// to search for the next backend key, because the overlay has overwritten
-							// this key.
+							// If the `backend_key` and `overlay_key` are equal, it means that we
+							// need to search for the next backend key, because the overlay has
+							// overwritten this key.
 							*next_backend_key = backend.next_storage_key(&overlay_key.0);
 						}
 					}
@@ -242,9 +242,9 @@ impl Externalities for AsyncExt {
 							// (aka the key is still valid), it means we have found our next key.
 							return Some(overlay_key.0.to_vec())
 						} else if cmp == Some(Ordering::Equal) {
-							// If the `backend_key` and `overlay_key` are equal, it means that we need
-							// to search for the next backend key, because the overlay has overwritten
-							// this key.
+							// If the `backend_key` and `overlay_key` are equal, it means that we
+							// need to search for the next backend key, because the overlay has
+							// overwritten this key.
 							*next_backend_key =
 								backend.next_child_storage_key(child_info, &overlay_key.0);
 						}
@@ -303,9 +303,7 @@ impl Externalities for AsyncExt {
 		self.guard_read_only(
 			"`storage_append`: should not be used in read only worker externalities!",
 		);
-		self
-			.overlay
-			.append_storage(key, value);
+		self.overlay.append_storage(key, value);
 	}
 
 	fn storage_root(&mut self) -> Vec<u8> {
