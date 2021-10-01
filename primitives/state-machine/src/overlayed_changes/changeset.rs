@@ -451,6 +451,7 @@ impl OverlayedChangeSet {
 					return
 				},
 				Change::Write(changes) => {
+					// The value was read so appending immediatly is correct.
 					let mut appendable = crate::ext::StorageAppend::new(changes);
 					appendable.append(value);
 					return
