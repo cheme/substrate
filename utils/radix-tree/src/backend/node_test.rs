@@ -293,6 +293,8 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 				}
 				use crate::children::Children;
 				use crate::WithChildState;
+				// TODO if None is stored: do delete in backend and children -> and make a node update:
+				// encoded does change!!!.
 				if let Some(mut child) = node.children.get_child_mut(i).and_then(|c| c.node_mut()) {
 					if let Some(ix) = Self::commit_change_fuse(&mut child, remove_node, backend) {
 						encoded_change = true;
