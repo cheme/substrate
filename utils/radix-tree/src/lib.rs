@@ -839,8 +839,12 @@ impl<N: TreeConf> Node<N> {
 	fn clean_local_nodes(&mut self) {
 		let mut index = None;
 		while let Some(i) = self.children.get_next_child_index(index) {
-			let child = ChildFor::<N>::from_state(ChildState::Unfetched, None);
-			self.children.set_child(i, child);
+			if let Some(n) = self.children.get_child_mut(i) {
+				if n.node().is_some() {
+					let child = ChildFor::<N>::from_state(ChildState::Unfetched, None);
+					*n = child;
+				}
+			}
 			index = Some(i);
 		}
 	}
@@ -1286,6 +1290,7 @@ pub enum ChildState {
 	// of this children???
 	/// Fetched state.
 	Resolved,
+	// TODO having a resolved for deleted/non existent node would be better.
 	/// When runing on backend, this child need to be resolve
 	/// from backend first.
 	/// Could be an existing child or not.
