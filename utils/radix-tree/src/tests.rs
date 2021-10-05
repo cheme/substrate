@@ -406,13 +406,22 @@ pub mod $module_name {
 		test_insert_remove(data)
 	}
 
+	#[derive(Clone)]
 	pub enum Do {
 		Insert(Vec<u8>, Vec<u8>),
 		Remove(Vec<u8>),
 		Commit,
 	}
 
-	pub fn test_insert_remove(mut data: Vec<Do>) {
+	pub fn test_insert_remove(data: Vec<Do>) {
+		test_insert_remove_inner(data.clone(), false);
+		// This could be remove for fuzzing (slow).
+		if CHECK_BACKEND {
+			test_insert_remove_inner(data, true);
+		}
+	}
+
+	fn test_insert_remove_inner(mut data: Vec<Do>, with_clean: bool) {
 		// ensure test at end
 		data.push(Do::Commit);
 		let backend = new_backend();
@@ -431,7 +440,11 @@ pub mod $module_name {
 				},
 				Do::Commit => {
 					assert!(compare_iter(&mut t1, &mut t2));
-					t1.commit();
+					if with_clean {
+						t1.commit_and_clean_local_nodes();
+					} else {
+						t1.commit();
+					}
 					if CHECK_BACKEND {
 						let mut t3 = Tree::<TreeConf>::from_backend(backend.clone());
 						assert!(compare_iter(&mut t3, &mut t2));

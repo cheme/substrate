@@ -835,6 +835,15 @@ impl<N: TreeConf> Node<N> {
 			next
 		}
 	}
+
+	fn clean_local_nodes(&mut self) {
+		let mut index = None;
+		while let Some(i) = self.children.get_next_child_index(index) {
+			let child = ChildFor::<N>::from_state(ChildState::Unfetched, None);
+			self.children.set_child(i, child);
+			index = Some(i);
+		}
+	}
 }
 
 /// Main tree structure.
@@ -907,6 +916,16 @@ impl<N> Tree<N>
 			if let Some(result) = N::NodeBackend::commit_change_fuse(&mut node, &mut self.removed_node, &self.backend) {
 				self.backend.set_root(result);
 			}
+		}
+	}
+
+	/// Commit tree changes to its underlying serializing backend.
+	/// Also clean nodes persistence.
+	/// Note that if no backend is use, this will behave as `commit`.
+	pub fn commit_and_clean_local_nodes(&mut self) {
+		self.commit();
+		if N::Backend::ACTIVE {
+			self.tree.as_mut().map(|t| t.clean_local_nodes());
 		}
 	}
 }
