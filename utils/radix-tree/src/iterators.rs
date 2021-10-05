@@ -39,6 +39,13 @@ impl<'a, N: TreeConf> NodeStack<'a, N> {
 	}
 }
 
+#[derive(Eq, PartialEq)]
+enum IterState {
+	Started,
+	StartPrefix,
+	Finished,
+}
+
 impl<'a, N: TreeConf> NodeStack<'a, N> {
 	// TODO useless??
 	fn descend(&self, key: &[u8], dest_position: PositionFor<N>) -> Descent<N::Radix> {
@@ -343,12 +350,16 @@ impl<'a, N: TreeConf> $seek_iter<'a, N> {
 			(pos, node, key)
 		}).collect();
 
-		let finished = !Self::middle_seek_to_iter(
+		let state = if Self::middle_seek_to_iter(
 			&self.next,
 			&mut stack,
 			self.dest,
 			self.dest_position,
-		);
+		) {
+			IterState::Started
+		} else {
+			IterState::Finished
+		};
 
 		$iter {
 			tree: self.tree,
@@ -356,7 +367,7 @@ impl<'a, N: TreeConf> $seek_iter<'a, N> {
 				stack,
 				key: self.dest.into(),
 			},
-			finished,
+			state,
 		}
 	}
 
@@ -374,20 +385,28 @@ impl<'a, N: TreeConf> $seek_iter<'a, N> {
 			}
 		}
 
-		let mut finished = false;
+		let mut state = IterState::Started;
 		match self.next {
 			Descent::Middle(position, _index) => {
 				if position == self.dest_position {
 					self.stack.stack.pop();
+					state = IterState::StartPrefix;
 				} else {
 					// nothing match prefix.
-					finished = true;
+					state = IterState::Finished;
+				}
+			},
+			Descent::Child(position, _index) => {
+				// using index since we see a aligned key as dest_position
+				if position.index < self.dest_position.index {
+					// no child with prefix
+					state = IterState::Finished;
 				}
 			},
 			_ => (),
 		}
 
-		let stack = if !finished {
+		let stack = if state != IterState::Finished {
 			self.stack.stack.pop().map(|(pos, node)| {
 				let node_depth = $from_stack($use_ref!(node)).depth();
 				let pos = pos.next_by::<N::Radix>(node_depth);
@@ -405,7 +424,7 @@ impl<'a, N: TreeConf> $seek_iter<'a, N> {
 				stack,
 				key: self.dest.into(),
 			},
-			finished,
+			state,
 		}
 	}
 
@@ -435,7 +454,8 @@ impl<'a, N: TreeConf> $seek_iter<'a, N> {
 								self.stack.stack.push((position, $to_stack2(child)));
 								return None;
 							},
-							Descent::Match(..) => {
+							next@Descent::Match(..) => {
+								self.next = next;
 								self.reach_dest = true;
 							},
 							next@Descent::Child(..) => {
@@ -494,9 +514,15 @@ impl<'a, N: TreeConf> $iter<'a, N> {
 	}
 
 	fn next_node(&mut self) -> Option<$next_node<'a, N>> {
-		if self.finished {
+		if self.state == IterState::Finished {
 			return None;
 		}
+		let is_first_prefix = if self.state == IterState::StartPrefix {
+			self.state = IterState::Started;
+			true
+		} else {
+			false
+		};
 		let mut do_pop = false;
 		loop {
 			if do_pop {
@@ -511,7 +537,7 @@ impl<'a, N: TreeConf> $iter<'a, N> {
 					}
 				} else {
 					// last pop
-					self.finished = true;
+					self.state = IterState::Finished;
 					break;
 				}
 				do_pop = false;
@@ -529,9 +555,14 @@ impl<'a, N: TreeConf> $iter<'a, N> {
 
 					let first_key = child.get_next_child_index(None)
 						.unwrap_or(KeyIndexFor::<N>::zero()); // TODO end iter instead of 0 useless query
+					if is_first_prefix {
+						self.stack.stack.pop(); // we don't want to include siblings in iteration.
+					}
 					self.stack.stack.push((position, child, first_key));
 					break;
 				}
+
+				debug_assert!(!is_first_prefix); // prefix state only added after popping stack.
 
 				// try descend in next
 				if let Some(next) = $from_stack($use_ref!(last.1)).get_next_child_index(Some(last.2)) {
@@ -550,7 +581,7 @@ impl<'a, N: TreeConf> $iter<'a, N> {
 					let zero = zero.next_by::<N::Radix>(node.depth()); // could just use node prefix end and index
 					self.stack.stack.push((zero, $to_stack(node), first_key));
 				} else {
-					self.finished = true;
+					self.state = IterState::Finished;
 				}
 				break;
 			}
@@ -794,21 +825,21 @@ impl<'a, N: TreeConf> Iterator for SeekValueIterMut<'a, N> {
 pub struct Iter<'a, N: TreeConf> {
 	tree: &'a Tree<N>,
 	stack: IterStack<'a, N>,
-	finished: bool,
+	state: IterState,
 }
 
 /// Iterator over the nodes of a tree.
 pub struct IterNoCache<'a, N: TreeConf> {
 	tree: &'a Tree<N>,
 	stack: IterStackNoCache<N>,
-	finished: bool,
+	state: IterState,
 }
 
 /// Mutable aterator over the nodes of a tree.
 pub struct IterMut<'a, N: TreeConf> {
 	tree: &'a mut Tree<N>,
 	stack: IterStackMut<N>,
-	finished: bool,
+	state: IterState,
 }
 
 /// Iterator over the values of a tree.
@@ -826,7 +857,7 @@ impl<N: TreeConf> Tree<N> {
 		Iter {
 			tree: self,
 			stack: IterStack::new(),
-			finished: false,
+			state: IterState::Started,
 		}
 	}
 
@@ -835,7 +866,7 @@ impl<N: TreeConf> Tree<N> {
 		IterNoCache {
 			tree: self,
 			stack: IterStackNoCache::new(),
-			finished: false,
+			state: IterState::Started,
 		}
 	}
 
@@ -844,7 +875,7 @@ impl<N: TreeConf> Tree<N> {
 		IterMut {
 			tree: self,
 			stack: IterStackMut::new(),
-			finished: false,
+			state: IterState::Started,
 		}
 	}
 }

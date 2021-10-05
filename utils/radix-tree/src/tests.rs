@@ -252,6 +252,21 @@ pub mod $module_name {
 			assert_eq!(index, key_iter_prefix_path.len());
 		}
 
+		let keys = &[b"k".to_vec(), b"key123".to_vec(), b"key3".to_vec()][..];
+		let key_seek_path = &[b"k".to_vec()][..];
+		let key_iter_path = &[b"key123".to_vec(), b"key3".to_vec()][..];
+		let key_iter_prefix_path = &[b"key123".to_vec()][..];
+		test(keys, key_seek_path, key_iter_path, key_iter_prefix_path);
+		let keys = &[b"key".to_vec(), b"key2".to_vec()][..];
+		let key_seek_path = &[b"key".to_vec()][..];
+		let key_iter_path = &[b"key2".to_vec()][..];
+		let key_iter_prefix_path = &[][..];
+		test(keys, key_seek_path, key_iter_path, key_iter_prefix_path);
+		let keys = &[b"key".to_vec(), b"key123".to_vec(), b"key2".to_vec()][..];
+		let key_seek_path = &[b"key".to_vec()][..];
+		let key_iter_path = &[b"key123".to_vec(), b"key2".to_vec()][..];
+		let key_iter_prefix_path = &[b"key123".to_vec()][..];
+		test(keys, key_seek_path, key_iter_path, key_iter_prefix_path);
 		let keys = &[b"key".to_vec()][..];
 		let key_seek_path = &[b"key".to_vec()][..];
 		let key_iter_path = &[][..];
