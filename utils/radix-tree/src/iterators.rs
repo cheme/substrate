@@ -995,13 +995,13 @@ impl<'a, N: TreeConf> Iterator for ValueIterMut<'a, N> {
 /// Owned iterator do not modify the inner tree,
 /// and iterated content is always cloned.
 pub struct OwnedIter<N: TreeConf + 'static> {
-	inner: Tree<N>,
+	inner: Box<Tree<N>>,
 	iter: ValueIterNoCache<'static, N>,
 }
 
 /// Seek variant of OwnedIter.
 pub struct OwnedIterSeek<N: TreeConf + 'static> {
-	inner: Tree<N>,
+	inner: Box<Tree<N>>,
 	prefix: Key,
 	iter: SeekValueIterNoCache<'static, N>,
 }
@@ -1009,7 +1009,7 @@ pub struct OwnedIterSeek<N: TreeConf + 'static> {
 impl<N: TreeConf + 'static> OwnedIter<N> {
 	/// After iteration, we can use back the
 	/// tree content back.
-	pub fn extract_inner(self) -> Tree<N> {
+	pub fn extract_inner(self) -> Box<Tree<N>> {
 		let OwnedIter {
 			inner,
 			iter,
@@ -1022,7 +1022,7 @@ impl<N: TreeConf + 'static> OwnedIter<N> {
 impl<N: TreeConf + 'static> OwnedIterSeek<N> {
 	/// After iteration, we can use back the
 	/// tree content back.
-	pub fn extract_inner(self) -> Tree<N> {
+	pub fn extract_inner(self) -> Box<Tree<N>> {
 		let OwnedIterSeek {
 			inner,
 			iter,
@@ -1037,18 +1037,20 @@ impl<N: TreeConf + 'static> OwnedIterSeek<N> {
 impl<N: TreeConf> Tree<N> {
 	/// Use tree as a value iterator.
 	pub fn owned_iter(self) -> OwnedIter<N> {
-		let self_ptr = &self as *const Self;
+		let inner = Box::new(self);
+		let self_ptr = &*inner as *const Self;
 		let unsafe_ptr: &'static Self = unsafe { self_ptr.as_ref().unwrap() };
 		let iter = unsafe_ptr.iter_no_cache().value_iter();
 		OwnedIter {
-			inner: self,
+			inner,
 			iter,
 		}
 	}
 
 	/// Use tree as a value iterator for keys starting with a given prefix.
 	pub fn owned_prefix_iter(self, prefix: &[u8]) -> OwnedIter<N> {
-		let self_ptr = &self as *const Self;
+		let inner = Box::new(self);
+		let self_ptr = &*inner as *const Self;
 		let unsafe_ptr: &'static Self = unsafe { self_ptr.as_ref().unwrap() };
 		let static_prefix = prefix as *const [u8];
 		let static_prefix: &'static [u8] = unsafe { static_prefix.as_ref().unwrap() };
@@ -1056,35 +1058,38 @@ impl<N: TreeConf> Tree<N> {
 		while seek_iter.next().is_some() { }
 		let iter = seek_iter.iter_prefix().value_iter();
 		OwnedIter {
-			inner: self,
+			inner,
 			iter,
 		}
 	}
 
 	/// Use tree as a value iterator for keys starting with a given key.
 	pub fn owned_iter_from(self, start_key: &[u8]) -> OwnedIter<N> {
-		let self_ptr = &self as *const Self;
+		let inner = Box::new(self);
+		let self_ptr = &*inner as *const Self;
 		let unsafe_ptr: &'static Self = unsafe { self_ptr.as_ref().unwrap() };
-		let static_prefix = start_key as *const [u8];
+		let start_key = start_key.to_vec();
+		let static_prefix = start_key.as_slice() as *const [u8];
 		let static_prefix: &'static [u8] = unsafe { static_prefix.as_ref().unwrap() };
 		let mut seek_iter = unsafe_ptr.seek_iter_no_cache(static_prefix);
 		while seek_iter.next().is_some() { }
 		let iter = seek_iter.iter().value_iter();
 		OwnedIter {
-			inner: self,
+			inner,
 			iter,
 		}
 	}
 
 	/// Use tree as a seek value iterator.
 	pub fn owned_iter_seek(self, prefix: Key) -> OwnedIterSeek<N> {
-		let self_ptr = &self as *const Self;
+		let inner = Box::new(self);
+		let self_ptr = &*inner as *const Self;
 		let unsafe_ptr: &'static Self = unsafe { self_ptr.as_ref().unwrap() };
 		let prefix_ptr = prefix.as_slice() as *const [u8];
 		let unsafe_prefix_ptr: &'static [u8] = unsafe { prefix_ptr.as_ref().unwrap() };
 		let iter = unsafe_ptr.seek_iter_no_cache(unsafe_prefix_ptr).value_iter();
 		OwnedIterSeek {
-			inner: self,
+			inner,
 			prefix,
 			iter,
 		}
