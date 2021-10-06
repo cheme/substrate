@@ -294,17 +294,22 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 				}
 				use crate::children::Children;
 				use crate::WithChildState;
-				// TODO if None is stored: do delete in backend and children -> and make a node update:
-				// encoded does change!!!.
-				if let Some(mut child) = node.children.get_child_mut(i).and_then(|c| c.node_mut()) {
-					if let Some(ix) = Self::commit_change_fuse(&mut child, remove_node, remove_value, backend) {
+				match node.children.get_child_mut(i).map(|c| c.node_mut()) {
+					Some(Some(mut child)) => {
+						if let Some(ix) = Self::commit_change_fuse(&mut child, remove_node, remove_value, backend) {
+							encoded_change = true;
+							node.backend.child_index[backend_ix] = Some(ix);
+						} else {
+							// set old index (can be unset due to value not new but split
+							// that makes it a new child.
+							node.backend.child_index[backend_ix] = child.backend.index.clone();
+						}
+					},
+					Some(None) => {
 						encoded_change = true;
-						node.backend.child_index[backend_ix] = Some(ix);
-					} else {
-						// set old index (can be unset due to value not new but split
-						// that makes it a new child.
-						node.backend.child_index[backend_ix] = child.backend.index.clone();
-					}
+						node.backend.child_index[backend_ix] = None;
+					},
+					None => (),
 				}
 				backend_ix = i.to_usize() + 1;
 				index = Some(i);
