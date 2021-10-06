@@ -711,6 +711,10 @@ impl<N: TreeConf> Node<N> {
 		if result.is_some() {
 			self.backend.set_children_change();
 			self.backend.decrease_number_of_children();
+			if N::Backend::ACTIVE {
+				let child = ChildFor::<N>::from_state(ChildState::Resolved, None);
+				self.children.set_child(index, child);
+			}
 		}
 		result
 	}
@@ -843,7 +847,7 @@ impl<N: TreeConf> Node<N> {
 	}
 
 	fn clean_local_nodes(&mut self) {
-		self.children = N::Children::empty(self.backend.current_nb_children());
+		self.children = Self::children_with_backend(&mut self.backend);
 		self.value = None;
 		self.backend.set_value_state(ValueState::Unfetched);
 	}
