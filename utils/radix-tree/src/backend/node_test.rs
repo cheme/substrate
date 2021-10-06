@@ -287,12 +287,12 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 			// recurse commit of resolved children and update backend indexes.
 			let mut index = None;
 			let mut backend_ix = 0;
-			while let Some(i) = node.get_next_child_index(index) {
+			use crate::children::Children;
+			while let Some(i) = node.children.get_next_child_index(index) {
 				while backend_ix < i.to_usize() { // TODO should not be needed as we store delete as resolved None.
 					node.backend.child_index[backend_ix] = None; // ensure deleted (could also get next on both).
 					backend_ix += 1;
 				}
-				use crate::children::Children;
 				use crate::WithChildState;
 				match node.children.get_child_mut(i).map(|c| c.node_mut()) {
 					Some(Some(mut child)) => {
