@@ -272,6 +272,7 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 	fn commit_change(
 		node: &mut NodeBox<N>,
 		remove_node: &mut Vec<N::NodeBackend>,
+		remove_value: &mut Vec<ValueIndexFor<N>>,
 		backend: &N::Backend,
 	) -> Option<IndexFor<N>> {
 		let mut encoded_change = false;
@@ -296,7 +297,7 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 				// TODO if None is stored: do delete in backend and children -> and make a node update:
 				// encoded does change!!!.
 				if let Some(mut child) = node.children.get_child_mut(i).and_then(|c| c.node_mut()) {
-					if let Some(ix) = Self::commit_change_fuse(&mut child, remove_node, backend) {
+					if let Some(ix) = Self::commit_change_fuse(&mut child, remove_node, remove_value, backend) {
 						encoded_change = true;
 						node.backend.child_index[backend_ix] = Some(ix);
 					} else {
@@ -374,16 +375,17 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 		self.value_state = state
 	}
 
-	fn clear_content(&mut self) {
+	fn clear_content(&mut self) -> Option<ValueIndexFor<N>> {
 		self.encoded.clear();
 		self.child_index = vec![None; <<N as TreeConf>::Radix as RadixConf>::CHILDREN_CAPACITY];
-		// Note here if value is stored in different node, we would need to remove it.
 		self.value = None;
+		let result = self.value.take();
 		self.nb_children = 0;
 		self.pending_nb_children = 0;
 		self.children_changed = false;
 		self.prefix_changed = true; // to ensure update
 		self.value_state = ValueState::Resolved;
+		result
 	}
 
 	fn current_nb_children(&self) -> usize {

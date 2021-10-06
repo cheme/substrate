@@ -803,6 +803,8 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 	}
 
 	fn delete(self, backend: &N::Backend) {
+		// TODO could just expose backend index
+		// and remove this function.
 		if let Some(index) = self.index {
 			backend.remove_node(index);
 		}
@@ -815,6 +817,7 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 	fn commit_change(
 		node: &mut NodeBox<N>,
 		remove_node: &mut Vec<N::NodeBackend>,
+		remove_value: &mut Vec<ValueIndexFor<N>>,
 		backend: &N::Backend,
 	) -> Option<IndexFor<N>> {
 		let mut encoded_change = false;
@@ -847,7 +850,7 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 					if let Some(change_ix) = do_change {
 						next_change = node.children.get_next_child_index(Some(change_ix));
 						if let Some(Some(mut child)) = node.children.get_child_mut(change_ix).map(|c| c.node_mut()) {
-							if let Some(ix) = Self::commit_change_fuse(&mut child, remove_node, backend) {
+							if let Some(ix) = Self::commit_change_fuse(&mut child, remove_node, remove_value, backend) {
 								new.encoded.set_children_index(change_ix, &ix);
 							} else {
 								if let Some(ix) = child.backend.index.clone() {
@@ -871,7 +874,7 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 					from = Some(next);
 					match node.children.get_child_mut(next).map(|c| c.node_mut()) {
 						Some(Some(mut child)) => {
-							if let Some(ix) = Self::commit_change_fuse(&mut child, remove_node, backend) {
+							if let Some(ix) = Self::commit_change_fuse(&mut child, remove_node, remove_value, backend) {
 								encoded_change = true;
 								node.backend.encoded.set_children_index(next, &ix);
 							} else {
@@ -948,12 +951,15 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 		self.value_state = state
 	}
 
-	fn clear_content(&mut self) {
+	fn clear_content(&mut self) -> Option<ValueIndexFor<N>> {
 		let index = self.index;
+		let result = self.encoded.fetch_value_index();
+		debug_assert!(result.is_none() || self.value_state == ValueState::Deleted); // TODO can actually only fetch if deleted, but assert for now.
 		*self = ArtLocalBackend::with_capacity(self.original_nb_children);
 		self.children_changed = true;
 		self.prefix_changed = true;
 		self.index = index; // got index relative to a capacity.
+		result
 	}
 
 	fn current_nb_children(&self) -> usize {

@@ -32,7 +32,7 @@ pub trait Backend: Clone {
 
 	type Index: Eq;
 
-	type ValueIndex: Eq;
+	type ValueIndex: Clone + Eq;
 
 	/// Get a root node from the backend.
 	fn get_root(&self) -> Option<(Vec<u8>, Self::Index)>;
@@ -147,21 +147,23 @@ pub trait NodeBackend<N: TreeConf>: Clone {
 	fn commit_change(
 		node: &mut NodeBox<N>,
 		remove_node: &mut Vec<N::NodeBackend>,
+		remove_value: &mut Vec<ValueIndexFor<N>>,
 		backend: &N::Backend,
 	) -> Option<IndexFor<N>>;
 
 	fn commit_change_fuse(
 		node: &mut NodeBox<N>,
 		remove_node: &mut Vec<N::NodeBackend>,
+		remove_value: &mut Vec<ValueIndexFor<N>>,
 		backend: &N::Backend,
 	) -> Option<IndexFor<N>> {
 		if Self::FUSE_ON_COMMIT
 			&& node.number_child() == 1
 			&& !node.has_value()
 		{
-			Node::<N>::fuse_child(node, remove_node);
+			Node::<N>::fuse_child(node, remove_node, remove_value);
 		}
-		Self::commit_change(node, remove_node, backend)
+		Self::commit_change(node, remove_node, remove_value, backend)
 	}
 
 	/// Value state is stored in backend.
@@ -171,7 +173,8 @@ pub trait NodeBackend<N: TreeConf>: Clone {
 	fn set_value_state(&mut self, state: ValueState);
 
 	/// Clear content to allow rewriting a different node instead.
-	fn clear_content(&mut self);
+	/// Return value index to remove if there was a value.
+	fn clear_content(&mut self) -> Option<ValueIndexFor<N>>;
 }
 
 impl<N: TreeConf> NodeBackend<N> for () {
@@ -220,6 +223,7 @@ impl<N: TreeConf> NodeBackend<N> for () {
 	fn commit_change(
 		_node: &mut NodeBox<N>,
 		_remove_node: &mut Vec<N::NodeBackend>,
+		_remove_value: &mut Vec<ValueIndexFor<N>>,
 		_: &N::Backend,
 	) -> Option<IndexFor<N>> {
 		None
@@ -235,7 +239,7 @@ impl<N: TreeConf> NodeBackend<N> for () {
 		()
 	}
 
-	fn clear_content(&mut self) { }
+	fn clear_content(&mut self) -> Option<ValueIndexFor<N>> { None }
 
 	fn current_nb_children(&self) -> usize {
 		panic!("Inactive backend, no counting of children");

@@ -740,6 +740,7 @@ impl<N: TreeConf> Node<N> {
 	fn fuse_child(
 		node: &mut Box<Self>,
 		removed_node: &mut Vec<N::NodeBackend>,
+		removed_value: &mut Vec<ValueIndexFor<N>>,
 	) {
 		if let Some(index) = node.get_next_child_index(None) {
 			// even with backend we do a removal in this case (cannot keep deleted).
@@ -759,7 +760,9 @@ impl<N: TreeConf> Node<N> {
 				child.backend.set_prefix_change();
 				let mut parent = replace(node, child);
 				if N::Backend::ACTIVE {
-					parent.backend.clear_content();
+					if let Some(index) = parent.backend.clear_content() {
+						removed_value.push(index);
+					}
 					removed_node.push(parent.backend);
 				}
 			} else {
@@ -869,6 +872,12 @@ pub struct Tree<N>
 	/// node can be reuse, and removal is only done on commit.
 	#[derivative(Debug="ignore")]
 	pub removed_node: Vec<N::NodeBackend>,
+
+	/// When using backend, removed
+	/// values are kept until commit.
+	/// TODO consider reusing.
+	#[derivative(Debug="ignore")]
+	pub removed_value: Vec<ValueIndexFor<N>>,
 }
 
 impl<N> Default for Tree<N>
@@ -881,6 +890,7 @@ impl<N> Default for Tree<N>
 			tree: None,
 			backend: Default::default(),
 			removed_node: Vec::new(),
+			removed_value: Vec::new(),
 		}
 	}
 }
@@ -895,6 +905,7 @@ impl<N> Tree<N>
 			tree: None,
 			backend,
 			removed_node: Vec::new(),
+			removed_value: Vec::new(),
 		}
 	}
 
@@ -908,17 +919,21 @@ impl<N> Tree<N>
 			tree,
 			backend,
 			removed_node: Vec::new(),
+			removed_value: Vec::new(),
 		}
 	}
 
 	/// Commit tree changes to its underlying serializing backend.
 	pub fn commit(&mut self) {
 		if let Some(mut node) = self.tree.as_mut() {
+			if let Some(result) = N::NodeBackend::commit_change_fuse(&mut node, &mut self.removed_node, &mut self.removed_value, &self.backend) {
+				self.backend.set_root(result);
+			}
 			for node in self.removed_node.drain(..) {
 				N::NodeBackend::delete(node, &self.backend);
 			}
-			if let Some(result) = N::NodeBackend::commit_change_fuse(&mut node, &mut self.removed_node, &self.backend) {
-				self.backend.set_root(result);
+			for value_index in self.removed_value.drain(..) {
+				self.backend.remove_value(value_index);
 			}
 		}
 	}
@@ -1165,7 +1180,7 @@ impl<N: TreeConf> Tree<N> {
 				} else {
 					if !N::NodeBackend::FUSE_ON_COMMIT {
 						if current.number_child() == 1 {
-							Node::<N>::fuse_child(current, &mut self.removed_node);
+							Node::<N>::fuse_child(current, &mut self.removed_node, &mut self.removed_value);
 						}
 						return result;
 					}
@@ -1220,7 +1235,9 @@ impl<N: TreeConf> Tree<N> {
 									.expect("was resolved from key");
 								if let Some(mut removed) = parent.remove_child(parent_index) {
 									if N::Backend::ACTIVE {
-										removed.backend.clear_content();
+										if let Some(index) = removed.backend.clear_content() {
+											self.removed_value.push(index);
+										}
 										self.removed_node.push(removed.backend);
 									}
 								} else {
@@ -1228,7 +1245,7 @@ impl<N: TreeConf> Tree<N> {
 								}
 								if !N::NodeBackend::FUSE_ON_COMMIT { // TODO this could ignore fuse on commit (do not query additional nodes).
 									if !parent.has_value() && parent.number_child() == 1 {
-										Node::<N>::fuse_child(parent, &mut self.removed_node);
+										Node::<N>::fuse_child(parent, &mut self.removed_node, &mut self.removed_value);
 									}
 								}
 							} else {
@@ -1237,7 +1254,7 @@ impl<N: TreeConf> Tree<N> {
 								break;
 							}
 						} else if !N::NodeBackend::FUSE_ON_COMMIT && current.number_child() == 1 {
-							Node::<N>::fuse_child(current, &mut self.removed_node);
+							Node::<N>::fuse_child(current, &mut self.removed_node, &mut self.removed_value);
 						}
 
 						//return current.set_value(value);
