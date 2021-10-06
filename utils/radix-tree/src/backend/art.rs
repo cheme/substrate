@@ -849,14 +849,21 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 					};
 					if let Some(change_ix) = do_change {
 						next_change = node.children.get_next_child_index(Some(change_ix));
-						if let Some(Some(mut child)) = node.children.get_child_mut(change_ix).map(|c| c.node_mut()) {
-							if let Some(ix) = Self::commit_change_fuse(&mut child, remove_node, remove_value, backend) {
-								new.encoded.set_children_index(change_ix, &ix);
-							} else {
-								if let Some(ix) = child.backend.index.clone() {
+						match node.children.get_child_mut(change_ix).map(|c| c.node_mut()) {
+							Some(Some(mut child)) => {
+								if let Some(ix) = Self::commit_change_fuse(&mut child, remove_node, remove_value, backend) {
 									new.encoded.set_children_index(change_ix, &ix);
+								} else {
+									if let Some(ix) = child.backend.index.clone() {
+										new.encoded.set_children_index(change_ix, &ix);
+									}
 								}
-							}
+							},
+							Some(None) => {
+								// no need to remove on new backend.
+								node.children.remove_child(change_ix);
+							},
+							None => (),
 						}
 					} else if let Some(backend_ix) = do_backend {
 						next_backend = node.backend.encoded.get_next_child_index(Some(backend_ix));
@@ -889,6 +896,7 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 						Some(None) => {
 							encoded_change = true;
 							node.backend.encoded.remove_children_index(next);
+							node.children.remove_child(next);
 						},
 						None => (),
 					}

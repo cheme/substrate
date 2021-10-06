@@ -288,7 +288,7 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 			let mut index = None;
 			let mut backend_ix = 0;
 			while let Some(i) = node.get_next_child_index(index) {
-				while backend_ix < i.to_usize() {
+				while backend_ix < i.to_usize() { // TODO should not be needed as we store delete as resolved None.
 					node.backend.child_index[backend_ix] = None; // ensure deleted (could also get next on both).
 					backend_ix += 1;
 				}
@@ -303,6 +303,7 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 							// set old index (can be unset due to value not new but split
 							// that makes it a new child.
 							node.backend.child_index[backend_ix] = child.backend.index.clone();
+							node.children.remove_child(i);
 						}
 					},
 					Some(None) => {
