@@ -286,13 +286,9 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 		if node.backend.children_changed {
 			// recurse commit of resolved children and update backend indexes.
 			let mut index = None;
-			let mut backend_ix = 0;
 			use crate::children::Children;
 			while let Some(i) = node.children.get_next_child_index(index) {
-				while backend_ix < i.to_usize() { // TODO should not be needed as we store delete as resolved None.
-					node.backend.child_index[backend_ix] = None; // ensure deleted (could also get next on both).
-					backend_ix += 1;
-				}
+				let backend_ix = i.to_usize();
 				use crate::WithChildState;
 				match node.children.get_child_mut(i).map(|c| c.node_mut()) {
 					Some(Some(mut child)) => {
@@ -312,15 +308,7 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 					},
 					None => (),
 				}
-				backend_ix = i.to_usize() + 1;
 				index = Some(i);
-			}
-			while backend_ix < <<N as TreeConf>::Radix as RadixConf>::CHILDREN_CAPACITY {
-				if node.backend.child_index[backend_ix].is_some() {
-					node.backend.child_index[backend_ix] = None;
-					encoded_change = true;
-				}
-				backend_ix += 1;
 			}
 		}
 		if node.backend.value_state == ValueState::Modified {
