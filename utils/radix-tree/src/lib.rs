@@ -664,7 +664,8 @@ impl<N: TreeConf> Node<N> {
 					let result = ChildFor::<N>::from_state(ChildState::Resolved, Some(Box::new(result)));
 					self.children.set_child(index, result);
 				} else {
-					// TODO add Resolved None to children!!
+					// TODO add Resolved None to children!! Warning currently use to define deleted children:
+					// need new def
 				}
 			}
 		}
@@ -702,6 +703,7 @@ impl<N: TreeConf> Node<N> {
 	) -> Option<Box<Self>> {
 		let result = if N::Backend::ACTIVE {
 			let child = ChildFor::<N>::from_state(ChildState::Resolved, None);
+			// TODO could check if something in backend first or just remove
 			self.children.set_child(index, child).and_then(|c| c.extract_node())
 		} else {
 			self.children.remove_child(index).and_then(|c| c.extract_node())
@@ -709,10 +711,6 @@ impl<N: TreeConf> Node<N> {
 		if result.is_some() {
 			self.backend.set_children_change();
 			self.backend.decrease_number_of_children();
-			if N::Backend::ACTIVE {
-				let child = ChildFor::<N>::from_state(ChildState::Resolved, None);
-				self.children.set_child(index, child);
-			}
 		}
 		result
 	}
@@ -845,16 +843,9 @@ impl<N: TreeConf> Node<N> {
 	}
 
 	fn clean_local_nodes(&mut self) {
-		let mut index = None;
-		while let Some(i) = self.children.get_next_child_index(index) {
-			if let Some(n) = self.children.get_child_mut(i) {
-				if n.node().is_some() {
-					let child = ChildFor::<N>::from_state(ChildState::Unfetched, None);
-					*n = child;
-				}
-			}
-			index = Some(i);
-		}
+		self.children = N::Children::empty(self.backend.current_nb_children());
+		self.value = None;
+		self.backend.set_value_state(ValueState::Unfetched);
 	}
 }
 
