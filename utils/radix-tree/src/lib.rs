@@ -700,7 +700,12 @@ impl<N: TreeConf> Node<N> {
 		&mut self,
 		index: KeyIndexFor<N>,
 	) -> Option<Box<Self>> {
-		let result = self.children.remove_child(index).and_then(|c| c.extract_node());
+		let result = if N::Backend::ACTIVE {
+			let child = ChildFor::<N>::from_state(ChildState::Resolved, None);
+			self.children.set_child(index, child).and_then(|c| c.extract_node())
+		} else {
+			self.children.remove_child(index).and_then(|c| c.extract_node())
+		};
 		if result.is_some() {
 			self.backend.set_children_change();
 			self.backend.decrease_number_of_children();
