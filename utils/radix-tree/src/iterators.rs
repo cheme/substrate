@@ -20,6 +20,7 @@
 use super::{Tree, TreeConf, Node, PositionFor, Descent, Key, KeyIndexFor};
 pub use derivative::Derivative;
 use alloc::vec::Vec;
+use alloc::boxed::Box;
 use crate::radix::{Position, MaskFor, MaskKeyByte};
 use crate::children::NodeIndex;
 
