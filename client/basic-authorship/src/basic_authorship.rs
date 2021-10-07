@@ -539,7 +539,10 @@ mod tests {
 			to: Default::default(),
 		};
 		let signature = pair.sign(&transfer.encode()).into();
-		Extrinsic::Transfer { transfer, signature, exhaust_resources_when_not_first: true }
+		Extrinsic {
+			call: ExtrinsicCall::Transfer { transfer, signature, exhaust_resources_when_not_first: true },
+			worker_group: Default::default(),
+		}
 	}
 
 	fn chain_event<B: BlockT>(header: B::Header) -> ChainEvent<B>
