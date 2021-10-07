@@ -26,7 +26,7 @@ use std::{
 };
 
 pub use sp_externalities::{
-	AsyncExternalities, Externalities, ExternalitiesExt, TaskId, WorkerDeclaration, WorkerResult,
+	AsyncExternalities, Externalities, ExternalitiesExt, TaskId, WorkerDeclaration, WorkerResult, AccessLog,
 };
 
 /// Code execution engine.
@@ -230,6 +230,9 @@ pub trait RuntimeSpawn: Send {
 	/// client can limit the number of concurrent threads, as this is
 	/// not consensus critical.
 	fn set_capacity(&self, capacity: u32);
+
+	/// TODO
+	fn join_declarative_log(&self, handle: TaskId) -> Option<AccessLog>;
 }
 
 sp_externalities::decl_extension! {

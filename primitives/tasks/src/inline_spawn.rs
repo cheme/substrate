@@ -32,7 +32,7 @@ use crate::{
 pub use log::error as log_error;
 use sp_core::traits::RuntimeSpawn;
 use sp_externalities::{
-	AsyncExternalities, Externalities, TaskId, WorkerDeclaration, WorkerResult,
+	AsyncExternalities, Externalities, TaskId, WorkerDeclaration, WorkerResult, AccessLog,
 };
 use sp_std::{boxed::Box, cell::RefCell, collections::btree_map::BTreeMap, rc::Rc, vec::Vec};
 
@@ -219,9 +219,32 @@ pub mod hosted_runtime {
 				.spawn_call(dispatcher_ref, func, data, declaration, calling_ext)
 		}
 
-		fn join(&self, handle: TaskId, calling_ext: &mut dyn Externalities) -> Option<Vec<u8>> {
+		fn join(&self, handle: TaskId, calling_ext: &mut dyn Externalities) -> Option<Vec<u8>>  {
+			let worker_result = self.join_inner(handle);
+			calling_ext.resolve_worker_result(worker_result)
+		}
+
+		fn join_declarative_log(&self, handle: TaskId) -> Option<AccessLog> {
+			match self.join_inner(handle) {
+				WorkerResult::Optimistic(_result, _state_change, _id, log) => Some(log),
+				_ => None,
+			}
+		}
+
+		fn dismiss(&self, handle: TaskId, calling_ext: &mut dyn Externalities) {
+			calling_ext.dismiss_worker(handle);
+			self.0.borrow_mut().dismiss(handle)
+		}
+
+		fn set_capacity(&self, _capacity: u32) {
+			// No capacity, only inline, skip useless lock.
+		}
+	}
+
+	impl RuntimeInstanceHostLocal {
+		fn join_inner(&self, handle: TaskId) -> WorkerResult {
 			let nested = Box::new(self.nested_instance());
-			let worker_result = match self.0.borrow_mut().tasks.remove(&handle) {
+			match self.0.borrow_mut().tasks.remove(&handle) {
 				Some(task) => {
 					// hosted in std does not make sense, but we can
 					// be use in native mode without wasm.
@@ -246,21 +269,9 @@ pub mod hosted_runtime {
 				// handle has been removed due to dismiss or
 				// invalid externality condition.
 				None => WorkerResult::Invalid,
-			};
-
-			calling_ext.resolve_worker_result(worker_result)
-		}
-
-		fn dismiss(&self, handle: TaskId, calling_ext: &mut dyn Externalities) {
-			calling_ext.dismiss_worker(handle);
-			self.0.borrow_mut().dismiss(handle)
-		}
-
-		fn set_capacity(&self, _capacity: u32) {
-			// No capacity, only inline, skip useless lock.
+			}
 		}
 	}
-
 	impl RuntimeInstanceHostLocal {
 		/// Instantial a new inline `RuntimeSpawn`.
 		///

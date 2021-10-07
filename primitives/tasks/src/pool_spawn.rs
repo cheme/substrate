@@ -33,7 +33,7 @@ use sp_core::traits::{
 	AsyncExternalities, BoxFuture, Externalities, RuntimeSpawn, RuntimeSpawnExt, SpawnLimit,
 	TaskHandle,
 };
-use sp_externalities::{ExternalitiesExt as _, TaskId, WorkerDeclaration, WorkerResult};
+use sp_externalities::{ExternalitiesExt as _, TaskId, WorkerDeclaration, WorkerResult, AccessLog};
 use std::{
 	collections::HashMap,
 	panic::AssertUnwindSafe,
@@ -415,8 +415,33 @@ impl RuntimeSpawn for RuntimeInstanceSpawn {
 	}
 
 	fn join(&self, handle: TaskId, calling_ext: &mut dyn Externalities) -> Option<Vec<u8>> {
+		let worker_result = self.join_inner(handle);
+		calling_ext.resolve_worker_result(worker_result)
+	}
+
+	fn join_declarative_log(&self, handle: TaskId) -> Option<AccessLog> {
+		match self.join_inner(handle) {
+			WorkerResult::Optimistic(_result, _state_change, _id, log) => Some(log),
+			_ => None,
+		}
+	}
+
+
+	fn dismiss(&self, handle: TaskId, calling_ext: &mut dyn Externalities) {
+		calling_ext.dismiss_worker(handle);
+		self.task_handles.dismiss_thread(handle);
+		self.tasks.lock().remove(&handle);
+	}
+
+	fn set_capacity(&self, capacity: u32) {
+		self.infos.lock().set_capacity(capacity);
+	}
+}
+
+impl RuntimeInstanceSpawn {
+	fn join_inner(&self, handle: TaskId) -> WorkerResult {
 		let task = self.tasks.lock().remove(&handle);
-		let worker_result = match task {
+		match task {
 			Some(PendingTask::Remote(receiver)) => match receiver.recv() {
 				Ok(Some(output)) => output,
 				Ok(None) | Err(_) => {
@@ -440,23 +465,9 @@ impl RuntimeSpawn for RuntimeInstanceSpawn {
 			// handle has been removed due to dismiss or
 			// invalid externality condition.
 			None => WorkerResult::Invalid,
-		};
-
-		calling_ext.resolve_worker_result(worker_result)
+		}
 	}
 
-	fn dismiss(&self, handle: TaskId, calling_ext: &mut dyn Externalities) {
-		calling_ext.dismiss_worker(handle);
-		self.task_handles.dismiss_thread(handle);
-		self.tasks.lock().remove(&handle);
-	}
-
-	fn set_capacity(&self, capacity: u32) {
-		self.infos.lock().set_capacity(capacity);
-	}
-}
-
-impl RuntimeInstanceSpawn {
 	/// Instantiate a new `RuntimeInstanceSpawn`.
 	///
 	/// Usualy one should rather be using `preregister_builtin_ext`.

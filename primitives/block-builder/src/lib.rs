@@ -21,7 +21,7 @@
 
 use sp_inherents::{CheckInherentsResult, InherentData};
 use sp_runtime::{traits::Block as BlockT, ApplyExtrinsicResult};
-use sp_tasks::{DataJoinHandle, WorkerDeclaration};
+use sp_tasks::{DataJoinHandle, WorkerDeclaration, AccessLog};
 
 sp_api::decl_runtime_apis! {
 	/// The `BlockBuilder` api trait that provides the required functionality for building a block.
@@ -33,8 +33,8 @@ sp_api::decl_runtime_apis! {
 		/// this block or not.
 		fn apply_extrinsic(extrinsic: <Block as BlockT>::Extrinsic) -> ApplyExtrinsicResult;
 
-		/// Spawn extrinsc, returning handle.
-		fn spawn_extrinsic(extrinsic: <Block as BlockT>::Extrinsic, declalaration: WorkerDeclaration) -> Option<DataJoinHandle>;
+		/// Spawn extrinsic, returning declarative logged accesses.
+		fn log_extrinsic(extrinsic: <Block as BlockT>::Extrinsic) -> AccessLog;
 
 		/// Finish the current block.
 		#[renamed("finalise_block", 3)]

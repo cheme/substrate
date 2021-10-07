@@ -90,7 +90,7 @@ pub use async_externalities::new_async_externalities;
 pub use async_externalities::{new_inline_only_externalities, AsyncExternalities};
 pub use sp_externalities::{
 	AccessDeclaration, AccessDeclarations, DeclarationFailureHandling, LocalAccessDeclaration,
-	WorkerDeclaration, WorkerDeclarationKind, WorkerResult,
+	WorkerDeclaration, WorkerDeclarationKind, WorkerResult, AccessLog,
 };
 pub use sp_io::Crossing;
 use sp_std::vec::Vec;
@@ -114,6 +114,13 @@ impl DataJoinHandle {
 	/// Indicate that handle result will not be needed.
 	pub fn dismiss(self) {
 		sp_io::runtime_tasks::dismiss(self.handle)
+	}
+
+	/// Get state on join, this should only be
+	/// use to simulate (eg getting access logs
+	/// with declarative from block builder).
+	pub fn join_declarative_log(self) -> Option<AccessLog> {
+		sp_io::runtime_tasks::join_declarative_log(self.handle).into_inner()
 	}
 }
 

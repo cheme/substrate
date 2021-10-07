@@ -22,6 +22,7 @@ use super::{
 	block_rules::{BlockRules, LookupResult as BlockLookupResult},
 	genesis,
 };
+use std::convert::TryInto;
 use codec::{Decode, Encode};
 use hash_db::Prefix;
 use log::{info, trace, warn};
@@ -118,6 +119,9 @@ where
 	execution_extensions: ExecutionExtensions<Block>,
 	config: ClientConfig<Block>,
 	telemetry: Option<TelemetryHandle>,
+
+	// TODO remove, just to test
+	log_accesses: Mutex<std::fs::File>,
 	_phantom: PhantomData<RA>,
 }
 
@@ -373,6 +377,7 @@ where
 			execution_extensions,
 			config,
 			telemetry,
+			log_accesses: Mutex::new(std::fs::File::create(std::path::Path::new("./new_log_accesses")).unwrap()),
 			_phantom: Default::default(),
 		})
 	}
@@ -1997,16 +2002,30 @@ where
 		if let Ok(mut block_builder) =
 			(&*self).new_block_at(&parent, import_block.header.digest().clone(), false)
 		{
+			let mut file = self.log_accesses.lock();
+			let block_number: u32 = if let Ok(n) = import_block.header.number().clone().try_into() {
+				n
+			} else {
+				panic!("TODO");
+			};
 			// code similar to build block propose.
 			if let Some(extrinsics) = import_block.body.as_ref() {
-				for extrinsic in extrinsics.iter() {
+				serde_json::to_writer(&mut *file, &format!("--- At block {:?}", block_number)).expect("TODO");
+				for (i, extrinsic) in extrinsics.iter().enumerate() {
 					match block_builder.push_spawn(extrinsic.clone()) {
-						Ok(_) => (),
-						Err(_e) => (), // TODO log in report
+						Ok(accesses) => {
+							// TODO log in report
+							serde_json::to_writer(&mut *file, &accesses).expect("TODO");
+						},
+						Err(e) => {
+							// TODO log in report
+							serde_json::to_writer(&mut *file, &format!("err at {}, {:?}", i, e)).expect("TODO");
+						},
 					}
 				}
 			} else {
 				// TODO log in report
+				serde_json::to_writer(&mut *file, &format!("--- no body at {:?}", block_number)).expect("TODO");
 			}
 		}
 		// end remove

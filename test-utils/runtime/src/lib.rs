@@ -771,16 +771,22 @@ cfg_if! {
 					system::execute_transaction(extrinsic)
 				}
 
-				fn spawn_extrinsic(
+				fn log_extrinsic(
 					extrinsic: <Block as BlockT>::Extrinsic,
-					declaration: sp_tasks::WorkerDeclaration,
-				) -> Option<sp_tasks::DataJoinHandle> {
+				) -> sp_tasks::AccessLog {
 					fn run(encoded_extrinsic: Vec<u8>) -> Vec<u8> {
 						let extrinsic: <Block as BlockT>::Extrinsic = Decode::decode(&mut encoded_extrinsic.as_slice())
 							.expect("encoded in call");
 						system::execute_transaction(extrinsic).encode()
 					}
-					sp_tasks::spawn(run, extrinsic.encode(), declaration)
+					sp_tasks::set_capacity(0); // run inline (single thread really). 
+					let declaration = sp_tasks::WorkerDeclaration {
+						kind: WorkerDeclarationKind::WriteOptimistic,
+						write_local_scope: None,
+					};
+					let handle = sp_tasks::spawn(run, extrinsic.encode(), declaration)
+						.expect("TODO");
+					handle.join_declarative_log().expect("TODO")
 				}
 
 				fn finalize_block() -> <Block as BlockT>::Header {
@@ -1044,16 +1050,22 @@ cfg_if! {
 					system::execute_transaction(extrinsic)
 				}
 
-				fn spawn_extrinsic(
+				fn log_extrinsic(
 					extrinsic: <Block as BlockT>::Extrinsic,
-					declaration: sp_tasks::WorkerDeclaration,
-				) -> Option<sp_tasks::DataJoinHandle> {
+				) -> sp_tasks::AccessLog {
 					fn run(encoded_extrinsic: Vec<u8>) -> Vec<u8>  {
 						let extrinsic: <Block as BlockT>::Extrinsic = Decode::decode(&mut encoded_extrinsic.as_slice())
 							.expect("encoded in call");
 						system::execute_transaction(extrinsic).encode()
 					}
-					sp_tasks::spawn(run, extrinsic.encode(), declaration)
+					sp_tasks::set_capacity(0); // run inline (single thread really). 
+					let declaration = sp_tasks::WorkerDeclaration {
+						kind: WorkerDeclarationKind::WriteOptimistic,
+						write_local_scope: None,
+					};
+					let handle = sp_tasks::spawn(run, extrinsic.encode(), declaration)
+						.expect("TODO");
+					handle.join_declarative_log().expect("TODO")
 				}
 
 				fn finalize_block() -> <Block as BlockT>::Header {

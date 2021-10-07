@@ -67,7 +67,7 @@ use codec::{Decode, Encode};
 #[cfg(feature = "std")]
 use sp_externalities::{Externalities, ExternalitiesExt};
 
-use sp_externalities::WorkerDeclaration;
+use sp_externalities::{WorkerDeclaration, AccessLog};
 
 #[cfg(feature = "std")]
 mod batch_verifier;
@@ -1499,6 +1499,15 @@ pub trait RuntimeTasks {
 		sp_externalities::externalities_and_extension::<RuntimeSpawnExt, _, _>(
 			*self,
 			|ext, spawn| spawn.join(handle, ext),
+		)
+		.expect("Cannot spawn without dynamic runtime dispatcher (RuntimeSpawnExt)")
+	}
+
+	/// TODO
+	fn join_declarative_log(&mut self, handle: u64) -> Crossing<Option<AccessLog>> {
+		sp_externalities::externalities_and_extension::<RuntimeSpawnExt, _, _>(
+			*self,
+			|_ext, spawn| Crossing(spawn.join_declarative_log(handle))
 		)
 		.expect("Cannot spawn without dynamic runtime dispatcher (RuntimeSpawnExt)")
 	}

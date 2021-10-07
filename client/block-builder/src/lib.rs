@@ -41,7 +41,7 @@ use sp_runtime::{
 pub use sp_block_builder::BlockBuilder as BlockBuilderApi;
 
 use sc_client_api::backend;
-use sp_tasks::{DataJoinHandle, WorkerDeclaration, WorkerDeclarationKind};
+use sp_tasks::{DataJoinHandle, WorkerDeclaration, WorkerDeclarationKind, AccessLog};
 
 /// Used as parameter to [`BlockBuilderProvider`] to express if proof recording should be enabled.
 ///
@@ -133,8 +133,7 @@ where
 
 /// Utility for building new (valid) blocks from a stream of extrinsics.
 pub struct BlockBuilder<'a, Block: BlockT, A: ProvideRuntimeApi<Block>, B> {
-	pending_parallel: Vec<(Block::Extrinsic, DataJoinHandle)>,
-	extrinsics_parallel: Vec<Vec<(Block::Extrinsic, WorkerDeclaration)>>,
+	pending_parallel: Vec<(Block::Extrinsic, AccessLog)>,
 	extrinsics: Vec<Block::Extrinsic>,
 	api: ApiRef<'a, A::Api>,
 	block_id: BlockId<Block>,
@@ -188,7 +187,6 @@ where
 		Ok(Self {
 			parent_hash,
 			extrinsics: Vec::new(),
-			extrinsics_parallel: Vec::new(),
 			pending_parallel: Vec::new(),
 			api,
 			block_id,
@@ -239,25 +237,15 @@ where
 		//
 		// A single transactionshould be over the multiple push spawn and enact pending
 		// though.
-		match self.api.spawn_extrinsic_with_context(
+		// TODO this is incorrect returning handle out of context scope: need to return join result.
+		match self.api.log_extrinsic_with_context(
 			block_id,
 			ExecutionContext::BlockConstruction,
 			xt.clone(),
-			WorkerDeclaration {
-				kind: WorkerDeclarationKind::WriteOptimistic,
-				write_local_scope: None,
-			},
 		) {
-			Ok(Some(handle)) => {
-				pending_parallel.push((xt, handle));
+			Ok(accesses) => {
+				pending_parallel.push((xt, accesses));
 				Ok(())
-			},
-			Ok(None) => {
-				// TODO new error for spawn error.
-				Err(ApplyExtrinsicFailed::Validity(
-					sp_runtime::transaction_validity::UnknownTransaction::Custom(88).into(),
-				)
-				.into())
 			},
 			Err(e) => Err(Error::from(e)),
 		}
@@ -265,10 +253,9 @@ where
 
 	pub fn enact_pending(&self) -> Result<(), Error> {
 		unimplemented!(
-			"TODO run join simulations and look for good ordonancement, add them to block \
-		send back to proposer non include tx + at first just do some reports over all included?"
+			"TODO check accesses and calculate a good ordonancement, add them to block \
+			by pushing in extrinsiscs"
 		)
-		// TODO remember result is `Result<(), Error>` encoded.
 	}
 
 	/// Consume the builder to build a valid `Block` containing all pushed extrinsics.

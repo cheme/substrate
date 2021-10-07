@@ -461,7 +461,7 @@ pub struct TrieDelta {
 }
 
 /// Log of a given worker call.
-#[derive(codec::Encode, codec::Decode, Default)]
+#[derive(codec::Encode, codec::Decode, Default, Eq, PartialEq)]
 pub struct AccessLog {
 	/// Worker did iterate over the full state.
 	/// (in practice it did not iterate but uses
@@ -523,7 +523,7 @@ impl AccessLog {
 }
 
 /// Log of a given trie state.
-#[derive(codec::Encode, codec::Decode, Default)]
+#[derive(codec::Encode, codec::Decode, Default, Eq, PartialEq)]
 pub struct StateLog {
 	/// Read only access to a key.
 	pub read_keys: Vec<Vec<u8>>,
