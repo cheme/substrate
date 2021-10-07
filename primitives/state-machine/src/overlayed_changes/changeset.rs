@@ -554,6 +554,7 @@ impl OverlayedChangeSet {
 #[cfg(test)]
 mod test {
 	use super::*;
+	use crate::overlayed_changes::apply_commit_change;
 	use pretty_assertions::assert_eq;
 
 	type Changes<'a> = Vec<(&'a [u8], (Option<&'a [u8]>, Vec<u32>))>;
@@ -659,7 +660,7 @@ mod test {
 		assert_eq!(changeset.transaction_depth(), 4);
 		changeset.rollback_transaction().unwrap();
 		assert_eq!(changeset.transaction_depth(), 3);
-		changeset.commit_transaction().unwrap();
+		changeset.commit_transaction(apply_commit_change).unwrap();
 		assert_eq!(changeset.transaction_depth(), 2);
 		assert_changes(&mut changeset, &all_changes);
 
@@ -675,7 +676,7 @@ mod test {
 		];
 		assert_changes(&mut changeset, &rolled_back);
 
-		changeset.commit_transaction().unwrap();
+		changeset.commit_transaction(apply_commit_change).unwrap();
 		assert_eq!(changeset.transaction_depth(), 0);
 		assert_changes(&mut changeset, &rolled_back);
 
@@ -722,11 +723,11 @@ mod test {
 		assert_eq!(changeset.transaction_depth(), 4);
 		changeset.rollback_transaction().unwrap();
 		assert_eq!(changeset.transaction_depth(), 3);
-		changeset.commit_transaction().unwrap();
+		changeset.commit_transaction(apply_commit_change).unwrap();
 		assert_eq!(changeset.transaction_depth(), 2);
 		assert_changes(&mut changeset, &all_changes);
 
-		changeset.commit_transaction().unwrap();
+		changeset.commit_transaction(apply_commit_change).unwrap();
 		assert_eq!(changeset.transaction_depth(), 1);
 
 		assert_changes(&mut changeset, &all_changes);
@@ -896,7 +897,7 @@ mod test {
 	fn no_open_tx_commit_errors() {
 		let mut changeset = OverlayedChangeSet::default();
 		assert_eq!(changeset.transaction_depth(), 0);
-		assert_eq!(changeset.commit_transaction(), Err(NoOpenTransaction));
+		assert_eq!(changeset.commit_transaction(apply_commit_change), Err(NoOpenTransaction));
 	}
 
 	#[test]
@@ -910,8 +911,8 @@ mod test {
 	fn unbalanced_transactions_errors() {
 		let mut changeset = OverlayedChangeSet::default();
 		changeset.start_transaction();
-		changeset.commit_transaction().unwrap();
-		assert_eq!(changeset.commit_transaction(), Err(NoOpenTransaction));
+		changeset.commit_transaction(apply_commit_change).unwrap();
+		assert_eq!(changeset.commit_transaction(apply_commit_change), Err(NoOpenTransaction));
 	}
 
 	#[test]
@@ -928,8 +929,8 @@ mod test {
 		changeset.start_transaction();
 		changeset.enter_runtime().unwrap();
 		changeset.start_transaction();
-		changeset.commit_transaction().unwrap();
-		assert_eq!(changeset.commit_transaction(), Err(NoOpenTransaction));
+		changeset.commit_transaction(apply_commit_change).unwrap();
+		assert_eq!(changeset.commit_transaction(apply_commit_change), Err(NoOpenTransaction));
 		assert_eq!(changeset.rollback_transaction(), Err(NoOpenTransaction));
 	}
 
@@ -946,7 +947,7 @@ mod test {
 		changeset.set(b"key1".to_vec(), Some(b"val1".to_vec()).into(), Some(2));
 		changeset.exit_runtime().unwrap();
 
-		changeset.commit_transaction().unwrap();
+		changeset.commit_transaction(apply_commit_change).unwrap();
 		assert_eq!(changeset.transaction_depth(), 0);
 
 		assert_drained(changeset, vec![(b"key0", Some(b"val0"))]);
