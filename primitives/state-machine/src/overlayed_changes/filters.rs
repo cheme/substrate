@@ -1605,7 +1605,7 @@ pub(super) mod interval_filters {
 		for (k, value) in iter.node_iter().iter().value_iter() {
 			if to
 				.as_ref()
-				.map(|to| (inclusive && k.as_slice() <= to) || (!inclusive && k.as_slice() < to))
+				.map(|to| (inclusive && k.as_slice() <= *to) || (!inclusive && k.as_slice() < *to))
 				.unwrap_or(true)
 			{
 				if value.end_of.is_empty() {
@@ -1678,7 +1678,7 @@ pub(super) mod interval_filters {
 			}
 			if to
 				.as_ref()
-				.map(|end| (inclusive && k.as_slice() > end) || (!inclusive && k.as_slice() >= end))
+				.map(|end| (inclusive && k.as_slice() > *end) || (!inclusive && k.as_slice() >= *end))
 				.unwrap_or(false)
 			{
 				return false
@@ -1702,7 +1702,7 @@ pub(super) mod interval_filters {
 			}
 			if to
 				.as_ref()
-				.map(|end| (inclusive && k.as_slice() > end) || (!inclusive && k.as_slice() >= end))
+				.map(|end| (inclusive && k.as_slice() > *end) || (!inclusive && k.as_slice() >= *end))
 				.unwrap_or(false)
 			{
 				return &value.end_of
