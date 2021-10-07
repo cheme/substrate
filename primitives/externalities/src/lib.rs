@@ -33,6 +33,7 @@ use sp_std::{
 
 use ambassador::{delegatable_trait, Delegate};
 use sp_storage::{ChildInfo, TrackedStorageKey};
+use scale_info::TypeInfo;
 
 pub use extensions::{Extension, ExtensionStore, Extensions};
 pub use scope_limited::{
@@ -564,7 +565,7 @@ impl StateLog {
 pub type TaskId = u64;
 
 /// How declaration error is handled.
-#[derive(Debug, Clone, Copy, codec::Encode, codec::Decode)]
+#[derive(Debug, Clone, Copy, codec::Encode, codec::Decode, Eq, PartialEq, TypeInfo)]
 pub enum DeclarationFailureHandling {
 	/// Do panic on conflict, this is a strict mode where
 	/// we cut useless computation, and need some strong
@@ -732,7 +733,7 @@ impl WorkerType {
 }
 
 /// Access filter on storage when spawning worker.
-#[derive(Debug, Clone, codec::Encode, codec::Decode)]
+#[derive(Debug, Clone, codec::Encode, codec::Decode, Eq, PartialEq, TypeInfo)]
 pub struct WorkerDeclaration {
 	/// Kind of worker to use and specific declaration.
 	pub kind: WorkerDeclarationKind,
@@ -759,7 +760,7 @@ impl From<WorkerDeclarationKind> for WorkerDeclaration {
 }
 
 /// Access filter on storage when spawning worker.
-#[derive(Debug, Clone, codec::Encode, codec::Decode)]
+#[derive(Debug, Clone, codec::Encode, codec::Decode, Eq, PartialEq, TypeInfo)]
 pub enum WorkerDeclarationKind {
 	/// Declaration for `WorkerType::Stateless`, no content.
 	Stateless,
@@ -805,7 +806,7 @@ impl WorkerDeclaration {
 
 /// Access filters on storage.
 /// Please define key only once and sort them.
-#[derive(Debug, Clone, codec::Encode, codec::Decode, Default)]
+#[derive(Debug, Clone, codec::Encode, codec::Decode, Default, Eq, PartialEq, TypeInfo)]
 pub struct AccessDeclarations {
 	/// Read access, exclude a concurrent write access.
 	pub read_only: AccessDeclaration,
@@ -818,7 +819,7 @@ pub struct AccessDeclarations {
 }
 
 /// Access filter on storage.
-#[derive(Debug, Clone, codec::Encode, codec::Decode, Default)]
+#[derive(Debug, Clone, codec::Encode, codec::Decode, Default, Eq, PartialEq, TypeInfo)]
 pub struct AccessDeclaration {
 	/// Top state accesses.
 	pub top: LocalAccessDeclaration,
@@ -828,7 +829,7 @@ pub struct AccessDeclaration {
 }
 
 /// Access filter on a given local state (top trie or child trie).
-#[derive(Debug, Clone, codec::Encode, codec::Decode, Default)]
+#[derive(Debug, Clone, codec::Encode, codec::Decode, Default, Eq, PartialEq, TypeInfo)]
 pub struct LocalAccessDeclaration {
 	/// Lock over a full prefix.
 	///

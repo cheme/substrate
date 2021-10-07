@@ -19,7 +19,7 @@
 //! and depositing logs.
 
 use crate::{
-	AccountId, AuthorityId, Block, BlockNumber, Digest, Extrinsic, Header, Transfer, H256 as Hash,
+	AccountId, AuthorityId, Block, BlockNumber, Digest, Extrinsic, ExtrinsicCall, Header, Transfer, H256 as Hash,
 };
 use codec::{Decode, Encode, KeyedVec};
 use frame_support::{decl_module, decl_storage, storage};
@@ -120,6 +120,7 @@ fn execute_block_with_state_root_handler(block: &mut Block, mode: Mode) -> Heade
 
 	// execute transactions
 	block.extrinsics.iter().for_each(|e| {
+		/// TODO handle worker groups?? (e.worker_group)
 		let _ = execute_transaction(e.clone()).unwrap_or_else(|_| panic!("Invalid transaction"));
 	});
 
@@ -242,26 +243,26 @@ fn check_signature(utx: &Extrinsic) -> Result<(), TransactionValidityError> {
 
 fn execute_transaction_backend(utx: &Extrinsic, extrinsic_index: u32) -> ApplyExtrinsicResult {
 	check_signature(utx)?;
-	match utx {
-		Extrinsic::Transfer { exhaust_resources_when_not_first: true, .. }
+	match &utx.call {
+		ExtrinsicCall::Transfer { exhaust_resources_when_not_first: true, .. }
 			if extrinsic_index != 0 =>
 			Err(InvalidTransaction::ExhaustsResources.into()),
-		Extrinsic::Transfer { ref transfer, .. } => execute_transfer_backend(transfer),
-		Extrinsic::AuthoritiesChange(ref new_auth) => execute_new_authorities_backend(new_auth),
-		Extrinsic::IncludeData(_) => Ok(Ok(())),
-		Extrinsic::StorageChange(key, value) =>
+		ExtrinsicCall::Transfer { ref transfer, .. } => execute_transfer_backend(transfer),
+		ExtrinsicCall::AuthoritiesChange(ref new_auth) => execute_new_authorities_backend(new_auth),
+		ExtrinsicCall::IncludeData(_) => Ok(Ok(())),
+		ExtrinsicCall::StorageChange(key, value) =>
 			execute_storage_change(key, value.as_ref().map(|v| &**v)),
-		Extrinsic::ChangesTrieConfigUpdate(ref new_config) =>
+		ExtrinsicCall::ChangesTrieConfigUpdate(ref new_config) =>
 			execute_changes_trie_config_update(new_config.clone()),
-		Extrinsic::OffchainIndexSet(key, value) => {
+		ExtrinsicCall::OffchainIndexSet(key, value) => {
 			sp_io::offchain_index::set(&key, &value);
 			Ok(Ok(()))
 		},
-		Extrinsic::OffchainIndexClear(key) => {
+		ExtrinsicCall::OffchainIndexClear(key) => {
 			sp_io::offchain_index::clear(&key);
 			Ok(Ok(()))
 		},
-		Extrinsic::Store(data) => execute_store(data.clone()),
+		ExtrinsicCall::Store(data) => execute_store(data.clone()),
 	}
 }
 

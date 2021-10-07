@@ -9398,6 +9398,7 @@ dependencies = [
  "ambassador",
  "environmental",
  "parity-scale-codec",
+ "scale-info",
  "sp-std",
  "sp-storage",
 ]
@@ -9581,6 +9582,7 @@ dependencies = [
  "sp-application-crypto",
  "sp-arithmetic",
  "sp-core",
+ "sp-externalities",
  "sp-io",
  "sp-state-machine",
  "sp-std",

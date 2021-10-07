@@ -23,7 +23,7 @@ use crate::{
 	scale_info::TypeInfo,
 	traits::{
 		self, Applyable, BlakeTwo256, Checkable, DispatchInfoOf, Dispatchable, OpaqueKeys,
-		PostDispatchInfoOf, SignedExtension, ValidateUnsigned,
+		PostDispatchInfoOf, SignedExtension, ValidateUnsigned, WorkerGroup,
 	},
 	transaction_validity::{TransactionSource, TransactionValidity, TransactionValidityError},
 	ApplyExtrinsicResultWithInfo, CryptoTypeId, KeyTypeId,
@@ -214,6 +214,14 @@ where
 	type Call = ();
 	type SignaturePayload = ();
 
+	fn worker_group(&self) -> WorkerGroup {
+		unimplemented!("TODO maybe these should be only implementation specific");
+	}
+
+	fn set_worker_group(&mut self, _worker_group: WorkerGroup) {
+		unimplemented!("TODO maybe these should be only implementation specific");
+	}
+
 	fn is_signed(&self) -> Option<bool> {
 		None
 	}
@@ -297,12 +305,14 @@ pub struct TestXt<Call, Extra> {
 	pub signature: Option<(u64, Extra)>,
 	/// Call of the extrinsic.
 	pub call: Call,
+	/// Worker group
+	pub worker_group: WorkerGroup,
 }
 
 impl<Call, Extra> TestXt<Call, Extra> {
 	/// Create a new `TextXt`.
 	pub fn new(call: Call, signature: Option<(u64, Extra)>) -> Self {
-		Self { call, signature }
+		Self { call, signature, worker_group: Default::default() }
 	}
 }
 
@@ -338,12 +348,20 @@ impl<Call: Codec + Sync + Send, Extra> traits::Extrinsic for TestXt<Call, Extra>
 	type Call = Call;
 	type SignaturePayload = (u64, Extra);
 
+	fn worker_group(&self) -> WorkerGroup {
+		self.worker_group.clone()
+	}
+
+	fn set_worker_group(&mut self, worker_group: WorkerGroup) {
+		self.worker_group = worker_group;
+	}
+
 	fn is_signed(&self) -> Option<bool> {
 		Some(self.signature.is_some())
 	}
 
 	fn new(c: Call, sig: Option<Self::SignaturePayload>) -> Option<Self> {
-		Some(TestXt { signature: sig, call: c })
+		Some(TestXt { signature: sig, call: c, worker_group: Default::default() })
 	}
 }
 

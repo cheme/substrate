@@ -855,6 +855,14 @@ impl<'a> ::serde::Deserialize<'a> for OpaqueExtrinsic {
 impl traits::Extrinsic for OpaqueExtrinsic {
 	type Call = ();
 	type SignaturePayload = ();
+
+	fn set_worker_group(&mut self, _worker_group: traits::WorkerGroup) {
+		unimplemented!("Does not work for opaque: TODO fn not on the right target?");
+	}
+
+	fn worker_group(&self) -> traits::WorkerGroup {
+		unimplemented!("Does not work for opaque: TODO fn not on the right target?");
+	}
 }
 
 /// Print something that implements `Printable` from the runtime.

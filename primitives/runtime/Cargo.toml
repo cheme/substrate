@@ -22,6 +22,7 @@ sp-core = { version = "4.0.0-dev", default-features = false, path = "../core" }
 sp-application-crypto = { version = "4.0.0-dev", default-features = false, path = "../application-crypto" }
 sp-arithmetic = { version = "4.0.0-dev", default-features = false, path = "../arithmetic" }
 sp-std = { version = "4.0.0-dev", default-features = false, path = "../std" }
+sp-externalities = { version = "0.10.0-dev", default-features = false, path = "../externalities" }
 sp-io = { version = "4.0.0-dev", default-features = false, path = "../io" }
 log = { version = "0.4.14", default-features = false }
 paste = "1.0"

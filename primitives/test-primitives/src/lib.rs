@@ -25,7 +25,7 @@ pub use sp_application_crypto;
 use sp_application_crypto::sr25519;
 
 pub use sp_core::{hash::H256, RuntimeDebug};
-use sp_runtime::traits::{BlakeTwo256, Extrinsic as ExtrinsicT, Verify};
+use sp_runtime::traits::{BlakeTwo256, Extrinsic as ExtrinsicT, Verify, WorkerGroup};
 
 /// Extrinsic for test-runtime.
 #[derive(Clone, PartialEq, Eq, Encode, Decode, RuntimeDebug)]
@@ -55,6 +55,14 @@ impl ExtrinsicT for Extrinsic {
 		} else {
 			Some(true)
 		}
+	}
+
+	fn set_worker_group(&mut self, _worker_group: WorkerGroup) {
+		unimplemented!("TODO?");
+	}
+
+	fn worker_group(&self) -> WorkerGroup {
+		unimplemented!("TODO?");
 	}
 
 	fn new(call: Self::Call, _signature_payload: Option<Self::SignaturePayload>) -> Option<Self> {

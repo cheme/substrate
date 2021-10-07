@@ -720,6 +720,30 @@ pub trait Block:
 	fn encode_from(header: &Self::Header, extrinsics: &[Self::Extrinsic]) -> Vec<u8>;
 }
 
+/// Define extrinsic in a group of extrinsic that can run concurrently.
+/// Order of join in group is definition order.
+///
+/// Group are just consecutive extrinsic of same type.
+#[derive(Debug, Clone, Encode, Decode, Eq, PartialEq, TypeInfo)]
+pub enum WorkerGroup {
+	/// Extrinsic in a group that use the state at launch
+	/// and write at join without any concurrency guaranties.
+	Free,
+
+	/// Extrinsic in a group that declare its access
+	/// and enforce correct state behavior.
+	Declarative(sp_externalities::WorkerDeclaration),
+
+	/// Not in a group.
+	Single,
+}
+
+impl Default for WorkerGroup {
+	fn default() -> Self {
+		WorkerGroup::Single
+	}
+}
+
 /// Something that acts like an `Extrinsic`.
 pub trait Extrinsic: Sized + MaybeMallocSizeOf {
 	/// The function call.
@@ -737,6 +761,12 @@ pub trait Extrinsic: Sized + MaybeMallocSizeOf {
 	fn is_signed(&self) -> Option<bool> {
 		None
 	}
+
+	/// Worker execution groups.
+	fn worker_group(&self) -> WorkerGroup;
+
+	/// Worker execution groups.
+	fn set_worker_group(&mut self, worker_group: WorkerGroup);
 
 	/// Create new instance of the extrinsic.
 	///

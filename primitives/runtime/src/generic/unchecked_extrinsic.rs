@@ -21,7 +21,7 @@ use crate::{
 	generic::CheckedExtrinsic,
 	traits::{
 		self, Checkable, Extrinsic, ExtrinsicMetadata, IdentifyAccount, MaybeDisplay, Member,
-		SignedExtension,
+		SignedExtension, WorkerGroup,
 	},
 	transaction_validity::{InvalidTransaction, TransactionValidityError},
 	OpaqueExtrinsic,
@@ -33,6 +33,10 @@ use sp_std::{fmt, prelude::*};
 
 /// Current version of the [`UncheckedExtrinsic`] format.
 const EXTRINSIC_VERSION: u8 = 4;
+
+/// DUMMY version to encode extrinsic with worker groups.
+/// This assumes latest extrinsic version.
+const TEST_WORKERS_VERSION: u8 = 127;
 
 /// A extrinsic right from the external world. This is unchecked and so
 /// can contain a signature.
@@ -47,6 +51,8 @@ where
 	pub signature: Option<(Address, Signature, Extra)>,
 	/// The function that should be called.
 	pub function: Call,
+	/// Worker group for this extrinsic.
+	pub worker_group: WorkerGroup,
 }
 
 /// Manual [`TypeInfo`] implementation because of custom encoding. The data is a valid encoded
@@ -100,12 +106,12 @@ impl<Address, Call, Signature, Extra: SignedExtension>
 {
 	/// New instance of a signed extrinsic aka "transaction".
 	pub fn new_signed(function: Call, signed: Address, signature: Signature, extra: Extra) -> Self {
-		Self { signature: Some((signed, signature, extra)), function }
+		Self { signature: Some((signed, signature, extra)), function, worker_group: Default::default() }
 	}
 
 	/// New instance of an unsigned extrinsic aka "inherent".
 	pub fn new_unsigned(function: Call) -> Self {
-		Self { signature: None, function }
+		Self { signature: None, function, worker_group: Default::default() }
 	}
 }
 
@@ -126,6 +132,14 @@ impl<Address, Call, Signature, Extra: SignedExtension> Extrinsic
 		} else {
 			Self::new_unsigned(function)
 		})
+	}
+
+	fn set_worker_group(&mut self, worker_group: traits::WorkerGroup) {
+		self.worker_group = worker_group;
+	}
+
+	fn worker_group(&self) -> traits::WorkerGroup {
+		self.worker_group.clone() // TODO check usage, maybe return &
 	}
 }
 
@@ -244,13 +258,20 @@ where
 
 		let is_signed = version & 0b1000_0000 != 0;
 		let version = version & 0b0111_1111;
-		if version != EXTRINSIC_VERSION {
+		if version != EXTRINSIC_VERSION && version != TEST_WORKERS_VERSION {
 			return Err("Invalid transaction version".into())
 		}
+
+		let worker_group = if version == TEST_WORKERS_VERSION {
+			WorkerGroup::decode(input)?
+		} else {
+			Default::default()
+		};
 
 		Ok(Self {
 			signature: if is_signed { Some(Decode::decode(input)?) } else { None },
 			function: Decode::decode(input)?,
+			worker_group,
 		})
 	}
 }
@@ -268,10 +289,21 @@ where
 		// 1 byte version id.
 		match self.signature.as_ref() {
 			Some(s) => {
-				tmp.push(EXTRINSIC_VERSION | 0b1000_0000);
+				if self.worker_group == Default::default() {
+					tmp.push(EXTRINSIC_VERSION | 0b1000_0000);
+				} else {
+					tmp.push(TEST_WORKERS_VERSION | 0b1000_0000);
+					self.worker_group.encode_to(&mut tmp);
+				}
 				s.encode_to(&mut tmp);
 			},
 			None => {
+				if self.worker_group == Default::default() {
+					tmp.push(EXTRINSIC_VERSION | 0b1000_0000);
+				} else {
+					tmp.push(TEST_WORKERS_VERSION | 0b1000_0000);
+					self.worker_group.encode_to(&mut tmp);
+				}
 				tmp.push(EXTRINSIC_VERSION & 0b0111_1111);
 			},
 		}
