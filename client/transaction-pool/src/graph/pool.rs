@@ -457,7 +457,9 @@ mod tests {
 		collections::{HashMap, HashSet},
 		time::Instant,
 	};
-	use substrate_test_runtime::{AccountId, Block, Extrinsic, Hashing, Transfer, H256};
+	use substrate_test_runtime::{
+		AccountId, Block, Extrinsic, ExtrinsicCall, Hashing, Transfer, H256,
+	};
 
 	const INVALID_NONCE: u64 = 254;
 	const SOURCE: TransactionSource = TransactionSource::External;
@@ -486,8 +488,8 @@ mod tests {
 			let hash = self.hash_and_length(&uxt).0;
 			let block_number = self.block_id_to_number(at).unwrap().unwrap();
 
-			let res = match uxt {
-				Extrinsic::Transfer { transfer, .. } => {
+			let res = match uxt.call {
+				ExtrinsicCall::Transfer { transfer, .. } => {
 					let nonce = transfer.nonce;
 
 					// This is used to control the test flow.
@@ -532,7 +534,7 @@ mod tests {
 						Ok(transaction)
 					}
 				},
-				Extrinsic::IncludeData(_) => Ok(ValidTransaction {
+				ExtrinsicCall::IncludeData(_) => Ok(ValidTransaction {
 					priority: 9001,
 					requires: vec![],
 					provides: vec![vec![42]],
@@ -587,10 +589,13 @@ mod tests {
 	}
 
 	fn uxt(transfer: Transfer) -> Extrinsic {
-		Extrinsic::Transfer {
-			transfer,
-			signature: Default::default(),
-			exhaust_resources_when_not_first: false,
+		Extrinsic {
+			call: ExtrinsicCall::Transfer {
+				transfer,
+				signature: Default::default(),
+				exhaust_resources_when_not_first: false,
+			},
+			worker_group: Default::default(),
 		}
 	}
 
@@ -652,7 +657,10 @@ mod tests {
 		);
 
 		// after validation `IncludeData` will be set to non-propagable
-		let uxt = Extrinsic::IncludeData(vec![42]);
+		let uxt = Extrinsic {
+			call: ExtrinsicCall::IncludeData(vec![42]),
+			worker_group: Default::default(),
+		};
 
 		// when
 		let res = block_on(pool.submit_one(&BlockId::Number(0), SOURCE, uxt));

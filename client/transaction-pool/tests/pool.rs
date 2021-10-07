@@ -37,7 +37,7 @@ use sp_runtime::{
 };
 use std::{collections::BTreeSet, convert::TryInto, sync::Arc};
 use substrate_test_runtime_client::{
-	runtime::{Block, Extrinsic, Hash, Header, Index, Transfer},
+	runtime::{Block, Extrinsic, ExtrinsicCall, Hash, Header, Index, Transfer},
 	AccountKeyring::*,
 	ClientBlockImportExt,
 };
@@ -878,10 +878,13 @@ fn should_not_accept_old_signatures() {
 	)
 	.expect("signature construction failed");
 
-	let xt = Extrinsic::Transfer {
-		transfer,
-		signature: old_singature,
-		exhaust_resources_when_not_first: false,
+	let xt = Extrinsic {
+		call: ExtrinsicCall::Transfer {
+			transfer,
+			signature: old_singature,
+			exhaust_resources_when_not_first: false,
+		},
+		worker_group: Default::default(),
 	};
 
 	assert_matches::assert_matches!(
@@ -931,7 +934,10 @@ fn import_notification_to_pool_maintain_works() {
 fn pruning_a_transaction_should_remove_it_from_best_transaction() {
 	let (pool, _guard, _notifier) = maintained_pool();
 
-	let xt1 = Extrinsic::IncludeData(Vec::new());
+	let xt1 = Extrinsic {
+		call: ExtrinsicCall::IncludeData(Vec::new()),
+		worker_group: Default::default(),
+	};
 
 	block_on(pool.submit_one(&BlockId::number(0), SOURCE, xt1.clone())).expect("1. Imported");
 	assert_eq!(pool.status().ready, 1);

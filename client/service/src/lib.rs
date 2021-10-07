@@ -559,7 +559,7 @@ mod tests {
 	use sp_runtime::traits::BlindCheckable;
 	use substrate_test_runtime_client::{
 		prelude::*,
-		runtime::{Extrinsic, Transfer},
+		runtime::{Extrinsic, ExtrinsicCall, Transfer},
 	};
 
 	#[test]
@@ -584,7 +584,10 @@ mod tests {
 		block_on(pool.submit_one(
 			&BlockId::hash(best.hash()),
 			source,
-			Extrinsic::IncludeData(vec![1]),
+			Extrinsic {
+				call: ExtrinsicCall::IncludeData(vec![1]),
+				worker_group: Default::default(),
+			},
 		))
 		.unwrap();
 		assert_eq!(pool.status().ready, 2);

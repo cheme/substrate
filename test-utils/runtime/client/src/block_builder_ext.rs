@@ -66,13 +66,19 @@ where
 		key: Vec<u8>,
 		value: Option<Vec<u8>>,
 	) -> Result<(), sp_blockchain::Error> {
-		self.push(substrate_test_runtime::Extrinsic::StorageChange(key, value))
+		self.push(substrate_test_runtime::Extrinsic {
+			call: substrate_test_runtime::ExtrinsicCall::StorageChange(key, value),
+			worker_group: Default::default(),
+		})
 	}
 
 	fn push_changes_trie_configuration_update(
 		&mut self,
 		new_config: Option<ChangesTrieConfiguration>,
 	) -> Result<(), sp_blockchain::Error> {
-		self.push(substrate_test_runtime::Extrinsic::ChangesTrieConfigUpdate(new_config))
+		self.push(substrate_test_runtime::Extrinsic {
+			call: substrate_test_runtime::ExtrinsicCall::ChangesTrieConfigUpdate(new_config),
+			worker_group: Default::default(),
+		})
 	}
 }

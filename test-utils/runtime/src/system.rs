@@ -19,7 +19,8 @@
 //! and depositing logs.
 
 use crate::{
-	AccountId, AuthorityId, Block, BlockNumber, Digest, Extrinsic, ExtrinsicCall, Header, Transfer, H256 as Hash,
+	AccountId, AuthorityId, Block, BlockNumber, Digest, Extrinsic, ExtrinsicCall, Header, Transfer,
+	H256 as Hash,
 };
 use codec::{Decode, Encode, KeyedVec};
 use frame_support::{decl_module, decl_storage, storage};

@@ -588,9 +588,14 @@ impl BenchKeyring {
 				UncheckedExtrinsic {
 					signature: Some((sp_runtime::MultiAddress::Id(signed), signature, extra)),
 					function: payload.0,
+					worker_group: Default::default(),
 				}
 			},
-			None => UncheckedExtrinsic { signature: None, function: xt.function },
+			None => UncheckedExtrinsic {
+				signature: None,
+				function: xt.function,
+				worker_group: Default::default(),
+			},
 		}
 	}
 

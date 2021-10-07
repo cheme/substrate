@@ -372,11 +372,17 @@ impl<K: Ord + Hash + Clone, V> OverlayedMap<K, V> {
 	///
 	/// Any changes made during that transaction are committed. Returns an error if
 	/// there is no open transaction that can be committed.
-	pub fn commit_transaction(&mut self, apply_commit: fn(&mut V, V)) -> Result<(), NoOpenTransaction> {
+	pub fn commit_transaction(
+		&mut self,
+		apply_commit: fn(&mut V, V),
+	) -> Result<(), NoOpenTransaction> {
 		self.close_transaction(Some(apply_commit))
 	}
 
-	fn close_transaction(&mut self, apply_commit: Option<fn(&mut V, V)>) -> Result<(), NoOpenTransaction> {
+	fn close_transaction(
+		&mut self,
+		apply_commit: Option<fn(&mut V, V)>,
+	) -> Result<(), NoOpenTransaction> {
 		// runtime is not allowed to close transactions started by the client
 		if let ExecutionMode::Runtime = self.execution_mode {
 			if !self.has_open_runtime_transactions() {

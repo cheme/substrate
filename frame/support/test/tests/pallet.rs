@@ -640,6 +640,7 @@ fn inherent_expand() {
 	let expected = vec![UncheckedExtrinsic {
 		function: Call::Example(pallet::Call::foo_no_post_info {}),
 		signature: None,
+		worker_group: Default::default(),
 	}];
 	assert_eq!(expected, inherents);
 
@@ -655,10 +656,12 @@ fn inherent_expand() {
 			UncheckedExtrinsic {
 				function: Call::Example(pallet::Call::foo_no_post_info {}),
 				signature: None,
+				worker_group: Default::default(),
 			},
 			UncheckedExtrinsic {
 				function: Call::Example(pallet::Call::foo { foo: 1, bar: 0 }),
 				signature: None,
+				worker_group: Default::default(),
 			},
 		],
 	);
@@ -677,10 +680,12 @@ fn inherent_expand() {
 			UncheckedExtrinsic {
 				function: Call::Example(pallet::Call::foo_no_post_info {}),
 				signature: None,
+				worker_group: Default::default(),
 			},
 			UncheckedExtrinsic {
 				function: Call::Example(pallet::Call::foo { foo: 0, bar: 0 }),
 				signature: None,
+				worker_group: Default::default(),
 			},
 		],
 	);
@@ -698,6 +703,7 @@ fn inherent_expand() {
 		vec![UncheckedExtrinsic {
 			function: Call::Example(pallet::Call::foo_transactional { foo: 0 }),
 			signature: None,
+			worker_group: Default::default(),
 		}],
 	);
 
@@ -716,6 +722,7 @@ fn inherent_expand() {
 		vec![UncheckedExtrinsic {
 			function: Call::Example(pallet::Call::foo_no_post_info {}),
 			signature: Some((1, (), ())),
+			worker_group: Default::default(),
 		}],
 	);
 
@@ -735,10 +742,12 @@ fn inherent_expand() {
 			UncheckedExtrinsic {
 				function: Call::Example(pallet::Call::foo { foo: 1, bar: 1 }),
 				signature: None,
+				worker_group: Default::default(),
 			},
 			UncheckedExtrinsic {
 				function: Call::Example(pallet::Call::foo_transactional { foo: 0 }),
 				signature: None,
+				worker_group: Default::default(),
 			},
 		],
 	);
@@ -757,14 +766,17 @@ fn inherent_expand() {
 			UncheckedExtrinsic {
 				function: Call::Example(pallet::Call::foo { foo: 1, bar: 1 }),
 				signature: None,
+				worker_group: Default::default(),
 			},
 			UncheckedExtrinsic {
 				function: Call::Example(pallet::Call::foo_transactional { foo: 0 }),
 				signature: None,
+				worker_group: Default::default(),
 			},
 			UncheckedExtrinsic {
 				function: Call::Example(pallet::Call::foo_no_post_info {}),
 				signature: None,
+				worker_group: Default::default(),
 			},
 		],
 	);
@@ -783,14 +795,17 @@ fn inherent_expand() {
 			UncheckedExtrinsic {
 				function: Call::Example(pallet::Call::foo { foo: 1, bar: 1 }),
 				signature: None,
+				worker_group: Default::default(),
 			},
 			UncheckedExtrinsic {
 				function: Call::Example(pallet::Call::foo { foo: 1, bar: 0 }),
 				signature: Some((1, (), ())),
+				worker_group: Default::default(),
 			},
 			UncheckedExtrinsic {
 				function: Call::Example(pallet::Call::foo_no_post_info {}),
 				signature: None,
+				worker_group: Default::default(),
 			},
 		],
 	);

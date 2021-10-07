@@ -106,7 +106,11 @@ impl<Address, Call, Signature, Extra: SignedExtension>
 {
 	/// New instance of a signed extrinsic aka "transaction".
 	pub fn new_signed(function: Call, signed: Address, signature: Signature, extra: Extra) -> Self {
-		Self { signature: Some((signed, signature, extra)), function, worker_group: Default::default() }
+		Self {
+			signature: Some((signed, signature, extra)),
+			function,
+			worker_group: Default::default(),
+		}
 	}
 
 	/// New instance of an unsigned extrinsic aka "inherent".

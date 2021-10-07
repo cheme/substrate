@@ -134,7 +134,14 @@ impl Transfer {
 			.expect("Creates keyring from public key.")
 			.sign(&self.encode())
 			.into();
-		Extrinsic::Transfer { transfer: self, signature, exhaust_resources_when_not_first: false }
+		Extrinsic {
+			call: ExtrinsicCall::Transfer {
+				transfer: self,
+				signature,
+				exhaust_resources_when_not_first: false,
+			},
+			worker_group: Default::default(),
+		}
 	}
 
 	/// Convert into a signed extrinsic, which will only end up included in the block
@@ -146,17 +153,26 @@ impl Transfer {
 			.expect("Creates keyring from public key.")
 			.sign(&self.encode())
 			.into();
-		Extrinsic::Transfer { transfer: self, signature, exhaust_resources_when_not_first: true }
+		Extrinsic {
+			call: ExtrinsicCall::Transfer {
+				transfer: self,
+				signature,
+				exhaust_resources_when_not_first: true,
+			},
+			worker_group: Default::default(),
+		}
 	}
 }
 
 /// Extrinsic for test-runtime.
 #[derive(Clone, PartialEq, Eq, Encode, Decode, RuntimeDebug)]
 pub struct Extrinsic {
-	call: ExtrinsicCall,
-	worker_group: WorkerGroup,
+	/// Call for extrinsic.
+	pub call: ExtrinsicCall,
+	/// Worker strategy for extrinsic.
+	pub worker_group: WorkerGroup,
 }
-	
+
 /// Extrinsic call for test-runtime.
 #[derive(Clone, PartialEq, Eq, Encode, Decode, RuntimeDebug)]
 pub enum ExtrinsicCall {
@@ -195,7 +211,7 @@ impl BlindCheckable for Extrinsic {
 			ExtrinsicCall::AuthoritiesChange(_) => (),
 			ExtrinsicCall::Transfer { transfer, signature, .. } =>
 				if !sp_runtime::verify_encoded_lazy(signature, transfer, &transfer.from) {
-					return Err(InvalidTransaction::BadProof.into());
+					return Err(InvalidTransaction::BadProof.into())
 				},
 			ExtrinsicCall::IncludeData(..) => (),
 			ExtrinsicCall::StorageChange(..) => (),
@@ -229,7 +245,7 @@ impl ExtrinsicT for Extrinsic {
 	}
 
 	fn new(call: Self::Call, _signature_payload: Option<Self::SignaturePayload>) -> Option<Self> {
-		Some(Extrinsic { call, worker_group: Default::default()})
+		Some(Extrinsic { call, worker_group: Default::default() })
 	}
 }
 
@@ -736,7 +752,7 @@ cfg_if! {
 					utx: <Block as BlockT>::Extrinsic,
 					_: <Block as BlockT>::Hash,
 				) -> TransactionValidity {
-					if let Extrinsic::IncludeData(data) = utx {
+					if let ExtrinsicCall::IncludeData(data) = utx.call {
 						return Ok(ValidTransaction {
 							priority: data.len() as u64,
 							requires: vec![],
@@ -928,7 +944,10 @@ cfg_if! {
 
 			impl sp_offchain::OffchainWorkerApi<Block> for Runtime {
 				fn offchain_worker(header: &<Block as BlockT>::Header) {
-					let ex = Extrinsic::IncludeData(header.number.encode());
+					let ex = Extrinsic {
+						call: ExtrinsicCall::IncludeData(header.number.encode()),
+						worker_group: Default::default(),
+					};
 					sp_io::offchain::submit_transaction(ex.encode()).unwrap();
 				}
 			}

@@ -668,14 +668,14 @@ macro_rules! does_write_foo {
 
 // TODO those tests needs refactor to handle the new rules, currently failing:
 /*
-    integration_tests::incompatible_declarative_conflict_interpreted
-    integration_tests::optimistic_read_conflict_2_interpreted
-    integration_tests::optimistic_read_conflict_interpreted
-    integration_tests::optimistic_read_conflict_nested_interpreted
-    integration_tests::read_write_conflict_1_interpreted
-    integration_tests::read_write_conflict_2_interpreted
-    integration_tests::read_write_conflict_3_interpreted
-    integration_tests::read_write_conflict_4_interpreted
+	integration_tests::incompatible_declarative_conflict_interpreted
+	integration_tests::optimistic_read_conflict_2_interpreted
+	integration_tests::optimistic_read_conflict_interpreted
+	integration_tests::optimistic_read_conflict_nested_interpreted
+	integration_tests::read_write_conflict_1_interpreted
+	integration_tests::read_write_conflict_2_interpreted
+	integration_tests::read_write_conflict_3_interpreted
+	integration_tests::read_write_conflict_4_interpreted
 */
 // but others may make littel sense
 dont_panic!(inline_runtime_call_should_work, "test_inline");

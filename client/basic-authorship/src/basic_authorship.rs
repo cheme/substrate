@@ -492,7 +492,7 @@ mod tests {
 	use sp_runtime::traits::NumberFor;
 	use substrate_test_runtime_client::{
 		prelude::*,
-		runtime::{Extrinsic, Transfer},
+		runtime::{Extrinsic, ExtrinsicCall, Transfer},
 		TestClientBuilder, TestClientBuilderExt,
 	};
 
@@ -777,7 +777,10 @@ mod tests {
 
 		let extrinsics_num = 4;
 		let extrinsics = (0..extrinsics_num)
-			.map(|v| Extrinsic::IncludeData(vec![v as u8; 10]))
+			.map(|v| Extrinsic {
+				call: ExtrinsicCall::IncludeData(vec![v as u8; 10]),
+				worker_group: Default::default(),
+			})
 			.collect::<Vec<_>>();
 
 		let block_limit = genesis_header.encoded_size() +

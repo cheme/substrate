@@ -53,7 +53,7 @@ use sp_runtime::{
 use sp_state_machine::{ExecutionManager, OverlayedChanges};
 use std::{cell::RefCell, collections::HashMap, panic::UnwindSafe, sync::Arc};
 use substrate_test_runtime_client::{
-	runtime::{self, Block, Extrinsic, Hash, Header},
+	runtime::{self, Block, Extrinsic, ExtrinsicCall, Hash, Header},
 	AccountKeyring, ClientBlockImportExt, TestClient,
 };
 
@@ -944,8 +944,10 @@ fn check_changes_tries_proof_fails_if_proof_is_wrong() {
 
 #[test]
 fn check_body_proof_faulty() {
-	let header =
-		header_with_computed_extrinsics_root(vec![Extrinsic::IncludeData(vec![1, 2, 3, 4])]);
+	let header = header_with_computed_extrinsics_root(vec![Extrinsic {
+		call: ExtrinsicCall::IncludeData(vec![1, 2, 3, 4]),
+		worker_group: Default::default(),
+	}]);
 	let block = Block::new(header.clone(), Vec::new());
 
 	let local_checker = TestChecker::new(
@@ -964,7 +966,10 @@ fn check_body_proof_faulty() {
 
 #[test]
 fn check_body_proof_of_same_data_should_succeed() {
-	let extrinsics = vec![Extrinsic::IncludeData(vec![1, 2, 3, 4, 5, 6, 7, 8, 255])];
+	let extrinsics = vec![Extrinsic {
+		call: ExtrinsicCall::IncludeData(vec![1, 2, 3, 4, 5, 6, 7, 8, 255]),
+		worker_group: Default::default(),
+	}];
 
 	let header = header_with_computed_extrinsics_root(extrinsics.clone());
 	let block = Block::new(header.clone(), extrinsics);

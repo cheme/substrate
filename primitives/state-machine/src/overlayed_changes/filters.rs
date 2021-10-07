@@ -814,11 +814,8 @@ impl Filters {
 			}
 		}
 
-		let filters = if let Some(filter) = filters.filter(child_info) {
-			filter
-		} else {
-			return false
-		};
+		let filters =
+			if let Some(filter) = filters.filter(child_info) { filter } else { return false };
 		let len = key.len();
 		for (key, value) in filters.seek_iter(key).value_iter() {
 			// forbid write implies forbid read.
@@ -852,11 +849,8 @@ impl Filters {
 			}
 		}
 
-		let filters = if let Some(filter) = filters.filter(child_info) {
-			filter
-		} else {
-			return false
-		};
+		let filters =
+			if let Some(filter) = filters.filter(child_info) { filter } else { return false };
 		let mut iter = filters.seek_iter(key).value_iter();
 		let mut start_interval = None;
 		while let Some((key, value)) = iter.next() {
@@ -910,11 +904,8 @@ impl Filters {
 				return true
 			}
 		}
-		let filters = if let Some(filter) = filters.filter(child_info) {
-			filter
-		} else {
-			return false
-		};
+		let filters =
+			if let Some(filter) = filters.filter(child_info) { filter } else { return false };
 		let len = key.len();
 		for (key, value) in filters.seek_iter(key).value_iter() {
 			// forbid write implies forbid read.
@@ -942,11 +933,8 @@ impl Filters {
 			}
 		}
 
-		let filters = if let Some(filter) = filters.filter(child_info) {
-			filter
-		} else {
-			return false
-		};
+		let filters =
+			if let Some(filter) = filters.filter(child_info) { filter } else { return false };
 		// parent or self allowed for prefix.
 		for (_key, value) in filters.seek_iter(key).value_iter() {
 			if value.read_prefix {
@@ -968,11 +956,8 @@ impl Filters {
 			}
 		}
 
-		let filters = if let Some(filter) = filters.filter(child_info) {
-			filter
-		} else {
-			return false
-		};
+		let filters =
+			if let Some(filter) = filters.filter(child_info) { filter } else { return false };
 		for (_key, value) in filters.seek_iter(key).value_iter() {
 			if value.write_prefix {
 				return true

@@ -1493,29 +1493,25 @@ fn change_to_change_set(
 	None
 }
 
-fn apply_commit_change(
-	parent: &mut Change,
-	child: Change,
-) {
+fn apply_commit_change(parent: &mut Change, child: Change) {
 	match child {
-		change@Change::Write(..) 
-			| change@Change::Delete => {
+		change @ Change::Write(..) | change @ Change::Delete => {
 			*parent = change;
 		},
 		Change::Append(mut changes) => {
 			match parent {
 				Change::Append(parent) => {
 					parent.append(&mut changes);
-					return;
+					return
 				},
 				Change::Write(parent) => {
 					let mut appendable = crate::ext::StorageAppend::new(parent);
 					for change in changes {
 						appendable.append(change);
 					}
-					return;
+					return
 				},
-				_ => ()
+				_ => (),
 			}
 			*parent = Change::Append(changes);
 		},
@@ -1523,7 +1519,7 @@ fn apply_commit_change(
 			match parent {
 				Change::IncrementCounter(parent) => {
 					*parent += increment;
-					return;
+					return
 				},
 				Change::Write(value) => {
 					for _ in 0..increment {
@@ -1538,20 +1534,17 @@ fn apply_commit_change(
 						} else {
 							value[nb_digit - 1] += 1;
 						}
-						return;
+						return
 					}
 				},
-				_ => ()
+				_ => (),
 			}
 			*parent = Change::IncrementCounter(increment);
 		},
 	}
 }
 
-fn apply_commit_default<V>(
-	parent: &mut V,
-	child: V,
-) {
+fn apply_commit_default<V>(parent: &mut V, child: V) {
 	*parent = child;
 }
 

@@ -316,10 +316,13 @@ mod tests {
 		let value = &b"world"[..];
 		let mut block_builder = client.new_block(Default::default()).unwrap();
 		block_builder
-			.push(substrate_test_runtime_client::runtime::Extrinsic::OffchainIndexSet(
-				key.to_vec(),
-				value.to_vec(),
-			))
+			.push(substrate_test_runtime_client::runtime::Extrinsic {
+				call: substrate_test_runtime_client::runtime::ExtrinsicCall::OffchainIndexSet(
+					key.to_vec(),
+					value.to_vec(),
+				),
+				worker_group: Default::default(),
+			})
 			.unwrap();
 
 		let block = block_builder.build().unwrap().block;
@@ -329,9 +332,12 @@ mod tests {
 
 		let mut block_builder = client.new_block(Default::default()).unwrap();
 		block_builder
-			.push(substrate_test_runtime_client::runtime::Extrinsic::OffchainIndexClear(
-				key.to_vec(),
-			))
+			.push(substrate_test_runtime_client::runtime::Extrinsic {
+				call: substrate_test_runtime_client::runtime::ExtrinsicCall::OffchainIndexClear(
+					key.to_vec(),
+				),
+				worker_group: Default::default(),
+			})
 			.unwrap();
 
 		let block = block_builder.build().unwrap().block;

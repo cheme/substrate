@@ -72,7 +72,7 @@ use sp_runtime::{
 };
 use substrate_test_runtime_client::AccountKeyring;
 pub use substrate_test_runtime_client::{
-	runtime::{Block, Extrinsic, Hash, Transfer},
+	runtime::{Block, Extrinsic, ExtrinsicCall, Hash, Transfer},
 	TestClient, TestClientBuilder, TestClientBuilderExt,
 };
 
@@ -497,7 +497,12 @@ where
 
 	pub fn push_authorities_change_block(&mut self, new_authorities: Vec<AuthorityId>) -> H256 {
 		self.generate_blocks(1, BlockOrigin::File, |mut builder| {
-			builder.push(Extrinsic::AuthoritiesChange(new_authorities.clone())).unwrap();
+			builder
+				.push(Extrinsic {
+					call: ExtrinsicCall::AuthoritiesChange(new_authorities.clone()),
+					worker_group: Default::default(),
+				})
+				.unwrap();
 			builder.build().unwrap().block
 		})
 	}

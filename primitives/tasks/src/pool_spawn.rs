@@ -332,8 +332,8 @@ impl RuntimeInstanceSpawn {
 						// if 'join' is call, if 'dismiss' is call then it is fine to ignore a
 						// panic.
 						instance = None; // will be lazily re-instantiated
-						// TODO does it make handle panic of instantiate ref useless?? -> guess so : TODO
-						// remove unsafe code if needed.
+						 // TODO does it make handle panic of instantiate ref useless?? -> guess so
+						 // : TODO remove unsafe code if needed.
 					}
 					if let &WorkerResult::HardPanic = &result {
 						end = true;
