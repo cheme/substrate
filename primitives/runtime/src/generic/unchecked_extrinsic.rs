@@ -303,12 +303,11 @@ where
 			},
 			None => {
 				if self.worker_group == Default::default() {
-					tmp.push(EXTRINSIC_VERSION | 0b1000_0000);
+					tmp.push(EXTRINSIC_VERSION & 0b0111_1111);
 				} else {
-					tmp.push(TEST_WORKERS_VERSION | 0b1000_0000);
+					tmp.push(TEST_WORKERS_VERSION & 0b0111_1111);
 					self.worker_group.encode_to(&mut tmp);
 				}
-				tmp.push(EXTRINSIC_VERSION & 0b0111_1111);
 			},
 		}
 		self.function.encode_to(&mut tmp);
