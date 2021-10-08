@@ -798,6 +798,31 @@ mod test {
 				(b"key1", (Some(&[7]), vec![1])),
 			],
 		);
+
+		changeset.set(b"key0".to_vec(), None.into(), Some(1));
+		assert_changes_resolved(
+			&mut changeset,
+			&backend,
+			&vec![
+				(
+					b"key0",
+					(None, vec![1]),
+				),
+				(b"key1", (Some(&[7]), vec![1])),
+			],
+		);
+		changeset.append_storage(b"key0".to_vec(), b"val2".to_vec().encode(), Some(1));
+		assert_changes_resolved(
+			&mut changeset,
+			&backend,
+			&vec![
+				(
+					b"key0",
+					(Some(vec![b"val2".to_vec()].encode().as_slice()), vec![1]),
+				),
+				(b"key1", (Some(&[7]), vec![1])),
+			],
+		);
 	}
 
 	#[test]
