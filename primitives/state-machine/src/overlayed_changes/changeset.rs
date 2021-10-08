@@ -462,6 +462,14 @@ impl OverlayedChangeSet {
 					appendable.append(value);
 					return
 				},
+				v@Change::Delete => {
+					// Append on delet is write.
+					let mut changes = Vec::new();
+					let mut appendable = crate::ext::StorageAppend::new(&mut changes);
+					appendable.append(value);
+					*v = Change::Write(changes);
+					return
+				},
 				_ => {
 					clone_into_new_tx = true;
 				}, // just overwrite (TODO could panic)
