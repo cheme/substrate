@@ -1504,6 +1504,15 @@ fn apply_commit_change(parent: &mut Change, child: Change) {
 					parent.append(&mut changes);
 					return
 				},
+				Change::Delete => {
+					let mut dest = Vec::new();
+					let mut appendable = crate::ext::StorageAppend::new(&mut dest);
+					for change in changes {
+						appendable.append(change);
+					}
+					*parent = Change::Write(dest);
+					return
+				},
 				Change::Write(parent) => {
 					let mut appendable = crate::ext::StorageAppend::new(parent);
 					for change in changes {
@@ -1520,6 +1529,23 @@ fn apply_commit_change(parent: &mut Change, child: Change) {
 				Change::IncrementCounter(parent) => {
 					*parent += increment;
 					return
+				},
+				Change::Delete => {
+					for _ in 0..increment {
+						let mut value = Vec::new();
+						// TODO extract and test counter logic.
+						let mut nb_digit = value.len();
+						while nb_digit > 0 && value[nb_digit - 1] == 255 {
+							value[nb_digit - 1] = 0;
+							nb_digit -= 1;
+						}
+						if nb_digit == 0 {
+							value.insert(0, 1);
+						} else {
+							value[nb_digit - 1] += 1;
+						}
+						return
+					}
 				},
 				Change::Write(value) => {
 					for _ in 0..increment {
