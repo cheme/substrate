@@ -695,7 +695,7 @@ mod tests {
 			backend::changes_tries_state_at_block(&block_id, backend.changes_trie_storage())
 				.unwrap();
 
-		let storage_changes = api
+		let (storage_changes, _logged_changes) = api
 			.into_storage_changes(&state, changes_trie_state.as_ref(), genesis_hash)
 			.unwrap();
 

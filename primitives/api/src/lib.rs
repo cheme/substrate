@@ -89,7 +89,7 @@ pub use sp_runtime::{
 	generic::BlockId,
 	traits::{
 		Block as BlockT, GetNodeBlockType, GetRuntimeBlockType, Hash as HashT, HashFor,
-		Header as HeaderT, NumberFor,
+		Header as HeaderT, NumberFor, AccessLog,
 	},
 	transaction_validity::TransactionValidity,
 	RuntimeString, TransactionOutcome,
@@ -516,7 +516,7 @@ pub trait ApiExt<Block: BlockT> {
 		backend: &Self::StateBackend,
 		changes_trie_state: Option<&ChangesTrieState<HashFor<Block>, NumberFor<Block>>>,
 		parent_hash: Block::Hash,
-	) -> Result<StorageChanges<Self::StateBackend, Block>, String>
+	) -> Result<(StorageChanges<Self::StateBackend, Block>, Option<sp_runtime::traits::AccessLog>), String>
 	where
 		Self: Sized;
 }
