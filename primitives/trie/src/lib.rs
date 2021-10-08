@@ -196,8 +196,6 @@ where
 		delta.sort_by(|l, r| l.0.borrow().cmp(r.0.borrow()));
 
 		for (key, change) in delta {
-			#[cfg(feature = "std")]
-			println!("{:?}", (key.borrow(), change.borrow().as_ref().map(|v| v.borrow())));
 			match change.borrow() {
 				Some(val) => trie.insert(key.borrow(), val.borrow())?,
 				None => trie.remove(key.borrow())?,

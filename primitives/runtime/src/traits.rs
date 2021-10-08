@@ -44,7 +44,6 @@ use sp_std::{
 	marker::PhantomData,
 	prelude::*,
 };
-pub use sp_externalities::AccessLog;
 #[cfg(feature = "std")]
 use std::fmt::Display;
 #[cfg(feature = "std")]

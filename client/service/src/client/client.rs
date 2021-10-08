@@ -980,21 +980,9 @@ where
 				let changes_trie_state =
 					changes_tries_state_at_block(&at, self.backend.changes_trie_storage())?;
 
-				let (gen_storage_changes, logged_changes) = runtime_api
+				let gen_storage_changes = runtime_api
 					.into_storage_changes(&state, changes_trie_state.as_ref(), *parent_hash)
 					.map_err(sp_blockchain::Error::Storage)?;
-
-				let block_number: u32 = if let Ok(n) = import_block.header.number().clone().try_into() {
-					n
-				} else {
-					panic!("TODO");
-				};
-				let mut file = self.log_accesses.lock();
-				use std::io::Write;
-				serde_json::to_writer(&mut *file, &format!("--- At block p {:?}", block_number)).expect("TODO");
-				file.write(b"\n").unwrap();
-				serde_json::to_writer(&mut *file, &logged_changes).expect("TODO");
-				file.write(b"\n").unwrap();
 
 				if import_block.header.state_root() != &gen_storage_changes.transaction_storage_root
 				{
