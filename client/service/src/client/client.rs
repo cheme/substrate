@@ -2013,24 +2013,29 @@ where
 			} else {
 				panic!("TODO");
 			};
+			use std::io::Write;
 			// code similar to build block propose.
 			if let Some(extrinsics) = import_block.body.as_ref() {
 				serde_json::to_writer(&mut *file, &format!("--- At block {:?}", block_number)).expect("TODO");
+				file.write(b"\n").unwrap();
 				for (i, extrinsic) in extrinsics.iter().enumerate() {
 					match block_builder.push_spawn(extrinsic.clone()) {
 						Ok(accesses) => {
 							// TODO log in report
 							serde_json::to_writer(&mut *file, &accesses).expect("TODO");
+							file.write(b"\n").unwrap();
 						},
 						Err(e) => {
 							// TODO log in report
 							serde_json::to_writer(&mut *file, &format!("err at {}, {:?}", i, e)).expect("TODO");
+							file.write(b"\n").unwrap();
 						},
 					}
 				}
 			} else {
 				// TODO log in report
 				serde_json::to_writer(&mut *file, &format!("--- no body at {:?}", block_number)).expect("TODO");
+				file.write(b"\n").unwrap();
 			}
 		}
 		// end remove

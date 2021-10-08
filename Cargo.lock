@@ -9382,6 +9382,7 @@ dependencies = [
  "environmental",
  "parity-scale-codec",
  "scale-info",
+ "serde",
  "sp-std",
  "sp-storage",
 ]

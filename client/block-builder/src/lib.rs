@@ -223,7 +223,7 @@ where
 	/// Push spawning in multiple threads.
 	/// This does not really work as it is very resource consuming. But
 	/// is a quick first implementation. TODO remove or keep for testing.
-	pub fn push_spawn(&mut self, xt: <Block as BlockT>::Extrinsic) -> Result<(), Error> {
+	pub fn push_spawn(&mut self, xt: <Block as BlockT>::Extrinsic) -> Result<&AccessLog, Error> {
 		let block_id = &self.block_id;
 		let pending_parallel = &mut self.pending_parallel;
 
@@ -245,7 +245,7 @@ where
 		) {
 			Ok(accesses) => {
 				pending_parallel.push((xt, accesses));
-				Ok(())
+				Ok(&pending_parallel.last().unwrap().1)
 			},
 			Err(e) => Err(Error::from(e)),
 		}
