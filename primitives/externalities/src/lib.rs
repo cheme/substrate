@@ -385,11 +385,9 @@ pub enum Change {
 	/// Write new value.
 	Write(StorageValue),
 	/// Append to existing value, 'join' order.
-	/// Can contain a previous write or delete operation state.
-	Append(Option<Option<StorageValue>>, Vec<StorageValue>),
+	Append(Vec<StorageValue>),
 	/// Increment counter value.
-	/// Can contain a previous write or delete operation state.
-	IncrementCounter(Option<Option<StorageValue>>, u32),
+	IncrementCounter(u32),
 }
 
 impl Default for Change {
