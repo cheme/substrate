@@ -29,6 +29,7 @@ use alloc::vec::Vec;
 use crate::radix::{MaskFor, MaskKeyByte};
 use core::fmt::Debug;
 use core::marker::PhantomData;
+use primitive_types::H256;
 
 /// Fix size index that can be read or written for these art.
 pub trait Index: Clone + Debug + Eq {
@@ -40,6 +41,22 @@ pub trait Index: Clone + Debug + Eq {
 	fn read_index(enc: &[u8]) -> Self;
 	fn write_index(&self, dest: &mut [u8]);
 }
+
+impl Index for H256 {
+	const SIZE: usize = 32;
+	const UNDEFINED: Self = H256::zero();
+
+	fn read_index(enc: &[u8]) -> Self {
+		let mut hash = H256::default();
+		hash[..].copy_from_slice(enc);
+		hash
+	}
+	fn write_index(&self, dest: &mut [u8]) {
+		dest.copy_from_slice(&self[..]);
+	}
+}
+
+
 
 impl Index for u64 {
 	const SIZE: usize = 8;
