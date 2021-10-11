@@ -729,8 +729,9 @@ impl<I: Index, VI: Index> Art256<I, VI> {
 impl<N> NodeBackend<N> for ArtLocalBackend<N>
 	where
 		N: TreeConf<NodeBackend = Self, Value = Vec<u8>>,
-		N::Backend: Backend<Index = u64, ValueIndex = u64>,
-//		N::Value: AsRef<[u8]>,
+		N::Backend: Backend,
+		IndexFor<N>: Index,
+		ValueIndexFor<N>: Index,
 {
 	const FUSE_ON_COMMIT: bool = true;
 
@@ -788,7 +789,7 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 
 	fn fetch_value(&self, backend: &N::Backend) -> Option<N::Value> {
 		if let Some(ix) = self.encoded.fetch_value_index() {
-			backend.get_node(ix)
+			backend.get_value(ix)
 		} else {
 			None
 		}
@@ -906,9 +907,9 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 		if node.backend.value_state == ValueState::Modified {
 			if let Some(value) = node.value.as_ref() {
 				let ix = if let Some(previous) = node.backend.encoded.fetch_value_index() {
-					backend.update_node(previous.clone(), value.clone()).unwrap_or(previous)
+					backend.update_value(previous.clone(), value.clone()).unwrap_or(previous)
 				} else {
-					backend.set_new_node(value.clone())
+					backend.set_new_value(value.clone())
 				};
 
 				node.backend.encoded.set_value_index(&ix);
@@ -920,7 +921,7 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 		}
 		if node.backend.value_state == ValueState::Deleted {
 			if let Some(previous) = node.backend.encoded.fetch_value_index() {
-				backend.remove_node(previous);
+				backend.remove_value(previous);
 				encoded_change = true;
 			} else {
 				unreachable!("deleted should be some");
@@ -960,7 +961,7 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 	}
 
 	fn clear_content(&mut self) -> Option<ValueIndexFor<N>> {
-		let index = self.index;
+		let index = self.index.clone();
 		let result = self.encoded.fetch_value_index();
 		debug_assert!(result.is_none() || self.value_state == ValueState::Deleted); // TODO can actually only fetch if deleted, but assert for now.
 		*self = ArtLocalBackend::with_capacity(self.original_nb_children);
