@@ -580,7 +580,7 @@ impl<I: Index, VI: Index> $art<I, VI> {
 				let i =	$art_fix_len(I::SIZE, VI::SIZE) - i * I::SIZE - VI::SIZE;
 				let ie = $art_fix_len(I::SIZE, VI::SIZE) - VI::SIZE;
 				self.0.copy_within(i .. ie, i - I::SIZE);
-				I::UNDEFINED.write_index(&mut self.0[i - I::SIZE .. i]);
+				I::UNDEFINED.write_index(&mut self.0[ie - I::SIZE .. ie]);
 				break;
 			} else if ix < at {
 				break;
