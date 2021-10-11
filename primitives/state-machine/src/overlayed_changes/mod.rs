@@ -50,7 +50,7 @@ use sp_core::{
 	storage::{well_known_keys::EXTRINSIC_INDEX, ChildInfo},
 };
 use sp_externalities::{
-	Change, Extension, Extensions, TaskId, WorkerDeclaration, WorkerDeclarationKind, WorkerResult,
+	Change, Extension, Extensions, TaskId, WorkerDeclaration, WorkerDeclarationKind, WorkerResult, AccessLog,
 };
 #[cfg(not(feature = "std"))]
 use sp_std::collections::btree_map::{BTreeMap as Map, Entry as MapEntry};
@@ -915,12 +915,23 @@ impl OverlayedChanges {
 		changes_trie_state: Option<&ChangesTrieState<H, N>>,
 		parent_hash: H::Out,
 		mut cache: StorageTransactionCache<B::Transaction, H, N>,
-	) -> Result<StorageChanges<B::Transaction, H, N>, DefaultError>
+	) -> Result<(StorageChanges<B::Transaction, H, N>, Option<AccessLog>), DefaultError>
 	where
 		H::Out: Ord + Encode + 'static,
 	{
-		self.drain_storage_changes(backend, changes_trie_state, parent_hash, &mut cache)
+		let logs = self.optimistic_logger.extract_parent_log();
+		let r = self.drain_storage_changes(backend, changes_trie_state, parent_hash, &mut cache)?;
+		let _ = self.optimistic_logger.extract_parent_log();
+		Ok((r, logs))
 	}
+
+	#[cfg(feature = "std")]
+	pub fn extract_logs(
+		&mut self,
+	) -> Option<AccessLog> {
+		self.optimistic_logger.extract_parent_log()
+	}
+
 
 	/// Drain all changes into a [`StorageChanges`] instance. Leave empty overlay in place.
 	pub fn drain_storage_changes<B: Backend<H>, H: Hasher + 'static, N: BlockNumber>(
