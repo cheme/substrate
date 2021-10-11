@@ -82,7 +82,7 @@ impl OriginLogs {
 	}
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub(super) struct AccessLogger {
 	/// Log that we access all key in read mode (usually by calling storage root).
 	/// TODO this should be implied by parent_log_read??
@@ -101,23 +101,6 @@ pub(super) struct AccessLogger {
 	eager_clean: bool,
 }
 
-impl Default for AccessLogger {
-	fn default() -> Self {
-		let mut logger = AccessLogger {
-			read_all: Default::default(),
-			log_read: Default::default(),
-			log_write: Default::default(),
-			top_logger: Default::default(),
-			children_logger: Default::default(),
-			eager_clean: Default::default(),
-		};
-
-		logger.log_reads_against(None);
-		logger.log_writes_against(None);
-
-		logger
-	}
-}
 /// Logger for a given trie state.
 #[derive(Debug, Clone, Default)]
 struct StateLogger {
@@ -707,7 +690,6 @@ impl AccessLogger {
 		let mut result = sp_externalities::AccessLog::default();
 
 		result.read_all = self.read_all.parent;
-		self.read_all.parent = false;
 
 		let read = !result.read_all && self.log_read.parent;
 		let write = self.log_write.parent;
@@ -738,7 +720,6 @@ impl AccessLogger {
 		if write {
 			result.top_logger.write_prefix =
 				self.top_logger.write_prefixes.iter().value_iter().map(|(key, _)| key).collect();
-			self.top_logger.write_prefixes.clear();
 		}
 		result.children_logger = sp_std::mem::take(&mut self.children_logger)
 			.into_iter()

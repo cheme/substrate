@@ -293,10 +293,8 @@ fn generate_runtime_api_base_structures() -> Result<TokenStream> {
 					#crate_::NumberFor<Block>,
 				>>,
 				parent_hash: Block::Hash,
-			) -> std::result::Result<(
+			) -> std::result::Result<
 				#crate_::StorageChanges<C::StateBackend, Block>,
-				Option<#crate_::AccessLog>,
-			),
 				String
 			> where Self: Sized {
 				self.changes.replace(Default::default()).into_storage_changes(
@@ -305,12 +303,6 @@ fn generate_runtime_api_base_structures() -> Result<TokenStream> {
 					parent_hash,
 					self.storage_transaction_cache.replace(Default::default()),
 				)
-			}
-
-			fn extract_logs(
-				&mut self,
-			) -> Option<#crate_::AccessLog> {
-				self.changes.borrow_mut().extract_logs()
 			}
 		}
 

@@ -220,12 +220,6 @@ where
 		})
 	}
 
-	/// extract storage
-	pub fn into_st_change(&mut self) -> Option<AccessLog> {
-		use std::ops::DerefMut;
-		self.api.deref_mut().extract_logs()
-	}
-
 	/// Push spawning in multiple threads.
 	/// This does not really work as it is very resource consuming. But
 	/// is a quick first implementation. TODO remove or keep for testing.
@@ -243,9 +237,7 @@ where
 		//
 		// A single transactionshould be over the multiple push spawn and enact pending
 		// though.
-		// TODO this run only with native or with a runtime containing log_extrinsic.
-		// So to get whole, probably just hack into state machine to use log and print from
-		// into_storage_changes
+		// TODO this is incorrect returning handle out of context scope: need to return join result.
 		match self.api.log_extrinsic_with_context(
 			block_id,
 			ExecutionContext::BlockConstruction,
@@ -292,7 +284,7 @@ where
 		)?;
 		let parent_hash = self.parent_hash;
 
-		let (storage_changes, _logged_changes) = self
+		let storage_changes = self
 			.api
 			.into_storage_changes(&state, changes_trie_state.as_ref(), parent_hash)
 			.map_err(|e| sp_blockchain::Error::StorageChanges(e))?;

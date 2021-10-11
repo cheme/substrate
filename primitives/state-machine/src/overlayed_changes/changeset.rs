@@ -26,7 +26,7 @@ use sp_std::collections::btree_set::BTreeSet as Set;
 use sp_std::{
 	collections::{btree_map::BTreeMap, btree_set::BTreeSet},
 	hash::Hash,
-	vec, vec::Vec,
+	vec,
 };
 #[cfg(feature = "std")]
 use std::collections::HashSet as Set;
