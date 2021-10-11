@@ -570,7 +570,7 @@ impl<I: Index, VI: Index> $art<I, VI> {
 		for i in 0 .. $art_nb {
 			let ix = self.0[i + 1] as usize;
 			if at == ix {
-				if at == 0 && self.read_child_index(i) == I::UNDEFINED {
+				if self.read_child_index(i) == I::UNDEFINED {
 					break;
 				}
 				self.0[0] -= 1;
