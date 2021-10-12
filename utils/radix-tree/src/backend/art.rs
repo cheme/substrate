@@ -580,7 +580,7 @@ impl<I: Index, VI: Index> $art<I, VI> {
 				self.0.copy_within(i .. ie, i - I::SIZE);
 				I::UNDEFINED.write_index(&mut self.0[ie - I::SIZE .. ie]);
 				break;
-			} else if ix < at {
+			} else if ix > at {
 				break;
 			}
 		}
@@ -662,24 +662,45 @@ impl<I: Index, VI: Index> Art48<I, VI> {
 		if self.nb_children() == 48 {
 			return false;
 		}
-		self.0[at + 1] = self.nb_children() as u8 + 1;
-		let i = ART48_NB - self.nb_children();
-		let i = art48_fix_len(I::SIZE, VI::SIZE) - i * I::SIZE - VI::SIZE;
-		if I::read_index(&self.0[i .. i + I::SIZE]) == I::UNDEFINED {
+		if self.0[at + 1] == 0 {
+			let mut available = 48;
+			// Scan for empty slots: TODO can index with a bit that indicate free slot and empty.
+			// eg 0 is empty, 1 -> 49 are actual index, 50 - 98 are removed index (bitmask would be better)
+			// Then can remove the undefined resetting.
+			for at in 0..48 {
+				let i = ART48_NB - at;
+				let i = art48_fix_len(I::SIZE, VI::SIZE) - i * I::SIZE - VI::SIZE;
+				if I::read_index(&self.0[i .. i + I::SIZE]) == I::UNDEFINED {
+					available = at;
+					break;
+				}
+			}
+			debug_assert!(available != 48); // otherwise bug in children counting.
+			self.0[at + 1] = available as u8 + 1;
+			let i = ART48_NB - available;
+			let i = art48_fix_len(I::SIZE, VI::SIZE) - i * I::SIZE - VI::SIZE;
+			debug_assert!(I::read_index(&self.0[i .. i + I::SIZE]) == I::UNDEFINED); 
 			self.0[0] += 1;
+			index.write_index(&mut self.0[i .. i + I::SIZE]);
+		} else {
+			let i = ART48_NB - (self.0[at + 1] as usize - 1);
+			let i = art48_fix_len(I::SIZE, VI::SIZE) - i * I::SIZE - VI::SIZE;
+			debug_assert!(I::read_index(&self.0[i .. i + I::SIZE]) != I::UNDEFINED); 
+			index.write_index(&mut self.0[i .. i + I::SIZE]);
 		}
-		index.write_index(&mut self.0[i .. i + I::SIZE]);
 		true
 	}
 
 	fn remove_children_index(&mut self, at: usize) {
-		self.0[at] = 0;
-		let i = ART48_NB - at;
-		let i = art48_fix_len(I::SIZE, VI::SIZE) - i * I::SIZE - VI::SIZE;
-		if I::read_index(&self.0[i .. i + I::SIZE]) != I::UNDEFINED {
+		let i = self.0[at + 1];
+		if i != 0 {
+			self.0[at + 1] = 0;
+			let i = ART48_NB - (i as usize - 1);
+			let i = art48_fix_len(I::SIZE, VI::SIZE) - i * I::SIZE - VI::SIZE;
+			debug_assert!(I::read_index(&self.0[i .. i + I::SIZE]) != I::UNDEFINED); 
 			self.0[0] -= 1;
+			I::UNDEFINED.write_index(&mut self.0[i .. i + I::SIZE]);
 		}
-		I::UNDEFINED.write_index(&mut self.0[i .. i + I::SIZE]);
 	}
 }
 
@@ -1125,7 +1146,21 @@ mod tests {
 
 	#[test]
 	fn grow_and_resize() {
-		let data: Vec<_> = (1..257).map(|i| {
+		grow_and_resize_inner(256);
+		grow_and_resize_inner(200);
+		grow_and_resize_inner(49);
+		grow_and_resize_inner(48);
+		grow_and_resize_inner(30);
+		grow_and_resize_inner(17);
+		grow_and_resize_inner(16);
+		grow_and_resize_inner(10);
+		grow_and_resize_inner(5);
+		grow_and_resize_inner(4);
+		grow_and_resize_inner(3);
+		grow_and_resize_inner(1);
+	}
+	fn grow_and_resize_inner(nb: usize) {
+		let data: Vec<_> = (1..nb + 1).map(|i| {
 			let mut key = H256::default();
 			write_u32(i as u32, &mut key[0..4]);
 			let value = (i as u64).to_le_bytes().to_vec();
@@ -1134,7 +1169,7 @@ mod tests {
 
 		let mut art = ArtLocalBackend::<TestConf>::with_capacity(0).encoded;
 
-		let mut order: Vec<usize> = (0..256).collect();
+		let mut order: Vec<usize> = (0..nb).collect();
 		// TODO smallrng
 		let mut rng = rand::thread_rng();
 		use rand::prelude::SliceRandom;
@@ -1167,11 +1202,17 @@ mod tests {
 			}
 			assert_eq!(art.fetch_children_index(i as u8), Some(data[i].0.clone()));
 		}
-		assert_eq!(art.nb_children(), 256);
+		assert_eq!(art.nb_children(), nb);
+		for i in 0..nb {
+			assert_eq!(art.fetch_children_index(i as u8), Some(data[i].0.clone()));
+		}
 
 
 		order.shuffle(&mut rng);
-		for i in order.iter() {
+		for (s, i) in order.iter().enumerate() {
+			if s == nb {
+				break;
+			}
 			art.remove_children_index(*i as u8); // TODO implement resizing
 		}
 		assert_eq!(art.nb_children(), 0);
