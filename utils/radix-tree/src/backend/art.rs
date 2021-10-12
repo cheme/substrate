@@ -149,9 +149,9 @@ impl<N> ArtLocalBackend<N>
 		capacity: usize,
 	) -> ArtLocalBackend<N> {
 		let encoded = match capacity {
-			//c if c < 5 => ArtEncoded::Art4(Art4::empty(), PhantomData),
-			//c if c < 17 => ArtEncoded::Art16(Art16::empty()),
-			//c if c < 49 => ArtEncoded::Art48(Art48::empty()),
+			c if c < 5 => ArtEncoded::Art4(Art4::empty(), PhantomData),
+			c if c < 17 => ArtEncoded::Art16(Art16::empty()),
+			c if c < 49 => ArtEncoded::Art48(Art48::empty()),
 			c if c < 257 => ArtEncoded::Art256(Art256::empty()),
 			_ => panic!("Invalid capacity for node"),
 		};
@@ -173,8 +173,7 @@ impl<N> ArtLocalBackend<N>
 					|| self.pending_nb_children < 5,
 			ArtEncoded::Art48(..) => self.pending_nb_children > 48
 					|| self.pending_nb_children < 17,
-			ArtEncoded::Art256(..) => false,
-//			ArtEncoded::Art256(..) => self.pending_nb_children < 49,
+			ArtEncoded::Art256(..) => self.pending_nb_children < 49,
 		}.then(|| Self::with_capacity(self.pending_nb_children))
 	}
 }
