@@ -148,13 +148,7 @@ impl<N> ArtLocalBackend<N>
 	pub fn with_capacity(
 		capacity: usize,
 	) -> ArtLocalBackend<N> {
-		let encoded = match capacity {
-			c if c < 5 => ArtEncoded::Art4(Art4::empty(), PhantomData),
-			c if c < 17 => ArtEncoded::Art16(Art16::empty()),
-			c if c < 49 => ArtEncoded::Art48(Art48::empty()),
-			c if c < 257 => ArtEncoded::Art256(Art256::empty()),
-			_ => panic!("Invalid capacity for node"),
-		};
+		let encoded = ArtEncoded::with_capacity(capacity);
 		ArtLocalBackend {
 			index: None,
 			encoded,
@@ -166,7 +160,7 @@ impl<N> ArtLocalBackend<N>
 		}
 	}
 
-	fn need_resize(&self) -> Option<Self> {
+	fn need_resize(&self) -> Option<ArtEncoded<N>> {
 		match self.encoded {
 			ArtEncoded::Art4(..) => self.pending_nb_children > 4,
 			ArtEncoded::Art16(..) => self.pending_nb_children > 16
@@ -174,7 +168,7 @@ impl<N> ArtLocalBackend<N>
 			ArtEncoded::Art48(..) => self.pending_nb_children > 48
 					|| self.pending_nb_children < 17,
 			ArtEncoded::Art256(..) => self.pending_nb_children < 49,
-		}.then(|| Self::with_capacity(self.pending_nb_children))
+		}.then(|| ArtEncoded::<N>::with_capacity(self.pending_nb_children))
 	}
 }
 
@@ -207,6 +201,18 @@ impl<N> ArtEncoded<N>
 		ValueIndexFor<N>: Index,
 		N::Value: AsRef<[u8]>,
 {
+	pub fn with_capacity(
+		capacity: usize,
+	) -> ArtEncoded<N> {
+		match capacity {
+			c if c < 5 => ArtEncoded::Art4(Art4::empty(), PhantomData),
+			c if c < 17 => ArtEncoded::Art16(Art16::empty()),
+			c if c < 49 => ArtEncoded::Art48(Art48::empty()),
+			c if c < 257 => ArtEncoded::Art256(Art256::empty()),
+			_ => panic!("Invalid capacity for node"),
+		}
+	}
+
 	pub fn read(
 		encoded: Vec<u8>,
 	) -> (ArtEncoded<N>, PrefixKey<Vec<u8>, AlignmentFor<N>>) {
@@ -889,10 +895,10 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 						match node.children.get_child_mut(change_ix).map(|c| c.node_mut()) {
 							Some(Some(mut child)) => {
 								if let Some(ix) = Self::commit_change_fuse(&mut child, remove_node, remove_value, backend) {
-									new.encoded.set_children_index(change_ix, &ix);
+									new.set_children_index(change_ix, &ix);
 								} else {
 									if let Some(ix) = child.backend.index.clone() {
-										new.encoded.set_children_index(change_ix, &ix);
+										new.set_children_index(change_ix, &ix);
 									}
 								}
 							},
@@ -906,11 +912,11 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 						next_backend = node.backend.encoded.get_next_child_index(Some(backend_ix));
 						let backend_ix = KeyIndexFor::<N>::from_usize(backend_ix);
 						if let Some(ix) = node.backend.encoded.fetch_children_index(backend_ix) {
-							new.encoded.set_children_index(backend_ix, &ix);
+							new.set_children_index(backend_ix, &ix);
 						}
 					}
 				}
-				node.backend = new;
+				node.backend.encoded = new;
 			} else {
 				let mut from = None;
 				// iterate child change and add to existing backend
