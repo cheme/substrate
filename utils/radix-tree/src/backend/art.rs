@@ -56,8 +56,6 @@ impl Index for H256 {
 	}
 }
 
-
-
 impl Index for u64 {
 	const SIZE: usize = 8;
 	const UNDEFINED: Self = 0;
@@ -701,7 +699,7 @@ impl<I: Index, VI: Index> Art256<I, VI> {
 	}
 
 	fn get_next_child_index(&self, index: Option<usize>) -> Option<usize> {
-		for i in index.map(|i| i + 1).unwrap_or(0) .. art256_fix_len(I::SIZE, VI::SIZE) {
+		for i in index.map(|i| i + 1).unwrap_or(0) .. 256 {
 			let v = self.read_child_index(i);
 			if v != I::UNDEFINED {
 				return Some(i);
@@ -734,7 +732,7 @@ impl<I: Index, VI: Index> Art256<I, VI> {
 		let i = art256_fix_len(I::SIZE, VI::SIZE) - i * I::SIZE - VI::SIZE;
 		if I::read_index(&self.0[i .. i + I::SIZE]) != I::UNDEFINED {
 			if self.0[0] & 0b0000_0001 > 0 {
-				self.0[0] |= !0b0000_0001;
+				self.0[0] &= !0b0000_0001;
 			} else {
 				self.0[1] -= 1;
 			}
@@ -1066,4 +1064,116 @@ fn read_u128(enc: &[u8]) -> u128 {
 fn write_u128(ix: u128, dest: &mut [u8]) {
 	let buf = ix.to_le_bytes();
 	dest[..16].copy_from_slice(&buf[..]);
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use derivative::Derivative;
+
+	#[derive(Derivative)]
+	#[derivative(Clone)]
+	#[derivative(Debug)]
+	struct TestConf;
+	impl crate::TreeConf for TestConf {
+		type Radix = crate::radix::impls::Radix256Conf;
+		type Value = Vec<u8>;
+		type Children = crate::children::ART48_256<crate::ChildFor<Self>>;
+		type Backend = RadixIndexedDbBackend;
+		type NodeBackend = super::ArtLocalBackend<Self>;
+	}
+
+ 	#[derive(Derivative)]
+	#[derivative(Clone)]
+	#[derivative(Debug)]
+	struct RadixIndexedDbBackend;
+	impl Backend for RadixIndexedDbBackend {
+		type Index = H256;
+		type ValueIndex = H256;
+
+		fn get_root(&self) -> Option<(Vec<u8>, Self::Index)> {
+			unimplemented!()
+		}
+		fn get_node(&self, _index: Self::Index) -> Option<Vec<u8>> {
+			unimplemented!()
+		}
+		fn get_value(&self, _index: Self::ValueIndex) -> Option<Vec<u8>> {
+			unimplemented!()
+		}
+		fn update_node(&self, _index: Self::Index, _node: Vec<u8>) -> Option<Self::Index> {
+			unimplemented!()
+		}
+		fn update_value(&self, _index: Self::ValueIndex, _node: Vec<u8>) -> Option<Self::ValueIndex> {
+			unimplemented!()
+		}
+		fn remove_node(&self, _index: Self::Index) {
+			unimplemented!()
+		}
+		fn remove_value(&self, _index: Self::ValueIndex) {
+			unimplemented!()
+		}
+		fn set_new_node(&self, _node: Vec<u8>) -> Self::Index {
+			unimplemented!()
+		}
+		fn set_new_value(&self, _node: Vec<u8>) -> Self::ValueIndex {
+			unimplemented!()
+		}
+		fn set_root(&self, _root: Self::Index) {
+			unimplemented!()
+		}
+	}
+
+	#[test]
+	fn grow_and_resize() {
+		let data: Vec<_> = (1..257).map(|i| {
+			let mut key = H256::default();
+			write_u32(i as u32, &mut key[0..4]);
+			let value = (i as u64).to_le_bytes().to_vec();
+			(key, value)
+		}).collect();
+
+		let mut art = ArtLocalBackend::<TestConf>::with_capacity(0).encoded;
+
+		let mut order: Vec<usize> = (0..256).collect();
+		// TODO smallrng
+		let mut rng = rand::thread_rng();
+		use rand::prelude::SliceRandom;
+		order.shuffle(&mut rng);
+
+		for (s, i) in order.iter().enumerate() {
+			assert_eq!(art.nb_children(), s);
+			let i = *i;
+			let prev = if i == 0 {
+				None
+			} else {
+				Some(i - 1)
+			};
+			assert!(art.get_next_child_index(prev) != Some(i));
+			assert!(art.fetch_children_index(i as u8).is_none());
+			if !art.set_children_index(i as u8, &data[i].0) {
+				let mut art_new = ArtLocalBackend::<TestConf>::with_capacity(s + 1).encoded;
+				let mut next_change = art.get_next_child_index(None);
+				loop {
+					if let Some(ix) = next_change.as_ref() {
+						let backend_ix = *ix as u8; // TODO why this cast??
+						art_new.set_children_index(backend_ix, &art.fetch_children_index(backend_ix).unwrap());
+					} else {
+						break;
+					}
+					next_change = art.get_next_child_index(next_change);
+				}
+				art = art_new;
+				assert!(art.set_children_index(i as u8, &data[i].0));
+			}
+			assert_eq!(art.fetch_children_index(i as u8), Some(data[i].0.clone()));
+		}
+		assert_eq!(art.nb_children(), 256);
+
+
+		order.shuffle(&mut rng);
+		for i in order.iter() {
+			art.remove_children_index(*i as u8); // TODO implement resizing
+		}
+		assert_eq!(art.nb_children(), 0);
+	}
 }
