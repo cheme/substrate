@@ -43,6 +43,9 @@ pub use scope_limited::{
 
 mod extensions;
 mod scope_limited;
+mod logger;
+
+pub use logger::*;
 
 /// Externalities error.
 #[derive(Debug)]
@@ -458,106 +461,6 @@ pub struct TrieDelta {
 	/// TODO implement TODO apply before all operation and
 	/// have added updated from content in prefix.
 	pub deleted_prefix: Vec<Vec<u8>>,
-}
-
-/// Log of a given worker call.
-#[derive(codec::Encode, codec::Decode, Default, Eq, PartialEq)]
-#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
-pub struct AccessLog {
-	/// Worker did iterate over the full state.
-	/// (in practice it did not iterate but uses
-	/// merkle hash over the full state when calculating
-	/// a storage root).
-	pub read_all: bool,
-	/// Log of access for main state.
-	pub top_logger: StateLog,
-	/// Log of access for individual child state.
-	/// Note that the child root isn't logged in top_logger
-	/// because it is always written with its right state
-	/// at the end (actually triggers read_all that supersed
-	/// the other fields).
-	pub children_logger: Vec<(Vec<u8>, StateLog)>,
-}
-
-impl AccessLog {
-	/// Return true if a read related information was logged.
-	pub fn has_read(&self) -> bool {
-		if self.read_all {
-			return true
-		}
-		if self.top_logger.has_read() {
-			return true
-		}
-		for (_key, logger) in self.children_logger.iter() {
-			if logger.has_read() {
-				return true
-			}
-		}
-		false
-	}
-
-	/// Return true if a write related information was logged.
-	pub fn has_write(&self) -> bool {
-		if self.top_logger.has_write() {
-			return true
-		}
-		for (_key, logger) in self.children_logger.iter() {
-			if logger.has_write() {
-				return true
-			}
-		}
-		false
-	}
-
-	/// Return true if a append related information was logged.
-	pub fn has_append(&self) -> bool {
-		if self.top_logger.has_append() {
-			return true
-		}
-		for (_key, logger) in self.children_logger.iter() {
-			if logger.has_append() {
-				return true
-			}
-		}
-		false
-	}
-}
-
-/// Log of a given trie state.
-#[derive(codec::Encode, codec::Decode, Default, Eq, PartialEq)]
-#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
-pub struct StateLog {
-	/// Read only access to a key.
-	pub read_keys: Vec<Vec<u8>>,
-	/// Key write with no read access.
-	pub write_keys: Vec<Vec<u8>>,
-	/// Append operations are append where
-	/// order of insertion do not matter (or
-	/// stick to 'join' order),
-	/// or even writes where conflicts child
-	/// latest join child worker value prevails.
-	pub append_keys: Vec<Vec<u8>>,
-	/// Write access to a whole prefix (eg key removal
-	/// by prefix).
-	pub write_prefix: Vec<Vec<u8>>,
-	/// Worker did iterate over a given interval.
-	/// Interval is a pair of inclusive start and end key.
-	pub read_intervals: Vec<(Vec<u8>, Option<Vec<u8>>)>,
-}
-
-impl StateLog {
-	/// Return true if a read related information was logged.
-	pub fn has_read(&self) -> bool {
-		!self.read_keys.is_empty() || !self.read_intervals.is_empty()
-	}
-	/// Return true if a write related information was logged.
-	pub fn has_write(&self) -> bool {
-		!self.write_keys.is_empty() || !self.write_prefix.is_empty()
-	}
-	/// Return true if a append related information was logged.
-	pub fn has_append(&self) -> bool {
-		!self.append_keys.is_empty()
-	}
 }
 
 /// A unique identifier type for a child worker.

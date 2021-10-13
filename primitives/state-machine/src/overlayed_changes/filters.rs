@@ -90,9 +90,6 @@ impl Default for Filters {
 			},
 			allow_read_active: Default::default(),
 			allow_write_active: Default::default(),
-			/*allow_read_child_active: Default::default(),
-			allow_write_child_active: Default::default(),
-			allow_append_child_active: Default::default(),*/
 			filters_allow: Default::default(),
 			filters_forbid: Default::default(),
 			filters_interval_allow_read: Default::default(),
