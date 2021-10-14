@@ -20,6 +20,7 @@
 use sp_std::{
 	vec::Vec,
 	collections::btree_set::BTreeSet,
+	collections::btree_map::BTreeMap,
 };
 
 /// Log of a given worker call.
@@ -102,9 +103,181 @@ impl StateLog {
 /// Accumulator for logger states.
 #[derive(Debug, Clone, Default)]
 struct AccumLogger {
+	read_all: bool,
+	top_logger: AccumStateLogger,
+	children_logger: BTreeMap<Vec<u8>, AccumStateLogger>,
+}
+
+impl From<AccessLog> for AccumLogger {
+	fn from(log: AccessLog) -> Self {
+		AccumLogger {
+			read_all: log.read_all,
+			top_logger: log.top_logger.into(),
+			children_logger: log.children_logger.into_iter()
+				.map(|(storage_key, logger)| (storage_key, logger.into()))
+				.collect(),
+		}
+	}
+}
+
+impl AccumLogger {
+	/// TODO
+	pub fn accumulate_logger(&mut self, logger: AccessLog) {
+		self.read_all |= logger.read_all;
+		self.top_logger.accumulate_logger(logger.top_logger);
+		for (storage_key, logger) in logger.children_logger {
+			if let Some(child) = self.children_logger.get_mut(&storage_key) {
+				child.accumulate_logger(logger);
+			} else {
+				self.children_logger.insert(storage_key, logger.into());
+			}
+		}
+	}
+	/// TODO
+	pub fn accumulate(&mut self, logger: Self) {
+		self.read_all |= logger.read_all;
+		self.top_logger.accumulate(logger.top_logger);
+		for (storage_key, logger) in logger.children_logger {
+			if let Some(child) = self.children_logger.get_mut(&storage_key) {
+				child.accumulate(logger);
+			} else {
+				self.children_logger.insert(storage_key, logger);
+			}
+		}
+	}
+	/// TODO
+	pub fn diff(&self, logger: &AccessLog) -> Conflicts {
+		let mut conflicts = self.top_logger.diff(&logger.top_logger, None, self.read_all);
+		for (storage_key, logger) in logger.children_logger.iter() {
+			if let Some(child) = self.children_logger.get(storage_key) {
+				conflicts.accumulate(child.diff(logger, Some(storage_key), self.read_all));
+			} // else child access cannot conflict
+		}
+		conflicts
+	}
+}
+
+/// Accumulator for logger states.
+#[derive(Debug, Clone, Default)]
+struct AccumStateLogger {
 	write_keys: BTreeSet<Vec<u8>>,
 	write_prefixes: BTreeSet<Vec<u8>>,
-	read_all: bool,
 	read_keys: BTreeSet<Vec<u8>>,
 	read_intervals: BTreeSet<(Vec<u8>, Option<Vec<u8>>)>,
+}
+
+impl From<StateLog> for AccumStateLogger {
+	fn from(log: StateLog) -> Self {
+		AccumStateLogger {
+			read_keys: log.read_keys.into_iter().collect(),
+			write_keys: log.write_keys.into_iter().collect(),
+			write_prefixes: log.write_prefix.into_iter().collect(),
+			read_intervals: log.read_intervals.into_iter().collect(),
+		}
+	}
+}
+
+impl AccumStateLogger {
+	/// TODO
+	pub fn accumulate_logger(&mut self, logger: StateLog) {
+		self.read_keys.extend(logger.read_keys);
+		self.write_keys.extend(logger.write_keys);
+		self.write_prefixes.extend(logger.write_prefix);
+		self.read_intervals.extend(logger.read_intervals);
+	}
+	/// TODO
+	pub fn accumulate(&mut self, mut logger: Self) {
+		self.read_keys.append(&mut logger.read_keys);
+		self.write_keys.append(&mut logger.write_keys);
+		self.write_prefixes.append(&mut logger.write_prefixes);
+		self.read_intervals.append(&mut logger.read_intervals);
+	}
+	/// TODO self is parent
+	pub fn diff(&self, logger: &StateLog, child_trie: Option<&Vec<u8>>, read_all: bool) -> Conflicts {
+		let mut conflicts = Vec::new();
+		for key in logger.read_keys.iter() {
+			if self.write_keys.contains(key) {
+				conflicts.push(Conflict {
+					child_trie: child_trie.cloned(),
+					parent: ConflictOrigin::WriteKey(key.clone()),
+					child: ConflictOrigin::ReadKey(key.clone()),
+				});
+			}
+			unimplemented!("checking write prefixes needs radix-tree");
+		}
+		for (start, end) in logger.read_intervals.iter() {
+			unimplemented!("checking write key in intervals");
+			unimplemented!("checking prefix write in intervals");
+		}
+		if read_all {
+			for key in logger.write_keys.iter() {
+				conflicts.push(Conflict {
+					child_trie: child_trie.cloned(),
+					parent: ConflictOrigin::ReadAll,
+					child: ConflictOrigin::WriteKey(key.clone()),
+				});
+			}
+			for prefix in logger.write_prefix.iter() {
+				conflicts.push(Conflict {
+					child_trie: child_trie.cloned(),
+					parent: ConflictOrigin::ReadAll,
+					child: ConflictOrigin::WritePrefix(prefix.clone()),
+				});
+			}
+		} else {
+			for key in logger.write_keys.iter() {
+				if self.read_keys.contains(key) {
+					conflicts.push(Conflict {
+						child_trie: child_trie.cloned(),
+						parent: ConflictOrigin::ReadKey(key.clone()),
+						child: ConflictOrigin::WriteKey(key.clone()),
+					});
+				}
+				unimplemented!("TODO check read intervals");
+			}
+			for prefix in logger.write_prefix.iter() {
+				unimplemented!("checking read key bellow prefix");
+				unimplemented!("checking prefix write in intervals");
+			}
+		}
+		Conflicts(conflicts)
+	}
+}
+
+/// TODO
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
+pub struct Conflicts(Vec<Conflict>);
+
+impl Conflicts {
+	/// TODO
+	pub fn accumulate(&mut self, other: Self) {
+		self.0.extend(other.0);
+	}
+}
+
+/// TODO
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
+pub struct Conflict {
+	/// TODO
+	pub child_trie: Option<Vec<u8>>,
+	/// TODO
+	pub parent: ConflictOrigin,
+	// for sequential: child is the one called after:
+	// when joining it checks against a parent accum build
+	// previously joined children.
+	/// TODO
+	pub child: ConflictOrigin,
+}
+
+/// TODO
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
+pub enum ConflictOrigin {
+	ReadAll,
+	ReadKey(Vec<u8>),
+	ReadInterval((Vec<u8>, Option<Vec<u8>>)),
+	WriteKey(Vec<u8>),
+	WritePrefix(Vec<u8>),
 }
