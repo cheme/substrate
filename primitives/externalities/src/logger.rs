@@ -177,6 +177,21 @@ impl From<StateLog> for AccumStateLogger {
 	}
 }
 
+/// Get exclusive end interval corresponding to a prefix.
+/// TODO duplicated code with overlayed changes.
+pub fn end_prefix(prefix: &[u8]) -> Option<Vec<u8>> {
+	let mut end_range = prefix.to_vec();
+	while let Some(0xff) = end_range.last() {
+		end_range.pop();
+	}
+	if let Some(byte) = end_range.last_mut() {
+		*byte += 1;
+		Some(end_range)
+	} else {
+		None
+	}
+}
+
 impl AccumStateLogger {
 	/// TODO
 	pub fn accumulate_logger(&mut self, logger: StateLog) {
@@ -193,6 +208,7 @@ impl AccumStateLogger {
 		self.read_intervals.append(&mut logger.read_intervals);
 	}
 	/// TODO self is parent
+	/// TODO should optimize by runing all iterations concurrently.
 	pub fn diff(&self, logger: &StateLog, child_trie: Option<&Vec<u8>>, read_all: bool) -> Conflicts {
 		let mut conflicts = Vec::new();
 		for key in logger.read_keys.iter() {
@@ -203,11 +219,65 @@ impl AccumStateLogger {
 					child: ConflictOrigin::ReadKey(key.clone()),
 				});
 			}
-			unimplemented!("checking write prefixes needs radix-tree");
 		}
+		// checking against wite prefix is done in an inefficent reverse way
+		let log_read: BTreeSet<_> = logger.read_keys.iter().cloned().collect();
+		for prefix in self.write_prefixes.iter() {
+			let (end, start) = (end_prefix(prefix.as_slice()), prefix);
+			let mut iter = log_read.range::<Vec<u8>, _>(start..);
+			while let Some(next) = iter.next() {
+				if end.as_ref().map(|end| next < end).unwrap_or(true) {
+					conflicts.push(Conflict {
+						child_trie: child_trie.cloned(),
+						parent: ConflictOrigin::WritePrefix(prefix.clone()),
+						child: ConflictOrigin::ReadKey(next.clone()),
+					})
+				} else {
+					break
+				}
+			}
+		}
+		// inneficient range check.
+		let mut iter_prefix = self.write_prefixes.iter().peekable();
 		for (start, end) in logger.read_intervals.iter() {
-			unimplemented!("checking write key in intervals");
-			unimplemented!("checking prefix write in intervals");
+			let mut iter = self.write_keys.range::<Vec<u8>, _>(start..);
+			while let Some(next) = iter.next() {
+				if end.as_ref().map(|end| next <= end).unwrap_or(true) {
+					conflicts.push(Conflict {
+						child_trie: child_trie.cloned(),
+						parent: ConflictOrigin::WriteKey(next.clone()),
+						child: ConflictOrigin::ReadInterval((start.clone(), end.clone())),
+					})
+				} else {
+					break
+				}
+			}
+			// assume iter range to never overlap (should not as long
+			// as logger do not merge intervals).
+			// TODO this part need test
+			while let Some(prefix) = iter_prefix.peek() {
+				let (write_end, write_start) = (end_prefix(prefix.as_slice()), prefix);
+				if write_end.as_ref().map(|write_end| start >= write_end).unwrap_or(false) {
+					let _ = iter_prefix.next();
+					continue;
+				}
+				// read end > start
+				if end.as_ref().map(|end| write_start <= &end).unwrap_or(true) {
+					conflicts.push(Conflict {
+						child_trie: child_trie.cloned(),
+						parent: ConflictOrigin::WritePrefix(prefix.to_vec()),
+						child: ConflictOrigin::ReadInterval((start.clone(), end.clone())),
+					});
+					if end.is_none() || (write_end.is_some() && &write_end <= end) {
+						// can have other prefix in interval 
+						let _ = iter_prefix.next();
+						continue;
+					}
+					break;
+				} else {
+					break;
+				}
+			}
 		}
 		if read_all {
 			for key in logger.write_keys.iter() {
@@ -233,11 +303,67 @@ impl AccumStateLogger {
 						child: ConflictOrigin::WriteKey(key.clone()),
 					});
 				}
-				unimplemented!("TODO check read intervals");
 			}
+			// checking against read interval is done in a reverse way
+			// to avoid using special interval storage, but it is
+			// inefficient
+			for (start, end) in self.read_intervals.iter() {
+				let log_write: BTreeSet<_> = logger.write_keys.iter().cloned().collect();
+				let mut iter = log_write.range::<Vec<u8>, _>(start..);
+				while let Some(next) = iter.next() {
+					if end.as_ref().map(|end| next <= end).unwrap_or(true) {
+						conflicts.push(Conflict {
+							child_trie: child_trie.cloned(),
+							parent: ConflictOrigin::ReadInterval((start.clone(), end.clone())),
+							child: ConflictOrigin::WriteKey(next.clone()),
+						})
+					} else {
+						break
+					}
+				}
+			}
+
+			// inneficient range check.
+			let mut iter_range = self.read_intervals.iter().peekable();
 			for prefix in logger.write_prefix.iter() {
-				unimplemented!("checking read key bellow prefix");
-				unimplemented!("checking prefix write in intervals");
+				let (end, start) = (end_prefix(prefix.as_slice()), prefix);
+				let mut iter = self.read_keys.range::<Vec<u8>, _>(start..);
+				while let Some(next) = iter.next() {
+					if end.as_ref().map(|end| next < end).unwrap_or(true) {
+						conflicts.push(Conflict {
+							child_trie: child_trie.cloned(),
+							parent: ConflictOrigin::ReadKey(next.clone()),
+							child: ConflictOrigin::WritePrefix(prefix.clone()),
+						})
+					} else {
+						break
+					}
+				}
+				// assume iter range to never overlap (should not as long
+				// as logger do not merge intervals).
+				// TODO this part need test
+				while let Some((read_start, read_end)) = iter_range.peek() {
+					if read_end.as_ref().map(|read_end| start > read_end).unwrap_or(false) {
+						let _ = iter_range.next();
+						continue;
+					}
+					// read end > start
+					if end.as_ref().map(|end| read_start < end).unwrap_or(true) {
+						conflicts.push(Conflict {
+							child_trie: child_trie.cloned(),
+							parent: ConflictOrigin::ReadInterval((read_start.clone(), read_end.clone())),
+							child: ConflictOrigin::WritePrefix(prefix.clone()),
+						});
+						if end.is_none() || (read_end.is_some() && read_end < &end) {
+							// can have other interval in prefix
+							let _ = iter_range.next();
+							continue;
+						}
+						break;
+					} else {
+						break;
+					}
+				}
 			}
 		}
 		Conflicts(conflicts)
