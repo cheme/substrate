@@ -28,8 +28,10 @@ use sp_std::{boxed::Box, vec::Vec};
 use sp_trie::{
 	empty_child_trie_root, read_child_trie_value, read_trie_value,
 	trie_types::{TrieDB, TrieError},
-	DBValue, KeySpacedDB, PrefixedMemoryDB, Trie, TrieDBIterator, TrieDBKeyIterator,
+	DBValue, KeySpacedDB, PrefixedMemoryDB, TrieDBIterator, TrieDBKeyIterator,
 };
+#[cfg(feature = "std")]
+use sp_trie::trie_types::SuspendedTrieDBKeyIterator;
 #[cfg(feature = "std")]
 use std::collections::HashMap;
 #[cfg(feature = "std")]
@@ -76,7 +78,15 @@ pub struct TrieBackendEssence<S: TrieBackendStorage<H>, H: Hasher> {
 	empty: H::Out,
 	#[cfg(feature = "std")]
 	pub(crate) cache: Arc<RwLock<Cache>>,
+	#[cfg(feature = "std")]
+	last_iter: Arc<RwLock<Option<(SuspendedTrieDBKeyIterator<H>, Option<ChildInfo>, Vec<u8>)>>>,
 }
+
+// TODO these unsafe are related to internal Rc
+// of SuspendedTrieDBKeyIterator, it is rather harmless
+// since we use an Arc and RwLock over it.
+unsafe impl<S: TrieBackendStorage<H>, H: Hasher> Sync for TrieBackendEssence<S, H> { }
+unsafe impl<S: TrieBackendStorage<H>, H: Hasher> Send for TrieBackendEssence<S, H> { }
 
 impl<S: TrieBackendStorage<H>, H: Hasher> TrieBackendEssence<S, H>
 where
@@ -90,6 +100,8 @@ where
 			empty: H::hash(&[0u8]),
 			#[cfg(feature = "std")]
 			cache: Arc::new(RwLock::new(Cache::new())),
+			#[cfg(feature = "std")]
+			last_iter: Arc::new(RwLock::new(None)),
 		}
 	}
 
@@ -192,7 +204,27 @@ where
 
 		let trie =
 			TrieDB::<H>::new(dyn_eph, root).map_err(|e| format!("TrieDB creation error: {}", e))?;
-		let mut iter = trie.key_iter().map_err(|e| format!("TrieDB iteration error: {}", e))?;
+
+		#[cfg(feature = "std")]
+		{
+			// TODO can use upgradable read instead
+			let mut last_iter = self.last_iter.write();
+			if let Some(last_iter2) = last_iter.take() {
+				if last_iter2.1.as_ref() == child_info && last_iter2.2.as_slice() == key {
+					let mut iter = last_iter2.0.unsafe_restore(&trie);
+					if let Some(next_element) = iter.next() {
+						let next_key =
+							next_element.map_err(|e| format!("TrieDB iterator next error: {}", e))?;
+						*last_iter = Some((iter.suspend(), last_iter2.1, next_key.clone()));
+						return Ok(Some(next_key));
+					} else {
+						return Ok(None);
+					};
+				}
+			}
+		}
+
+		let mut iter = TrieDBKeyIterator::new(&trie).map_err(|e| format!("TrieDB iteration error: {}", e))?;
 
 		// The key just after the one given in input, basically `key++0`.
 		// Note: We are sure this is the next key if:
@@ -202,6 +234,7 @@ where
 		potential_next_key.extend_from_slice(key);
 		potential_next_key.push(0);
 
+		use sp_trie::TrieIterator;
 		iter.seek(&potential_next_key)
 			.map_err(|e| format!("TrieDB iterator seek error: {}", e))?;
 
@@ -210,6 +243,11 @@ where
 		let next_key = if let Some(next_element) = next_element {
 			let next_key =
 				next_element.map_err(|e| format!("TrieDB iterator next error: {}", e))?;
+			#[cfg(feature = "std")]
+			{
+				let mut last_iter = self.last_iter.write();
+				*last_iter = Some((iter.suspend(), child_info.cloned(), next_key.clone()));
+			}
 			Some(next_key)
 		} else {
 			None

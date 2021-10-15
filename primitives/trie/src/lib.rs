@@ -48,7 +48,7 @@ pub use trie_db::{
 	nibble_ops,
 	node::{NodePlan, ValuePlan},
 	CError, DBValue, Query, Recorder, Trie, TrieConfiguration, TrieDBIterator, TrieDBKeyIterator,
-	TrieLayout, TrieMut,
+	TrieLayout, TrieMut, TrieIterator,
 };
 /// The Substrate format implementation of `TrieStream`.
 pub use trie_stream::TrieStream;
@@ -183,6 +183,8 @@ pub mod trie_types {
 	/// Persistent trie database read-access interface for the a given hasher.
 	/// Read only V1 and V0 are compatible, thus we always use V1.
 	pub type TrieDB<'a, H> = super::TrieDB<'a, LayoutV1<H>>;
+	/// Suspended iterator trie state.
+	pub type SuspendedTrieDBKeyIterator<H> = trie_db::triedb::SuspendedTrieDBKeyIterator<LayoutV1<H>>;
 	/// Persistent trie database write-access interface for the a given hasher.
 	pub type TrieDBMutV0<'a, H> = super::TrieDBMut<'a, LayoutV0<H>>;
 	/// Persistent trie database write-access interface for the a given hasher.
