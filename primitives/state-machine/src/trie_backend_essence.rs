@@ -25,13 +25,13 @@ use hash_db::{self, AsHashDB, HashDB, HashDBRef, Hasher, Prefix};
 use parking_lot::RwLock;
 use sp_core::storage::ChildInfo;
 use sp_std::{boxed::Box, vec::Vec};
+#[cfg(feature = "std")]
+use sp_trie::trie_types::SuspendedTrieDBKeyIterator;
 use sp_trie::{
 	empty_child_trie_root, read_child_trie_value, read_trie_value,
 	trie_types::{TrieDB, TrieError},
 	DBValue, KeySpacedDB, PrefixedMemoryDB, TrieDBIterator, TrieDBKeyIterator,
 };
-#[cfg(feature = "std")]
-use sp_trie::trie_types::SuspendedTrieDBKeyIterator;
 #[cfg(feature = "std")]
 use std::collections::HashMap;
 #[cfg(feature = "std")]
@@ -85,8 +85,8 @@ pub struct TrieBackendEssence<S: TrieBackendStorage<H>, H: Hasher> {
 // TODO these unsafe are related to internal Rc
 // of SuspendedTrieDBKeyIterator, it is rather harmless
 // since we use an Arc and RwLock over it.
-unsafe impl<S: TrieBackendStorage<H>, H: Hasher> Sync for TrieBackendEssence<S, H> { }
-unsafe impl<S: TrieBackendStorage<H>, H: Hasher> Send for TrieBackendEssence<S, H> { }
+unsafe impl<S: TrieBackendStorage<H>, H: Hasher> Sync for TrieBackendEssence<S, H> {}
+unsafe impl<S: TrieBackendStorage<H>, H: Hasher> Send for TrieBackendEssence<S, H> {}
 
 impl<S: TrieBackendStorage<H>, H: Hasher> TrieBackendEssence<S, H>
 where
@@ -213,18 +213,19 @@ where
 				if last_iter2.1.as_ref() == child_info && last_iter2.2.as_slice() == key {
 					let mut iter = last_iter2.0.unsafe_restore(&trie);
 					if let Some(next_element) = iter.next() {
-						let next_key =
-							next_element.map_err(|e| format!("TrieDB iterator next error: {}", e))?;
+						let next_key = next_element
+							.map_err(|e| format!("TrieDB iterator next error: {}", e))?;
 						*last_iter = Some((iter.suspend(), last_iter2.1, next_key.clone()));
-						return Ok(Some(next_key));
+						return Ok(Some(next_key))
 					} else {
-						return Ok(None);
+						return Ok(None)
 					};
 				}
 			}
 		}
 
-		let mut iter = TrieDBKeyIterator::new(&trie).map_err(|e| format!("TrieDB iteration error: {}", e))?;
+		let mut iter =
+			TrieDBKeyIterator::new(&trie).map_err(|e| format!("TrieDB iteration error: {}", e))?;
 
 		// The key just after the one given in input, basically `key++0`.
 		// Note: We are sure this is the next key if:
