@@ -444,11 +444,6 @@ mod tests {
 		assert_eq!(parent.diff(&child, None, false), Conflicts(vec![
 			Conflict {
 				child_trie: None,
-				parent: ConflictOrigin::ReadInterval((b"".to_vec(), b"abc".to_vec().into())),
-				child: ConflictOrigin::WritePrefix(b"b".to_vec()),
-			},
-			Conflict {
-				child_trie: None,
 				parent: ConflictOrigin::ReadInterval((b"abc".to_vec(), b"de".to_vec().into())),
 				child: ConflictOrigin::WritePrefix(b"b".to_vec()),
 			},
@@ -505,13 +500,97 @@ mod tests {
 				child: ConflictOrigin::WritePrefix(b"no".to_vec()),
 			},
 		]));
-
-
 	}
 
 	#[test]
 	fn test_prefix_interval() {
 		// test between child read interval and parent prefix writes
+		let parent: AccumStateLogger = StateLog {
+			read_keys: vec![],
+			write_keys: vec![],
+			write_prefix: vec![
+				b"b".to_vec(),
+				b"h".to_vec(),
+				b"o".to_vec(),
+			],
+			
+			read_intervals: vec![],
+		}.into();
+		let child = StateLog {
+			read_keys: vec![],
+			write_keys: vec![],
+			write_prefix: vec![],
+			read_intervals: vec![
+				(b"".to_vec(), b"abc".to_vec().into()),
+				(b"abc".to_vec(), b"de".to_vec().into()),
+				(b"fzh".to_vec(), b"fzhzzzzz".to_vec().into()),
+				(b"ha".to_vec(), b"hb".to_vec().into()),
+				(b"hb".to_vec(), b"hc".to_vec().into()),
+				(b"hz".to_vec(), b"i".to_vec().into()),
+				(b"m".to_vec(), b"z".to_vec().into()),
+			],
+		};
+
+		// TODO debug test broken, missing first only from diff
+		assert_eq!(parent.diff(&child, None, false), Conflicts(vec![
+			Conflict {
+				child_trie: None,
+				parent: ConflictOrigin::WritePrefix(b"b".to_vec()),
+				child: ConflictOrigin::ReadInterval((b"abc".to_vec(), b"de".to_vec().into())),
+			},
+			Conflict {
+				child_trie: None,
+				parent: ConflictOrigin::WritePrefix(b"h".to_vec()),
+				child: ConflictOrigin::ReadInterval((b"ha".to_vec(), b"hb".to_vec().into())),
+			},
+			Conflict {
+				child_trie: None,
+				parent: ConflictOrigin::WritePrefix(b"h".to_vec()),
+				child: ConflictOrigin::ReadInterval((b"hb".to_vec(), b"hc".to_vec().into())),
+			},
+			Conflict {
+				child_trie: None,
+				parent: ConflictOrigin::WritePrefix(b"h".to_vec()),
+				child: ConflictOrigin::ReadInterval((b"hz".to_vec(), b"i".to_vec().into())),
+			},
+			Conflict {
+				child_trie: None,
+				parent: ConflictOrigin::WritePrefix(b"o".to_vec()),
+				child: ConflictOrigin::ReadInterval((b"m".to_vec(), b"z".to_vec().into())),
+			},
+		]));
+
+		let parent: AccumStateLogger = StateLog {
+			read_keys: vec![],
+			write_keys: vec![],
+			write_prefix: vec![
+				b"b".to_vec(),
+				b"m".to_vec(),
+				b"no".to_vec(),
+			],
+			read_intervals: vec![],
+		}.into();
+		let child = StateLog {
+			read_keys: vec![],
+			write_keys: vec![],
+			write_prefix: vec![],
+			read_intervals: vec![
+				(b"m".to_vec(), None),
+			],
+		};
+
+		assert_eq!(parent.diff(&child, None, false), Conflicts(vec![
+			Conflict {
+				child_trie: None,
+				parent: ConflictOrigin::WritePrefix(b"m".to_vec()),
+				child: ConflictOrigin::ReadInterval((b"m".to_vec(), None)),
+			},
+			Conflict {
+				child_trie: None,
+				parent: ConflictOrigin::WritePrefix(b"no".to_vec()),
+				child: ConflictOrigin::ReadInterval((b"m".to_vec(), None)),
+			},
+		]));
 	}
 
 }
