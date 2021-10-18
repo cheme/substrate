@@ -24,7 +24,7 @@ use sp_std::{
 };
 
 /// Log of a given worker call.
-#[derive(codec::Encode, codec::Decode, Default, Eq, PartialEq)]
+#[derive(codec::Encode, codec::Decode, Default, Eq, PartialEq, Debug, Clone)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct AccessLog {
 	/// Worker did iterate over the full state.
@@ -74,7 +74,7 @@ impl AccessLog {
 }
 
 /// Log of a given trie state.
-#[derive(codec::Encode, codec::Decode, Default, Eq, PartialEq)]
+#[derive(codec::Encode, codec::Decode, Default, Eq, PartialEq, Debug, Clone)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct StateLog {
 	/// Read only access to a key.
@@ -102,6 +102,7 @@ impl StateLog {
 
 /// Accumulator for logger states.
 #[derive(Debug, Clone, Default)]
+#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 struct AccumLogger {
 	read_all: bool,
 	top_logger: AccumStateLogger,
@@ -159,6 +160,7 @@ impl AccumLogger {
 
 /// Accumulator for logger states.
 #[derive(Debug, Clone, Default)]
+#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 struct AccumStateLogger {
 	write_keys: BTreeSet<Vec<u8>>,
 	write_prefixes: BTreeSet<Vec<u8>>,
@@ -408,6 +410,81 @@ pub enum ConflictOrigin {
 	WritePrefix(Vec<u8>),
 }
 
+/// Try to group extrinsic that can run in parallel.
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
+pub struct BuildGroups {
+	/// all running processes, by order of execution.
+	state_logs: Vec<AccessLog>,
+	/// Number of allows conflicts, should be 0, but can
+	/// be good to allow a few and analyze if code could change.
+	conflict_threshold: usize,
+	/// Keep trace of multiple best solution.
+	/// This avoid n2 processing, but also makes solution suboptimal.
+	nb_solution: usize,
+	/// Pending best groups (solutions).
+	solutions: Vec<BuildSolution>,
+}
+
+/// We always tries to minimizie parent Vec size and maximize inner vec.
+/// content is index of state log.
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
+struct BuildSolution(Vec<BuildGroup>);
+
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
+struct BuildGroup {
+	content: Vec<usize>,
+	conflicts: Vec<Conflicts>,
+	nb_conflicts: usize,
+	#[cfg_attr(feature = "std", serde(skip_serializing))]
+	accum: AccumLogger,
+}
+
+impl BuildGroups {
+	/// TODO
+	pub fn new(conflict_threshold: usize, nb_solution: usize) -> Self {
+		BuildGroups {
+			state_logs: Default::default(),
+			conflict_threshold,
+			nb_solution,
+			// TODO multisolution not use here, if keeping
+			// code order, then only threshold variation or
+			// spurios uninsert when possible can do.
+			solutions: vec![BuildSolution(vec![])],
+		}
+	}
+
+	/// Add following code to try to paralellize.
+	pub fn add_next(&mut self, log: AccessLog) {
+		let index = self.state_logs.len();
+		self.state_logs.push(log);
+		let log = self.state_logs.last().expect("pushed above");
+		for solution in self.solutions.iter_mut() {
+			let mut added = false;
+			if let Some(group) = solution.0.last_mut() {
+				let new_conflicts = group.accum.diff(log);
+				if new_conflicts.0.len() + group.nb_conflicts < self.conflict_threshold {
+					group.content.push(index);
+					group.nb_conflicts += new_conflicts.0.len();
+					group.conflicts.push(new_conflicts);
+					group.accum.accumulate_logger(log.clone());
+					added = true;
+				}
+			}
+			if !added {
+				solution.0.push(BuildGroup {
+					content: vec![index],
+					conflicts: vec![Conflicts(vec![])],
+					nb_conflicts: 0,
+					accum: log.clone().into(),
+				})
+			}
+		}
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -592,5 +669,4 @@ mod tests {
 			},
 		]));
 	}
-
 }
