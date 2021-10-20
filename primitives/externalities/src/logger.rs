@@ -411,6 +411,93 @@ pub enum ConflictOrigin {
 }
 
 /// Try to group extrinsic that can run in parallel.
+///
+/// # strat 1
+///
+/// Strategy for parallel runing of consecutive chunk of code (extrinsics):
+/// A -> B -> C
+///
+/// With this order we must ensure by our declaration that reads in N+1 do touch something
+/// written in N.
+/// Write A disjoint with Read B.
+/// Write A disjoint with Read C.
+/// Write B disjoint with Read C.
+///
+/// A B and C are spawned consecutely and join in same order.
+///
+/// Then we apply rules (check is precondition, force means we can modify current rules):
+/// - spawn A:
+///		- check A write decl included in parent write access
+///		- check A read decl included in parent read 0 access
+///		- check/force A write decl disjoint with parent read 1 capability.
+/// - spawn B:
+///		- check B write decl included in parent write access
+///		- check B read decl included in parent read 1 access
+///		- check/force B write decl disjoint with parent read 2 capability.
+///
+/// Write A disjoint with parent read 1.
+/// Read B included in parent read 1.
+/// So Write A disjoint with Read B.
+///
+/// - spawn C:
+///		- check C write decl included in parent write access
+///		- check C read decl included in parent read 2 access
+///		- check/force C write decl disjoint with parent read 3 capability.
+///
+/// Write B disjoint with parent read 2.
+/// Read C included in parent read 2.
+/// So Write B disjoint with Read C.
+///
+/// Write A disjoint with parent read 1.
+/// parent read 2 include in parent read 1.
+/// So Write A disjoint with parent read 2.
+/// Read C included in parent read 2.
+/// So Write A disjoint with Read C.
+/// 
+/// By recurrence, ok for more code part.
+///
+///
+/// So rule is:
+///  - check child declartion r/w included in parent declaration r/w
+///  - then restrict parent read declaration to child write declaration
+/// 
+/// # strat 2
+///
+/// Strategy for parallel runing of consecutive chunk of code (extrinsics), and
+/// using parent code for the first one (so writes on join erase overide it).
+/// A -> B -> C
+///
+/// A is parent, then spawn B then spawn C, run A, join B, join C.
+/// This is same as strat 1 ordering with first in parent.
+///
+/// Again to check (B write disjoint with C already checked):
+/// A write disjoint with Read B.
+/// A write disjoint with Read C.
+///
+/// So A write just need to be included in parent write which in case of extrinsic is all.
+///
+/// - spawn B:
+///		- check B write decl included in parent write access
+///		- check B read decl included in parent read 1 access
+///		- check/force B write decl disjoint with parent read 2 capability.
+///
+/// then to achieve
+///		parent (A) write disjoint with Read B.
+///		we just need parent (A) include in parent read 2 capability
+///
+/// - spawn C:
+///		- check C write decl included in parent write access
+///		- check C read decl included in parent read 2 access
+///		- check/force C write decl disjoint with parent read 3 capability.
+///
+/// then to achieve
+///		parent (A) write disjoint with Read C.
+///		we just need parent (A) include in parent read 3 capability
+///
+/// A included in parent read 3 means A included in parent read 2 as read 3 included in read 2.
+///
+/// So rule is:
+///		- check Read A included in parent read after all spawn restrictions.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct BuildGroups {
