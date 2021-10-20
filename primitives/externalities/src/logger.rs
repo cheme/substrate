@@ -498,6 +498,16 @@ pub enum ConflictOrigin {
 ///
 /// So rule is:
 ///		- check Read A included in parent read after all spawn restrictions.
+///
+///	# grouping algo:
+///
+///	just apply rules, have a variant without parent A.
+///	without parent: runnig single is unconstrained.
+///	parent initial access is all read all write access.
+///	If A is parent, after each include check read against parent read: if fail do not include.
+///
+///	We do not attempt reordering, just fit in extrinsic order with just two variants.
+///
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct BuildGroups {
