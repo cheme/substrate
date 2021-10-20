@@ -124,7 +124,6 @@ impl From<AccessLog> for AccumLogger {
 impl AccumLogger {
 	/// TODO
 	pub fn accumulate_logger(&mut self, logger: AccessLog) {
-		self.read_all |= logger.read_all;
 		self.top_logger.accumulate_logger(logger.top_logger);
 		for (storage_key, logger) in logger.children_logger {
 			if let Some(child) = self.children_logger.get_mut(&storage_key) {
@@ -136,8 +135,6 @@ impl AccumLogger {
 	}
 	/// TODO
 	pub fn accumulate(&mut self, logger: Self) {
-		self.read_all |= logger.read_all;
-		self.top_logger.accumulate(logger.top_logger);
 		for (storage_key, logger) in logger.children_logger {
 			if let Some(child) = self.children_logger.get_mut(&storage_key) {
 				child.accumulate(logger);
@@ -159,22 +156,21 @@ impl AccumLogger {
 }
 
 /// Accumulator for logger states.
+/// This is representing parent state.
 #[derive(Debug, Clone, Default)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 struct AccumStateLogger {
-	write_keys: BTreeSet<Vec<u8>>,
-	write_prefixes: BTreeSet<Vec<u8>>,
-	read_keys: BTreeSet<Vec<u8>>,
-	read_intervals: BTreeSet<(Vec<u8>, Option<Vec<u8>>)>,
+	// From children declared writes.
+	forbid_read: BTreeSet<Vec<u8>>,
+	// From children declared writes.
+	forbid_read_prefixes: BTreeSet<Vec<u8>>,
 }
 
 impl From<StateLog> for AccumStateLogger {
 	fn from(log: StateLog) -> Self {
 		AccumStateLogger {
-			read_keys: log.read_keys.into_iter().collect(),
-			write_keys: log.write_keys.into_iter().collect(),
-			write_prefixes: log.write_prefix.into_iter().collect(),
-			read_intervals: log.read_intervals.into_iter().collect(),
+			forbid_read: log.write_keys.into_iter().collect(),
+			forbid_read_prefixes: log.write_prefix.into_iter().collect(),
 		}
 	}
 }
@@ -197,24 +193,22 @@ pub fn end_prefix(prefix: &[u8]) -> Option<Vec<u8>> {
 impl AccumStateLogger {
 	/// TODO
 	pub fn accumulate_logger(&mut self, logger: StateLog) {
-		self.read_keys.extend(logger.read_keys);
-		self.write_keys.extend(logger.write_keys);
-		self.write_prefixes.extend(logger.write_prefix);
-		self.read_intervals.extend(logger.read_intervals);
+		self.forbid_read.extend(logger.write_keys);
+		self.forbid_read_prefixes.extend(logger.write_prefix);
 	}
 	/// TODO
 	pub fn accumulate(&mut self, mut logger: Self) {
-		self.read_keys.append(&mut logger.read_keys);
-		self.write_keys.append(&mut logger.write_keys);
-		self.write_prefixes.append(&mut logger.write_prefixes);
-		self.read_intervals.append(&mut logger.read_intervals);
+		self.forbid_read.append(&mut logger.forbid_read);
+		self.forbid_read_prefixes.append(&mut logger.forbid_read_prefixes);
 	}
 	/// TODO self is parent
 	/// TODO should optimize by runing all iterations concurrently.
+	/// Diff is against a following log: so check read capability allowed.
+	/// Write check is not needed here (parent allows all for extrinsic)
 	pub fn diff(&self, logger: &StateLog, child_trie: Option<&Vec<u8>>, read_all: bool) -> Conflicts {
 		let mut conflicts = Vec::new();
 		for key in logger.read_keys.iter() {
-			if self.write_keys.contains(key) {
+			if self.forbid_read_prefixes.contains(key) {
 				conflicts.push(Conflict {
 					child_trie: child_trie.cloned(),
 					parent: ConflictOrigin::WriteKey(key.clone()),
@@ -224,7 +218,7 @@ impl AccumStateLogger {
 		}
 		// checking against wite prefix is done in an inefficent reverse way
 		let log_read: BTreeSet<_> = logger.read_keys.iter().cloned().collect();
-		for prefix in self.write_prefixes.iter() {
+		for prefix in self.forbid_read_prefixes.iter() {
 			let (end, start) = (end_prefix(prefix.as_slice()), prefix);
 			let mut iter = log_read.range::<Vec<u8>, _>(start..);
 			while let Some(next) = iter.next() {
@@ -236,135 +230,6 @@ impl AccumStateLogger {
 					})
 				} else {
 					break
-				}
-			}
-		}
-		// inneficient range check.
-		let mut iter_prefix = self.write_prefixes.iter().peekable();
-		for (start, end) in logger.read_intervals.iter() {
-			let mut iter = self.write_keys.range::<Vec<u8>, _>(start..);
-			while let Some(next) = iter.next() {
-				if end.as_ref().map(|end| next <= end).unwrap_or(true) {
-					conflicts.push(Conflict {
-						child_trie: child_trie.cloned(),
-						parent: ConflictOrigin::WriteKey(next.clone()),
-						child: ConflictOrigin::ReadInterval((start.clone(), end.clone())),
-					})
-				} else {
-					break
-				}
-			}
-			// assume iter range to never overlap (should not as long
-			// as logger do not merge intervals).
-			// TODO this part need test
-			while let Some(prefix) = iter_prefix.peek() {
-				let (write_end, write_start) = (end_prefix(prefix.as_slice()), prefix);
-				if write_end.as_ref().map(|write_end| start >= write_end).unwrap_or(false) {
-					let _ = iter_prefix.next();
-					continue;
-				}
-				// read end > start
-				if end.as_ref().map(|end| write_start <= &end).unwrap_or(true) {
-					conflicts.push(Conflict {
-						child_trie: child_trie.cloned(),
-						parent: ConflictOrigin::WritePrefix(prefix.to_vec()),
-						child: ConflictOrigin::ReadInterval((start.clone(), end.clone())),
-					});
-					if end.is_none() || (write_end.is_some() && &write_end <= end) {
-						// can have other prefix in interval 
-						let _ = iter_prefix.next();
-						continue;
-					}
-					break;
-				} else {
-					break;
-				}
-			}
-		}
-		if read_all {
-			for key in logger.write_keys.iter() {
-				conflicts.push(Conflict {
-					child_trie: child_trie.cloned(),
-					parent: ConflictOrigin::ReadAll,
-					child: ConflictOrigin::WriteKey(key.clone()),
-				});
-			}
-			for prefix in logger.write_prefix.iter() {
-				conflicts.push(Conflict {
-					child_trie: child_trie.cloned(),
-					parent: ConflictOrigin::ReadAll,
-					child: ConflictOrigin::WritePrefix(prefix.clone()),
-				});
-			}
-		} else {
-			for key in logger.write_keys.iter() {
-				if self.read_keys.contains(key) {
-					conflicts.push(Conflict {
-						child_trie: child_trie.cloned(),
-						parent: ConflictOrigin::ReadKey(key.clone()),
-						child: ConflictOrigin::WriteKey(key.clone()),
-					});
-				}
-			}
-			// checking against read interval is done in a reverse way
-			// to avoid using special interval storage, but it is
-			// inefficient
-			for (start, end) in self.read_intervals.iter() {
-				let log_write: BTreeSet<_> = logger.write_keys.iter().cloned().collect();
-				let mut iter = log_write.range::<Vec<u8>, _>(start..);
-				while let Some(next) = iter.next() {
-					if end.as_ref().map(|end| next <= end).unwrap_or(true) {
-						conflicts.push(Conflict {
-							child_trie: child_trie.cloned(),
-							parent: ConflictOrigin::ReadInterval((start.clone(), end.clone())),
-							child: ConflictOrigin::WriteKey(next.clone()),
-						})
-					} else {
-						break
-					}
-				}
-			}
-
-			// inneficient range check.
-			let mut iter_range = self.read_intervals.iter().peekable();
-			for prefix in logger.write_prefix.iter() {
-				let (end, start) = (end_prefix(prefix.as_slice()), prefix);
-				let mut iter = self.read_keys.range::<Vec<u8>, _>(start..);
-				while let Some(next) = iter.next() {
-					if end.as_ref().map(|end| next < end).unwrap_or(true) {
-						conflicts.push(Conflict {
-							child_trie: child_trie.cloned(),
-							parent: ConflictOrigin::ReadKey(next.clone()),
-							child: ConflictOrigin::WritePrefix(prefix.clone()),
-						})
-					} else {
-						break
-					}
-				}
-				// assume iter range to never overlap (should not as long
-				// as logger do not merge intervals).
-				// TODO this part need test
-				while let Some((read_start, read_end)) = iter_range.peek() {
-					if read_end.as_ref().map(|read_end| start > read_end).unwrap_or(false) {
-						let _ = iter_range.next();
-						continue;
-					}
-					// read end > start
-					if end.as_ref().map(|end| read_start < end).unwrap_or(true) {
-						conflicts.push(Conflict {
-							child_trie: child_trie.cloned(),
-							parent: ConflictOrigin::ReadInterval((read_start.clone(), read_end.clone())),
-							child: ConflictOrigin::WritePrefix(prefix.clone()),
-						});
-						if end.is_none() || (read_end.is_some() && read_end < &end) {
-							// can have other interval in prefix
-							let _ = iter_range.next();
-							continue;
-						}
-						break;
-					} else {
-						break;
-					}
 				}
 			}
 		}
@@ -458,9 +323,9 @@ pub enum ConflictOrigin {
 ///
 ///
 /// So rule is:
-///  - check child declartion r/w included in parent declaration r/w
-///  - then restrict parent read declaration to child write declaration
-/// 
+///  - check child declaration r/w included in parent declaration r/w
+///  - then restrict parent read declaration with child write declaration
+///
 /// # strat 2
 ///
 /// Strategy for parallel runing of consecutive chunk of code (extrinsics), and
@@ -520,7 +385,7 @@ pub struct BuildGroups {
 	/// This avoid n2 processing, but also makes solution suboptimal.
 	nb_solution: usize,
 	/// Pending best groups (solutions).
-	solutions: Vec<BuildSolution>,
+	solutions: (BuildSolution, BuildSolution),
 }
 
 /// We always tries to minimizie parent Vec size and maximize inner vec.
@@ -546,10 +411,7 @@ impl BuildGroups {
 			state_logs: Default::default(),
 			conflict_threshold,
 			nb_solution,
-			// TODO multisolution not use here, if keeping
-			// code order, then only threshold variation or
-			// spurios uninsert when possible can do.
-			solutions: vec![BuildSolution(vec![])],
+			solutions: (BuildSolution(vec![]), BuildSolution(vec![])),
 		}
 	}
 
@@ -558,26 +420,26 @@ impl BuildGroups {
 		let index = self.state_logs.len();
 		self.state_logs.push(log);
 		let log = self.state_logs.last().expect("pushed above");
-		for solution in self.solutions.iter_mut() {
-			let mut added = false;
-			if let Some(group) = solution.0.last_mut() {
-				let new_conflicts = group.accum.diff(log);
-				if new_conflicts.0.len() + group.nb_conflicts < self.conflict_threshold {
-					group.content.push(index);
-					group.nb_conflicts += new_conflicts.0.len();
-					group.conflicts.push(new_conflicts);
-					group.accum.accumulate_logger(log.clone());
-					added = true;
-				}
+		let solution = &mut self.solutions.0;
+		let solution_with_parent_first = &mut self.solutions.1;
+		let mut added = false;
+		if let Some(group) = solution.0.last_mut() {
+			let new_conflicts = group.accum.diff(log);
+			if new_conflicts.0.len() + group.nb_conflicts < self.conflict_threshold {
+				group.content.push(index);
+				group.nb_conflicts += new_conflicts.0.len();
+				group.conflicts.push(new_conflicts);
+				group.accum.accumulate_logger(log.clone());
+				added = true;
 			}
-			if !added {
-				solution.0.push(BuildGroup {
-					content: vec![index],
-					conflicts: vec![Conflicts(vec![])],
-					nb_conflicts: 0,
-					accum: log.clone().into(),
-				})
-			}
+		}
+		if !added {
+			solution.0.push(BuildGroup {
+				content: vec![index],
+				conflicts: vec![Conflicts(vec![])],
+				nb_conflicts: 0,
+				accum: log.clone().into(),
+			})
 		}
 	}
 }
