@@ -133,7 +133,7 @@ impl AccumLogger {
 			}
 		}
 	}
-	/// TODO
+/*	/// TODO
 	pub fn accumulate(&mut self, logger: Self) {
 		for (storage_key, logger) in logger.children_logger {
 			if let Some(child) = self.children_logger.get_mut(&storage_key) {
@@ -142,7 +142,7 @@ impl AccumLogger {
 				self.children_logger.insert(storage_key, logger);
 			}
 		}
-	}
+	}*/
 	/// TODO
 	pub fn diff(&self, logger: &AccessLog) -> Conflicts {
 		let mut conflicts = self.top_logger.diff(&logger.top_logger, None, self.read_all);
@@ -196,19 +196,35 @@ impl AccumStateLogger {
 		self.forbid_read.extend(logger.write_keys);
 		self.forbid_read_prefixes.extend(logger.write_prefix);
 	}
-	/// TODO
+/*	/// TODO
 	pub fn accumulate(&mut self, mut logger: Self) {
 		self.forbid_read.append(&mut logger.forbid_read);
 		self.forbid_read_prefixes.append(&mut logger.forbid_read_prefixes);
-	}
+	}*/
 	/// TODO self is parent
 	/// TODO should optimize by runing all iterations concurrently.
 	/// Diff is against a following log: so check read capability allowed.
 	/// Write check is not needed here (parent allows all for extrinsic)
 	pub fn diff(&self, logger: &StateLog, child_trie: Option<&Vec<u8>>, read_all: bool) -> Conflicts {
 		let mut conflicts = Vec::new();
+		if read_all {
+			for key in self.forbid_read.iter() {
+				conflicts.push(Conflict {
+					child_trie: child_trie.cloned(),
+					parent: ConflictOrigin::WriteKey(key.clone()),
+					child: ConflictOrigin::ReadAll,
+				});
+			}
+			for prefix in self.forbid_read_prefixes.iter() {
+				conflicts.push(Conflict {
+					child_trie: child_trie.cloned(),
+					parent: ConflictOrigin::WritePrefix(prefix.clone()),
+					child: ConflictOrigin::ReadAll,
+				});
+			}
+		}
 		for key in logger.read_keys.iter() {
-			if self.forbid_read_prefixes.contains(key) {
+			if self.forbid_read.contains(key) {
 				conflicts.push(Conflict {
 					child_trie: child_trie.cloned(),
 					parent: ConflictOrigin::WriteKey(key.clone()),
@@ -289,6 +305,7 @@ pub enum ConflictOrigin {
 /// Write B disjoint with Read C.
 ///
 /// A B and C are spawned consecutely and join in same order.
+/// Parent apply read 0 access all along, but an aggregated one is built.
 ///
 /// Then we apply rules (check is precondition, force means we can modify current rules):
 /// - spawn A:
@@ -339,40 +356,13 @@ pub enum ConflictOrigin {
 /// A write disjoint with Read B.
 /// A write disjoint with Read C.
 ///
-/// So A write just need to be included in parent write which in case of extrinsic is all.
-///
-/// - spawn B:
-///		- check B write decl included in parent write access
-///		- check B read decl included in parent read 1 access
-///		- check/force B write decl disjoint with parent read 2 capability.
-///
-/// then to achieve
-///		parent (A) write disjoint with Read B.
-///		we just need parent (A) include in parent read 2 capability
-///
-/// - spawn C:
-///		- check C write decl included in parent write access
-///		- check C read decl included in parent read 2 access
-///		- check/force C write decl disjoint with parent read 3 capability.
-///
-/// then to achieve
-///		parent (A) write disjoint with Read C.
-///		we just need parent (A) include in parent read 3 capability
-///
-/// A included in parent read 3 means A included in parent read 2 as read 3 included in read 2.
-///
-/// So rule is:
-///		- check Read A included in parent read after all spawn restrictions.
+/// For this we just need to:
+///		- check/force B write decl disjoint with parent read 1 capability.
 ///
 ///	# grouping algo:
 ///
-///	just apply rules, have a variant without parent A.
-///	without parent: runnig single is unconstrained.
-///	parent initial access is all read all write access.
+///	Just apply rules until conflict between child read and parent read.
 ///	If A is parent, after each include check read against parent read: if fail do not include.
-///
-///	We do not attempt reordering, just fit in extrinsic order with just two variants.
-///
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct BuildGroups {
@@ -381,11 +371,11 @@ pub struct BuildGroups {
 	/// Number of allows conflicts, should be 0, but can
 	/// be good to allow a few and analyze if code could change.
 	conflict_threshold: usize,
-	/// Keep trace of multiple best solution.
+	/// Keep trace of multiple best solution. TODO unimplemented
 	/// This avoid n2 processing, but also makes solution suboptimal.
 	nb_solution: usize,
 	/// Pending best groups (solutions).
-	solutions: (BuildSolution, BuildSolution),
+	solutions: BuildSolution,
 }
 
 /// We always tries to minimizie parent Vec size and maximize inner vec.
@@ -411,7 +401,7 @@ impl BuildGroups {
 			state_logs: Default::default(),
 			conflict_threshold,
 			nb_solution,
-			solutions: (BuildSolution(vec![]), BuildSolution(vec![])),
+			solutions: BuildSolution(vec![]),
 		}
 	}
 
@@ -420,10 +410,8 @@ impl BuildGroups {
 		let index = self.state_logs.len();
 		self.state_logs.push(log);
 		let log = self.state_logs.last().expect("pushed above");
-		let solution = &mut self.solutions.0;
-		let solution_with_parent_first = &mut self.solutions.1;
 		let mut added = false;
-		if let Some(group) = solution.0.last_mut() {
+		if let Some(group) = self.solutions.0.last_mut() {
 			let new_conflicts = group.accum.diff(log);
 			if new_conflicts.0.len() + group.nb_conflicts < self.conflict_threshold {
 				group.content.push(index);
@@ -434,7 +422,7 @@ impl BuildGroups {
 			}
 		}
 		if !added {
-			solution.0.push(BuildGroup {
+			self.solutions.0.push(BuildGroup {
 				content: vec![index],
 				conflicts: vec![Conflicts(vec![])],
 				nb_conflicts: 0,
