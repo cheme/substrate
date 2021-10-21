@@ -296,7 +296,7 @@ impl AccumStateLogger {
 }
 
 /// TODO
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct Conflicts(Vec<Conflict>);
 
@@ -308,7 +308,7 @@ impl Conflicts {
 }
 
 /// TODO
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub struct Conflict {
 	/// TODO
@@ -323,7 +323,7 @@ pub struct Conflict {
 }
 
 /// TODO
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
 #[cfg_attr(feature = "std", derive(serde::Serialize, serde::Deserialize))]
 pub enum ConflictOrigin {
 	ReadAll,
@@ -431,7 +431,8 @@ struct BuildSolution(Vec<BuildGroup>);
 struct BuildGroup {
 	content: Vec<usize>,
 	conflicts: Vec<Conflicts>,
-	nb_conflicts: usize,
+	#[cfg_attr(feature = "std", serde(skip_serializing))]
+	accum_conflicts: BTreeSet<Conflict>,
 	#[cfg_attr(feature = "std", serde(skip_serializing))]
 	accum: AccumLogger,
 }
@@ -461,23 +462,21 @@ impl BuildGroups {
 		let mut added = false;
 		if let Some(group) = self.solutions.0.last_mut() {
 			let new_conflicts = group.accum.diff(log);
-			if new_conflicts.0.len() + group.nb_conflicts < self.conflict_threshold {
+			group.conflicts.push(new_conflicts.clone());
+			group.accum_conflicts.extend(new_conflicts.0.into_iter());
+			if group.accum_conflicts.len() < self.conflict_threshold {
 				group.content.push(index);
-				group.nb_conflicts += new_conflicts.0.len();
-				group.conflicts.push(new_conflicts);
 				group.accum.accumulate_logger(log.clone());
 				added = true;
 			} else {
-				group.nb_conflicts += new_conflicts.0.len();
-				group.conflicts.push(new_conflicts);
 			}
 		}
 		if !added {
 			self.solutions.0.push(BuildGroup {
 				content: vec![index],
-				conflicts: vec![Conflicts(vec![])],
-				nb_conflicts: 0,
+				conflicts: vec![Conflicts(vec![])].into_iter().collect(),
 				accum: log.clone().into(),
+				accum_conflicts: Default::default(),
 			})
 		}
 	}

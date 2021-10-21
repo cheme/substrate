@@ -104,7 +104,7 @@ use {
 
 type NotificationSinks<T> = Mutex<Vec<TracingUnboundedSender<T>>>;
 
-const CONFLICT_THRESH: usize = 5;
+const CONFLICT_THRESH: usize = 6;
 
 /// Substrate Client
 pub struct Client<B, E, Block, RA>
