@@ -447,6 +447,12 @@ impl BuildGroups {
 		}
 	}
 
+	/// TODO
+	pub fn clear(&mut self) {
+		self.state_logs.clear();
+		self.solutions.0.clear();
+	}
+
 	/// Add following code to try to paralellize.
 	pub fn add_next(&mut self, log: AccessLog) {
 		let index = self.state_logs.len();

@@ -52,6 +52,7 @@ use sc_consensus::{
 use sc_executor::RuntimeVersion;
 use sc_light::fetcher::ChangesProof;
 use sc_telemetry::{telemetry, TelemetryHandle, SUBSTRATE_INFO};
+use sp_externalities::BuildGroups;
 use sp_api::{
 	ApiExt, ApiRef, CallApiAt, CallApiAtParams, ConstructRuntimeApi, Core as CoreApi,
 	ProvideRuntimeApi,
@@ -103,6 +104,8 @@ use {
 
 type NotificationSinks<T> = Mutex<Vec<TracingUnboundedSender<T>>>;
 
+const CONFLICT_THRESH: usize = 3;
+
 /// Substrate Client
 pub struct Client<B, E, Block, RA>
 where
@@ -119,7 +122,7 @@ where
 	execution_extensions: ExecutionExtensions<Block>,
 	config: ClientConfig<Block>,
 	telemetry: Option<TelemetryHandle>,
-
+	build_group_5_block: RwLock<BuildGroups>,
 	// TODO remove, just to test
 	log_accesses: Mutex<std::fs::File>,
 	_phantom: PhantomData<RA>,
@@ -378,6 +381,7 @@ where
 			config,
 			telemetry,
 			log_accesses: Mutex::new(std::fs::File::create(std::path::Path::new("./new_log_accesses")).unwrap()),
+			build_group_5_block: RwLock::new(BuildGroups::new(CONFLICT_THRESH, 1)),
 			_phantom: Default::default(),
 		})
 	}
@@ -989,14 +993,14 @@ where
 				} else {
 					panic!("TODO");
 				};
+/* This log the whole block access
 				let mut file = self.log_accesses.lock();
 				use std::io::Write;
-
 				serde_json::to_writer(&mut *file, &format!("--- At block p {:?}", block_number)).expect("TODO");
 				file.write(b"\n").unwrap();
 				serde_json::to_writer(&mut *file, &logged_changes).expect("TODO");
 				file.write(b"\n").unwrap();
-
+*/
 				if import_block.header.state_root() != &gen_storage_changes.transaction_storage_root
 				{
 					return Err(Error::InvalidStateRoot)
@@ -1930,49 +1934,66 @@ where
 			ConsensusError::ClientImport(e.to_string()).into()
 		});
 
-				let block_number: u32 = if let Ok(n) = header.number().clone().try_into() {
-					n
-				} else {
-					panic!("TODO");
-				};
-				let mut file = self.log_accesses.lock();
-				use std::io::Write;
+		let block_number: u32 = if let Ok(n) = header.number().clone().try_into() {
+			n
+		} else {
+			panic!("TODO");
+		};
 
-				if let Some(extrinsics) = body.as_ref() {
-					let parent = BlockId::Hash(header.parent_hash().clone());
-					if let Ok(mut block_builder) =
-						(*self).new_block_at(&parent, header.digest().clone(), false)
-					{
+		if let Some(extrinsics) = body.as_ref() {
+			let mut file = self.log_accesses.lock();
+			use std::io::Write;
+
+			let parent = BlockId::Hash(header.parent_hash().clone());
+			if let Ok(mut block_builder) =
+				(*self).new_block_at(&parent, header.digest().clone(), false)
+			{
 				serde_json::to_writer(&mut *file, &format!("--- At block {:?}", block_number)).expect("TODO");
 				file.write(b"\n").unwrap();
+				let conflict_threshold = 2;
 
+				let mut build_group = BuildGroups::new(CONFLICT_THRESH, 1);
+				let mut build_group_no_init = BuildGroups::new(CONFLICT_THRESH, 1);
+				let mut build_group_5_block = self.build_group_5_block.write();
 				if let Some(accesses) = block_builder.into_st_change() {
-					serde_json::to_writer(&mut *file, "on_init").expect("TODO");
-					serde_json::to_writer(&mut *file, &accesses).expect("TODO");
-					file.write(b"\n").unwrap();
+					build_group.add_next(accesses);
+//					serde_json::to_writer(&mut *file, "on_init").expect("TODO");
+//					serde_json::to_writer(&mut *file, &accesses).expect("TODO");
+//					file.write(b"\n").unwrap();
 				}
-						for (i, extrinsic) in extrinsics.iter().enumerate() {
-							// TODO block initialize??
-							let _ = block_builder.push(extrinsic.clone());
-							match block_builder.into_st_change() {
-								Some(accesses) => {
-									// TODO log in report
-									serde_json::to_writer(&mut *file, &accesses).expect("TODO");
-									file.write(b"\n").unwrap();
-								},
-								None => {
-									// TODO log in report
-									serde_json::to_writer(&mut *file, &format!("err at {}", i)).expect("TODO");
-									file.write(b"\n").unwrap();
-								},
-							}
-						}
-						serde_json::to_writer(&mut *file, &"whole block:").expect("TODO");
-						file.write(b"\n").unwrap();
+				for (i, extrinsic) in extrinsics.iter().enumerate() {
+					// TODO block initialize??
+					let _ = block_builder.push(extrinsic.clone());
+					match block_builder.into_st_change() {
+						Some(accesses) => {
+							build_group_5_block.add_next(accesses.clone());
+							build_group_no_init.add_next(accesses.clone());
+							build_group.add_next(accesses);
+							// TODO log in report
+//							serde_json::to_writer(&mut *file, &accesses).expect("TODO");
+//							file.write(b"\n").unwrap();
+						},
+						None => {
+							// TODO log in report
+							serde_json::to_writer(&mut *file, &format!("err at {}", i)).expect("TODO");
+							file.write(b"\n").unwrap();
+						},
 					}
 				}
 
-
+				serde_json::to_writer(&mut *file, &build_group).expect("TODO");
+				file.write(b"\n").unwrap();
+				serde_json::to_writer(&mut *file, &build_group_no_init).expect("TODO");
+				file.write(b"\n").unwrap();
+				if block_number % 5 == 0 {
+					serde_json::to_writer(&mut *file, &*build_group_5_block).expect("TODO");
+					file.write(b"\n").unwrap();
+					build_group_5_block.clear();
+				}
+//				serde_json::to_writer(&mut *file, &"whole block:").expect("TODO");
+//				file.write(b"\n").unwrap();
+			}
+		}
 		r
 	}
 
