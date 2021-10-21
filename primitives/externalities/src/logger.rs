@@ -18,7 +18,7 @@
 //! State access logs primitives.
 
 use sp_std::{
-	vec::Vec,
+	vec, vec::Vec,
 	collections::btree_set::BTreeSet,
 	collections::btree_map::BTreeMap,
 };
