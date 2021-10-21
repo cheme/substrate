@@ -567,5 +567,43 @@ mod tests {
 				child: ConflictOrigin::ReadInterval((b"m".to_vec(), None)),
 			},
 		]));
+
+		let parent: AccumStateLogger = StateLog {
+			read_keys: vec![],
+			write_keys: vec![
+				b"b".to_vec(),
+				b"h".to_vec(),
+				b"o".to_vec(),
+			],
+			write_prefix: vec![
+				b"i".to_vec(),
+			],
+			read_intervals: vec![],
+		}.into();
+		let child = StateLog {
+			write_keys: vec![],
+			write_prefix: vec![],
+			read_intervals: vec![],
+			read_keys: vec![
+				b"".to_vec(),
+				b"b".to_vec(),
+				b"ba".to_vec(),
+				b"ia".to_vec(),
+			],
+		};
+
+		// TODO debug test broken, missing first only from diff
+		assert_eq!(parent.diff(&child, None, false), Conflicts(vec![
+			Conflict {
+				child_trie: None,
+				parent: ConflictOrigin::WriteKey(b"b".to_vec()),
+				child: ConflictOrigin::ReadKey(b"b".to_vec()),
+			},
+			Conflict {
+				child_trie: None,
+				parent: ConflictOrigin::WritePrefix(b"i".to_vec()),
+				child: ConflictOrigin::ReadKey(b"ia".to_vec()),
+			},
+		]));
 	}
 }
