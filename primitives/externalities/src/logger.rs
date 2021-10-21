@@ -467,6 +467,9 @@ impl BuildGroups {
 				group.conflicts.push(new_conflicts);
 				group.accum.accumulate_logger(log.clone());
 				added = true;
+			} else {
+				group.nb_conflicts += new_conflicts.0.len();
+				group.conflicts.push(new_conflicts);
 			}
 		}
 		if !added {

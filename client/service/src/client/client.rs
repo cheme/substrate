@@ -104,7 +104,7 @@ use {
 
 type NotificationSinks<T> = Mutex<Vec<TracingUnboundedSender<T>>>;
 
-const CONFLICT_THRESH: usize = 3;
+const CONFLICT_THRESH: usize = 5;
 
 /// Substrate Client
 pub struct Client<B, E, Block, RA>
@@ -1950,7 +1950,6 @@ where
 			{
 				serde_json::to_writer(&mut *file, &format!("--- At block {:?}", block_number)).expect("TODO");
 				file.write(b"\n").unwrap();
-				let conflict_threshold = 2;
 
 				let mut build_group = BuildGroups::new(CONFLICT_THRESH, 1);
 				let mut build_group_no_init = BuildGroups::new(CONFLICT_THRESH, 1);
