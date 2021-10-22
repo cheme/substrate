@@ -18,7 +18,7 @@
 //! # Pallet State Trie Migration
 //!
 //! Reads and writes all keys and values in the entire state in a systematic way. This is useful for
-//! upgrading a chain to `StorageVersion::V2`, where all keys need to be touched.
+//! upgrading a chain to `StorageVersion::V1`, where all keys need to be touched.
 //!
 //! ## Migration Types
 //!
@@ -33,7 +33,7 @@
 //! bytes, but the latter is not guaranteed.
 //!
 //! For example, if a chain contains keys of 1 byte size, the `on_initialize` could read up to `x -
-//! 1` bytes from `n` different keys, while the next key is suddenly `:code:`, and there is no way
+//! 1` bytes from `n` different keys, while the next key is suddenly `:code`, and there is no way
 //! to bail out of this.
 //!
 //! ### Unsigned migration
@@ -49,7 +49,7 @@
 //!
 //! ### Signed migration
 //!
-//! as a backup, the migration process can be set in motion via signed transactions that basically
+//! As a backup, the migration process can be set in motion via signed transactions that basically
 //! say in advance how many items and how many bytes they will consume, and pay for it as well. This
 //! can be a good safe alternative, if the former two systems are not desirable.
 //!
@@ -58,6 +58,9 @@
 //! with a `SignedDepositPerItem`. This is be per-item deposit that the origin of the signed
 //! migration transactions need to have in their account (on top of the normal fee) and if the size
 //! witness data that they claim is incorrect, this deposit is slashed.
+//!
+//! Emeric: Here we may need to pass the block current progress in parameter, so we don't slash
+//! transaction that are included in a wrong block, but just use the normal fee (one keyval check).
 //!
 //! ---
 //!
@@ -113,13 +116,21 @@ pub mod pallet {
 	}
 	impl WeightInfo for () {
 		fn process_top_key(x: u32) -> Weight {
-			1000000
+			1_000_000
 		}
 	}
 
 	/// A migration task stored in state.
 	///
 	/// It tracks the last top and child keys read.
+	///
+	/// Emeric: there is changes I was considering on my branch: mainly put a state enum
+	/// to make every thing easier.
+	/// Currently we got:
+	/// - Initial state (defalt): Top is some([])
+	/// - in progress top: Top is some(next_item) Child is None
+	/// - in progress child: Top is some(current_child_root) Child is Some(nextitem)
+	/// - Finished: Top is None (and child too).
 	#[derive(Clone, Encode, Decode, scale_info::TypeInfo, PartialEq, Eq)]
 	#[codec(mel_bound(T: Config))]
 	#[scale_info(skip_type_params(T))]
@@ -137,12 +148,18 @@ pub mod pallet {
 		pub(crate) current_child: Option<Vec<u8>>,
 
 		/// A marker to indicate if the previous tick was a child tree migration or not.
+		///
+		/// Emeric: not strictly needed if applying the progression by skipping some values (sometime
+		/// we can have more than one call to next key). But as I mentioned above, an enum could be
+		/// good (can even switch current top and current child to non optional).
 		pub(crate) prev_tick_child: bool,
 
 		/// dynamic counter for the number of items that we have processed in this execution from
 		/// the top trie.
 		///
 		/// It is not written to storage.
+		///
+		/// Emeric: not a fan of 'dyn_', but maybe it is a convention.
 		#[codec(skip)]
 		pub(crate) dyn_top_items: u32,
 		/// dynamic counter for the number of items that we have processed in this execution from
@@ -155,6 +172,9 @@ pub mod pallet {
 		/// dynamic counter for for the byte size of items that we have processed in this
 		/// execution.
 		///
+		/// Items read but not written are included in this count, because they would
+		/// appear in an execution proof.
+		///
 		/// It is not written to storage.
 		#[codec(skip)]
 		pub(crate) dyn_size: u32,
@@ -163,6 +183,7 @@ pub mod pallet {
 		pub(crate) _ph: sp_std::marker::PhantomData<T>,
 
 		// TODO: I might remove these if they end up not being used.
+		// Emeric: they are unused indeed the dyn items do the same thing.
 		pub(crate) size: u32,
 		pub(crate) top_items: u32,
 		pub(crate) child_items: u32,
@@ -224,10 +245,11 @@ pub mod pallet {
 		pub(crate) fn migrate_until_exhaustion(&mut self, limits: MigrationLimits) {
 			log!(debug, "running migrations until {:?}", limits);
 			loop {
-				self.migrate_tick();
+				// Emeric: I put it first so we don't call migrate tick on current_top.is_none()
 				if self.exhausted(limits) {
 					break
 				}
+				self.migrate_tick();
 			}
 			self.size = self.size.saturating_add(self.dyn_size);
 			self.child_items = self.child_items.saturating_add(self.dyn_child_items);
@@ -255,8 +277,9 @@ pub mod pallet {
 					self.migrate_child();
 				},
 				(Some(ref top_key), None) => {
-					if top_key.starts_with(DEFAULT_CHILD_STORAGE_KEY_PREFIX) &&
-						!self.prev_tick_child
+					// Emeric maybe put condition in the match (unless some usual rust lifetime issue)
+					if top_key.starts_with(DEFAULT_CHILD_STORAGE_KEY_PREFIX)
+						&& !self.prev_tick_child
 					{
 						// no child migration at hand, but one will begin here.
 						let maybe_first_child_key = {
@@ -269,9 +292,9 @@ pub mod pallet {
 							self.migrate_child();
 						} else {
 							self.migrate_top();
+							self.prev_tick_child = false;
 						}
 					} else {
-						self.prev_tick_child = false;
 						self.migrate_top();
 					}
 				},
@@ -297,8 +320,13 @@ pub mod pallet {
 			let child_top_key = Pallet::<T>::child_io_key(&current_top);
 			if let Some(data) = sp_io::default_child_storage::get(child_top_key, &current_child) {
 				self.dyn_size = self.dyn_size.saturating_add(data.len() as u32);
+				// Emeric: here set is only needed if size is more than 32 byte.
+				// (dyn_size should be increas in all case).
 				sp_io::default_child_storage::set(child_top_key, &current_child, &data)
 			}
+			// Emeric: this will increase for the first item [] even if do not exists, but it does not really matter
+			// (first item attempt is here because I do not know a way of getting the first item (next
+			// storage key needs some first value).
 			self.dyn_child_items.saturating_inc();
 			let next_key = sp_io::default_child_storage::next_key(child_top_key, &current_child);
 			self.current_child = next_key;
@@ -317,6 +345,8 @@ pub mod pallet {
 			let current_top = self.current_top.clone().expect("value checked to be `Some`; qed");
 			if let Some(data) = sp_io::storage::get(&current_top) {
 				self.dyn_size = self.dyn_size.saturating_add(data.len() as u32);
+				/// Emeric: here set is only needed if size is more than 32 byte.
+				/// (dyn_size should be increas in all case).
 				sp_io::storage::set(&current_top, &data);
 			}
 			self.dyn_top_items.saturating_inc();
@@ -410,10 +440,13 @@ pub mod pallet {
 	/// The size limits imposed on unsigned migrations.
 	///
 	/// This should:
-	/// 1. be large enough to accommodate things like `:code:`
+	/// 1. be large enough to accommodate things like `:code`
 	/// 2. small enough to never brick a parachain due to PoV limits.
 	///
 	/// if set to `None`, then no unsigned migration happens.
+	///
+	/// Emeric: Not sure if needed to put limits out of migration process.
+	/// (could be a migration state indicating if we are auto or manu).
 	#[pallet::storage]
 	#[pallet::getter(fn unsigned_size_limit)]
 	pub type UnsignedSizeLimit<T> = StorageValue<_, Option<u32>, ValueQuery>;
@@ -428,7 +461,7 @@ pub mod pallet {
 			origin: OriginFor<T>,
 			maybe_config: Option<MigrationLimits>,
 		) -> DispatchResultWithPostInfo {
-			T::ControlOrigin::ensure_origin(origin)?;
+			T::ControlOrigin::ensure_origin(origin)?; // Emeric: TODO is it open to anyone
 			ensure!(
 				maybe_config.is_some() ^ Self::unsigned_size_limit().is_some(),
 				"unsigned and auto migration cannot co-exist"
@@ -445,7 +478,7 @@ pub mod pallet {
 			origin: OriginFor<T>,
 			maybe_size_limit: Option<u32>,
 		) -> DispatchResultWithPostInfo {
-			T::ControlOrigin::ensure_origin(origin)?;
+			T::ControlOrigin::ensure_origin(origin)?; // Emeric: TODO is it open to anyone
 			ensure!(
 				maybe_size_limit.is_some() ^ Self::auto_limits().is_some(),
 				"unsigned and auto migration cannot co-exist"
@@ -475,10 +508,14 @@ pub mod pallet {
 			ensure_none(origin)?;
 			let unsigned_size_limit =
 				Self::unsigned_size_limit().ok_or("unsigned limit not set, tx not allowed.")?;
+
+			// Emeric: Why witness size limit as parameter?
 			ensure!(witness_size_limit == unsigned_size_limit, "wrong size limit witness data");
 
 			let mut task = Self::migration_process();
 			// pre-dispatch and validate-unsigned already assure this.
+			// Emeric: not sure if control of witness task is really needed (is there
+			// a risk validator uses the wrong one), but cost nothing.
 			debug_assert_eq!(task, _witness_task);
 
 			let limits = MigrationLimits { size: unsigned_size_limit, item: item_limit };
@@ -487,7 +524,7 @@ pub mod pallet {
 			// we panic if the validator submitted a bad transaction, making it financially bad for
 			// them to cheat. We could relax this. Also, if a bug causes validators to mistakenly
 			// produce bad transactions, they can avoid it by disabling offchain workers.
-			assert!(task.dyn_size < unsigned_size_limit);
+			assert!(task.dyn_size < unsigned_size_limit); // Emeric: is it <= (did not really check but seems harmless)?
 
 			Self::deposit_event(Event::<T>::Migrated(
 				task.dyn_top_items,
@@ -508,6 +545,9 @@ pub mod pallet {
 		///
 		/// The sum of the byte length of all the data read must be provided for up-front
 		/// fee-payment and weighing.
+		///
+		/// Emeric: should we pass/check witness task as param so we don't get slash if extrinsic
+		/// pass on a block with a different init state.
 		#[pallet::weight(Pallet::<T>::dynamic_weight(*item_limit, *size_limit))]
 		pub fn continue_migrate(
 			origin: OriginFor<T>,
@@ -524,7 +564,9 @@ pub mod pallet {
 			task.migrate_until_exhaustion(MigrationLimits { size: size_limit, item: item_limit });
 
 			// ensure that the migration witness data was correct.
-			if item_limit != task.dyn_total_items() || size_limit != task.dyn_size {
+			// Emeric: believe it should be && (only one condition need to be reached), could 
+			// compare the other one is bellow too.
+			if item_limit != task.dyn_total_items() && size_limit != task.dyn_size {
 				// let the imbalance burn.
 				let (_imbalance, _remainder) = T::Currency::slash(&who, deposit);
 				// defensive.
@@ -545,6 +587,9 @@ pub mod pallet {
 		///
 		/// This does not affect the global migration process tracker ([`MigrationProcess`]), and
 		/// should only be used in case any keys are leftover due to a bug.
+		///
+		/// Emeric: looks good to force migrate :code (after migrate it will not be included in
+		/// proofs, so auto would not really have a reason to oversize badly).
 		#[pallet::weight(Pallet::<T>::dynamic_weight(keys.len() as u32, *total_size))]
 		pub fn migrate_custom_top(
 			origin: OriginFor<T>,
@@ -601,13 +646,16 @@ pub mod pallet {
 
 			let mut dyn_size = 0u32;
 			for child_key in &child_keys {
+				// Emeric: TODO here we should skip child_io_key call and expect user to use 
+				// unprefixed child key (without the :child_storage:default start).
+				// Currently this can touch unreachable (which is not that bad but can be avoided).
 				if let Some(data) =
-					sp_io::default_child_storage::get(Self::child_io_key(child_key), &top_key)
+					sp_io::default_child_storage::get(Self::child_io_key(top_key), &child_key)
 				{
 					dyn_size = dyn_size.saturating_add(data.len() as u32);
 					sp_io::default_child_storage::set(
-						Self::child_io_key(child_key),
-						&top_key,
+						Self::child_io_key(top_key),
+						&child_key,
 						&data,
 					);
 				}
@@ -664,6 +712,8 @@ pub mod pallet {
 			log!(debug, "started offchain worker thread.");
 			if let Some(unsigned_size_limit) = Self::unsigned_size_limit() {
 				let mut task = Self::migration_process();
+				// Emeric: TODO should we use a number of item limit in case the limiting
+				// factor is weight but not size?
 				let limits =
 					MigrationLimits { size: unsigned_size_limit, item: Bounded::max_value() };
 				task.migrate_until_exhaustion(limits);
