@@ -431,6 +431,7 @@ struct BuildSolution(Vec<BuildGroup>);
 struct BuildGroup {
 	content: Vec<usize>,
 	conflicts: Vec<Conflicts>,
+	nb_distinct_conflicts: usize,
 	#[cfg_attr(feature = "std", serde(skip_serializing))]
 	accum_conflicts: BTreeSet<Conflict>,
 	#[cfg_attr(feature = "std", serde(skip_serializing))]
@@ -464,11 +465,11 @@ impl BuildGroups {
 			let new_conflicts = group.accum.diff(log);
 			group.conflicts.push(new_conflicts.clone());
 			group.accum_conflicts.extend(new_conflicts.0.into_iter());
+			group.nb_distinct_conflicts = group.accum_conflicts.len();
 			if group.accum_conflicts.len() < self.conflict_threshold {
 				group.content.push(index);
 				group.accum.accumulate_logger(log.clone());
 				added = true;
-			} else {
 			}
 		}
 		if !added {
@@ -477,6 +478,7 @@ impl BuildGroups {
 				conflicts: vec![Conflicts(vec![])].into_iter().collect(),
 				accum: log.clone().into(),
 				accum_conflicts: Default::default(),
+				nb_distinct_conflicts: 0,
 			})
 		}
 	}
