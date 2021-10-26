@@ -7240,6 +7240,7 @@ dependencies = [
  "jsonrpsee-proc-macros",
  "jsonrpsee-ws-client",
  "log 0.4.14",
+ "memory-db 0.28.0",
  "pallet-elections-phragmen",
  "parity-scale-codec",
  "serde",
@@ -7247,6 +7248,7 @@ dependencies = [
  "sp-core",
  "sp-io",
  "sp-runtime",
+ "sp-trie",
  "sp-version",
  "tokio",
 ]

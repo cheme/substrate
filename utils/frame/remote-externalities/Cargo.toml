@@ -26,8 +26,10 @@ serde = "1.0.126"
 
 sp-io = { version = "4.0.0-dev", path = "../../../primitives/io" }
 sp-core = { version = "4.0.0-dev", path = "../../../primitives/core" }
+sp-trie = { version = "4.0.0-dev", path = "../../../primitives/trie" }
 sp-runtime = { version = "4.0.0-dev", path = "../../../primitives/runtime" }
 sp-version = { version = "4.0.0-dev", path = "../../../primitives/version" }
+memory-db = { version = "0.28.0", default-features = false }
 
 [dev-dependencies]
 tokio = { version = "1.10", features = ["macros", "rt-multi-thread"] }

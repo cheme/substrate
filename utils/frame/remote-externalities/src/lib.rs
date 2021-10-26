@@ -443,9 +443,9 @@ impl<B: BlockT> Builder<B> {
 		let child_bearing_top_keys = top_kp
 			.iter()
 			.filter_map(
-				|(k, _)| {
+				|(k, v)| {
 					if is_default_child_storage_key(k.as_ref()) {
-						Some(k)
+						Some((k, v))
 					} else {
 						None
 					}
@@ -460,7 +460,7 @@ impl<B: BlockT> Builder<B> {
 		);
 
 		let mut child_kp = vec![];
-		for prefixed_top_key in child_bearing_top_keys {
+		for (prefixed_top_key, child_root) in child_bearing_top_keys {
 			let child_keys = RpcApi::<B>::child_get_keys(
 				self.as_online().rpc_client(),
 				PrefixedStorageKey::new(prefixed_top_key.as_ref().to_vec()),
@@ -480,6 +480,13 @@ impl<B: BlockT> Builder<B> {
 				HexDisplay::from(prefixed_top_key)
 			);
 
+			type MemTracker = memory_db::NoopTracker<Vec<u8>>;
+			type MemoryDBMeta =
+				memory_db::MemoryDB<sp_core::Blake2Hasher, memory_db::HashKey<sp_core::Blake2Hasher>, Vec<u8>, MemTracker>;
+			let mut memdb = MemoryDBMeta::default();
+			let mut root = Default::default();
+			let mut t = sp_trie::trie_types::TrieDBMutV0::<sp_core::Blake2Hasher>::new(&mut memdb, &mut root);
+
 			let mut child_kv = vec![];
 			for child_key in child_keys {
 				let child_value = RpcApi::<B>::child_get_storage(
@@ -493,9 +500,15 @@ impl<B: BlockT> Builder<B> {
 					error!(target: LOG_TARGET, "Error = {:?}", e);
 					"rpc child_get_storage failed."
 				})?;
+
+				use sp_trie::TrieMut;
+				t.insert(child_key.0.as_slice(), child_value.0.as_slice()).unwrap();
 				child_kv.push((child_key, child_value));
 			}
 
+			t.commit();
+			std::mem::drop(t);
+			assert!(root.as_ref() == child_root.0.as_slice());
 			// super tricky.
 			let un_prefixed = &prefixed_top_key.0[DEFAULT_CHILD_STORAGE_KEY_PREFIX.len()..];
 			child_kp.push((ChildInfo::new_default(&un_prefixed), child_kv));
