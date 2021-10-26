@@ -136,8 +136,9 @@ impl OverlayedChanges {
 	pub fn child_worker_overlay(
 		&mut self,
 		worker_id: TaskId,
-		declaration: WorkerDeclaration,
+		mut declaration: WorkerDeclaration,
 	) -> Option<Self> {
+		let inherit_child_forbid = self.filters.current_concurrent_writes();
 		if !self.declare_child_worker(worker_id, declaration.kind.clone()) {
 			return None
 		}
@@ -149,7 +150,7 @@ impl OverlayedChanges {
 		let transaction_offset = result.top.transaction_depth();
 		result.markers = markers::Markers::from_start_depth(transaction_offset);
 
-		result.set_worker_declaration(declaration);
+		result.set_worker_declaration(declaration, inherit_child_forbid);
 
 		Some(result)
 	}
@@ -563,39 +564,15 @@ impl OverlayedChanges {
 				self.optimistic_logger.log_reads_against(Some(child_marker));
 				self.optimistic_logger.log_writes_against(Some(child_marker));
 			},
-			WorkerDeclarationKind::ReadDeclarative(filter, failure) => {
-				if !self.filters.guard_declare_child_filter_read(&filter) {
-					return false
-				}
-				self.filters.set_failure_handler(Some(child_marker), failure);
-				// TODO consider merging add_change and forbid_writes (or even the full block).
-				self.filters.add_change(
-					WorkerDeclarationKind::ReadDeclarative(filter.clone(), failure),
-					child_marker,
-				);
-				self.filters.forbid_writes(filter, child_marker);
-			},
-			WorkerDeclarationKind::WriteDeclarative(filters, failure) => {
-				if !self.filters.guard_declare_child_filter_read(&filters.read_only) {
-					return false
-				}
+			WorkerDeclarationKind::Declarative(filters, failure) => {
 				if !self.filters.guard_declare_child_filter_write(&filters.write_only) {
 					return false
 				}
-				if !self.filters.guard_declare_child_filter_read(&filters.read_write) {
-					return false
-				}
-				if !self.filters.guard_declare_child_filter_write(&filters.read_write) {
-					return false
-				}
 				self.filters.set_failure_handler(Some(child_marker), failure);
 				self.filters.add_change(
-					WorkerDeclarationKind::WriteDeclarative(filters.clone(), failure),
+					WorkerDeclarationKind::Declarative(filters.clone(), failure),
 					child_marker,
 				);
-				self.filters.forbid_all(filters.read_write, child_marker);
-				self.filters.forbid_writes(filters.read_only, child_marker);
-				self.filters.forbid_reads(filters.write_only, child_marker);
 			},
 		}
 		self.markers.set_marker(child_marker);
@@ -603,7 +580,7 @@ impl OverlayedChanges {
 	}
 
 	/// Set access declaration in the child worker.
-	pub fn set_worker_declaration(&mut self, declaration: WorkerDeclaration) {
+	pub fn set_worker_declaration(&mut self, declaration: WorkerDeclaration, forbid_child_read: Option<AccessDeclaration>) {
 		self.write_local_scope.set_write_local_scope(declaration.write_local_scope);
 		match declaration.kind {
 			WorkerDeclarationKind::Stateless |
@@ -617,15 +594,14 @@ impl OverlayedChanges {
 				self.optimistic_logger.log_reads_against(None);
 				self.optimistic_logger.log_writes_against(None);
 			},
-			WorkerDeclarationKind::ReadDeclarative(filter, failure) => {
-				self.filters.set_failure_handler(None, failure);
-				self.filters.allow_reads(filter);
-			},
 			WorkerDeclarationKind::WriteDeclarative(filters, failure) => {
 				self.filters.set_failure_handler(None, failure);
-				self.filters.allow_reads(filters.read_only);
-				self.filters.allow_writes(filters.write_only);
-				self.filters.allow_all(filters.read_write);
+				self.filters.allow_writes(filters);
+				if let Some() {
+					self.filters.forbid_reads(forbid_child_read);
+				} else {
+					unreachable!("Declarative got inherited forbid");
+				}
 			},
 		}
 	}

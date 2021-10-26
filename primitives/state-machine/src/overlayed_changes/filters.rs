@@ -313,6 +313,7 @@ impl Filters {
 	}
 
 	pub(super) fn add_change(&mut self, decl: WorkerDeclarationKind, from_child: TaskId) {
+		// TODO inherit current runnig allowed write as read restriction
 		self.changes.insert(from_child, vec![decl]);
 	}
 
@@ -381,51 +382,6 @@ impl Filters {
 	}
 
 	// Declaring a child read access, we ensure access is allowed in the first place.
-	pub(super) fn guard_declare_child_filter_read(&mut self, filter: &AccessDeclaration) -> bool {
-		if !self.guard_declare_child_filter_read_inner(None, &filter.top) {
-			return false
-		}
-		for (prefixed_storage_key, filter) in filter.children.iter() {
-			let child_info = prefixed_storage_key_to_child_info(prefixed_storage_key);
-			if !self.guard_declare_child_filter_read_inner(Some(&child_info), filter) {
-				return false
-			}
-		}
-		true
-	}
-
-	fn guard_declare_child_filter_read_inner(
-		&mut self,
-		child_info: Option<&ChildInfo>,
-		filter: &LocalAccessDeclaration,
-	) -> bool {
-		// This assumes small declaration (otherwhise first loading in a tree could save
-		// a few tree node access.
-		for prefix in filter.prefixes_lock.iter() {
-			if !self.guard_read_prefix_inner(child_info, prefix, true) {
-				return false
-			}
-		}
-		for key in filter.keys_lock.iter() {
-			if !self.guard_read_inner(child_info, key, true) {
-				return false
-			}
-		}
-		for interval in filter.intervals_lock.iter() {
-			if !self.guard_interval_inner(
-				child_info,
-				interval.0.as_slice(),
-				interval.1.as_ref().map(|e| e.as_slice()),
-				true,
-				true,
-				false,
-			) {
-				return false
-			}
-		}
-		true
-	}
-
 	pub(super) fn guard_declare_child_filter_write(&mut self, filter: &AccessDeclaration) -> bool {
 		if !self.guard_declare_child_filter_write_inner(None, &filter.top) {
 			return false

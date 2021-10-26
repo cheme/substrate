@@ -114,11 +114,10 @@ impl AsyncExt {
 			WorkerType::Stateless |
 			WorkerType::ReadLastBlock |
 			WorkerType::ReadAtSpawn |
-			WorkerType::ReadOptimistic |
-			WorkerType::ReadDeclarative => false,
+			WorkerType::ReadOptimistic => false,
 			WorkerType::WriteAtSpawn |
 			WorkerType::WriteOptimistic |
-			WorkerType::WriteDeclarative => true,
+			WorkerType::Declarative => true,
 		}
 	}
 }

@@ -537,26 +537,18 @@ pub enum WorkerType {
 	/// other child result on join to parent.
 	WriteOptimistic = 5,
 
-	/// Same as `ReadOptimistic`, but we do not check conflict on join.
-	/// Instead we declare child worker read accesses and check during processing
-	/// that there is no invalid access.
-	///
-	/// As for all declarative types, depending on failure access declaration
-	/// an illegal access can either result in panic or returning `None`
-	/// on join (as in optimistic mode).
-	ReadDeclarative = 6,
-
-	/// Same as `WriteOptimistic`, but conflict are detected depending on access
-	/// declaration.
-	/// We declare allowed write access for child worker and allowed read only access
-	/// (no need to declare read access for already declared write access).
+	/// Declare write accesses needed by the worker.
+	/// Ordering of worker is define by their start and join order.
+	/// Joining should always be done in the same order as spawning.
+	/// This prevent read accesses from other workers that would join after this one.
 	///
 	/// The following rules apply:
-	/// - child allow read -> parent forbid Write
-	/// - child allow write -> parent forbid read
-	/// - when multiple write, the child at join always overwrite the existing value
-	/// - when multiple append (this seen as a write), order of appending is the join child calls
-	WriteDeclarative = 7,
+	/// - read access is being inherited from parent and restricted by all sibling workers
+	/// schedule to join before (we cannot read content they are allowed to modify).
+	/// - write access needs to be compatible with parent declared write access.
+	/// - on join we check that all workers that exist when launching did already join (enforcing
+	/// ordering).
+	Declarative = 6,
 }
 
 impl Default for WorkerType {
@@ -575,8 +567,7 @@ impl WorkerType {
 			3 => WorkerType::WriteAtSpawn,
 			4 => WorkerType::ReadOptimistic,
 			5 => WorkerType::WriteOptimistic,
-			6 => WorkerType::ReadDeclarative,
-			7 => WorkerType::WriteDeclarative,
+			6 => WorkerType::Declarative,
 			_ => return None,
 		})
 	}
@@ -615,11 +606,6 @@ impl WorkerType {
 				WorkerType::ReadOptimistic => (),
 				_ => return false,
 			},
-			WorkerType::ReadDeclarative => match kind {
-				WorkerType::ReadAtSpawn => (),
-				WorkerType::ReadDeclarative => (),
-				_ => return false,
-			},
 			WorkerType::WriteAtSpawn => match kind {
 				WorkerType::WriteAtSpawn => (),
 				_ => return false,
@@ -628,8 +614,8 @@ impl WorkerType {
 				WorkerType::WriteOptimistic => (),
 				_ => return false,
 			},
-			WorkerType::WriteDeclarative => match kind {
-				WorkerType::WriteDeclarative => (),
+			WorkerType::Declarative => match kind {
+				WorkerType::Declarative => (),
 				_ => return false,
 			},
 		}
@@ -685,12 +671,8 @@ pub enum WorkerDeclarationKind {
 	/// Declaration for `WorkerType::WriteOptimistic`, no content.
 	WriteOptimistic,
 
-	/// Declaration for `WorkerType::ReadDeclarative`.
-	/// Declaration is child worker allowed read access.
-	ReadDeclarative(AccessDeclaration, DeclarationFailureHandling),
-
-	/// Declaration for `WorkerType::WriteDeclarative`.
-	WriteDeclarative(AccessDeclarations, DeclarationFailureHandling),
+	/// Declaration for `WorkerType::Declarative`.
+	Declarative(AccessDeclaration, DeclarationFailureHandling),
 }
 
 impl WorkerDeclaration {
@@ -701,26 +683,11 @@ impl WorkerDeclaration {
 			WorkerDeclarationKind::ReadLastBlock => WorkerType::ReadLastBlock,
 			WorkerDeclarationKind::ReadAtSpawn => WorkerType::ReadAtSpawn,
 			WorkerDeclarationKind::ReadOptimistic => WorkerType::ReadOptimistic,
-			WorkerDeclarationKind::ReadDeclarative(..) => WorkerType::ReadDeclarative,
 			WorkerDeclarationKind::WriteAtSpawn => WorkerType::WriteAtSpawn,
 			WorkerDeclarationKind::WriteOptimistic => WorkerType::WriteOptimistic,
-			WorkerDeclarationKind::WriteDeclarative(..) => WorkerType::WriteDeclarative,
+			WorkerDeclarationKind::Declarative(..) => WorkerType::Declarative,
 		}
 	}
-}
-
-/// Access filters on storage.
-/// Please define key only once and sort them.
-#[derive(Debug, Clone, codec::Encode, codec::Decode, Default, Eq, PartialEq, TypeInfo)]
-pub struct AccessDeclarations {
-	/// Read access, exclude a concurrent write access.
-	pub read_only: AccessDeclaration,
-
-	/// Write access, exclude a concurrent read access.
-	pub write_only: AccessDeclaration,
-
-	/// Both read and write access, exclusive access to the thread.
-	pub read_write: AccessDeclaration,
 }
 
 /// Access filter on storage.
