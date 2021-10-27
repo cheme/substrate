@@ -37,6 +37,7 @@ use std::{
 	fs,
 	path::{Path, PathBuf},
 };
+use parking_lot::RwLock;
 
 pub mod rpc_api;
 
@@ -203,6 +204,7 @@ pub struct Builder<B: BlockT> {
 	mode: Mode<B>,
 	/// The state version being used.
 	state_version: StateVersion,
+	output_file: RwLock<std::fs::File>,
 }
 
 // NOTE: ideally we would use `DefaultNoBound` here, but not worth bringing in frame-support for
@@ -216,6 +218,7 @@ impl<B: BlockT> Default for Builder<B> {
 			hashed_keys: Default::default(),
 			hashed_blacklist: Default::default(),
 			state_version: StateVersion::V1,
+			output_file: RwLock::new(std::fs::File::open("./output_error").unwrap()),
 		}
 	}
 }
@@ -508,7 +511,13 @@ impl<B: BlockT> Builder<B> {
 
 			t.commit();
 			std::mem::drop(t);
-			assert!(root.as_ref() == child_root.0.as_slice());
+			if root.as_ref() != child_root.0.as_slice() {
+				let mut output = self.output_file.write();
+				serde_json::to_writer(&mut *output, &child_root).unwrap();
+				serde_json::to_writer(&mut *output, &root).unwrap();
+				serde_json::to_writer(&mut *output, &child_kv).unwrap();
+				//assert!(root.as_ref() == child_root.0.as_slice());
+			}
 			// super tricky.
 			let un_prefixed = &prefixed_top_key.0[DEFAULT_CHILD_STORAGE_KEY_PREFIX.len()..];
 			child_kp.push((ChildInfo::new_default(&un_prefixed), child_kv));

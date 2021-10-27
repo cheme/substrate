@@ -30,6 +30,7 @@ sp-trie = { version = "4.0.0-dev", path = "../../../primitives/trie" }
 sp-runtime = { version = "4.0.0-dev", path = "../../../primitives/runtime" }
 sp-version = { version = "4.0.0-dev", path = "../../../primitives/version" }
 memory-db = { version = "0.28.0", default-features = false }
+parking_lot = "0.11.1"
 
 [dev-dependencies]
 tokio = { version = "1.10", features = ["macros", "rt-multi-thread"] }
