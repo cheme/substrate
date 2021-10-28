@@ -218,7 +218,7 @@ impl<B: BlockT> Default for Builder<B> {
 			hashed_keys: Default::default(),
 			hashed_blacklist: Default::default(),
 			state_version: StateVersion::V1,
-			output_file: RwLock::new(std::fs::File::open("./output_error").unwrap()),
+			output_file: RwLock::new(std::fs::File::create("./output_error").unwrap()),
 		}
 	}
 }
@@ -461,7 +461,8 @@ impl<B: BlockT> Builder<B> {
 				child_keys.len(),
 				HexDisplay::from(prefixed_top_key)
 			);
-
+			debug!(target: LOG_TARGET, "a");
+	
 			type MemTracker = memory_db::NoopTracker<Vec<u8>>;
 			type MemoryDBMeta =
 				memory_db::MemoryDB<sp_core::Blake2Hasher, memory_db::HashKey<sp_core::Blake2Hasher>, Vec<u8>, MemTracker>;
@@ -469,6 +470,7 @@ impl<B: BlockT> Builder<B> {
 			let mut root = Default::default();
 			let mut t = sp_trie::trie_types::TrieDBMutV0::<sp_core::Blake2Hasher>::new(&mut memdb, &mut root);
 
+			debug!(target: LOG_TARGET, "b");
 			let mut child_kv = vec![];
 			for child_key in child_keys {
 				let child_value = RpcApi::<B>::child_get_storage(
@@ -486,16 +488,24 @@ impl<B: BlockT> Builder<B> {
 				use sp_trie::TrieMut;
 				t.insert(child_key.0.as_slice(), child_value.0.as_slice()).unwrap();
 				child_kv.push((child_key, child_value));
+				if child_kv.len() % 100 == 0 {
+					debug!(target: LOG_TARGET, "{:?}", child_kv.len());
+				}
 			}
 
 			t.commit();
 			std::mem::drop(t);
+			debug!(target: LOG_TARGET, "c");
 			if root.as_ref() != child_root.0.as_slice() {
+				debug!(target: LOG_TARGET, "d");
 				let mut output = self.output_file.write();
 				serde_json::to_writer(&mut *output, &child_root).unwrap();
 				serde_json::to_writer(&mut *output, &root).unwrap();
 				serde_json::to_writer(&mut *output, &child_kv).unwrap();
 				//assert!(root.as_ref() == child_root.0.as_slice());
+			} else {
+				let mut output = self.output_file.write();
+				serde_json::to_writer(&mut *output, &child_root).unwrap();
 			}
 			// super tricky.
 			let un_prefixed = &prefixed_top_key.0[DEFAULT_CHILD_STORAGE_KEY_PREFIX.len()..];
@@ -532,7 +542,7 @@ impl<B: BlockT> Builder<B> {
 			filtered_kv
 		} else {
 			info!(target: LOG_TARGET, "downloading data for all pallets.");
-			self.rpc_get_pairs_paged(StorageKey(vec![]), at).await?
+			self.rpc_get_pairs_paged(StorageKey(DEFAULT_CHILD_STORAGE_KEY_PREFIX.to_vec()), at).await?
 		};
 
 		for prefix in &self.hashed_prefixes {
@@ -613,6 +623,7 @@ impl<B: BlockT> Builder<B> {
 			top_kp.retain(|(k, _)| !self.hashed_blacklist.contains(&k.0))
 		}
 
+		let mut top_kp = vec![top_kp[2].clone()];
 		let child_kp = match self.mode {
 			Mode::Online(ref config) if config.scrape_children => {
 				let child_kp = self.load_child_keys_remote(&top_kp).await?;
@@ -692,19 +703,20 @@ impl<B: BlockT> Builder<B> {
 	/// Build the test externalities.
 	pub async fn build(self) -> Result<TestExternalities, &'static str> {
 		let state_version = self.state_version.clone();
-		let (top_kv, child_kv) = self.pre_build().await?;
+		let (mut top_kv, child_kv) = self.pre_build().await?;
 		let mut ext = TestExternalities::new_with_code_and_state(
 			Default::default(),
 			Default::default(),
 			state_version,
 		);
 
+		top_kv.truncate(1);
 		info!(target: LOG_TARGET, "injecting a total of {} top keys", top_kv.len());
 		for (k, v) in top_kv {
 			// skip writing the child root data.
-			if is_default_child_storage_key(k.as_ref()) {
-				continue
-			}
+			//if is_default_child_storage_key(k.as_ref()) {
+			//	continue
+			//}
 			ext.insert(k.0, v.0);
 		}
 
@@ -715,7 +727,7 @@ impl<B: BlockT> Builder<B> {
 		);
 
 		for (info, key_values) in child_kv {
-			for (k, v) in key_values {
+			for (i, (k, v)) in key_values.into_iter().enumerate() {
 				ext.insert_child(info.clone(), k.0, v.0);
 			}
 		}
@@ -806,9 +818,17 @@ mod remote_tests {
 		init_logger();
 		Builder::<Block>::new()
 			.mode(Mode::Online(OnlineConfig {
-				pallets: vec!["System".to_owned()],
+				pallets: vec![],
+				scrape_children: true,
+				transport: Transport {
+					//uri: "wss://kusama-rpc.polkadot.io".to_string(),
+					//uri: "wss://pub.elara.patract.io/kusama",
+					uri: "wss://kusama.api.onfinality.io/public-ws".to_string(),
+					client: None,
+				},
 				..Default::default()
 			}))
+			.state_version(sp_core::StateVersion::V0)
 			.build()
 			.await
 			.expect(REMOTE_INACCESSIBLE)
