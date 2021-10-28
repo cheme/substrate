@@ -18,16 +18,23 @@
 
 //! Database upgrade logic.
 
+use log::warn;
+use sp_runtime::traits::{Block as BlockT, HashFor};
 use std::{
 	fmt, fs,
 	io::{self, ErrorKind, Read, Write},
+	marker::PhantomData,
 	path::{Path, PathBuf},
+	sync::Arc,
 };
 
 use crate::{columns, utils::DatabaseType};
 use codec::{Decode, Encode};
+use kvdb::KeyValueDB;
+use trie_db::{TrieDBNodeIterator, node::{NodePlan, ValuePlan}};
 use kvdb_rocksdb::{Database, DatabaseConfig};
-use sp_runtime::traits::Block as BlockT;
+use sp_core::storage::{ChildInfo, ChildType, PrefixedStorageKey};
+use sp_trie::KeySpacedDB;
 
 /// Version file name.
 const VERSION_FILE_NAME: &'static str = "db_version";
@@ -96,6 +103,11 @@ pub fn upgrade_db<Block: BlockT>(db_path: &Path, db_type: DatabaseType) -> Upgra
 		},
 		2 => migrate_2_to_3::<Block>(db_path, db_type)?,
 		CURRENT_VERSION => (),
+		42 => {
+			check_migration::<Block>(db_path, db_type).map_err(|e| {
+				warn!("Simulate migration error {:?}", e);
+			}).unwrap();
+		},
 		_ => return Err(UpgradeError::FutureDatabaseVersion(db_version)),
 	}
 	update_version(db_path)?;
@@ -168,6 +180,181 @@ fn version_file_path(path: &Path) -> PathBuf {
 	let mut file_path = path.to_owned();
 	file_path.push(VERSION_FILE_NAME);
 	file_path
+}
+
+fn check_migration<Block: BlockT>(
+	db_path: &Path,
+	_db_type: DatabaseType,
+) -> sp_blockchain::Result<()> {
+	let db_config = kvdb_rocksdb::DatabaseConfig::with_columns(crate::utils::NUM_COLUMNS);
+	/*   {
+		let option = rocksdb::Options::default();
+		 let cfs = rocksdb::DB::list_cf(&option, db_path).unwrap();
+		 let db = rocksdb::DB::open_cf(&option, db_path, cfs.clone()).unwrap();
+		 for cf in cfs {
+
+			 if let Some(col) = db.cf_handle(&cf) {
+				println!("{:?}, {:?}", cf, db.property_int_value_cf(col, "rocksdb.estimate-table-readers-mem"));
+				println!("{:?}, {:?}", cf, db.property_int_value_cf(col, "rocksdb.size-all-mem-tables"));
+				println!("{:?}, {:?}", cf, db.property_int_value_cf(col, "rocksdb.cur-size-all-mem-tables"));
+			 }
+		 }
+	}*/
+	let path = db_path
+		.to_str()
+		.ok_or_else(|| sp_blockchain::Error::Backend("Invalid database path".into()))?;
+	let db = kvdb_rocksdb::Database::open(&db_config, &path)
+		.map_err(|err| sp_blockchain::Error::Backend(format!("{}", err)))?;
+
+	let (tree_root, _block_hash) =
+		match db.get(crate::utils::COLUMN_META, crate::meta_keys::FINALIZED_BLOCK) {
+			Ok(id) => {
+				let id = id.unwrap();
+				let id = db
+					.get(crate::columns::HEADER, &id)
+					.expect("s")
+					.map(|b| Block::Header::decode(&mut &b[..]).ok());
+				use sp_runtime::traits::Header;
+				let id = id.unwrap().expect("d");
+				warn!("Head is {:?}", id);
+				(id.state_root().clone(), id.hash().clone())
+			}
+			Err(e) => panic!("no best block is bad sign {:?}", e),
+		};
+
+	let db = Arc::new(db);
+	let threshold: u32 = 33;
+	let mut nb_to_migrate = 0;
+	let mut nb_to_migrate_child = 0;
+
+	let storage = StorageDb::<Block>(db, PhantomData);
+	let trie = sp_trie::trie_types::TrieDB::new(&storage, &tree_root).expect("build trie");
+	let iter_node = TrieDBNodeIterator::new(&trie).unwrap();
+	for node in iter_node {
+
+//	type Item = Result<(NibbleVec, Option<TrieHash<L>>, Rc<OwnedNode<DBValue>>), TrieHash<L>, CError<L>>;
+		match node.unwrap().2.node_plan() {
+			NodePlan::Leaf { value, .. } | NodePlan::NibbledBranch { value: Some(value), .. } => {
+				if let ValuePlan::Inline(range) = value {
+					if (range.end - range.start) as u32 >= threshold {
+						nb_to_migrate += 1;
+					}
+				}
+			 },
+			 _ => (),
+		}
+	}
+
+	use trie_db::Trie;
+	let mut child_roots: Vec<(ChildInfo, Vec<u8>)> = Vec::new();
+	// get all child trie roots
+	for key_value in trie.iter().unwrap() {
+		let (key, value) = key_value.unwrap();
+		if key[..].starts_with(sp_core::storage::well_known_keys::DEFAULT_CHILD_STORAGE_KEY_PREFIX) {
+			let prefixed_key = PrefixedStorageKey::new(key);
+			let (_type, unprefixed) = ChildType::from_prefixed_key(&prefixed_key).unwrap();
+			child_roots.push((ChildInfo::new_default(unprefixed), value));
+		}
+	}
+	for (child_info, root) in child_roots {
+		let mut child_root = <HashFor<Block> as hash_db::Hasher>::Out::default();
+		let storage = KeySpacedDB::new(&storage, child_info.keyspace());
+	
+		child_root.as_mut()[..].copy_from_slice(&root[..]);
+		let trie = sp_trie::trie_types::TrieDB::new(&storage, &child_root).expect("build child trie");
+		let iter_node = TrieDBNodeIterator::new(&trie).unwrap();
+		for node in iter_node {
+			match node.unwrap().2.node_plan() {
+				NodePlan::Leaf { value, .. } | NodePlan::NibbledBranch { value: Some(value), .. } => {
+					if let ValuePlan::Inline(range) = value {
+						if (range.end - range.start) as u32 >= threshold {
+							nb_to_migrate_child += 1;
+						}
+					}
+				 },
+				 _ => (),
+			}
+		}
+
+
+	}
+
+	warn!("Finished check state at block {:?}, nb to migrate {:?}, nb child to migrate {:?}", nb_to_migrate, nb_to_migrate, nb_to_migrate_child);
+	Ok(())
+}
+
+struct ArcKVDB<D: KeyValueDB>(Arc<D>);
+
+impl<D: KeyValueDB> parity_util_mem::MallocSizeOf for ArcKVDB<D> {
+	fn size_of(&self, ops: &mut parity_util_mem::MallocSizeOfOps) -> usize {
+		self.0.size_of(ops)
+	}
+}
+
+impl<D: KeyValueDB> KeyValueDB for ArcKVDB<D> {
+	fn transaction(&self) -> kvdb::DBTransaction {
+		self.0.transaction()
+	}
+
+	fn get(&self, col: u32, key: &[u8]) -> io::Result<Option<Vec<u8>>> {
+		self.0.get(col, key)
+	}
+
+	fn get_by_prefix(&self, col: u32, prefix: &[u8]) -> Option<Box<[u8]>> {
+		self.0.get_by_prefix(col, prefix)
+	}
+
+	fn write(&self, transaction: kvdb::DBTransaction) -> io::Result<()> {
+		self.0.write(transaction)
+	}
+
+	fn iter<'a>(&'a self, col: u32) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
+		self.0.iter(col)
+	}
+
+	fn iter_with_prefix<'a>(
+		&'a self,
+		col: u32,
+		prefix: &'a [u8],
+	) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
+		self.0.iter_with_prefix(col, prefix)
+	}
+
+	fn restore(&self, new_db: &str) -> io::Result<()> {
+		self.0.restore(new_db)
+	}
+}
+
+struct StorageDb<Block>(Arc<kvdb_rocksdb::Database>, PhantomData<Block>);
+
+impl<Block: BlockT> hash_db::HashDBRef<HashFor<Block>, Vec<u8>> for StorageDb<Block> {
+	fn contains(
+		&self,
+		key: &<HashFor<Block> as hash_db::Hasher>::Out,
+		prefix: hash_db::Prefix,
+	) -> bool {
+		self.get(key, prefix).is_some()
+	}
+
+	fn get(
+		&self,
+		key: &<HashFor<Block> as hash_db::Hasher>::Out,
+		prefix: hash_db::Prefix,
+	) -> Option<sp_trie::DBValue> {
+		let key = sp_trie::prefixed_key::<HashFor<Block>>(key, prefix);
+		self.0.get(crate::columns::STATE, key.as_slice()).expect("bad script")
+	}
+}
+
+impl<Block: BlockT> sp_state_machine::Storage<HashFor<Block>> for StorageDb<Block> {
+	fn get(
+		&self,
+		key: &Block::Hash,
+		prefix: hash_db::Prefix,
+	) -> Result<Option<sp_trie::DBValue>, String> {
+		let key = sp_trie::prefixed_key::<HashFor<Block>>(key, prefix);
+		Ok(self.0.get(crate::columns::STATE_META, key.as_slice()).expect("bad script"))
+	}
 }
 
 #[cfg(test)]

@@ -23,6 +23,8 @@ hash-db = "0.15.2"
 codec = { package = "parity-scale-codec", version = "2.0.0", features = [
     "derive",
 ] }
+parity-util-mem = "0.10.0"
+trie-db = "0.23.0"
 
 sc-client-api = { version = "4.0.0-dev", path = "../api" }
 sp-arithmetic = { version = "4.0.0-dev", path = "../../primitives/arithmetic" }
