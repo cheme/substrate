@@ -1174,6 +1174,7 @@ mod tests {
 		}).collect();
 
 		let mut art = ArtLocalBackend::<TestConf>::with_capacity(0).encoded;
+		let mut witness = std::collections::BTreeSet::<u8>::new();
 
 		let mut order: Vec<usize> = (0..nb).collect();
 		// TODO smallrng
@@ -1183,6 +1184,7 @@ mod tests {
 
 		for (s, i) in order.iter().enumerate() {
 			assert_eq!(art.nb_children(), s);
+			assert_eq!(witness.len(), s);
 			let i = *i;
 			let prev = if i == 0 {
 				None
@@ -1191,6 +1193,8 @@ mod tests {
 			};
 			assert!(art.get_next_child_index(prev) != Some(i));
 			assert!(art.fetch_children_index(i as u8).is_none());
+			assert!(!witness.contains(&(i as u8)));
+
 			if !art.set_children_index(i as u8, &data[i].0) {
 				let mut art_new = ArtLocalBackend::<TestConf>::with_capacity(s + 1).encoded;
 				let mut next_change = art.get_next_child_index(None);
@@ -1206,13 +1210,62 @@ mod tests {
 				art = art_new;
 				assert!(art.set_children_index(i as u8, &data[i].0));
 			}
-			assert_eq!(art.fetch_children_index(i as u8), Some(data[i].0.clone()));
-		}
-		assert_eq!(art.nb_children(), nb);
-		for i in 0..nb {
+			witness.insert(i as u8);
 			assert_eq!(art.fetch_children_index(i as u8), Some(data[i].0.clone()));
 		}
 
+		let mut prev = None;
+		let mut witness_iter = witness.iter();
+		while let Some(i) = art.get_next_child_index(prev) {
+			assert_eq!(witness_iter.next(), Some(&(i as u8)));
+			prev = Some(i);
+		}
+		assert_eq!(witness_iter.next(), None);
+
+		assert_eq!(art.nb_children(), nb);
+		assert_eq!(witness.len(), nb);
+		for i in 0..nb {
+			assert_eq!(art.fetch_children_index(i as u8), Some(data[i].0.clone()));
+			assert!(witness.contains(&(i as u8)));
+		}
+
+		order.shuffle(&mut rng);
+		for (s, i) in order.iter().enumerate().take(nb / 2) {
+			if s == nb {
+				break;
+			}
+			art.remove_children_index(*i as u8); // TODO implement resizing
+			witness.remove(&(*i as u8));
+		}
+		assert_eq!(art.nb_children(), nb - (nb / 2));
+
+		let mut prev = None;
+		let mut witness_iter = witness.iter();
+		while let Some(i) = art.get_next_child_index(prev) {
+			assert_eq!(witness_iter.next(), Some(&(i as u8)));
+			prev = Some(i);
+		}
+		assert_eq!(witness_iter.next(), None);
+
+		for (s, i) in order.iter().enumerate().take(nb / 2) {
+			if s == nb {
+				break;
+			}
+			assert!(art.set_children_index(*i as u8, &data[*i].0)); // correct as long as no rem resize
+			witness.insert(*i as u8);
+		}
+		for i in 0..nb {
+			assert_eq!(art.fetch_children_index(i as u8), Some(data[i].0.clone()));
+			assert!(witness.contains(&(i as u8)));
+		}
+
+		let mut prev = None;
+		let mut witness_iter = witness.iter();
+		while let Some(i) = art.get_next_child_index(prev) {
+			assert_eq!(witness_iter.next(), Some(&(i as u8)));
+			prev = Some(i);
+		}
+		assert_eq!(witness_iter.next(), None);
 
 		order.shuffle(&mut rng);
 		for (s, i) in order.iter().enumerate() {
@@ -1220,7 +1273,9 @@ mod tests {
 				break;
 			}
 			art.remove_children_index(*i as u8); // TODO implement resizing
+			witness.remove(&(*i as u8));
 		}
 		assert_eq!(art.nb_children(), 0);
+		assert!(witness.is_empty());
 	}
 }
