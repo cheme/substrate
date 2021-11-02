@@ -1099,6 +1099,7 @@ impl<N: TreeConf> Tree<N> {
 					Descent::Child(child_position, index) => {
 						if current.has_child(index) { // has child for lifetime only
 							// insert is guaranteed to succeed so set backend change node when going down.
+							// TODO but insert of same value could be noops as remove!!!
 							current.backend.set_children_change();
 							if let Some(child) = current.get_child_mut(index, &self.backend) {
 								position = child_position.next::<N::Radix>();
