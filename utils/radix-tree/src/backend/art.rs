@@ -795,6 +795,7 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 				backend,
 			))
 		} else {
+			println!("Missing value for {:?}", index);
 			None
 		}
 	}
