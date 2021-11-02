@@ -168,7 +168,7 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 		IndexFor<N>: Clone + Debug + Decode + Encode,
 		ValueIndexFor<N>: Clone + Debug + Decode + Encode,
 {
-	const FUSE_ON_COMMIT: bool = false;
+	const FUSE_ON_COMMIT: bool = true;
 	type ChildState = crate::Child<Node<N>>;
 	//type ChildState = Box<Node<N>>;
 
