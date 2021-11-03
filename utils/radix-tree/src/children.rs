@@ -391,7 +391,8 @@ impl<N: Debug + Clone> Children for Children256<N> {
 		}
 		let children = self.0.as_mut()
 			.expect("Lazy init above");
-		let r = replace(&mut children[index as usize], Some(child));
+		let r = children[index as usize].take();
+		children[index as usize] = Some(child);
 		if r.is_none() {
 			self.1 += 1;
 		}
