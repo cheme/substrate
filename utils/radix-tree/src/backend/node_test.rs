@@ -351,11 +351,16 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 		if encoded_change {
 			let encoded = encode_node::<N>(node);
 			// TODO additional change check??
-			if let Some(i) = node.backend.index.as_ref() {
+			let result = if let Some(i) = node.backend.index.as_ref() {
 				backend.update_node(i.clone(), encoded)
 			} else {
 				Some(backend.set_new_node(encoded))
-			}
+			};
+			result.as_ref().map(|index| {
+				// TODO Api is bad, this update should not be implemented for each trait impl
+				node.backend.index = Some(index.clone());
+			});
+			result
 		} else {
 			None
 		}
