@@ -751,6 +751,11 @@ impl<N: TreeConf> Node<N> {
 			N::NodeBackend::commit_change_value_part(node, removed_node, removed_value, backend);
 		}
 		if let Some(index) = node.get_next_child_index(None) {
+			if N::Backend::ACTIVE {
+				// fetch first
+				node.get_child_mut(index, backend);
+			}
+			
 			// even with backend we do a removal in this case (cannot keep deleted).
 			if let Some(child) = node.children.remove_child(index) {
 				node.backend.decrease_number_of_children();

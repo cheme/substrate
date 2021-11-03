@@ -309,8 +309,8 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 
 	fn commit_change_value_part(
 		node: &mut NodeBox<N>,
-		remove_node: &mut Vec<N::NodeBackend>,
-		remove_value: &mut Vec<ValueIndexFor<N>>,
+		_remove_node: &mut Vec<N::NodeBackend>,
+		_remove_value: &mut Vec<ValueIndexFor<N>>,
 		backend: &N::Backend,
 	) -> bool {
 		let mut encoded_change = false;
@@ -334,6 +334,7 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 		}
 		if node.backend.value_state == ValueState::Deleted {
 			if let Some(previous) = node.backend.value.clone() {
+				// TODO not why added to remove value vec
 				backend.remove_value(previous);
 				encoded_change = true;
 			} else {

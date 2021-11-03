@@ -945,8 +945,8 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 
 	fn commit_change_value_part(
 		node: &mut NodeBox<N>,
-		remove_node: &mut Vec<N::NodeBackend>,
-		remove_value: &mut Vec<ValueIndexFor<N>>,
+		_remove_node: &mut Vec<N::NodeBackend>,
+		_remove_value: &mut Vec<ValueIndexFor<N>>,
 		backend: &N::Backend,
 	) -> bool {
 		let mut encoded_change = false;
@@ -967,6 +967,7 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 		}
 		if node.backend.value_state == ValueState::Deleted {
 			if let Some(previous) = node.backend.encoded.fetch_value_index() {
+				// TODO not why added to remove value vec
 				backend.remove_value(previous);
 				encoded_change = true;
 			} else {
