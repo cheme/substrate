@@ -91,6 +91,12 @@ pub trait NodeBackend<N: TreeConf>: Clone {
 	// creates empty node until commit.
 	const FUSE_ON_COMMIT: bool = false;
 
+	// for some backend we want to delete child
+	// in a first separate iteration to avoid going
+	// over some size thresholds.
+	// TODO same for art children
+	const DELETE_CHILD_FIRST: bool = false;
+
 	/// Just use `Box<Node<N>>` if inactive or `Child<Node<N>>` if active.
 	type ChildState: crate::WithChildState<crate::Node<N>>;
 

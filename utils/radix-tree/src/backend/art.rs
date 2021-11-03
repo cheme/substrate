@@ -777,6 +777,7 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 		ValueIndexFor<N>: Index,
 {
 	const FUSE_ON_COMMIT: bool = true;
+	const DELETE_CHILD_FIRST: bool = true;
 
 	type ChildState = crate::Child<Node<N>>;
 
@@ -912,31 +913,40 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 				}
 				node.backend.encoded = new;
 			} else {
-				let mut from = None;
-				// iterate child change and add to existing backend
-				while let Some(next) = node.children.get_next_child_index(from) {
-					from = Some(next);
-					match node.children.get_child_mut(next).map(|c| c.node_mut()) {
-						Some(Some(mut child)) => {
-							if let Some(ix) = Self::commit_change_fuse(&mut child, remove_node, remove_value, backend) {
-								encoded_change = true;
-								node.backend.encoded.set_children_index(next, &ix);
-							} else {
-								// set old index (can be unset due to value not new but split
-								// that makes it a new child. TODO manage differently. eg return if modified from
-								// commit.
-								if let Some(ix) = child.backend.index.clone() {
-									node.backend.encoded.set_children_index(next, &ix);
+				let mut two_pass = N::NodeBackend::DELETE_CHILD_FIRST;
+				loop {
+					let mut from = None;
+					// iterate child change and add to existing backend
+					while let Some(next) = node.children.get_next_child_index(from) {
+						from = Some(next);
+						match node.children.get_child_mut(next).map(|c| c.node_mut()) {
+							Some(Some(mut child)) => {
+								if !two_pass {
+									if let Some(ix) = Self::commit_change_fuse(&mut child, remove_node, remove_value, backend) {
+										encoded_change = true;
+										node.backend.encoded.set_children_index(next, &ix);
+									} else {
+										// set old index (can be unset due to value not new but split
+										// that makes it a new child. TODO manage differently. eg return if modified from
+										// commit.
+										if let Some(ix) = child.backend.index.clone() {
+											node.backend.encoded.set_children_index(next, &ix);
+										}
+									}
 								}
-							}
-						},
-						Some(None) => {
-							encoded_change = true;
-							node.backend.encoded.remove_children_index(next);
-							node.children.remove_child(next);
-						},
-						None => (),
+							},
+							Some(None) => {
+								encoded_change = true;
+								node.backend.encoded.remove_children_index(next);
+								node.children.remove_child(next);
+							},
+							None => (),
+						}
 					}
+					if !two_pass {
+						break;
+					}
+					two_pass = false;
 				}
 			}
 		}
