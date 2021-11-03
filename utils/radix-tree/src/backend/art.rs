@@ -665,10 +665,11 @@ impl<I: Index, VI: Index> Art48<I, VI> {
 	}
 
 	fn set_children_index(&mut self, at: usize, index: &I) -> bool {
-		if self.nb_children() == 48 {
-			return false;
-		}
 		if self.0[at + 1] == 0 {
+			// new one
+			if self.nb_children() == 48 {
+				return false;
+			}
 			let mut available = 48;
 			// Scan for empty slots: TODO can index with a bit that indicate free slot and empty.
 			// eg 0 is empty, 1 -> 49 are actual index, 50 - 98 are removed index (bitmask would be better)
