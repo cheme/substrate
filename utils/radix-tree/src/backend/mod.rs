@@ -144,12 +144,31 @@ pub trait NodeBackend<N: TreeConf>: Clone {
 
 	/// Flush changes that happens to a node.
 	/// return new backend index if changed.
+	/// TODO remove commit change and have a single struct
+	/// implementation for it: just implement read/writes/set as
+	/// codec/accessor kind.
 	fn commit_change(
 		node: &mut NodeBox<N>,
 		remove_node: &mut Vec<N::NodeBackend>,
 		remove_value: &mut Vec<ValueIndexFor<N>>,
 		backend: &N::Backend,
 	) -> Option<IndexFor<N>>;
+
+	fn commit_change_children_part(
+		node: &mut NodeBox<N>,
+		remove_node: &mut Vec<N::NodeBackend>,
+		remove_value: &mut Vec<ValueIndexFor<N>>,
+		backend: &N::Backend,
+	) -> bool;
+
+	// TODO not really needed, we need the chilren part for fuse,
+	// but this can be deduced from clear content.
+	fn commit_change_value_part(
+		node: &mut NodeBox<N>,
+		remove_node: &mut Vec<N::NodeBackend>,
+		remove_value: &mut Vec<ValueIndexFor<N>>,
+		backend: &N::Backend,
+	) -> bool;
 
 	fn commit_change_fuse(
 		node: &mut NodeBox<N>,
@@ -161,7 +180,7 @@ pub trait NodeBackend<N: TreeConf>: Clone {
 			&& node.number_child() == 1
 			&& !node.has_value()
 		{
-			Node::<N>::fuse_child(node, remove_node, remove_value);
+			Node::<N>::fuse_child(node, remove_node, remove_value, backend);
 		}
 		Self::commit_change(node, remove_node, remove_value, backend)
 	}
@@ -218,6 +237,24 @@ impl<N: TreeConf> NodeBackend<N> for () {
 	}
 
 	fn delete(self, _: &N::Backend) {
+	}
+
+	fn commit_change_children_part(
+		_node: &mut NodeBox<N>,
+		_remove_node: &mut Vec<N::NodeBackend>,
+		_remove_value: &mut Vec<ValueIndexFor<N>>,
+		_: &N::Backend,
+	) -> bool {
+		false
+	}
+
+	fn commit_change_value_part(
+		_node: &mut NodeBox<N>,
+		_remove_node: &mut Vec<N::NodeBackend>,
+		_remove_value: &mut Vec<ValueIndexFor<N>>,
+		_: &N::Backend,
+	) -> bool {
+		false
 	}
 
 	fn commit_change(

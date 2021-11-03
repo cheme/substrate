@@ -269,20 +269,13 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 		}
 	}
 
-	fn commit_change(
+	fn commit_change_children_part(
 		node: &mut NodeBox<N>,
 		remove_node: &mut Vec<N::NodeBackend>,
 		remove_value: &mut Vec<ValueIndexFor<N>>,
 		backend: &N::Backend,
-	) -> Option<IndexFor<N>> {
+	) -> bool {
 		let mut encoded_change = false;
-		let changed = node.backend.children_changed
-			|| node.backend.prefix_changed
-			|| node.backend.value_state == ValueState::Modified
-			|| node.backend.value_state == ValueState::Deleted;
-		if !changed {
-			return None;
-		}
 		if node.backend.children_changed {
 			// recurse commit of resolved children and update backend indexes.
 			let mut index = None;
@@ -311,6 +304,16 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 				index = Some(i);
 			}
 		}
+		encoded_change
+	}
+
+	fn commit_change_value_part(
+		node: &mut NodeBox<N>,
+		remove_node: &mut Vec<N::NodeBackend>,
+		remove_value: &mut Vec<ValueIndexFor<N>>,
+		backend: &N::Backend,
+	) -> bool {
+		let mut encoded_change = false;
 		if node.backend.value_state == ValueState::Modified {
 			if let Some(value) = node.value.as_ref() {
 				let encoded = value.encode();
@@ -339,6 +342,27 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 			node.backend.value = None;
 			node.backend.value_state = ValueState::Resolved;
 		}
+
+		encoded_change
+	}
+	
+	fn commit_change(
+		node: &mut NodeBox<N>,
+		remove_node: &mut Vec<N::NodeBackend>,
+		remove_value: &mut Vec<ValueIndexFor<N>>,
+		backend: &N::Backend,
+	) -> Option<IndexFor<N>> {
+		let mut encoded_change = false;
+		let changed = node.backend.children_changed
+			|| node.backend.prefix_changed
+			|| node.backend.value_state == ValueState::Modified
+			|| node.backend.value_state == ValueState::Deleted;
+		if !changed {
+			return None;
+		}
+		encoded_change |= Self::commit_change_children_part(node, remove_node, remove_value, backend);
+		encoded_change |= Self::commit_change_value_part(node, remove_node, remove_value, backend);
+
 
 		node.backend.children_changed = false;
 		node.backend.nb_children = {

@@ -858,21 +858,14 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 		ArtLocalBackend::with_capacity(0)
 	}
 
-	fn commit_change(
+	fn commit_change_children_part(
 		node: &mut NodeBox<N>,
 		remove_node: &mut Vec<N::NodeBackend>,
 		remove_value: &mut Vec<ValueIndexFor<N>>,
 		backend: &N::Backend,
-	) -> Option<IndexFor<N>> {
+	) -> bool {
 		let mut encoded_change = false;
-		let changed = node.backend.children_changed
-			|| node.backend.prefix_changed
-			|| node.backend.value_state == ValueState::Modified
-			|| node.backend.value_state == ValueState::Deleted;
-		if !changed {
-			return None;
-		}
-		if node.backend.children_changed {
+		if node.backend.children_changed  {
 			use crate::children::Children;
 			use crate::WithChildState;
 			if let Some(mut new) = node.backend.need_resize() {
@@ -947,6 +940,16 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 				}
 			}
 		}
+		encoded_change
+	}
+
+	fn commit_change_value_part(
+		node: &mut NodeBox<N>,
+		remove_node: &mut Vec<N::NodeBackend>,
+		remove_value: &mut Vec<ValueIndexFor<N>>,
+		backend: &N::Backend,
+	) -> bool {
+		let mut encoded_change = false;
 		if node.backend.value_state == ValueState::Modified {
 			if let Some(value) = node.value.as_ref() {
 				let ix = if let Some(previous) = node.backend.encoded.fetch_value_index() {
@@ -972,6 +975,25 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 			node.backend.encoded.set_value_index(&ValueIndexFor::<N>::UNDEFINED);
 			node.backend.value_state = ValueState::Resolved;
 		}
+		encoded_change
+	}
+	
+	fn commit_change(
+		node: &mut NodeBox<N>,
+		remove_node: &mut Vec<N::NodeBackend>,
+		remove_value: &mut Vec<ValueIndexFor<N>>,
+		backend: &N::Backend,
+	) -> Option<IndexFor<N>> {
+		let mut encoded_change = false;
+		let changed = node.backend.children_changed
+			|| node.backend.prefix_changed
+			|| node.backend.value_state == ValueState::Modified
+			|| node.backend.value_state == ValueState::Deleted;
+		if !changed {
+			return None;
+		}
+		encoded_change |= Self::commit_change_children_part(node, remove_node, remove_value, backend);
+		encoded_change |= Self::commit_change_value_part(node, remove_node, remove_value, backend);
 
 		node.backend.children_changed = false;
 		node.backend.original_nb_children = node.backend.pending_nb_children;

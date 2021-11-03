@@ -744,7 +744,12 @@ impl<N: TreeConf> Node<N> {
 		node: &mut Box<Self>,
 		removed_node: &mut Vec<N::NodeBackend>,
 		removed_value: &mut Vec<ValueIndexFor<N>>,
+		backend: &N::Backend,
 	) {
+		if N::Backend::ACTIVE {
+			N::NodeBackend::commit_change_children_part(node, removed_node, removed_value, backend);
+			N::NodeBackend::commit_change_value_part(node, removed_node, removed_value, backend);
+		}
 		if let Some(index) = node.get_next_child_index(None) {
 			// even with backend we do a removal in this case (cannot keep deleted).
 			if let Some(child) = node.children.remove_child(index) {
@@ -764,6 +769,7 @@ impl<N: TreeConf> Node<N> {
 				let mut parent = replace(node, child);
 				if N::Backend::ACTIVE {
 					if let Some(index) = parent.backend.clear_content() {
+						// TODO useless -> could remove the commit_change_value_part ahead
 						removed_value.push(index);
 					}
 					removed_node.push(parent.backend);
@@ -1177,7 +1183,7 @@ impl<N: TreeConf> Tree<N> {
 				} else {
 					if !N::NodeBackend::FUSE_ON_COMMIT {
 						if current.number_child() == 1 {
-							Node::<N>::fuse_child(current, &mut self.removed_node, &mut self.removed_value);
+							Node::<N>::fuse_child(current, &mut self.removed_node, &mut self.removed_value, &self.backend);
 						}
 						return result;
 					}
@@ -1242,7 +1248,7 @@ impl<N: TreeConf> Tree<N> {
 								}
 								if !N::NodeBackend::FUSE_ON_COMMIT { // TODO this could ignore fuse on commit (do not query additional nodes).
 									if !parent.has_value() && parent.number_child() == 1 {
-										Node::<N>::fuse_child(parent, &mut self.removed_node, &mut self.removed_value);
+										Node::<N>::fuse_child(parent, &mut self.removed_node, &mut self.removed_value, &self.backend);
 									}
 								}
 							} else {
@@ -1251,7 +1257,7 @@ impl<N: TreeConf> Tree<N> {
 								break;
 							}
 						} else if !N::NodeBackend::FUSE_ON_COMMIT && current.number_child() == 1 {
-							Node::<N>::fuse_child(current, &mut self.removed_node, &mut self.removed_value);
+							Node::<N>::fuse_child(current, &mut self.removed_node, &mut self.removed_value, &self.backend);
 						}
 
 						//return current.set_value(value);
