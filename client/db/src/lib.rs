@@ -291,7 +291,7 @@ impl<B: BlockT> StateBackend<HashFor<B>> for RefTrackingState<B> {
 
 /// Database settings.
 pub struct DatabaseSettings {
-	/// Trie cache size. 
+	/// Trie cache size.
 	pub trie_cache_size: usize,
 	/// State cache size.
 	pub state_cache_size: usize,

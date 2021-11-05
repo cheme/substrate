@@ -224,11 +224,7 @@ pub fn open_database<Block: BlockT>(
 		sp_blockchain::Error::Backend(format!("Error in migration to role subdirectory: {}", e))
 	})?;
 
-	let cache = if config.trie_cache_size == 0 {
-		None
-	} else {
-		Some(config.trie_cache_size)
-	};
+	let cache = if config.trie_cache_size == 0 { None } else { Some(config.trie_cache_size) };
 	open_database_at::<Block>(&config.source, db_type, cache)
 }
 
@@ -238,13 +234,15 @@ fn open_database_at<Block: BlockT>(
 	trie_cache: Option<usize>,
 ) -> sp_blockchain::Result<Arc<dyn Database<DbHash>>> {
 	let db: Arc<dyn Database<DbHash>> = match &source {
-		DatabaseSource::ParityDb { path } => open_parity_db::<Block>(&path, db_type, true, trie_cache)?,
+		DatabaseSource::ParityDb { path } =>
+			open_parity_db::<Block>(&path, db_type, true, trie_cache)?,
 		DatabaseSource::RocksDb { path, cache_size } =>
 			open_kvdb_rocksdb::<Block>(&path, db_type, true, *cache_size, trie_cache)?,
 		DatabaseSource::Custom(db) => db.clone(),
 		DatabaseSource::Auto { paritydb_path, rocksdb_path, cache_size } => {
 			// check if rocksdb exists first, if not, open paritydb
-			match open_kvdb_rocksdb::<Block>(&rocksdb_path, db_type, false, *cache_size, trie_cache) {
+			match open_kvdb_rocksdb::<Block>(&rocksdb_path, db_type, false, *cache_size, trie_cache)
+			{
 				Ok(db) => db,
 				Err(OpenDbError::NotEnabled(_)) | Err(OpenDbError::DoesNotExist) =>
 					open_parity_db::<Block>(&paritydb_path, db_type, true, trie_cache)?,
@@ -308,7 +306,12 @@ impl From<io::Error> for OpenDbError {
 }
 
 #[cfg(feature = "with-parity-db")]
-fn open_parity_db<Block: BlockT>(path: &Path, db_type: DatabaseType, create: bool, trie_cache: Option<usize>) -> OpenDbResult {
+fn open_parity_db<Block: BlockT>(
+	path: &Path,
+	db_type: DatabaseType,
+	create: bool,
+	trie_cache: Option<usize>,
+) -> OpenDbResult {
 	let db = crate::parity_db::open(path, db_type, create, trie_cache)?;
 	Ok(db)
 }
@@ -385,7 +388,11 @@ fn open_kvdb_rocksdb<Block: BlockT>(
 	crate::upgrade::update_version(path)?;
 
 	if let (Some(cache), DatabaseType::Full) = (trie_cache, db_type) {
-		let mut db = crate::trie_state_cache::DatabaseCache::new(sp_database::as_database_adapter::<_, Block::Hash>(db));
+		let mut db =
+			crate::trie_state_cache::DatabaseCache::new(sp_database::as_database_adapter::<
+				_,
+				Block::Hash,
+			>(db));
 		db.configure_cache(crate::columns::STATE, Some(cache));
 		Ok(Arc::new(db))
 	} else {

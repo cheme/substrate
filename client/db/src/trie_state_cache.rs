@@ -21,13 +21,10 @@
 //! its usage is only for trie state where
 //! deletion is done through journaling.
 
-
-use parking_lot::RwLock;
-use std::sync::Arc;
-use std::collections::BTreeSet;
-use std::marker::PhantomData;
-use sp_database::{Database, ColumnId, Transaction, error, Change};
 use crate::storage_cache::LRUMap;
+use parking_lot::RwLock;
+use sp_database::{error, Change, ColumnId, Database, Transaction};
+use std::{collections::BTreeSet, marker::PhantomData, sync::Arc};
 
 /// Simple lru cache.
 #[derive(Clone)]
@@ -43,12 +40,7 @@ pub struct DatabaseCache<H: Clone + AsRef<[u8]>, DB: Database<H>> {
 impl<H: Clone + AsRef<[u8]>, DB: Database<H>> DatabaseCache<H, DB> {
 	/// New db with unconfigured cache.
 	pub fn new(db: DB) -> Self {
-		DatabaseCache {
-			has_lru: Default::default(),
-			lru: None,
-			db,
-			_ph: PhantomData,
-		}
+		DatabaseCache { has_lru: Default::default(), lru: None, db, _ph: PhantomData }
 	}
 
 	/// define cache for a given column.
@@ -61,7 +53,7 @@ impl<H: Clone + AsRef<[u8]>, DB: Database<H>> DatabaseCache<H, DB> {
 		let new_cache = size.map(|size| LRUMap::new(size));
 		if self.lru.is_none() {
 			if new_cache.is_none() {
-				return;
+				return
 			}
 			let mut caches = Vec::with_capacity(column as usize + 1);
 			while caches.len() < column as usize + 1 {
@@ -81,7 +73,7 @@ impl<H: Clone + AsRef<[u8]>, DB: Database<H>> DatabaseCache<H, DB> {
 	}
 
 	fn add_val(&self, col: ColumnId, key: &[u8], value: Option<&Vec<u8>>) {
-		if let Some(lru) = self.lru.as_ref()  {
+		if let Some(lru) = self.lru.as_ref() {
 			if self.has_lru.contains(&col) {
 				let mut lru = lru.write();
 				if let Some(Some(lru)) = lru.get_mut(col as usize) {
@@ -92,7 +84,7 @@ impl<H: Clone + AsRef<[u8]>, DB: Database<H>> DatabaseCache<H, DB> {
 	}
 
 	fn add_val_slice(&self, col: ColumnId, key: &[u8], value: &[u8]) {
-		if let Some(lru) = self.lru.as_ref()  {
+		if let Some(lru) = self.lru.as_ref() {
 			if self.has_lru.contains(&col) {
 				let mut lru = lru.write();
 				if let Some(Some(lru)) = lru.get_mut(col as usize) {
@@ -115,25 +107,31 @@ impl<H: Clone + AsRef<[u8]>, DB: Database<H>> DatabaseCache<H, DB> {
 }
 
 impl<H, DB> Database<H> for DatabaseCache<H, DB>
-	where H: Clone + AsRef<[u8]>, DB: Database<H>,
+where
+	H: Clone + AsRef<[u8]>,
+	DB: Database<H>,
 {
 	fn commit(&self, transaction: Transaction<H>) -> error::Result<()> {
 		let cache_update: Vec<_> = if self.lru.is_some() {
-			transaction.0.iter().filter_map(|change| {
-				if let Change::Set(col, key, value) = change {
-					self.has_lru.contains(col).then(|| (*col, key.clone(), value.clone()))
-				} else {
-					// Not processing Change::remove as we expect them to already be out
-					// of lru.
-					None
-				}
-			}).collect()
+			transaction
+				.0
+				.iter()
+				.filter_map(|change| {
+					if let Change::Set(col, key, value) = change {
+						self.has_lru.contains(col).then(|| (*col, key.clone(), value.clone()))
+					} else {
+						// Not processing Change::remove as we expect them to already be out
+						// of lru.
+						None
+					}
+				})
+				.collect()
 		} else {
 			Vec::new()
 		};
 		self.db.commit(transaction)?;
 
-		if let Some(lru) = self.lru.as_ref()  {
+		if let Some(lru) = self.lru.as_ref() {
 			let mut lru = lru.write();
 			for (col, key, value) in cache_update {
 				if let Some(Some(lru)) = lru.get_mut(col as usize) {
@@ -146,12 +144,12 @@ impl<H, DB> Database<H> for DatabaseCache<H, DB>
 	}
 
 	fn get(&self, col: ColumnId, key: &[u8]) -> Option<Vec<u8>> {
-		if let Some(lru) = self.lru.as_ref()  {
+		if let Some(lru) = self.lru.as_ref() {
 			if self.has_lru.contains(&col) {
 				let mut lru = lru.write();
 				if let Some(Some(lru)) = lru.get_mut(col as usize) {
 					if let Some(node) = lru.get(key) {
-						return node.clone();
+						return node.clone()
 					}
 				}
 			}
@@ -161,12 +159,12 @@ impl<H, DB> Database<H> for DatabaseCache<H, DB>
 	}
 
 	fn contains(&self, col: ColumnId, key: &[u8]) -> bool {
-		if let Some(lru) = self.lru.as_ref()  {
+		if let Some(lru) = self.lru.as_ref() {
 			if self.has_lru.contains(&col) {
 				let mut lru = lru.write();
 				if let Some(Some(lru)) = lru.get_mut(col as usize) {
 					if let Some(cache) = lru.get(key) {
-						return cache.is_some();
+						return cache.is_some()
 					}
 				}
 			}
@@ -176,12 +174,12 @@ impl<H, DB> Database<H> for DatabaseCache<H, DB>
 	}
 
 	fn value_size(&self, col: ColumnId, key: &[u8]) -> Option<usize> {
-		if let Some(lru) = self.lru.as_ref()  {
+		if let Some(lru) = self.lru.as_ref() {
 			if self.has_lru.contains(&col) {
 				let mut lru = lru.write();
 				if let Some(Some(lru)) = lru.get_mut(col as usize) {
 					if let Some(node) = lru.get(key) {
-						return node.as_ref().map(|value| value.len());
+						return node.as_ref().map(|value| value.len())
 					}
 				}
 			}
@@ -191,7 +189,7 @@ impl<H, DB> Database<H> for DatabaseCache<H, DB>
 	}
 
 	fn with_get(&self, col: ColumnId, key: &[u8], f: &mut dyn FnMut(&[u8])) {
-		if let Some(lru) = self.lru.as_ref()  {
+		if let Some(lru) = self.lru.as_ref() {
 			if self.has_lru.contains(&col) {
 				let mut lru = lru.write();
 				if let Some(Some(lru)) = lru.get_mut(col as usize) {
@@ -199,7 +197,7 @@ impl<H, DB> Database<H> for DatabaseCache<H, DB>
 						if let Some(node) = node {
 							f(node);
 						}
-						return;
+						return
 					}
 				}
 			}
@@ -222,5 +220,5 @@ impl<H, DB> Database<H> for DatabaseCache<H, DB>
 	}
 }
 
-unsafe impl<H: Clone + AsRef<[u8]>, DB: Database<H>> Sync for DatabaseCache<H, DB> { }
-unsafe impl<H: Clone + AsRef<[u8]>, DB: Database<H>> Send for DatabaseCache<H, DB> { }
+unsafe impl<H: Clone + AsRef<[u8]>, DB: Database<H>> Sync for DatabaseCache<H, DB> {}
+unsafe impl<H: Clone + AsRef<[u8]>, DB: Database<H>> Send for DatabaseCache<H, DB> {}

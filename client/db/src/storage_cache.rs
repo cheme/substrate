@@ -59,8 +59,8 @@ pub struct Cache<B: BlockT> {
 pub(crate) struct LRUMap<K, V>(LinkedHashMap<K, V>, usize, usize);
 
 impl<K, V> LRUMap<K, V>
-	where
-		K: std::hash::Hash + Eq,
+where
+	K: std::hash::Hash + Eq,
 {
 	pub(crate) fn new(size_limit: usize) -> Self {
 		LRUMap(LinkedHashMap::new(), 0, size_limit)
@@ -179,7 +179,7 @@ impl<B: BlockT> Cache<B> {
 	/// externally when chain reorg happens without importing a new block.
 	pub fn sync(&mut self, enacted: &[B::Hash], retracted: &[B::Hash]) {
 		if !self.active {
-			return;
+			return
 		}
 		trace!("Syncing shared cache, enacted = {:?}, retracted = {:?}", enacted, retracted);
 
@@ -252,9 +252,7 @@ pub fn new_shared_cache<B: BlockT>(
 		active: shared_cache_size != 0,
 		lru_storage: LRUMap::new(shared_cache_size * top / child_ratio.1),
 		lru_hashes: LRUMap::new(FIX_LRU_HASH_SIZE),
-		lru_child_storage: LRUMap::new(
-			shared_cache_size * child_ratio.0 / child_ratio.1
-		),
+		lru_child_storage: LRUMap::new(shared_cache_size * child_ratio.0 / child_ratio.1),
 		modifications: VecDeque::new(),
 	}))
 }
@@ -602,7 +600,7 @@ impl<S: StateBackend<HashFor<B>>, B: BlockT> StateBackend<HashFor<B>> for Cachin
 		key: &[u8],
 	) -> Result<Option<Vec<u8>>, Self::Error> {
 		if !self.active {
-			return self.state.child_storage(child_info, key);
+			return self.state.child_storage(child_info, key)
 		}
 
 		let key = (child_info.storage_key().to_vec(), key.to_vec());
