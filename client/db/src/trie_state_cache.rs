@@ -31,7 +31,8 @@ use std::{collections::BTreeSet, marker::PhantomData, sync::Arc};
 pub struct DatabaseCache<H: Clone + AsRef<[u8]>, DB: Database<H>> {
 	has_lru: BTreeSet<ColumnId>,
 	// Note that design really only work for trie node (we do not cache
-	// deletion) TODO consider just a single column
+	// deletion) TODO consider just a single column + TODO consider H as key
+	// with a modified hashmap hasher (requires own implementation of linkedlist).
 	lru: Option<Arc<RwLock<Vec<Option<LRUMap<Vec<u8>, Option<Vec<u8>>>>>>>>,
 	db: DB,
 	_ph: PhantomData<H>,
