@@ -70,21 +70,6 @@ where
 		)
 	}
 
-	/// Get an externalities implementation, using the given `proving_backend`.
-	///
-	/// This will be capable of computing the PoV. See [`execute_and_get_proof`].
-	pub fn proving_ext<'a>(
-		&'a mut self,
-		proving_backend: &'a InMemoryProvingBackend<'a, H>,
-	) -> Ext<H, InMemoryProvingBackend<'a, H>> {
-		Ext::new(
-			&mut self.overlay,
-			&mut self.storage_transaction_cache,
-			&proving_backend,
-			Some(&mut self.extensions),
-		)
-	}
-
 	/// Create a new instance of `TestExternalities` with storage.
 	pub fn new(storage: Storage) -> Self {
 		Self::new_with_code(&[], storage)
@@ -206,14 +191,18 @@ where
 		&mut self,
 		execute: impl FnOnce() -> R,
 	) -> (R, StorageProof) {
-		let tri_backend = self.backend.clone();
-		let proving_backend = InMemoryProvingBackend::new(&tri_backend);
-		let mut proving_ext = self.proving_ext(&proving_backend);
-		let outcome = sp_externalities::set_and_run_with_externalities(&mut proving_ext, execute);
-		let proof = proving_ext.backend.extract_proof();
+		let proving_backend = InMemoryProvingBackend::new(&self.backend);
+		let mut proving_ext = Ext::new(
+			&mut self.overlay,
+			&mut self.storage_transaction_cache,
+			&proving_backend,
+			Some(&mut self.extensions),
+		);
 
-		// ensure that all changes are propagated, and the recorded is clean.
-		proving_ext.backend.clear_recorder();
+		let outcome = sp_externalities::set_and_run_with_externalities(&mut proving_ext, execute);
+		let proof = proving_backend.extract_proof();
+
+		// ensure that all changes are propagated.
 		self.commit_all().unwrap();
 
 		(outcome, proof)
