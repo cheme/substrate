@@ -1083,7 +1083,7 @@ impl<N: TreeConf> Tree<N> {
 
 	/// Use tree as a seek value iterator.
 	pub fn owned_iter_seek(self, prefix: Key) -> OwnedIterSeek<N> {
-		let inner = Box::new(self);
+		let inner = Box::new(self); // TODO looks like this Box cost is a bit too much
 		let self_ptr = &*inner as *const Self;
 		let unsafe_ptr: &'static Self = unsafe { self_ptr.as_ref().unwrap() };
 		let prefix_ptr = prefix.as_slice() as *const [u8];
