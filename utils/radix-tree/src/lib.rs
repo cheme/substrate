@@ -73,21 +73,23 @@ pub trait LimitPartial: Clone + Debug {
 	/// Limit is in bytes.
 	const LIMIT_SIZE: Option<usize>;
 
-	// If return, then return the partial len.
-	fn is_partial<D: Borrow<[u8]>, P: PrefixKeyConf>(&self, prefix: &PrefixKey<D, P>) -> Option<usize>;
-
-	fn full_depth<D: Borrow<[u8]>, P: PrefixKeyConf>(&self, prefix: &PrefixKey<D, P>) -> usize;
+	// return full depth if key is partial.
+	fn partial_full_depth(&self) -> Option<usize>;
+	fn new(partial_full_depth: Option<usize>) -> Self;
 }
 
 impl<V: Clone + Debug> Value for V { }
 
 impl LimitPartial for () {
 	const LIMIT_SIZE: Option<usize> = None;
-	fn is_partial<D: Borrow<[u8]>, P: PrefixKeyConf>(&self, _prefix: &PrefixKey<D, P>) -> Option<usize> {
+	fn partial_full_depth(&self) -> Option<usize> {
 		None
 	}
-	fn full_depth<D: Borrow<[u8]>, P: PrefixKeyConf>(&self, prefix: &PrefixKey<D, P>) -> usize {
-		prefix.depth()
+	fn new(partial_full_depth: Option<usize>) -> Self {
+		if partial_full_depth.is_some() {
+			panic!("No partial support, please check `LIMIT_SIZE`")
+		}
+		()
 	}
 }
 
@@ -95,6 +97,13 @@ impl LimitPartial for () {
 pub struct NoKey(Option<usize>);
 impl LimitPartial for NoKey {
 	const LIMIT_SIZE: Option<usize> = Some(0);
+	fn partial_full_depth(&self) -> Option<usize> {
+		self.0	
+	}
+	fn new(partial_full_depth: Option<usize>) -> Self {
+		NoKey(partial_full_depth)
+	}
+	/* TODO put in PrefixKey
 	fn is_partial<D: Borrow<[u8]>, P: PrefixKeyConf>(&self, prefix: &PrefixKey<D, P>) -> Option<usize> {
 		if self.0.is_some() {
 			Some(prefix.depth())
@@ -109,25 +118,18 @@ impl LimitPartial for NoKey {
 			prefix.depth()
 		}
 	}
+	*/
 }
 
 #[derive(Clone, Debug)]
 pub struct LimitPartial16(Option<usize>);
 impl LimitPartial for LimitPartial16 {
 	const LIMIT_SIZE: Option<usize> = Some(16);
-	fn is_partial<D: Borrow<[u8]>, P: PrefixKeyConf>(&self, prefix: &PrefixKey<D, P>) -> Option<usize> {
-		if self.0.is_some() {
-			Some(prefix.depth())
-		} else {
-			None
-		}
+	fn partial_full_depth(&self) -> Option<usize> {
+		self.0	
 	}
-	fn full_depth<D: Borrow<[u8]>, P: PrefixKeyConf>(&self, prefix: &PrefixKey<D, P>) -> usize {
-		if let Some(d) = self.0.as_ref() {
-			*d
-		} else {
-			prefix.depth()
-		}
+	fn new(partial_full_depth: Option<usize>) -> Self {
+		LimitPartial16(partial_full_depth)
 	}
 }
 
@@ -138,19 +140,22 @@ impl LimitPartial for LimitPartial16 {
 #[derive(Derivative)]
 #[derivative(Clone)]
 #[derivative(Debug)]
-pub struct PrefixKey<D, P>
+pub struct PrefixKey<D, P, L>
 	where
 		P: PrefixKeyConf,
+		L: LimitPartial, // TODO consider trieconf over P & L?
 {
 	start: P::Mask, // mask of first byte
 	end: P::Mask, // mask of last byte
 	data: D,
+	partial: L,
 }
 
-impl<D, P> PrefixKey<D, P>
+impl<D, P, L> PrefixKey<D, P, L>
 	where
 		D: Borrow<[u8]>,
 		P: PrefixKeyConf,
+		L: LimitPartial,
 {
 	fn unchecked_first_byte(&self) -> u8 {
 		self.start.mask_start(self.data.borrow()[0])
@@ -188,9 +193,10 @@ impl<D, P> PrefixKey<D, P>
 	}
 }
 
-impl<P> PrefixKey<NodeKeyBuff, P>
+impl<P, L> PrefixKey<NodeKeyBuff, P, L>
 	where
 		P: PrefixKeyConf,
+		L: LimitPartial,
 {
 	fn child_split_off<R: RadixConf<Alignment = P>>(&mut self, position: Position<P>) -> Self {
 		let split_end = self.end;
@@ -224,17 +230,19 @@ impl<P> PrefixKey<NodeKeyBuff, P>
 			data: split,
 			start: split_start,
 			end: split_end,
+			partial: LimitPartial::new(None),
 		}
 	}
 }
 
 
 /// Returns first position where position differs.
-fn common_until<D1, D2, N>(one: &PrefixKey<D1, N::Alignment>, other: &PrefixKey<D2, N::Alignment>) -> Position<N::Alignment>
+fn common_until<D1, D2, N, L>(one: &PrefixKey<D1, N::Alignment, L>, other: &PrefixKey<D2, N::Alignment, L>) -> Position<N::Alignment>
 	where
 		D1: Borrow<[u8]>,
 		D2: Borrow<[u8]>,
 		N: RadixConf,
+		L: LimitPartial,
 {
 	if N::Alignment::ALIGNED {
 		let left = one.data.borrow();
@@ -343,8 +351,10 @@ fn common_until<D1, D2, N>(one: &PrefixKey<D1, N::Alignment>, other: &PrefixKey<
 	}
 }
 
-impl<P> PrefixKey<NodeKeyBuff, P>
-	where P: PrefixKeyConf,
+impl<P, L> PrefixKey<NodeKeyBuff, P, L>
+	where
+		P: PrefixKeyConf,
+		L: LimitPartial,
 {
 	/// start is inclusive, end is exclusive.
 	/// This function cannot build an empty `PrefixKey`,
@@ -360,13 +370,15 @@ impl<P> PrefixKey<NodeKeyBuff, P>
 			start: start.mask,
 			end: end.mask,
 			data,
+			partial: LimitPartial::new(None),
 		}
 	}
 }
 
-impl<'a, P> PrefixKey<&'a [u8], P>
+impl<'a, P, L> PrefixKey<&'a [u8], P, L>
 	where
 		P: PrefixKeyConf,
+		L: LimitPartial,
 {
 	/// start is inclusive, end is exclusive.
 	fn new_offset_ref(key: &'a [u8], start: Position<P>, end: Position<P>) -> Self {
@@ -379,6 +391,7 @@ impl<'a, P> PrefixKey<&'a [u8], P>
 			start: start.mask,
 			end: end.mask,
 			data,
+			partial: LimitPartial::new(None),
 		}
 	}
 }
@@ -425,7 +438,7 @@ pub struct Node<N>
 	/// also maybe position of the closest child value (instert
 	/// will need to query in depth to resolve key position in children).
 	/// Can probably be gated behind an associated type in N.
-	key: PrefixKey<NodeKeyBuff, AlignmentFor<N>>,
+	key: PrefixKey<NodeKeyBuff, AlignmentFor<N>, N::LimitPartial>,
 
 	/// A value if a value is stored for this node.
 	value: Option<N::Value>,
@@ -501,7 +514,7 @@ impl<N: TreeConf> Node<N> {
 	}
 
 	fn new_unfetched(
-		prefix: PrefixKey<NodeKeyBuff, AlignmentFor<N>>,
+		prefix: PrefixKey<NodeKeyBuff, AlignmentFor<N>, N::LimitPartial>,
 		mut backend: N::NodeBackend,
 	) -> Node<N> {
 		let children = Self::children_with_backend(&mut backend);
@@ -519,8 +532,8 @@ impl<N: TreeConf> Node<N> {
 		node_position: PositionFor<N>,
 		dest_position: PositionFor<N>,
 	) -> Descent<N::Radix> {
-		let ref_prefix = PrefixKey::<_, AlignmentFor<N>>::new_offset_ref(key, node_position, dest_position);
-		let mut common = common_until::<_, _, N::Radix>(&self.key, &ref_prefix);
+		let ref_prefix = PrefixKey::<_, AlignmentFor<N>, _>::new_offset_ref(key, node_position, dest_position);
+		let mut common = common_until::<_, _, N::Radix, _>(&self.key, &ref_prefix);
 		let dest_position_next = dest_position;
 		common.index += node_position.index;
 		// TODO comment and check for more efficient compare (maybe first next_by?).

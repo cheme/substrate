@@ -22,7 +22,7 @@ use super::{Backend, NodeBackend};
 use crate::{TreeConf, PositionFor, KeyIndexFor,
 	NodeBox, RadixConf, IndexFor, ValueIndexFor,
 	PrefixKeyConf, Node, PrefixKey, AlignmentFor,
-	ValueState};
+	ValueState, LimitPartial};
 use crate::children::NodeIndex;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -130,7 +130,7 @@ impl<N> ArtLocalBackend<N>
 	pub fn read(
 		encoded: Vec<u8>,
 		index: IndexFor<N>,
-	) -> (ArtLocalBackend<N>, PrefixKey<Vec<u8>, AlignmentFor<N>>) {
+	) -> (ArtLocalBackend<N>, PrefixKey<Vec<u8>, AlignmentFor<N>, N::LimitPartial>) {
 		let (encoded, prefix) = ArtEncoded::read(encoded);
 		let original_nb_children = encoded.nb_children();
 
@@ -215,7 +215,7 @@ impl<N> ArtEncoded<N>
 
 	pub fn read(
 		encoded: Vec<u8>,
-	) -> (ArtEncoded<N>, PrefixKey<Vec<u8>, AlignmentFor<N>>) {
+	) -> (ArtEncoded<N>, PrefixKey<Vec<u8>, AlignmentFor<N>, N::LimitPartial>) {
 		// First byte contain size and type, only 256 uses a second byte
 		// for size with 0 being 0 or 256 when encoded do not contains
 		// a 0 size.
@@ -245,12 +245,13 @@ impl<N> ArtEncoded<N>
 	}
 
 	// TODO share code with node_test
-	pub fn read_prefix(mut encoded: &[u8]) -> PrefixKey<Vec<u8>, AlignmentFor<N>> {
+	pub fn read_prefix(mut encoded: &[u8]) -> PrefixKey<Vec<u8>, AlignmentFor<N>, N::LimitPartial> {
 		if encoded.len() == 0 {
 			return PrefixKey {
 				data: Default::default(),
 				start: MaskFor::<N::Radix>::FIRST,
 				end: MaskFor::<N::Radix>::FIRST,
+				partial: N::LimitPartial::new(None), 
 			}
 		}
 		let start_mask = if let Some(mask) = <N::Radix as RadixConf>::Alignment::DEFAULT {
@@ -291,7 +292,7 @@ impl<N> ArtEncoded<N>
 	}
 
 	// TODO use in node_test
-	pub fn write_prefix(key: &PrefixKey<Vec<u8>, AlignmentFor<N>>) -> Vec<u8> {
+	pub fn write_prefix(key: &PrefixKey<Vec<u8>, AlignmentFor<N>, N::LimitPartial>) -> Vec<u8> {
 		let mut result = Vec::with_capacity(key.data.len() + 1 + if <N::Radix as RadixConf>::Alignment::DEFAULT.is_some() {
 			0
 		} else {
@@ -391,7 +392,7 @@ impl<N> ArtEncoded<N>
 		}
 	}
 
-	fn set_prefix(&mut self, prefix: &PrefixKey<Vec<u8>, AlignmentFor<N>>) {
+	fn set_prefix(&mut self, prefix: &PrefixKey<Vec<u8>, AlignmentFor<N>, N::LimitPartial>) {
 		let encoded_prefix = Self::write_prefix(prefix);
 		match self {
 			ArtEncoded::Art4(art, _) => art.set_prefix(encoded_prefix),

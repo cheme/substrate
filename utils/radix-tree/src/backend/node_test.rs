@@ -55,7 +55,7 @@ pub struct NodeTestBackend<N: TreeConf>
 fn decode<N>(
 	encoded: Vec<u8>,
 	index: IndexFor<N>,
-) -> (NodeTestBackend<N>, PrefixKey<Vec<u8>, AlignmentFor<N>>)
+) -> (NodeTestBackend<N>, PrefixKey<Vec<u8>, AlignmentFor<N>, N::LimitPartial>)
 	where
 		N: TreeConf,
 		N::Value: Decode,

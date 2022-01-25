@@ -17,7 +17,7 @@
 
 //! Radix related variants for keys and children.
 
-use crate::{PrefixKey, NodeKeyBuff};
+use crate::{PrefixKey, NodeKeyBuff, LimitPartial};
 use core::fmt::Debug;
 use core::cmp::Ordering;
 use alloc::borrow::Borrow;
@@ -581,13 +581,14 @@ pub mod impls {
 }
 
 
-impl<D1, D2, P> PartialEq<PrefixKey<D2, P>> for PrefixKey<D1, P>
+impl<D1, D2, P, L> PartialEq<PrefixKey<D2, P, L>> for PrefixKey<D1, P, L>
 	where
 		D1: Borrow<[u8]>,
 		D2: Borrow<[u8]>,
 		P: PrefixKeyConf,
+		L: LimitPartial,
 {
-	fn eq(&self, other: &PrefixKey<D2, P>) -> bool {
+	fn eq(&self, other: &PrefixKey<D2, P, L>) -> bool {
 		// !! this means either 255 or 0 mask
 		// is forbidden!!
 		// 0 should be forbidden, 255 when full byte
@@ -608,10 +609,11 @@ impl<D1, D2, P> PartialEq<PrefixKey<D2, P>> for PrefixKey<D1, P>
 	}
 }
 
-impl<D, P> Eq for PrefixKey<D, P>
+impl<D, P, L> Eq for PrefixKey<D, P, L>
 	where
 		D: Borrow<[u8]>,
 		P: PrefixKeyConf,
+		L: LimitPartial,
 { }
 
 /// Position in a key.
