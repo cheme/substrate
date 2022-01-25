@@ -1,6 +1,5 @@
 [workspace]
 members = [
-	"utils/historied-db",
 	"utils/radix-tree",
 ]
 
