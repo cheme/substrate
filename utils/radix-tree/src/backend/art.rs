@@ -1144,6 +1144,7 @@ mod tests {
 	impl crate::TreeConf for TestConf {
 		type Radix = crate::radix::impls::Radix256Conf;
 		type Value = Vec<u8>;
+		type LimitPartial = ();
 		type Children = crate::children::ART48_256<crate::ChildFor<Self>>;
 		type Backend = RadixIndexedDbBackend;
 		type NodeBackend = super::ArtLocalBackend<Self>;

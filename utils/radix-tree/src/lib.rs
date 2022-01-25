@@ -64,84 +64,72 @@ pub type NodeBox<N> = Box<Node<N>>;
 /// Value trait constraints.
 pub trait Value: Clone + Debug { }
 
-/// Full key (key stored with value
-/// if prefix got limited size) trait constraints.
-pub trait FullKey: Clone + Debug + Ord {
+/// Limit partial key size.
+pub trait LimitPartial: Clone + Debug {
 	/// If defined, then the node only store the first `PREFIX_SIZED`
 	/// bytes of the prefix. Full key storage will be done and rechecked
 	/// when accessing the value (full key stored with the value).
-	const PREFIX_SIZED: Option<usize>;
+	///
+	/// Limit is in bytes.
+	const LIMIT_SIZE: Option<usize>;
 
-	type PrefixKey: PrefixKeyTrait;
-}
+	// If return, then return the partial len.
+	fn is_partial<D: Borrow<[u8]>, P: PrefixKeyConf>(&self, prefix: &PrefixKey<D, P>) -> Option<usize>;
 
-pub trait PrefixKeyTrait: Clone + Debug + Ord {
-	// Return new size if cannot resize as expected.
-	#[must_use]
-	fn resize(&mut self, new_len: usize) -> Option<usize>;
-
-	// Return current byte slice.
-	fn as_mut(&mut self) -> &mut [u8];
+	fn full_depth<D: Borrow<[u8]>, P: PrefixKeyConf>(&self, prefix: &PrefixKey<D, P>) -> usize;
 }
 
 impl<V: Clone + Debug> Value for V { }
 
-impl FullKey for () {
-	const PREFIX_SIZED: Option<usize> = None;
-	type PrefixKey = NodeKeyBuff;
-}
-impl PrefixKeyTrait for NodeKeyBuff {
-	fn resize(&mut self, new_len: usize) -> Option<usize> {
-		self.resize(new_len, 0);
+impl LimitPartial for () {
+	const LIMIT_SIZE: Option<usize> = None;
+	fn is_partial<D: Borrow<[u8]>, P: PrefixKeyConf>(&self, _prefix: &PrefixKey<D, P>) -> Option<usize> {
 		None
 	}
-	fn as_mut(&mut self) -> &mut [u8] {
-		&mut self[..]
+	fn full_depth<D: Borrow<[u8]>, P: PrefixKeyConf>(&self, prefix: &PrefixKey<D, P>) -> usize {
+		prefix.depth()
 	}
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct NoKey(Vec<u8>);
-impl FullKey for NoKey {
-	const PREFIX_SIZED: Option<usize> = Some(0);
-	type PrefixKey = ();
-}
-impl PrefixKeyTrait for () {
-	fn resize(&mut self, new_len: usize) -> Option<usize> {
-		Some(0)
-	}
-	fn as_mut(&mut self) -> &mut [u8] {
-		&mut []
-	}
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Key16(Vec<u8>);
-impl FullKey for Key16 {
-	const PREFIX_SIZED: Option<usize> = Some(16);
-	type PrefixKey = [u8; 17]; // first bit for current size.
-}
-impl PrefixKeyTrait for [u8; 17] {
-	fn resize(&mut self, new_len: usize) -> Option<usize> {
-		let (new_len, result) = if new_len > 16 {
-			(16, Some(16))
+#[derive(Clone, Debug)]
+pub struct NoKey(Option<usize>);
+impl LimitPartial for NoKey {
+	const LIMIT_SIZE: Option<usize> = Some(0);
+	fn is_partial<D: Borrow<[u8]>, P: PrefixKeyConf>(&self, prefix: &PrefixKey<D, P>) -> Option<usize> {
+		if self.0.is_some() {
+			Some(prefix.depth())
 		} else {
-			(new_len, None)
-		};
-		let old_len = self[0] as usize;
-		self[0] = new_len as u8;
-		if old_len < new_len {
-			for i in old_len..new_len {
-				self[i + 1] = 0;
-			}
+			None
 		}
-		Some(0)
 	}
-	fn as_mut(&mut self) -> &mut [u8] {
-		&mut []
+	fn full_depth<D: Borrow<[u8]>, P: PrefixKeyConf>(&self, prefix: &PrefixKey<D, P>) -> usize {
+		if let Some(d) = self.0.as_ref() {
+			*d
+		} else {
+			prefix.depth()
+		}
 	}
 }
 
+#[derive(Clone, Debug)]
+pub struct LimitPartial16(Option<usize>);
+impl LimitPartial for LimitPartial16 {
+	const LIMIT_SIZE: Option<usize> = Some(16);
+	fn is_partial<D: Borrow<[u8]>, P: PrefixKeyConf>(&self, prefix: &PrefixKey<D, P>) -> Option<usize> {
+		if self.0.is_some() {
+			Some(prefix.depth())
+		} else {
+			None
+		}
+	}
+	fn full_depth<D: Borrow<[u8]>, P: PrefixKeyConf>(&self, prefix: &PrefixKey<D, P>) -> usize {
+		if let Some(d) = self.0.as_ref() {
+			*d
+		} else {
+			prefix.depth()
+		}
+	}
+}
 
 /// This is a partial key.
 /// It contains part of a value key.
@@ -399,7 +387,7 @@ impl<'a, P> PrefixKey<&'a [u8], P>
 pub trait TreeConf: Debug + Clone + Sized {
 	type Radix: RadixConf;
 	type Value: Value;
-	type FullKey: FullKey;
+	type LimitPartial: LimitPartial;
 	type Children: Children<Node = ChildFor<Self>, Radix = Self::Radix>;
 	type Backend: Backend;
 	type NodeBackend: NodeBackend<Self>;
@@ -419,7 +407,6 @@ pub trait TreeConf: Debug + Clone + Sized {
 
 pub(crate) type PositionFor<N> = Position<<<N as TreeConf>::Radix as RadixConf>::Alignment>;
 pub(crate) type AlignmentFor<N> = <<N as TreeConf>::Radix as RadixConf>::Alignment;
-pub(crate) type PrefixKeyFor<N> = <<N as TreeConf>::FullKey as FullKey>::PrefixKey;
 pub(crate) type KeyIndexFor<N> = <<N as TreeConf>::Radix as RadixConf>::KeyIndex;
 pub(crate) type IndexFor<N> = <<N as TreeConf>::Backend as Backend>::Index;
 pub(crate) type ValueIndexFor<N> = <<N as TreeConf>::Backend as Backend>::ValueIndex;
@@ -438,7 +425,7 @@ pub struct Node<N>
 	/// also maybe position of the closest child value (instert
 	/// will need to query in depth to resolve key position in children).
 	/// Can probably be gated behind an associated type in N.
-	key: PrefixKey<PrefixKeyFor<N>, AlignmentFor<N>>,
+	key: PrefixKey<NodeKeyBuff, AlignmentFor<N>>,
 
 	/// A value if a value is stored for this node.
 	value: Option<N::Value>,
@@ -1490,7 +1477,7 @@ pub struct Node256NoBackend<V>(core::marker::PhantomData<V>);
 impl <V: Value> TreeConf for Node256NoBackend<V> {
 	type Radix = Radix256Conf;
 	type Value = V;
-	type FullKey = ();
+	type LimitPartial = ();
 	type Children = Children256<ChildFor<Self>>;
 	type Backend = ();
 	type NodeBackend = ();
@@ -1503,7 +1490,7 @@ pub struct Node256NoBackendART<V>(core::marker::PhantomData<V>);
 impl <V: Value> TreeConf for Node256NoBackendART<V> {
 	type Radix = Radix256Conf;
 	type Value = V;
-	type FullKey = ();
+	type LimitPartial = ();
 	type Children = ART48_256<ChildFor<Self>>;
 	type Backend = ();
 	type NodeBackend = ();
@@ -1516,7 +1503,7 @@ pub struct Node16NoBackend<V>(core::marker::PhantomData<V>);
 impl <V: Value> TreeConf for Node16NoBackend<V> {
 	type Radix = Radix16Conf;
 	type Value = V;
-	type FullKey = ();
+	type LimitPartial = ();
 	type Children = Children16<ChildFor<Self>>;
 	type Backend = ();
 	type NodeBackend = ();
@@ -1529,7 +1516,7 @@ pub struct Node4NoBackend<V>(core::marker::PhantomData<V>);
 impl <V: Value> TreeConf for Node4NoBackend<V> {
 	type Radix = Radix4Conf;
 	type Value = V;
-	type FullKey = ();
+	type LimitPartial = ();
 	type Children = Children4<ChildFor<Self>>;
 	type Backend = ();
 	type NodeBackend = ();
@@ -1542,7 +1529,7 @@ pub struct Node256TestBackendART<V>(core::marker::PhantomData<V>);
 impl <V: Value + Codec> TreeConf for Node256TestBackendART<V> {
 	type Radix = Radix256Conf;
 	type Value = V;
-	type FullKey = ();
+	type LimitPartial = ();
 	type Children = ART48_256<ChildFor<Self>>;
 	type Backend = Rc<RefCell<TestBackend>>;
 	type NodeBackend = backend::node_test::NodeTestBackend<Self>;
@@ -1555,7 +1542,7 @@ pub struct Node256TestBackend<V>(core::marker::PhantomData<V>);
 impl <V: Value + Codec> TreeConf for Node256TestBackend<V> {
 	type Radix = Radix256Conf;
 	type Value = V;
-	type FullKey = ();
+	type LimitPartial = ();
 	type Children = Children256<ChildFor<Self>>;
 	type Backend = Rc<RefCell<TestBackend>>;
 	type NodeBackend = backend::node_test::NodeTestBackend<Self>;
@@ -1568,7 +1555,7 @@ pub struct ArtTestBackend<V>(core::marker::PhantomData<V>);
 impl<V> TreeConf for ArtTestBackend<V> {
 	type Radix = Radix256Conf;
 	type Value = Vec<u8>;
-	type FullKey = ();
+	type LimitPartial = ();
 	type Children = Children256<ChildFor<Self>>;
 	type Backend = Rc<RefCell<TestBackend>>;
 	type NodeBackend = backend::art::ArtLocalBackend<Self>;
@@ -1583,7 +1570,7 @@ pub struct Node256HashedTestBackend<V>(core::marker::PhantomData<V>);
 impl <V: Value + Codec> TreeConf for Node256HashedTestBackend<V> {
 	type Radix = Radix256Conf;
 	type Value = V;
-	type FullKey = ();
+	type LimitPartial = ();
 	type Children = Children256<ChildFor<Self>>;
 	type Backend = Rc<RefCell<HashedTestBackend>>;
 	type NodeBackend = backend::node_test::NodeTestBackend<Self>;
