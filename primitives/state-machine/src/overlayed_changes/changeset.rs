@@ -35,7 +35,7 @@ const PROOF_OVERLAY_NON_EMPTY: &str = "\
 	An OverlayValue is always created with at least one transaction and dropped as soon
 	as the last transaction is removed; qed";
 
-type DirtyKeysSets<K> = SmallVec<[Set<K>; 5]>;
+type DirtyKeysSets<K> = SmallVec<[(Set<K>, u32); 5]>;
 type Transactions<V> = SmallVec<[InnerValue<V>; 5]>;
 
 /// Error returned when trying to commit or rollback while no transaction is open or
@@ -70,6 +70,8 @@ struct InnerValue<V> {
 	value: V,
 	/// The set of extrinsic indices where the values has been changed.
 	extrinsics: Extrinsics,
+	/// Id of the transaction when the value change did happen.
+	transaction_id: u32,
 }
 
 /// An overlay that contains all versions of a value for a specific key.
@@ -98,6 +100,8 @@ pub type OverlayedChangeSet = OverlayedMap<StorageKey, Option<StorageValue>>;
 pub struct OverlayedMap<K: Ord + Hash, V> {
 	/// Stores the changes that this overlay constitutes.
 	changes: BTreeMap<K, OverlayedEntry<V>>,
+	/// Next available id for transaction.
+	next_transaction_id: u32,
 	/// Stores which keys are dirty per transaction. Needed in order to determine which
 	/// values to merge into the parent transaction on commit. The length of this vector
 	/// therefore determines how many nested transactions are currently open (depth).
@@ -115,6 +119,7 @@ impl<K: Ord + Hash, V> Default for OverlayedMap<K, V> {
 		Self {
 			changes: BTreeMap::new(),
 			dirty_keys: SmallVec::new(),
+			next_transaction_id: 1u32,
 			num_client_transactions: Default::default(),
 			execution_mode: Default::default(),
 		}
@@ -166,9 +171,9 @@ impl<V> OverlayedEntry<V> {
 	///
 	/// This makes sure that the old version is not overwritten and can be properly
 	/// rolled back when required.
-	fn set(&mut self, value: V, first_write_in_tx: bool, at_extrinsic: Option<u32>) {
+	fn set(&mut self, value: V, first_write_in_tx: bool, at_extrinsic: Option<u32>, transaction_id: u32) {
 		if first_write_in_tx || self.transactions.is_empty() {
-			self.transactions.push(InnerValue { value, extrinsics: Default::default() });
+			self.transactions.push(InnerValue { value, extrinsics: Default::default(), transaction_id });
 		} else {
 			*self.value_mut() = value;
 		}
@@ -191,7 +196,7 @@ impl OverlayedEntry<Option<StorageValue>> {
 /// Returns true iff we are currently have at least one open transaction and if this
 /// is the first write to the given key that transaction.
 fn insert_dirty<K: Ord + Hash>(set: &mut DirtyKeysSets<K>, key: K) -> bool {
-	set.last_mut().map(|dk| dk.insert(key)).unwrap_or_default()
+	set.last_mut().map(|dk| dk.0.insert(key)).unwrap_or_default()
 }
 
 impl<K: Ord + Hash + Clone, V> OverlayedMap<K, V> {
@@ -200,10 +205,10 @@ impl<K: Ord + Hash + Clone, V> OverlayedMap<K, V> {
 	/// This changeset might be created when there are already open transactions.
 	/// We need to catch up here so that the child is at the same transaction depth.
 	pub fn spawn_child(&self) -> Self {
-		use sp_std::iter::repeat;
 		Self {
 			changes: Default::default(),
-			dirty_keys: repeat(Set::new()).take(self.transaction_depth()).collect(),
+			next_transaction_id: self.next_transaction_id,
+			dirty_keys: self.dirty_keys.iter().map(|(_, id)| (Set::new(), *id)).take(self.transaction_depth()).collect(),
 			num_client_transactions: self.num_client_transactions,
 			execution_mode: self.execution_mode,
 		}
@@ -228,7 +233,8 @@ impl<K: Ord + Hash + Clone, V> OverlayedMap<K, V> {
 	/// Can be rolled back or committed when called inside a transaction.
 	pub fn set(&mut self, key: K, value: V, at_extrinsic: Option<u32>) {
 		let overlayed = self.changes.entry(key.clone()).or_default();
-		overlayed.set(value, insert_dirty(&mut self.dirty_keys, key), at_extrinsic);
+		let transaction_id = self.dirty_keys.last().map(|(_, id)| *id).unwrap_or(0);
+		overlayed.set(value, insert_dirty(&mut self.dirty_keys, key), at_extrinsic, transaction_id);
 	}
 
 	/// Get a list of all changes as seen by current transaction.
@@ -301,7 +307,8 @@ impl<K: Ord + Hash + Clone, V> OverlayedMap<K, V> {
 	///
 	/// Changes made without any open transaction are committed immediately.
 	pub fn start_transaction(&mut self) {
-		self.dirty_keys.push(Default::default());
+		self.dirty_keys.push((Default::default(), self.next_transaction_id));
+		self.next_transaction_id += 1;
 	}
 
 	/// Rollback the last transaction started by `start_transaction`.
@@ -328,7 +335,16 @@ impl<K: Ord + Hash + Clone, V> OverlayedMap<K, V> {
 			}
 		}
 
-		for key in self.dirty_keys.pop().ok_or(NoOpenTransaction)? {
+		if !rollback {
+			let keys = self.dirty_keys.pop().ok_or(NoOpenTransaction)?.0;
+			if let Some(dirty_keys_last) = self.dirty_keys.last_mut() {
+				// TODO this is not really how it should be handle
+				dirty_keys_last.0.extend(keys);
+			}
+			return Ok(())
+		}
+		let (keys, closed_tx) = self.dirty_keys.pop().ok_or(NoOpenTransaction)?;
+		for key in keys {
 			let overlayed = self.changes.get_mut(&key).expect(
 				"\
 				A write to an OverlayedValue is recorded in the dirty key set. Before an
@@ -337,32 +353,14 @@ impl<K: Ord + Hash + Clone, V> OverlayedMap<K, V> {
 			",
 			);
 
-			if rollback {
+			while overlayed.transactions.last_mut().map(|v| v.transaction_id >= closed_tx).unwrap_or(false) {
 				overlayed.pop_transaction();
+			}
 
-				// We need to remove the key as an `OverlayValue` with no transactions
-				// violates its invariant of always having at least one transaction.
-				if overlayed.transactions.is_empty() {
-					self.changes.remove(&key);
-				}
-			} else {
-				let has_predecessor = if let Some(dirty_keys) = self.dirty_keys.last_mut() {
-					// Not the last tx: Did the previous tx write to this key?
-					!dirty_keys.insert(key)
-				} else {
-					// Last tx: Is there already a value in the committed set?
-					// Check against one rather than empty because the current tx is still
-					// in the list as it is popped later in this function.
-					overlayed.transactions.len() > 1
-				};
-
-				// We only need to merge if there is an pre-existing value. It may be a value from
-				// the previous transaction or a value committed without any open transaction.
-				if has_predecessor {
-					let dropped_tx = overlayed.pop_transaction();
-					*overlayed.value_mut() = dropped_tx.value;
-					overlayed.transaction_extrinsics_mut().extend(dropped_tx.extrinsics);
-				}
+			// We need to remove the key as an `OverlayValue` with no transactions
+			// violates its invariant of always having at least one transaction.
+			if overlayed.transactions.is_empty() {
+				self.changes.remove(&key);
 			}
 		}
 
@@ -398,7 +396,8 @@ impl OverlayedChangeSet {
 		};
 
 		if let Some(cloned) = clone_into_new_tx {
-			overlayed.set(cloned, first_write_in_tx, at_extrinsic);
+			let transaction_id = self.dirty_keys.last().map(|(_, id)| *id).unwrap_or(0);
+			overlayed.set(cloned, first_write_in_tx, at_extrinsic, transaction_id);
 		}
 		overlayed.value_mut()
 	}
@@ -411,8 +410,9 @@ impl OverlayedChangeSet {
 		predicate: impl Fn(&[u8], &OverlayedValue) -> bool,
 		at_extrinsic: Option<u32>,
 	) {
+		let transaction_id = self.dirty_keys.last().map(|(_, id)| *id).unwrap_or(0);
 		for (key, val) in self.changes.iter_mut().filter(|(k, v)| predicate(k, v)) {
-			val.set(None, insert_dirty(&mut self.dirty_keys, key.clone()), at_extrinsic);
+			val.set(None, insert_dirty(&mut self.dirty_keys, key.clone()), at_extrinsic, transaction_id);
 		}
 	}
 

@@ -81,6 +81,9 @@ impl Extrinsics {
 
 	/// Extend `self` with `other`.
 	fn extend(&mut self, other: Self) {
+		// TODO unused fn, this quick patch probably does
+		// not manage extrinsic correctly (should get merged
+		// on commit).
 		self.0.extend(other.0.into_iter());
 	}
 }
