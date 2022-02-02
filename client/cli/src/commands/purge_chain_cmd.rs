@@ -51,35 +51,40 @@ impl PurgeChainCmd {
 		let db_path = database_config.path().ok_or_else(|| {
 			error::Error::Input("Cannot purge custom database implementation".into())
 		})?;
+		let dir = db_path.parent().ok_or_else(|| {
+			error::Error::Input("Cannot purge custom database implementation".into())
+		})?;
+		for db_path in std::fs::read_dir(dir)? {
+			let db_path = db_path?.path();
 
-		if !self.yes {
-			print!("Are you sure to remove {:?}? [y/N]: ", &db_path);
-			io::stdout().flush().expect("failed to flush stdout");
+			if !self.yes {
+				print!("Are you sure to remove {:?}? [y/N]: ", &db_path);
+				io::stdout().flush().expect("failed to flush stdout");
 
-			let mut input = String::new();
-			io::stdin().read_line(&mut input)?;
-			let input = input.trim();
+				let mut input = String::new();
+				io::stdin().read_line(&mut input)?;
+				let input = input.trim();
 
-			match input.chars().nth(0) {
-				Some('y') | Some('Y') => {},
-				_ => {
-					println!("Aborted");
-					return Ok(())
+				match input.chars().nth(0) {
+					Some('y') | Some('Y') => {},
+					_ => {
+						println!("Aborted");
+						break;
+					},
+				}
+			}
+
+			match fs::remove_dir_all(&db_path) {
+				Ok(_) => {
+					println!("{:?} removed.", &db_path);
 				},
+				Err(ref err) if err.kind() == io::ErrorKind::NotFound => {
+					eprintln!("{:?} did not exist.", &db_path);
+				},
+				Err(err) => return Result::Err(err.into()),
 			}
 		}
-
-		match fs::remove_dir_all(&db_path) {
-			Ok(_) => {
-				println!("{:?} removed.", &db_path);
-				Ok(())
-			},
-			Err(ref err) if err.kind() == io::ErrorKind::NotFound => {
-				eprintln!("{:?} did not exist.", &db_path);
-				Ok(())
-			},
-			Err(err) => Result::Err(err.into()),
-		}
+		Ok(())
 	}
 }
 
