@@ -84,13 +84,13 @@ fn decode<N>(
 		index: 0,
 		mask: start_mask,
 	};
+	let prefix: Vec<u8> = Decode::decode(input).unwrap();
 	let end_mask = if let Some(mask) = <N::Radix as RadixConf>::Alignment::DEFAULT {
 		mask
 	} else {
 		let b = input.read_byte().unwrap();
 		<N::Radix as RadixConf>::Alignment::decode_mask(b)
 	};
-	let prefix: Vec<u8> = Decode::decode(input).unwrap();
 	let end = if end_mask == MaskFor::<N::Radix>::FIRST {
 		PositionFor::<N>  {
 			index: prefix.len(),
