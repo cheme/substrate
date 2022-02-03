@@ -73,7 +73,8 @@ pub trait LimitPartial: Clone + Debug {
 	/// Limit is in bytes.
 	const LIMIT_SIZE: Option<usize>;
 
-	// return full depth if key is partial.
+	// Return full depth if key is partial.
+	// Depth is in nibbles.
 	fn partial_full_depth(&self) -> Option<usize>;
 	fn new(partial_full_depth: Option<usize>) -> Self;
 }
@@ -133,6 +134,30 @@ impl LimitPartial for LimitPartial16 {
 	}
 }
 
+#[derive(Clone, Debug)]
+pub struct LimitPartial4(Option<usize>);
+impl LimitPartial for LimitPartial4 {
+	const LIMIT_SIZE: Option<usize> = Some(4);
+	fn partial_full_depth(&self) -> Option<usize> {
+		self.0	
+	}
+	fn new(partial_full_depth: Option<usize>) -> Self {
+		LimitPartial4(partial_full_depth)
+	}
+}
+
+#[derive(Clone, Debug)]
+pub struct LimitPartial3(Option<usize>);
+impl LimitPartial for LimitPartial3 {
+	const LIMIT_SIZE: Option<usize> = Some(3);
+	fn partial_full_depth(&self) -> Option<usize> {
+		self.0	
+	}
+	fn new(partial_full_depth: Option<usize>) -> Self {
+		LimitPartial3(partial_full_depth)
+	}
+}
+
 /// This is a partial key.
 /// It contains part of a value key.
 /// For unaligned radix, inclusive mask for start
@@ -176,6 +201,16 @@ impl<D, P, L> PrefixKey<D, P, L>
 	fn index<R: RadixConf<Alignment = P>>(&self, position: Position<P>) -> R::KeyIndex {
 		position.index::<R>(self.data.borrow())
 			.expect("TODO consider safe api here")
+	}
+
+	// TODO may be useless as we use it after a common check that ensure result.
+	fn index_with_limit<R: RadixConf<Alignment = P>>(&self, position: Position<P>) -> Option<R::KeyIndex> {
+		if self.partial.partial_full_depth().is_some() {
+			position.index::<R>(self.data.borrow())
+		} else {
+			Some(position.index::<R>(self.data.borrow())
+				.expect("TODO consider safe api here"))
+		}
 	}
 
 	fn depth(&self) -> usize {
@@ -235,15 +270,34 @@ impl<P, L> PrefixKey<NodeKeyBuff, P, L>
 	}
 }
 
-
-/// Returns first position where position differs.
-fn common_until<D1, D2, N, L>(one: &PrefixKey<D1, N::Alignment, L>, other: &PrefixKey<D2, N::Alignment, L>) -> Position<N::Alignment>
+/// Returns first position where position differs or `None` if all matches but at least one key
+/// reach a partial end.
+fn common_until<D1, D2, N, L>(one: &PrefixKey<D1, N::Alignment, L>, other: &PrefixKey<D2, N::Alignment, L>) -> Option<Position<N::Alignment>>
 	where
 		D1: Borrow<[u8]>,
 		D2: Borrow<[u8]>,
 		N: RadixConf,
 		L: LimitPartial,
 {
+	let common_pos = common_until_inner::<_, _, N, _>(one, other);
+	if let Some(byte_len) = L::LIMIT_SIZE {
+		if one.partial.partial_full_depth().is_some() || other.partial.partial_full_depth().is_some() {
+			if common_pos.index > byte_len {
+				return None;
+			}
+		}
+	}
+	Some(common_pos)
+}
+
+fn common_until_inner<D1, D2, N, L>(one: &PrefixKey<D1, N::Alignment, L>, other: &PrefixKey<D2, N::Alignment, L>) -> Position<N::Alignment>
+	where
+		D1: Borrow<[u8]>,
+		D2: Borrow<[u8]>,
+		N: RadixConf,
+		L: LimitPartial,
+{
+
 	if N::Alignment::ALIGNED {
 		let left = one.data.borrow();
 		let right = other.data.borrow();
@@ -533,9 +587,22 @@ impl<N: TreeConf> Node<N> {
 		dest_position: PositionFor<N>,
 	) -> Descent<N::Radix> {
 		let ref_prefix = PrefixKey::<_, AlignmentFor<N>, _>::new_offset_ref(key, node_position, dest_position);
-		let mut common = common_until::<_, _, N::Radix, _>(&self.key, &ref_prefix);
+		let common = if let Some(mut common) = common_until::<_, _, N::Radix, _>(&self.key, &ref_prefix) {
+			common.index += node_position.index;
+			common
+		} else {
+			// descend the whole partial, TODO would make sense to report somehow (eg we can update
+			// node on success).
+			// TODO could even require returning false when editing, as may mean split node and not
+			// descend.
+			let node_end_index = node_position.next_by::<N::Radix>(self.depth());
+			if let Ordering::Less = dest_position.cmp(node_end_index) {
+				dest_position
+			} else {
+				node_end_index
+			}
+		};
 		let dest_position_next = dest_position;
-		common.index += node_position.index;
 		// TODO comment and check for more efficient compare (maybe first next_by?).
 		match common.cmp(dest_position_next) {
 			Ordering::Equal => {
@@ -1533,6 +1600,19 @@ impl <V: Value> TreeConf for Node4NoBackend<V> {
 	type Children = Children4<ChildFor<Self>>;
 	type Backend = ();
 	type NodeBackend = ();
+}
+
+#[derive(Derivative)]
+#[derivative(Clone)]
+#[derivative(Debug)]
+pub struct Node4LimitTestBackend<V>(core::marker::PhantomData<V>);
+impl <V: Value + Codec> TreeConf for Node4LimitTestBackend<V> {
+	type Radix = Radix4Conf;
+	type Value = V;
+	type LimitPartial = ();
+	type Children = Children4<ChildFor<Self>>;
+	type Backend = Rc<RefCell<TestBackend>>;
+	type NodeBackend = backend::node_test::NodeTestBackend<Self>;
 }
 
 #[derive(Derivative)]

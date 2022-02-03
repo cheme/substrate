@@ -102,6 +102,8 @@ fn decode<N>(
 			mask: end_mask,
 		}
 	};
+
+	// TODO test limit by decoding only part depending on limit size.
 	let prefix = PrefixKey::new_offset(prefix, start, end);
 
 	(NodeTestBackend {

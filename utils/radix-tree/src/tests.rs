@@ -19,7 +19,7 @@
 
 #[cfg(any(test, feature = "fuzzer"))]
 use crate::{Node256NoBackend, Node256NoBackendART, Node256TestBackendART,
-	Node16NoBackend, Node4NoBackend, Node256TestBackend, ArtTestBackend};
+	Node16NoBackend, Node4NoBackend, Node4LimitTestBackend, Node256TestBackend, ArtTestBackend};
 #[cfg(any(test, feature = "fuzzer"))]
 #[cfg(feature = "hash_backend")]
 use crate::Node256HashedTestBackend;
@@ -527,6 +527,7 @@ pub mod $module_name {
 }
 }
 
+test_for!(test_4_limit, Node4LimitTestBackend, true);
 test_for!(test_256, Node256NoBackend, false);
 test_for!(test_4, Node4NoBackend, false);
 test_for!(test_16, Node16NoBackend, false);
