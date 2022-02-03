@@ -427,6 +427,18 @@ impl<P, L> PrefixKey<NodeKeyBuff, P, L>
 			partial: LimitPartial::new(None),
 		}
 	}
+	fn new_offset_limitted<Q: Borrow<[u8]>>(key: Q, start: Position<P>, len: usize, real_size: usize) -> Self {
+		let end = start.index + len;
+		let data = 	key.borrow()[start.index..end].into();
+
+		PrefixKey {
+			start: start.mask,
+			end: P::Mask::FIRST,
+			data,
+			partial: LimitPartial::new(Some(real_size)),
+		}
+	}
+
 }
 
 impl<'a, P, L> PrefixKey<&'a [u8], P, L>

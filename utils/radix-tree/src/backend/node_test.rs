@@ -84,27 +84,46 @@ fn decode<N>(
 		index: 0,
 		mask: start_mask,
 	};
-	let prefix: Vec<u8> = Decode::decode(input).unwrap();
-	let end_mask = if let Some(mask) = <N::Radix as RadixConf>::Alignment::DEFAULT {
-		mask
-	} else {
-		let b = input.read_byte().unwrap();
-		<N::Radix as RadixConf>::Alignment::decode_mask(b)
-	};
-	let end = if end_mask == MaskFor::<N::Radix>::FIRST {
-		PositionFor::<N>  {
-			index: prefix.len(),
-			mask: end_mask,
+	use crate::LimitPartial;
+	let (prefix, is_limitted) = if let Some(limit) = N::LimitPartial::LIMIT_SIZE {
+		let size = input.read_byte().unwrap();
+		let mut prefix = vec![0; size as usize];
+		input.read(&mut prefix[..]).unwrap();
+		if size == u8::MAX {
+			// TODO check if it can be ALWAYS filled from impl (especially split)
+			// -> then just encode size and is split if size >= limit.
+			let real_size: codec::Compact<u32> = Decode::decode(input).unwrap();
+			(prefix, Some((limit, real_size.0 as usize)))
+		} else {
+			(prefix, None)
 		}
 	} else {
-		PositionFor::<N>  {
-			index: prefix.len() - 1,
-			mask: end_mask,
-		}
+		let prefix: Vec<u8> = Decode::decode(input).unwrap();
+		(prefix, None)
 	};
 
-	// TODO test limit by decoding only part depending on limit size.
-	let prefix = PrefixKey::new_offset(prefix, start, end);
+	let prefix = if let Some((limit, real_size)) = is_limitted {
+		PrefixKey::new_offset_limitted(prefix, start, limit, real_size)
+	} else {
+		let end_mask = if let Some(mask) = <N::Radix as RadixConf>::Alignment::DEFAULT {
+			mask
+		} else {
+			let b = input.read_byte().unwrap();
+			<N::Radix as RadixConf>::Alignment::decode_mask(b)
+		};
+		let end = if end_mask == MaskFor::<N::Radix>::FIRST {
+			PositionFor::<N>  {
+				index: prefix.len(),
+				mask: end_mask,
+			}
+		} else {
+			PositionFor::<N>  {
+				index: prefix.len() - 1,
+				mask: end_mask,
+			}
+		};
+		PrefixKey::new_offset(prefix, start, end)
+	};
 
 	(NodeTestBackend {
 		index: Some(index),
@@ -153,12 +172,29 @@ where
 	} else {
 		result.push(<N::Radix as RadixConf>::Alignment::encode_mask(node.key.start));
 	};
-	node.key.data.encode_to(&mut result);
-	if let Some(_) = <N::Radix as RadixConf>::Alignment::DEFAULT {
+	use crate::LimitPartial;
+	let with_end = if let Some(limit) = N::LimitPartial::LIMIT_SIZE {
+		if let Some(real_size) = node.key.partial.partial_full_depth() {
+			result.push(u8::MAX);
+			node.key.data[..limit].encode_to(&mut result);
+			codec::Compact(real_size as u32).encode_to(&mut result);
+			false
+		} else {
+			result.push(node.key.data.len() as u8);
+			node.key.data[..].encode_to(&mut result);
+			true
+		}
 	} else {
-		result.push(<N::Radix as RadixConf>::Alignment::encode_mask(node.key.end));
+		node.key.data.encode_to(&mut result);
+		true
 	};
-	
+	if with_end {
+		if let Some(_) = <N::Radix as RadixConf>::Alignment::DEFAULT {
+		} else {
+			result.push(<N::Radix as RadixConf>::Alignment::encode_mask(node.key.end));
+		};
+	}
+
 	result
 }
 
