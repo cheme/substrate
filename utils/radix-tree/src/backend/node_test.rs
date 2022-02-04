@@ -87,14 +87,16 @@ fn decode<N>(
 	use crate::LimitPartial;
 	let (prefix, is_limitted) = if let Some(limit) = N::LimitPartial::LIMIT_SIZE {
 		let size = input.read_byte().unwrap();
-		let mut prefix = vec![0; size as usize];
-		input.read(&mut prefix[..]).unwrap();
 		if size == u8::MAX {
+			let mut prefix = vec![0; limit];
+			input.read(&mut prefix[..]).unwrap();
 			// TODO check if it can be ALWAYS filled from impl (especially split)
 			// -> then just encode size and is split if size >= limit.
 			let real_size: codec::Compact<u32> = Decode::decode(input).unwrap();
 			(prefix, Some((limit, real_size.0 as usize)))
 		} else {
+			let mut prefix = vec![0; size as usize];
+			input.read(&mut prefix[..]).unwrap();
 			(prefix, None)
 		}
 	} else {
@@ -181,7 +183,8 @@ where
 			false
 		} else if node.key.data.len() > limit {
 			result.push(u8::MAX);
-			node.key.data[..limit].encode_to(&mut result);
+			use codec::Output;
+			result.write(&node.key.data[..limit]);
 			let real_size = node.key.depth();
 			codec::Compact(real_size as u32).encode_to(&mut result);
 			false
