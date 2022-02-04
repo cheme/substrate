@@ -179,6 +179,12 @@ where
 			node.key.data[..limit].encode_to(&mut result);
 			codec::Compact(real_size as u32).encode_to(&mut result);
 			false
+		} else if node.key.data.len() > limit {
+			result.push(u8::MAX);
+			node.key.data[..limit].encode_to(&mut result);
+			let real_size = node.key.depth();
+			codec::Compact(real_size as u32).encode_to(&mut result);
+			false
 		} else {
 			result.push(node.key.data.len() as u8);
 			use codec::Output;
