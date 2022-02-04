@@ -205,15 +205,21 @@ impl<D, P, L> PrefixKey<D, P, L>
 
 	// TODO may be useless as we use it after a common check that ensure result.
 	fn index_with_limit<R: RadixConf<Alignment = P>>(&self, position: Position<P>) -> Option<R::KeyIndex> {
-		if self.partial.partial_full_depth().is_some() {
-			position.index::<R>(self.data.borrow())
-		} else {
-			Some(position.index::<R>(self.data.borrow())
-				.expect("TODO consider safe api here"))
+		if L::LIMIT_SIZE.is_some() {
+			if self.partial.partial_full_depth().is_some() {
+				return position.index::<R>(self.data.borrow())
+			}
 		}
+		Some(position.index::<R>(self.data.borrow())
+			.expect("TODO consider safe api here"))
 	}
 
 	fn depth(&self) -> usize {
+		if L::LIMIT_SIZE.is_some() {
+			if let Some(depth) = self.partial.partial_full_depth() {
+				return depth;
+			}
+		}
 		if P::ALIGNED {
 			self.data.borrow().len()
 		} else {
@@ -1621,7 +1627,8 @@ pub struct Node4LimitTestBackend<V>(core::marker::PhantomData<V>);
 impl <V: Value + Codec> TreeConf for Node4LimitTestBackend<V> {
 	type Radix = Radix4Conf;
 	type Value = V;
-	type LimitPartial = ();
+	type LimitPartial = LimitPartial16;
+//	type LimitPartial = NoKey;
 	type Children = Children4<ChildFor<Self>>;
 	type Backend = Rc<RefCell<TestBackend>>;
 	type NodeBackend = backend::node_test::NodeTestBackend<Self>;

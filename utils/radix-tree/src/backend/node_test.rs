@@ -181,7 +181,8 @@ where
 			false
 		} else {
 			result.push(node.key.data.len() as u8);
-			node.key.data[..].encode_to(&mut result);
+			use codec::Output;
+			result.write(&node.key.data[..]);
 			true
 		}
 	} else {
