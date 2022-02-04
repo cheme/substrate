@@ -1424,6 +1424,13 @@ impl<N: TreeConf> Tree<N> {
 		}
 	}
 
+	/// Fetch full keys by querying child up to some value with key, keep queried node in memory.
+	/// TODO optionally do not retain in memory (or at least not fullkey and value).
+	pub fn resolve_full_key(current: &mut NodeBox<N>, key: &[u8], value: N::Value) {
+		// use first child to descend TODO randomize this a bit!!
+
+	}
+
 	/// Add new key value to the tree, and return previous value if any.
 	pub fn insert(&mut self, key: &[u8], value: N::Value) -> Option<N::Value> {
 		let dest_position = PositionFor::<N> {
