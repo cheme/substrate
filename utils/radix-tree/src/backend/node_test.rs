@@ -362,7 +362,7 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 		backend: &N::Backend,
 	) -> bool {
 		let mut encoded_change = false;
-		if node.backend.value_state == ValueState::Modified {
+		if node.backend.value_state == ValueState::Modified || node.backend.value_state == ValueState::ModifiedWithFullKey {
 			if let Some(value) = node.value.as_ref() {
 				let encoded = value.encode();
 				let ix = if let Some(previous) = node.backend.value.clone() {
@@ -405,6 +405,7 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 		let changed = node.backend.children_changed
 			|| node.backend.prefix_changed
 			|| node.backend.value_state == ValueState::Modified
+			|| node.backend.value_state == ValueState::ModifiedWithFullKey
 			|| node.backend.value_state == ValueState::Deleted;
 		if !changed {
 			return None;

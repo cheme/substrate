@@ -73,16 +73,55 @@ pub trait LimitPartial: Clone + Debug {
 	/// Limit is in bytes.
 	const LIMIT_SIZE: Option<usize>;
 
+	/// When limit is defined, this should be `Option<Key>`, `()` otherwhise.
+	type FullKey: FullKey; 
+
 	// Return full depth if key is partial.
 	// Depth is in nibbles.
 	fn partial_full_depth(&self) -> Option<usize>;
 	fn new(partial_full_depth: Option<usize>) -> Self;
 }
 
+/// Full key attached to a node when a value is defined.
+pub trait FullKey: Clone + Debug + Default {
+	fn full_key(self) -> Option<Key>;
+	fn set_full_key(&mut self, key: Option<Key>);
+	fn need_update(&self, key: &[u8]) -> bool;
+}
+
+impl FullKey for () {
+	fn full_key(self) -> Option<Key> {
+		None
+	}
+
+	fn set_full_key(&mut self, _key: Option<Key>) {
+		unreachable!("Misconfigured LimitPartial");
+	}
+
+	fn need_update(&self, _key: &[u8]) -> bool {
+		false
+	}
+}
+
+impl FullKey for Option<Key> {
+	fn full_key(self) -> Option<Key> {
+		self
+	}
+
+	fn set_full_key(&mut self, key: Option<Key>) {
+		*self = key 
+	}
+
+	fn need_update(&self, key: &[u8]) -> bool {
+		Some(key) != self.as_ref().map(Vec::as_slice)
+	}
+}
+
 impl<V: Clone + Debug> Value for V { }
 
 impl LimitPartial for () {
 	const LIMIT_SIZE: Option<usize> = None;
+	type FullKey = ();
 	fn partial_full_depth(&self) -> Option<usize> {
 		None
 	}
@@ -98,6 +137,7 @@ impl LimitPartial for () {
 pub struct NoKey(Option<usize>);
 impl LimitPartial for NoKey {
 	const LIMIT_SIZE: Option<usize> = Some(0);
+	type FullKey = Option<Key>;
 	fn partial_full_depth(&self) -> Option<usize> {
 		self.0	
 	}
@@ -126,6 +166,7 @@ impl LimitPartial for NoKey {
 pub struct LimitPartial16(Option<usize>);
 impl LimitPartial for LimitPartial16 {
 	const LIMIT_SIZE: Option<usize> = Some(16);
+	type FullKey = Option<Key>;
 	fn partial_full_depth(&self) -> Option<usize> {
 		self.0	
 	}
@@ -138,6 +179,7 @@ impl LimitPartial for LimitPartial16 {
 pub struct LimitPartial4(Option<usize>);
 impl LimitPartial for LimitPartial4 {
 	const LIMIT_SIZE: Option<usize> = Some(4);
+	type FullKey = Option<Key>;
 	fn partial_full_depth(&self) -> Option<usize> {
 		self.0	
 	}
@@ -150,6 +192,7 @@ impl LimitPartial for LimitPartial4 {
 pub struct LimitPartial3(Option<usize>);
 impl LimitPartial for LimitPartial3 {
 	const LIMIT_SIZE: Option<usize> = Some(3);
+	type FullKey = Option<Key>;
 	fn partial_full_depth(&self) -> Option<usize> {
 		self.0	
 	}
@@ -512,6 +555,9 @@ pub struct Node<N>
 	/// Can probably be gated behind an associated type in N.
 	key: PrefixKey<NodeKeyBuff, AlignmentFor<N>, N::LimitPartial>,
 
+	/// Full key if there is a value attached (and `LimitPartial` is active).
+	full_key: <N::LimitPartial as LimitPartial>::FullKey,
+
 	/// A value if a value is stored for this node.
 	value: Option<N::Value>,
 
@@ -577,8 +623,15 @@ impl<N: TreeConf> Node<N> {
 		mut backend: N::NodeBackend,
 	) -> Node<N> {
 		let children = Self::children_with_backend(&mut backend);
+		let mut full_key = <N::LimitPartial as LimitPartial>::FullKey::default();
+		if N::LimitPartial::LIMIT_SIZE.is_some() {
+			if value.is_some() {
+				full_key.set_full_key(Some(key.to_vec()));
+			}
+		}
 		Node {
 			key: PrefixKey::new_offset(key, start_position, end_position),
+			full_key,
 			value,
 			children,
 			backend,
@@ -593,6 +646,7 @@ impl<N: TreeConf> Node<N> {
 		Node {
 			key: prefix,
 			value: None,
+			full_key: Default::default(),
 			children,
 			backend,
 		}
@@ -698,6 +752,28 @@ impl<N: TreeConf> Node<N> {
 		self.value.as_mut()
 	}
 
+	fn full_key_mut(
+		&mut self,
+		backend: &N::Backend,
+	) -> Option<&mut <N::LimitPartial as LimitPartial>::FullKey> {
+		if N::LimitPartial::LIMIT_SIZE.is_none() {
+			return None;
+		}
+		if N::Backend::ACTIVE {
+			match self.backend.value_state()  {
+				ValueState::Deleted => {
+					return None;
+				},
+				ValueState::Unfetched => {
+					// TODO fetch value returning fullkey too
+					self.value = self.backend.fetch_value(backend);
+				},
+				_ => (),
+			}
+		}
+		Some(&mut self.full_key)
+	}
+
 	fn value_no_cache(
 		&self,
 		backend: &N::Backend,
@@ -710,10 +786,20 @@ impl<N: TreeConf> Node<N> {
 
 	fn set_value(
 		&mut self,
+		key: &[u8],
 		value: N::Value,
 	) -> Option<N::Value> {
 		if N::Backend::ACTIVE {
 			self.backend.set_value_state(ValueState::Modified);
+		}
+		if N::LimitPartial::LIMIT_SIZE.is_some() {
+			if self.full_key.need_update(key) {
+				self.full_key.set_full_key(Some(key.to_vec()));
+
+				if N::Backend::ACTIVE {
+					self.backend.set_value_state(ValueState::ModifiedWithFullKey);
+				}
+			}
 		}
 		replace(&mut self.value, Some(value))
 	}
@@ -894,6 +980,7 @@ impl<N: TreeConf> Node<N> {
 		let parent = Box::new(Node {
 			key: parent_prefix,
 			value: None,
+			full_key: Default::default(),
 			children: N::Children::empty(0),
 			backend,
 		});
@@ -1273,7 +1360,7 @@ impl<N: TreeConf> Tree<N> {
 		if let Some(top) = self.tree.as_mut() {
 			let mut current: &mut NodeBox<N> = top;
 			if key.len() == 0 && current.depth() == 0 {
-				return current.set_value(value);
+				return current.set_value(key, value);
 			}
 			loop {
 				match current.descend(key, position, dest_position) {
@@ -1298,7 +1385,7 @@ impl<N: TreeConf> Tree<N> {
 								None,
 								N::new_node_backend(&mut self.removed_node),
 							);
-							new_child.set_value(value);
+							new_child.set_value(key, value);
 							assert!(current.set_child(index, new_child).is_none());
 							current.backend.set_children_change();
 							return None;
@@ -1315,7 +1402,7 @@ impl<N: TreeConf> Tree<N> {
 							None,
 							N::new_node_backend(&mut self.removed_node),
 						);
-						new_child.set_value(value);
+						new_child.set_value(key, value);
 						//let child_index = middle_position.index::<N::Radix>(key)
 						//	.expect("Middle resolved from key");
 						current.set_child(index, new_child);
@@ -1324,11 +1411,11 @@ impl<N: TreeConf> Tree<N> {
 					Descent::Middle(middle_position, None) => {
 						// insert middle node
 						Node::<N>::split_off(current, position, middle_position, &mut self.removed_node);
-						assert!(current.set_value(value).is_none());
+						assert!(current.set_value(key, value).is_none());
 						return None;
 					},
 					Descent::Match(_position) => {
-						return current.set_value(value);
+						return current.set_value(key, value);
 					},
 				}
 			}
@@ -1340,7 +1427,7 @@ impl<N: TreeConf> Tree<N> {
 				None,
 				N::new_node_backend_root(&mut self.removed_node),
 			));
-			self.tree.as_mut().map(|node| node.set_value(value));
+			self.tree.as_mut().map(|node| node.set_value(key, value));
 			None
 		}
 	}
@@ -1501,6 +1588,8 @@ pub enum ValueState {
 	Resolved,
 	/// Modified
 	Modified,
+	/// Modified and full key change
+	ModifiedWithFullKey,
 	/// Deleted.
 	Deleted,
 }

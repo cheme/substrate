@@ -17,7 +17,7 @@
 
 //! Different tree iterators and implementations.
 
-use super::{Tree, TreeConf, Node, PositionFor, Descent, Key, KeyIndexFor};
+use super::{Tree, TreeConf, Node, PositionFor, Descent, Key, KeyIndexFor, LimitPartial, FullKey};
 pub use derivative::Derivative;
 use alloc::vec::Vec;
 use alloc::boxed::Box;
@@ -974,8 +974,21 @@ impl<'a, N: TreeConf> Iterator for ValueIterMut<'a, N> {
 	fn next(&mut self) -> Option<Self::Item> {
 		loop {
 			if let Some((mut key, pos, node)) = self.0.next() {
+				// TODO function for key (same for all iter)
+				let full_key = if N::LimitPartial::LIMIT_SIZE.is_some() {
+					Some(node.full_key_mut(&self.0.tree.backend)
+						.map(|k| k.clone().full_key()).flatten())
+				} else {
+					None
+				};
 				if let Some(v) = node.value_mut(&self.0.tree.backend) {
-					key.truncate(pos.index); // TODO For limitpartial query key from node.
+					let key = if N::LimitPartial::LIMIT_SIZE.is_some() {
+						full_key.flatten()
+							.expect("Value exists, full key is stored.")
+					} else {
+						key.truncate(pos.index);
+						key
+					};
 					return Some((key, v))
 				}
 			} else {
