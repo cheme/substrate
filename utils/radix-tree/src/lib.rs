@@ -954,6 +954,12 @@ impl<N: TreeConf> Node<N> {
 	// TODO make it a trait function for Radix_conf? TODO reverse logic (update the other way)
 	/// Push node partial on the current node/stack key, given the node start position.
 	fn new_end(&self, stack: &mut Key, node_position: PositionFor<N>) {
+		if N::LimitPartial::LIMIT_SIZE.is_some() {
+			// only set key when touching value.
+			// TODO for iterator to show key of node, it requires
+			// buffing its node until a value is reach when descending.
+			return;
+		}
 		let depth = self.depth();
 		if depth == 0 {
 			return;
@@ -1627,8 +1633,8 @@ pub struct Node4LimitTestBackend<V>(core::marker::PhantomData<V>);
 impl <V: Value + Codec> TreeConf for Node4LimitTestBackend<V> {
 	type Radix = Radix4Conf;
 	type Value = V;
-	type LimitPartial = LimitPartial4;
-//	type LimitPartial = NoKey;
+//	type LimitPartial = LimitPartial4;
+	type LimitPartial = NoKey;
 	type Children = Children4<ChildFor<Self>>;
 	type Backend = Rc<RefCell<TestBackend>>;
 	type NodeBackend = backend::node_test::NodeTestBackend<Self>;

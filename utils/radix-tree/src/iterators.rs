@@ -975,7 +975,7 @@ impl<'a, N: TreeConf> Iterator for ValueIterMut<'a, N> {
 		loop {
 			if let Some((mut key, pos, node)) = self.0.next() {
 				if let Some(v) = node.value_mut(&self.0.tree.backend) {
-					key.truncate(pos.index);
+					key.truncate(pos.index); // TODO For limitpartial query key from node.
 					return Some((key, v))
 				}
 			} else {
