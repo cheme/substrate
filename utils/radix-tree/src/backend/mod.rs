@@ -18,7 +18,7 @@
 //! Node backends for storing tree nodes.
 
 use crate::{TreeConf, KeyIndexFor, ValueIndexFor,
-	NodeBox, Node, ValueState, IndexFor};
+	NodeBox, Node, ValueState, IndexFor, Key};
 use alloc::vec::Vec;
 use alloc::boxed::Box;
 
@@ -131,7 +131,12 @@ pub trait NodeBackend<N: TreeConf>: Clone {
 	// TODO replace by backend_hash_value -> bool ?
 	fn fetch_value_index(&self) -> Option<ValueIndexFor<N>>;
 
+	// TODO make little sense with parity-db
 	fn fetch_value(&self, backend: &N::Backend) -> Option<N::Value>;
+
+	fn fetch_value_and_full_key(&self, backend: &N::Backend) -> Option<(N::Value, Key)>;
+
+	fn fetch_full_key(&self, backend: &N::Backend) -> Option<Key>;
 
 	/// Indicate a child node was change.
 	/// TODO could consider adding position to avoid iterating on all child
@@ -194,8 +199,17 @@ pub trait NodeBackend<N: TreeConf>: Clone {
 	/// Value state is stored in backend.
 	fn value_state(&self) -> ValueState;
 
+	/// Fullkey state is stored in backend.
+	/// TODO consider merge with value, it only differs
+	/// for fetching fullkey only (big value optimization).
+	fn fullkey_state(&self) -> ValueState;
+
 	/// Value state is stored in backend.
 	fn set_value_state(&mut self, state: ValueState);
+
+	/// Fullkey state is stored in backend, usually same as
+	/// value state exept for fetch.
+	fn set_fullkey_state(&mut self, state: ValueState);
 
 	/// Clear content to allow rewriting a different node instead.
 	/// Return value index to remove if there was a value.
@@ -233,6 +247,14 @@ impl<N: TreeConf> NodeBackend<N> for () {
 	}
 
 	fn fetch_value(&self, _backend: &N::Backend) -> Option<N::Value> {
+		None
+	}
+
+	fn fetch_value_and_full_key(&self, _backend: &N::Backend) -> Option<(N::Value, Key)> {
+		None
+	}
+
+	fn fetch_full_key(&self, _backend: &N::Backend) -> Option<Key> {
 		None
 	}
 
@@ -278,10 +300,15 @@ impl<N: TreeConf> NodeBackend<N> for () {
 	fn value_state(&self) -> ValueState {
 		ValueState::Resolved
 	}
+	fn fullkey_state(&self) -> ValueState {
+		ValueState::Resolved
+	}
 	fn set_value_state(&mut self, _state: ValueState) {
 		()
 	}
-
+	fn set_fullkey_state(&mut self, _state: ValueState) {
+		()
+	}
 	fn clear_content(&mut self) -> Option<ValueIndexFor<N>> { None }
 
 	fn current_nb_children(&self) -> usize {

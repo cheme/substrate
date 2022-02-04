@@ -84,12 +84,22 @@ pub trait LimitPartial: Clone + Debug {
 
 /// Full key attached to a node when a value is defined.
 pub trait FullKey: Clone + Debug + Default {
+	fn as_ref(&self) -> Option<&[u8]>;
+	fn as_mut(&mut self) -> Option<&mut Vec<u8>>; // TODO remove?
 	fn full_key(self) -> Option<Key>;
 	fn set_full_key(&mut self, key: Option<Key>);
 	fn need_update(&self, key: &[u8]) -> bool;
 }
 
 impl FullKey for () {
+	fn as_ref(&self) -> Option<&[u8]> {
+		None
+	}
+
+	fn as_mut(&mut self) -> Option<&mut Vec<u8>> {
+		None
+	}
+
 	fn full_key(self) -> Option<Key> {
 		None
 	}
@@ -104,6 +114,14 @@ impl FullKey for () {
 }
 
 impl FullKey for Option<Key> {
+	fn as_ref(&self) -> Option<&[u8]> {
+		self.as_ref().map(Vec::as_slice)
+	}
+
+	fn as_mut(&mut self) -> Option<&mut Vec<u8>> {
+		self.as_mut()
+	}
+
 	fn full_key(self) -> Option<Key> {
 		self
 	}
@@ -719,11 +737,11 @@ impl<N: TreeConf> Node<N> {
 	fn value(
 		&self,
 		_backend: &N::Backend,
-	) -> Option<&N::Value> {
+	) -> (Option<&N::Value>, Option<&[u8]>) {
 		if N::Backend::ACTIVE {
 			match self.backend.value_state()  {
 				ValueState::Deleted => {
-					return None;
+					return (None, None);
 				},
 				ValueState::Unfetched => {
 					panic!("Cannot fetch");
@@ -731,25 +749,34 @@ impl<N: TreeConf> Node<N> {
 				_ => (),
 			}
 		}
-		self.value.as_ref()
+		(self.value.as_ref(), self.full_key.as_ref())
 	}
 
 	fn value_mut(
 		&mut self,
 		backend: &N::Backend,
-	) -> Option<&mut N::Value> {
+	) -> (Option<&mut N::Value>, Option<&[u8]>) {
 		if N::Backend::ACTIVE {
 			match self.backend.value_state()  {
 				ValueState::Deleted => {
-					return None;
+					return (None, None);
 				},
 				ValueState::Unfetched => {
-					self.value = self.backend.fetch_value(backend);
+					if N::LimitPartial::LIMIT_SIZE.is_some() {
+						if let Some((value, full_key)) = self.backend.fetch_value_and_full_key(backend) {
+							self.value = Some(value);
+							self.full_key.set_full_key(Some(full_key));
+						}
+						self.backend.set_fullkey_state(ValueState::Resolved);
+					} else {
+						self.value = self.backend.fetch_value(backend);
+					}
+					self.backend.set_value_state(ValueState::Resolved);
 				},
 				_ => (),
 			}
 		}
-		self.value.as_mut()
+		(self.value.as_mut(), self.full_key.as_ref())
 	}
 
 	fn full_key_mut(
@@ -760,13 +787,22 @@ impl<N: TreeConf> Node<N> {
 			return None;
 		}
 		if N::Backend::ACTIVE {
-			match self.backend.value_state()  {
+			match self.backend.fullkey_state()  {
 				ValueState::Deleted => {
 					return None;
 				},
 				ValueState::Unfetched => {
 					// TODO fetch value returning fullkey too
-					self.value = self.backend.fetch_value(backend);
+					if let Some((value, full_key)) = self.backend.fetch_value_and_full_key(backend) {
+						self.full_key.set_full_key(Some(full_key));
+						if self.backend.value_state() == ValueState::Unfetched {
+							self.value = Some(value);
+						}
+					}
+					self.backend.set_fullkey_state(ValueState::Resolved);
+					if self.backend.value_state() == ValueState::Unfetched {
+						self.backend.set_value_state(ValueState::Resolved);
+					}
 				},
 				_ => (),
 			}
@@ -777,11 +813,15 @@ impl<N: TreeConf> Node<N> {
 	fn value_no_cache(
 		&self,
 		backend: &N::Backend,
-	) -> Option<N::Value> {
+	) -> Option<(N::Value, Key)> {
 		if !N::Backend::ACTIVE {
 			panic!("No backend");
 		}
-		self.backend.fetch_value(backend)
+		if N::LimitPartial::LIMIT_SIZE.is_none() {
+			self.backend.fetch_value(backend).map(|v| (v, Default::default()))
+		} else {
+			self.backend.fetch_value_and_full_key(backend)
+		}
 	}
 
 	fn set_value(
@@ -797,7 +837,7 @@ impl<N: TreeConf> Node<N> {
 				self.full_key.set_full_key(Some(key.to_vec()));
 
 				if N::Backend::ACTIVE {
-					self.backend.set_value_state(ValueState::ModifiedWithFullKey);
+					self.backend.set_fullkey_state(ValueState::Modified);
 				}
 			}
 		}
@@ -815,6 +855,7 @@ impl<N: TreeConf> Node<N> {
 				self.value_mut(backend);
 			}
 			self.backend.set_value_state(ValueState::Deleted);
+			self.backend.set_fullkey_state(ValueState::Deleted);
 		}
 		replace(&mut self.value, None)
 	}
@@ -1114,6 +1155,7 @@ impl<N: TreeConf> Node<N> {
 		self.children = Self::children_with_backend(&mut self.backend);
 		self.value = None;
 		self.backend.set_value_state(ValueState::Unfetched);
+		self.backend.set_fullkey_state(ValueState::Unfetched);
 	}
 }
 
@@ -1255,7 +1297,15 @@ impl<N: TreeConf> Tree<N> {
 			// TODO is this limit condition of any use
 			if key.len() == 0 {
 				if current.depth() == 0 {
-					return current.$value(&self.backend);
+					if let (Some(value), full_key) = current.$value(&self.backend) {
+						if N::LimitPartial::LIMIT_SIZE.is_some() {
+							if full_key != Some(key) {
+								return None;
+							}
+						} 
+						return Some(value);
+					}
+					return None;
 				} else {
 					return None;
 				}
@@ -1279,7 +1329,16 @@ impl<N: TreeConf> Tree<N> {
 						return None;
 					},
 					Descent::Match(_position) => {
-						return current.$value(&self.backend);
+						if let (Some(value), fullkey) = current.$value(&self.backend) {
+							if N::LimitPartial::LIMIT_SIZE.is_some() {
+								// TODO update parent nodes from fullkey somehow
+								if fullkey != Some(key) {
+									return None;
+								}
+							}
+							return Some(value);
+						}
+						return None;
 					},
 				}
 			}
@@ -1315,10 +1374,17 @@ impl<N: TreeConf> Tree<N> {
 			// TODO is this limit condition of any use
 			if key.len() == 0 {
 				if current.depth() == 0 {
-					return current.value_no_cache(&self.backend);
-				} else {
-					return None;
+					if let Some((value, full_key)) = current.value_no_cache(&self.backend) {
+						if N::LimitPartial::LIMIT_SIZE.is_some() {
+							if full_key.as_slice() == key {
+								return Some(value);
+							}
+						} else {
+							return Some(value);
+						}
+					}
 				}
+				return None;
 			}
 			let dest_position = Position {
 				index: key.len(),
@@ -1341,7 +1407,15 @@ impl<N: TreeConf> Tree<N> {
 						return None;
 					},
 					Descent::Match(_position) => {
-						return current.value_no_cache(&self.backend);
+						if let Some((value, full_key)) = current.value_no_cache(&self.backend) {
+							if N::LimitPartial::LIMIT_SIZE.is_some() {
+								if full_key.as_slice() == key {
+									return Some(value);
+								}
+							} else {
+								return Some(value);
+							}
+						}
 					},
 				}
 			}
@@ -1588,11 +1662,11 @@ pub enum ValueState {
 	Resolved,
 	/// Modified
 	Modified,
-	/// Modified and full key change
-	ModifiedWithFullKey,
 	/// Deleted.
 	Deleted,
 }
+
+pub type FullKeyState = ValueState;
 
 impl Default for ChildState {
 	fn default() -> Self {

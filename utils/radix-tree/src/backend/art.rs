@@ -22,7 +22,7 @@ use super::{Backend, NodeBackend};
 use crate::{TreeConf, PositionFor, KeyIndexFor,
 	NodeBox, RadixConf, IndexFor, ValueIndexFor,
 	PrefixKeyConf, Node, PrefixKey, AlignmentFor,
-	ValueState, LimitPartial};
+	ValueState, LimitPartial, Key};
 use crate::children::NodeIndex;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -114,6 +114,8 @@ pub struct ArtLocalBackend<N>
 	pending_nb_children: usize,
 	// State for current value.
 	value_state: ValueState,
+	// State for current full key.
+	fullkey_state: ValueState,
 	// True when any children is modified.
 	children_changed: bool,
 	// True when stored prefix or encoded node is modified.
@@ -138,6 +140,7 @@ impl<N> ArtLocalBackend<N>
 			index: Some(index),
 			encoded,
 			value_state: ValueState::Unfetched,
+			fullkey_state: ValueState::Unfetched,
 			pending_nb_children: original_nb_children,
 			original_nb_children,
 			children_changed: false,
@@ -157,6 +160,7 @@ impl<N> ArtLocalBackend<N>
 			children_changed: false,
 			prefix_changed: true, // new node need update
 			value_state: ValueState::Resolved,
+			fullkey_state: ValueState::Resolved,
 		}
 	}
 
@@ -840,6 +844,14 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 		}
 	}
 
+	fn fetch_value_and_full_key(&self, _backend: &N::Backend) -> Option<(N::Value, Key)> {
+		unimplemented!("full key storage")
+	}
+
+	fn fetch_full_key(&self, _backend: &N::Backend) -> Option<Key> {
+		unimplemented!("full key storage")
+	}
+
 	fn set_change(&mut self) {
 		self.children_changed = true;
 	}
@@ -1000,7 +1012,7 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 		let changed = node.backend.children_changed
 			|| node.backend.prefix_changed
 			|| node.backend.value_state == ValueState::Modified
-			|| node.backend.value_state == ValueState::ModifiedWithFullKey
+			|| node.backend.fullkey_state == ValueState::Modified
 			|| node.backend.value_state == ValueState::Deleted;
 		if !changed {
 			return None;
@@ -1039,8 +1051,16 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 		self.value_state
 	}
 
+	fn fullkey_state(&self) -> ValueState {
+		self.fullkey_state
+	}
+
 	fn set_value_state(&mut self, state: ValueState) {
 		self.value_state = state
+	}
+
+	fn set_fullkey_state(&mut self, state: ValueState) {
+		self.fullkey_state = state
 	}
 
 	fn clear_content(&mut self) -> Option<ValueIndexFor<N>> {

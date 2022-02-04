@@ -22,7 +22,8 @@ use super::{Backend, NodeBackend};
 use crate::{TreeConf, PositionFor, KeyIndexFor,
 	NodeBox, RadixConf, IndexFor, ValueIndexFor,
 	PrefixKeyConf, Node, PrefixKey, AlignmentFor,
-	ValueState};
+	ValueState, FullKeyState, LimitPartial, FullKey,
+	Key};
 use crate::children::NodeIndex;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -46,6 +47,7 @@ pub struct NodeTestBackend<N: TreeConf>
 	pending_nb_children: usize,
 	value: Option<ValueIndexFor<N>>,
 	value_state: ValueState,
+	fullkey_state: FullKeyState, // fullkey stored before value
 	children_changed: bool,
 	prefix_changed: bool,
 	_ph: core::marker::PhantomData<N>,
@@ -84,7 +86,6 @@ fn decode<N>(
 		index: 0,
 		mask: start_mask,
 	};
-	use crate::LimitPartial;
 	let (prefix, is_limitted) = if let Some(limit) = N::LimitPartial::LIMIT_SIZE {
 		let size = input.read_byte().unwrap();
 		if size == u8::MAX {
@@ -133,6 +134,7 @@ fn decode<N>(
 		child_index,
 		value,
 		value_state: ValueState::Unfetched,
+		fullkey_state: ValueState::Unfetched,
 		pending_nb_children: nb_children,
 		nb_children,
 		children_changed: false,
@@ -174,7 +176,6 @@ where
 	} else {
 		result.push(<N::Radix as RadixConf>::Alignment::encode_mask(node.key.start));
 	};
-	use crate::LimitPartial;
 	let with_end = if let Some(limit) = N::LimitPartial::LIMIT_SIZE {
 		if let Some(real_size) = node.key.partial.partial_full_depth() {
 			result.push(u8::MAX);
@@ -280,6 +281,25 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 	}
 
 	fn fetch_value(&self, backend: &N::Backend) -> Option<N::Value> {
+		self.fetch_value_and_full_key(backend).map(|(v, _)| v)
+	}
+
+	fn fetch_value_and_full_key(&self, backend: &N::Backend) -> Option<(N::Value, Key)> {
+		if let Some(ix) = self.value.clone() {
+			let value = backend.get_value(ix).expect("Value stored with node.");
+			if N::LimitPartial::LIMIT_SIZE.is_some() {
+				let (key, value) = Decode::decode(&mut value.as_slice()).unwrap();
+				Some((value, key))
+			} else {
+				let value = Decode::decode(&mut value.as_slice()).unwrap();
+				Some((value, Default::default()))
+			}
+		} else {
+			None
+		}
+	}
+
+	fn fetch_full_key(&self, backend: &N::Backend) -> Option<Key> {
 		if let Some(ix) = self.value.clone() {
 			let value = backend.get_value(ix).expect("Value stored with node.");
 			Some(Decode::decode(&mut value.as_slice()).unwrap())
@@ -287,6 +307,8 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 			None
 		}
 	}
+
+
 
 	fn set_change(&mut self) {
 		self.children_changed = true;
@@ -313,6 +335,7 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 			children_changed: false,
 			prefix_changed: true, // new node need update
 			value_state: ValueState::Resolved,
+			fullkey_state: ValueState::Resolved,
 			_ph: Default::default(),
 		}
 	}
@@ -358,13 +381,29 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 	fn commit_change_value_part(
 		node: &mut NodeBox<N>,
 		_remove_node: &mut Vec<N::NodeBackend>,
-		_remove_value: &mut Vec<ValueIndexFor<N>>,
+		_remove_value: &mut Vec<ValueIndexFor<N>>, // TODO reuse or remove??
 		backend: &N::Backend,
 	) -> bool {
 		let mut encoded_change = false;
-		if node.backend.value_state == ValueState::Modified || node.backend.value_state == ValueState::ModifiedWithFullKey {
+		if node.backend.value_state == ValueState::Modified 
+			|| node.backend.fullkey_state == ValueState::Modified
+		{
+			if N::LimitPartial::LIMIT_SIZE.is_some() {
+				if node.backend.fullkey_state == ValueState::Unfetched {
+					node.full_key.set_full_key(node.backend.fetch_full_key(backend));
+				}
+			}
+			if node.backend.value_state == ValueState::Unfetched {
+				node.value = node.backend.fetch_value(backend);
+			}
 			if let Some(value) = node.value.as_ref() {
-				let encoded = value.encode();
+				let encoded = if N::LimitPartial::LIMIT_SIZE.is_some() {
+					// TODO proper update fullkey api (see fetch one): will be needed
+					// for parity db value table with fullkey api.
+					(node.full_key.as_ref().unwrap(), value).encode()
+				} else {
+					value.encode()
+				};
 				let ix = if let Some(previous) = node.backend.value.clone() {
 					backend.update_value(previous.clone(), encoded).unwrap_or(previous)
 				} else {
@@ -390,6 +429,7 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 			};
 			node.backend.value = None;
 			node.backend.value_state = ValueState::Resolved;
+			node.backend.fullkey_state = ValueState::Resolved;
 		}
 
 		encoded_change
@@ -405,7 +445,7 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 		let changed = node.backend.children_changed
 			|| node.backend.prefix_changed
 			|| node.backend.value_state == ValueState::Modified
-			|| node.backend.value_state == ValueState::ModifiedWithFullKey
+			|| node.backend.fullkey_state == ValueState::Modified
 			|| node.backend.value_state == ValueState::Deleted;
 		if !changed {
 			return None;
@@ -444,8 +484,16 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 		self.value_state
 	}
 
+	fn fullkey_state(&self) -> ValueState {
+		self.fullkey_state
+	}
+
 	fn set_value_state(&mut self, state: ValueState) {
 		self.value_state = state
+	}
+
+	fn set_fullkey_state(&mut self, state: ValueState) {
+		self.fullkey_state = state
 	}
 
 	fn clear_content(&mut self) -> Option<ValueIndexFor<N>> {

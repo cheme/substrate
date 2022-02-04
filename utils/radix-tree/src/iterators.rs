@@ -719,7 +719,16 @@ impl<'a, N: TreeConf> Iterator for SeekValueIter<'a, N> {
 	fn next(&mut self) -> Option<Self::Item> {
 		loop {
 			if let Some((key, pos, node)) = self.0.next() {
-				if let Some(v) = node.value(&self.0.tree.backend) {
+				if let (Some(v), full_key) = node.value(&self.0.tree.backend) {
+					if N::LimitPartial::LIMIT_SIZE.is_some() {
+						let key = full_key.unwrap();
+						if self.0.dest.starts_with(key) {
+							return Some((key, v));
+						} else {
+							unimplemented!("Test case needed: pop stack and set reached");
+							return None;
+						}
+					}
 					let pos = pos.next_by::<N::Radix>(node.depth());
 					return Some((&key[..pos.index], v))
 				}
@@ -763,7 +772,10 @@ impl<'a, N: TreeConf> Iterator for SeekValueIterNoCache<'a, N> {
 	fn next(&mut self) -> Option<Self::Item> {
 		loop {
 			if let Some((key, pos, node)) = self.0.next() {
-				if let Some(v) = node.value_no_cache(&self.0.tree.backend) {
+				if let Some((v, _fullkey)) = node.value_no_cache(&self.0.tree.backend) {
+					if N::LimitPartial::LIMIT_SIZE.is_some() {
+						unimplemented!("return ref to fullkey");
+					}
 					let pos = pos.next_by::<N::Radix>(node.depth());
 					return Some((&key[..pos.index], v))
 				}
@@ -811,9 +823,20 @@ impl<'a, N: TreeConf> Iterator for SeekValueIterMut<'a, N> {
 		loop {
 			if let Some((key, pos, node)) = self.0.next() {
 				let depth = node.depth();
-				if let Some(v) = node.value_mut(&self.0.tree.backend) {
-					let pos = pos.next_by::<N::Radix>(depth);
-					return Some((&key[..pos.index], v))
+				if let (Some(v), full_key) = node.value_mut(&self.0.tree.backend) {
+					let key = if N::LimitPartial::LIMIT_SIZE.is_some() {
+						let key = full_key.unwrap();
+						if self.0.dest.starts_with(key) {
+							key
+						} else {
+							unimplemented!("need test case, pop stack and set reach_dest");
+							return None;
+						}
+					} else {
+						let pos = pos.next_by::<N::Radix>(depth);
+						&key[..pos.index]
+					};
+					return Some((key, v))
 				}
 			} else {
 				return None;
@@ -919,8 +942,13 @@ impl<'a, N: TreeConf> Iterator for ValueIter<'a, N> {
 	fn next(&mut self) -> Option<Self::Item> {
 		loop {
 			if let Some((mut key, pos, node)) = self.0.next() {
-				if let Some(v) = node.value(&self.0.tree.backend) {
-					key.truncate(pos.index);
+				if let (Some(v), fullkey) = node.value(&self.0.tree.backend) {
+					let key = if N::LimitPartial::LIMIT_SIZE.is_some() {
+						fullkey.unwrap().to_vec()
+					} else {
+						key.truncate(pos.index);
+						key
+					};
 					return Some((key, v))
 				}
 			} else {
@@ -945,8 +973,13 @@ impl<'a, N: TreeConf> Iterator for ValueIterNoCache<'a, N> {
 	fn next(&mut self) -> Option<Self::Item> {
 		loop {
 			if let Some((mut key, pos, node)) = self.0.next() {
-				if let Some(v) = node.value_no_cache(&self.0.tree.backend) {
-					key.truncate(pos.index);
+				if let Some((v, fullkey)) = node.value_no_cache(&self.0.tree.backend) {
+					let key = if N::LimitPartial::LIMIT_SIZE.is_some() {
+						fullkey
+					} else {
+						key.truncate(pos.index);
+						key
+					};
 					return Some((key, v))
 				}
 			} else {
@@ -974,17 +1007,9 @@ impl<'a, N: TreeConf> Iterator for ValueIterMut<'a, N> {
 	fn next(&mut self) -> Option<Self::Item> {
 		loop {
 			if let Some((mut key, pos, node)) = self.0.next() {
-				// TODO function for key (same for all iter)
-				let full_key = if N::LimitPartial::LIMIT_SIZE.is_some() {
-					Some(node.full_key_mut(&self.0.tree.backend)
-						.map(|k| k.clone().full_key()).flatten())
-				} else {
-					None
-				};
-				if let Some(v) = node.value_mut(&self.0.tree.backend) {
+				if let (Some(v), fullkey) = node.value_mut(&self.0.tree.backend) {
 					let key = if N::LimitPartial::LIMIT_SIZE.is_some() {
-						full_key.flatten()
-							.expect("Value exists, full key is stored.")
+						fullkey.unwrap().to_vec()
 					} else {
 						key.truncate(pos.index);
 						key
