@@ -349,7 +349,7 @@ fn common_until<D1, D2, N, L>(one: &PrefixKey<D1, N::Alignment, L>, other: &Pref
 	let common_pos = common_until_inner::<_, _, N, _>(one, other);
 	if let Some(byte_len) = L::LIMIT_SIZE {
 		if one.partial.partial_full_depth().is_some() || other.partial.partial_full_depth().is_some() {
-			if common_pos.index > byte_len {
+			if common_pos.index >= byte_len {
 				return None;
 			}
 		}
@@ -676,11 +676,25 @@ impl<N: TreeConf> Node<N> {
 		node_position: PositionFor<N>,
 		dest_position: PositionFor<N>,
 	) -> Descent<N::Radix> {
+		self.descend_if(key, node_position, dest_position, false)
+			.unwrap()
+	}
+	
+	fn descend_if(
+		&self,
+		key: &[u8],
+		node_position: PositionFor<N>,
+		dest_position: PositionFor<N>,
+		if_complete: bool,
+	) -> Option<Descent<N::Radix>> {
 		let ref_prefix = PrefixKey::<_, AlignmentFor<N>, _>::new_offset_ref(key, node_position, dest_position);
 		let common = if let Some(mut common) = common_until::<_, _, N::Radix, _>(&self.key, &ref_prefix) {
 			common.index += node_position.index;
 			common
 		} else {
+			if if_complete {
+				return None;
+			}
 			// descend the whole partial, TODO would make sense to report somehow (eg we can update
 			// node on success).
 			// TODO could even require returning false when editing, as may mean split node and not
@@ -694,7 +708,7 @@ impl<N: TreeConf> Node<N> {
 		};
 		let dest_position_next = dest_position;
 		// TODO comment and check for more efficient compare (maybe first next_by?).
-		match common.cmp(dest_position_next) {
+		Some(match common.cmp(dest_position_next) {
 			Ordering::Equal => {
 				let node_end_index = node_position.next_by::<N::Radix>(self.depth());
 				if common == node_end_index {
@@ -725,7 +739,7 @@ impl<N: TreeConf> Node<N> {
 					Descent::Middle(common, ix)
 				}
 			},
-		}
+		})
 	}
 
 	fn depth(
@@ -1426,9 +1440,53 @@ impl<N: TreeConf> Tree<N> {
 
 	/// Fetch full keys by querying child up to some value with key, keep queried node in memory.
 	/// TODO optionally do not retain in memory (or at least not fullkey and value).
-	pub fn resolve_full_key(current: &mut NodeBox<N>, key: &[u8], value: N::Value) {
+	fn resolve_full_key(fullkeys: &mut Vec<(PositionFor<N>, *mut Node<N>)>, backend: &N::Backend) {
 		// use first child to descend TODO randomize this a bit!!
+		let (mut current, mut position) = if let Some(last) = fullkeys.last() {
+			let node: &mut Node<_> = unsafe { last.1.as_mut().unwrap() };
+			(node, last.0)
+		} else {
+			return;
+		};
+		let mut o_index = None;
+		while let Some(index) = current.get_next_child_index(o_index) {
+			position = position.next_by::<N::Radix>(current.depth());
+			if let Some(child) = current.get_child_mut(index, backend) {
+				position = position.next::<N::Radix>();
+				current = child;
+				if N::LimitPartial::LIMIT_SIZE.is_some() && current.key.partial.partial_full_depth().is_some() {
+					fullkeys.push((position, current as *mut _));
+				}
+				if let Some(Some(fullkey)) = current.full_key_mut(backend).map(FullKey::as_mut) {
+					Self::fill_full_key(fullkey.as_slice(), fullkeys);
+					fullkeys.clear();
+					return;
+				}
+			} else {
+				unreachable!("tested above")
+			}
 
+			o_index = Some(index);
+		}
+		panic!("Invalid structure: node with no values.") // TODO error instead and check if lazy can do that (it should only be lazy fuse node).
+	}
+
+	pub fn fill_full_key(fullkey: &[u8], fullkeys: &mut Vec<(PositionFor<N>, *mut Node<N>)>) {
+		for (start, node) in fullkeys.iter_mut() {
+			let node: &mut Node<_> = unsafe { node.as_mut().unwrap() };
+			let end = start.next_by::<N::Radix>(node.depth());
+			node.key.partial = N::LimitPartial::new(None);
+			let end_ix = if end == *start {
+				end.index
+			} else if end.mask == MaskFor::<N::Radix>::FIRST {
+				end.index
+			} else {
+				end.index + 1
+			};
+			node.key.data.resize(end_ix - start.index, 0);
+			node.key.data[..].copy_from_slice(&fullkey[start.index..end_ix]);
+			node.key.end = end.mask;
+		}
 	}
 
 	/// Add new key value to the tree, and return previous value if any.
@@ -1437,14 +1495,27 @@ impl<N: TreeConf> Tree<N> {
 			index: key.len(),
 			mask: MaskFor::<N::Radix>::FIRST,
 		};
+		let mut fullkeys: Vec<(PositionFor<N>, *mut Node<N>)> = Vec::new();
 		let mut position = PositionFor::<N>::zero();
 		if let Some(top) = self.tree.as_mut() {
 			let mut current: &mut NodeBox<N> = top;
+			if N::LimitPartial::LIMIT_SIZE.is_some() && current.key.partial.partial_full_depth().is_some() {
+				fullkeys.push((position, current.as_mut() as *mut _));
+			}
 			if key.len() == 0 && current.depth() == 0 {
 				return current.set_value(key, value);
 			}
 			loop {
-				match current.descend(key, position, dest_position) {
+				// do not skip incomplete info TODO could skip incomplete
+				// prefix on non split or merge with pop when resolving if wrong path.
+				// TODO other whise there is no use for fullkeys to be a vec
+				let desc = if let Some(desc) = current.descend_if(key, position, dest_position, true) {
+					desc
+				} else {
+					Self::resolve_full_key(&mut fullkeys, &self.backend);
+					continue;
+				};
+				match desc {
 					Descent::Child(child_position, index) => {
 						if current.has_child(index) { // has child for lifetime only
 							// insert is guaranteed to succeed so set backend change node when going down.
@@ -1454,6 +1525,9 @@ impl<N: TreeConf> Tree<N> {
 								position = child_position.next::<N::Radix>();
 								//position = child_position;
 								current = child;
+								if N::LimitPartial::LIMIT_SIZE.is_some() && current.key.partial.partial_full_depth().is_some() {
+									fullkeys.push((position, current.as_mut() as *mut _));
+								}
 							} else {
 								unreachable!("tested above")
 							}
@@ -1473,6 +1547,7 @@ impl<N: TreeConf> Tree<N> {
 						}
 					},
 					Descent::Middle(middle_position, Some(index)) => {
+						Self::resolve_full_key(&mut fullkeys, &self.backend);
 						// insert middle node
 						Node::<N>::split_off(current, position, middle_position, &mut self.removed_node);
 						let child_start = middle_position.next::<N::Radix>();
@@ -1490,6 +1565,7 @@ impl<N: TreeConf> Tree<N> {
 						return None;
 					},
 					Descent::Middle(middle_position, None) => {
+						Self::resolve_full_key(&mut fullkeys, &self.backend);
 						// insert middle node
 						Node::<N>::split_off(current, position, middle_position, &mut self.removed_node);
 						assert!(current.set_value(key, value).is_none());
@@ -1516,9 +1592,13 @@ impl<N: TreeConf> Tree<N> {
 	/// Remove value at a given location.
 	pub fn remove(&mut self, key: &[u8], with_value: bool) -> Option<N::Value> {
 		let mut position = PositionFor::<N>::zero();
+		let mut fullkeys: Vec<(PositionFor<N>, *mut Node<N>)> = Vec::new();
 		let mut empty_tree = None;
 		if let Some(top) = self.tree.as_mut() {
 			let current: &mut NodeBox<N> = top;
+			if N::LimitPartial::LIMIT_SIZE.is_some() && current.key.partial.partial_full_depth().is_some() {
+				fullkeys.push((position, current.as_mut() as *mut _));
+			}
 			if key.len() == 0 && current.depth() == 0 {
 				let result = current.remove_value(with_value, &self.backend);
 				if current.number_child() == 0 {
@@ -1526,6 +1606,7 @@ impl<N: TreeConf> Tree<N> {
 				} else {
 					if !N::NodeBackend::FUSE_ON_COMMIT {
 						if current.number_child() == 1 {
+							Self::resolve_full_key(&mut fullkeys, &self.backend);
 							Node::<N>::fuse_child(current, &mut self.removed_node, &mut self.removed_value, &self.backend);
 						}
 						return result;
@@ -1547,15 +1628,26 @@ impl<N: TreeConf> Tree<N> {
 				// Note that this can produce dangling pointer when removing
 				// node.
 				let current: &mut NodeBox<N> = unsafe { current_ptr.as_mut().unwrap() };
+				let desc = if let Some(desc) = current.descend_if(key, position, dest_position, true) {
+					desc
+				} else {
+					Self::resolve_full_key(&mut fullkeys, &self.backend);
+					continue;
+				};
+
 				// TODO for each traversed node backend set_children_change (otherwhise removal node parent may
 				// not be accessible on commit.
 				// TODO just accum unsafe backend ref and call when actual delete happen.
-				match current.descend(key, position, dest_position) {
+				match desc {
 					Descent::Child(child_position, index) => {
 						if let Some(child) = current.get_child_mut(index, &self.backend) {
 							let old_position = child_position;
 							position = child_position.next::<N::Radix>();
+							if N::LimitPartial::LIMIT_SIZE.is_some() && child.key.partial.partial_full_depth().is_some() {
+								fullkeys.push((position, child.as_mut() as *mut _));
+							}
 							current_ptr = child as *mut NodeBox<N>;
+
 							if N::Backend::ACTIVE {
 								if let Some((old, _)) = replace(
 									&mut parent,
@@ -1591,6 +1683,7 @@ impl<N: TreeConf> Tree<N> {
 								}
 								if !N::NodeBackend::FUSE_ON_COMMIT { // TODO this could ignore fuse on commit (do not query additional nodes).
 									if !parent.has_value() && parent.number_child() == 1 {
+										Self::resolve_full_key(&mut fullkeys, &self.backend);
 										Node::<N>::fuse_child(parent, &mut self.removed_node, &mut self.removed_value, &self.backend);
 									}
 								}
@@ -1600,6 +1693,7 @@ impl<N: TreeConf> Tree<N> {
 								break;
 							}
 						} else if !N::NodeBackend::FUSE_ON_COMMIT && current.number_child() == 1 {
+							Self::resolve_full_key(&mut fullkeys, &self.backend);
 							Node::<N>::fuse_child(current, &mut self.removed_node, &mut self.removed_value, &self.backend);
 						}
 
