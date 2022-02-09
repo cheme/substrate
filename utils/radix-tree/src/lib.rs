@@ -1175,7 +1175,7 @@ impl<N: TreeConf> Node<N> {
 
 /// Main tree structure.
 #[derive(Derivative)]
-#[derivative(Clone(bound=""))]
+#[derivative(Clone(bound="N::Backend: Clone"))]
 #[derivative(Debug(bound=""))]
 pub struct Tree<N>
 	where

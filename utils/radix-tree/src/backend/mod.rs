@@ -27,7 +27,7 @@ pub mod art;
 pub mod test_backend;
 
 /// Node backend management.
-pub trait Backend: Clone {
+pub trait Backend {
 	const ACTIVE: bool = true;
 
 	type Index: Eq;
