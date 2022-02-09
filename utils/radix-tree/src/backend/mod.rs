@@ -55,6 +55,8 @@ pub trait Backend {
 
 	/// Root call back.
 	fn set_root(&self, root: Self::Index);
+
+	fn commit(&self);
 }
 
 impl Backend for () {
@@ -82,6 +84,8 @@ impl Backend for () {
 	fn set_new_value(&self, _value: Vec<u8>) -> Self::ValueIndex { () }
 
 	fn set_root(&self, _root: Self::Index) { }
+
+	fn commit(&self) { }
 }
 
 /// Information stored at node level for backend management.
@@ -134,6 +138,8 @@ pub trait NodeBackend<N: TreeConf>: Clone {
 	// TODO make little sense with parity-db
 	fn fetch_value(&self, backend: &N::Backend) -> Option<N::Value>;
 
+	// TODO make no sense as long as the actual backend do not use api to fetch
+	// key only.
 	fn fetch_value_and_full_key(&self, backend: &N::Backend) -> Option<(N::Value, Key)>;
 
 	fn fetch_full_key(&self, backend: &N::Backend) -> Option<Key>;

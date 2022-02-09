@@ -1210,6 +1210,10 @@ mod tests {
 		fn set_root(&self, _root: Self::Index) {
 			unimplemented!()
 		}
+
+		fn commit(&self) {
+			unimplemented!()
+		}
 	}
 
 	#[test]

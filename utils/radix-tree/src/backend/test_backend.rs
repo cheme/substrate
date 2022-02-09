@@ -151,6 +151,8 @@ impl Backend for Rc<RefCell<TestBackend>> {
 	fn set_root(&self, root: Self::Index) {
 		self.borrow_mut().root_index = root;
 	}
+
+	fn commit(&self) { }
 }
 
 #[cfg(feature = "hash_backend")]
@@ -222,4 +224,6 @@ impl Backend for Rc<RefCell<HashedTestBackend>> {
 	fn set_root(&self, root: Self::Index) {
 		self.borrow_mut().root = Some(root);
 	}
+
+	fn commit(&self) { }
 }

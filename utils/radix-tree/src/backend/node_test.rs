@@ -308,8 +308,6 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 		}
 	}
 
-
-
 	fn set_change(&mut self) {
 		self.children_changed = true;
 	}

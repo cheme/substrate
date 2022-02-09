@@ -1256,6 +1256,7 @@ impl<N> Tree<N>
 				self.backend.remove_value(value_index);
 			}
 		}
+		self.backend.commit();
 	}
 
 	/// Commit tree changes to its underlying serializing backend.
