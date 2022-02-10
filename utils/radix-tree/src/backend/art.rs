@@ -279,11 +279,12 @@ impl<N> ArtEncoded<N>
 		let (size, r, is_partial) = if let Some(limit) = N::LimitPartial::LIMIT_SIZE {
 			limit_decode(encoded, limit)
 		} else {
-			varint_decode(encoded)
+			let r = varint_decode(encoded);
+			debug_assert!(r.0 as usize == encoded.len() - r.1 ); // TODO assert?
+			r
 		};
 		encoded = &encoded[r..];
 
-		debug_assert!(size as usize == encoded.len()); // TODO assert?
 		let prefix: Vec<u8> = if let Some(limit) = N::LimitPartial::LIMIT_SIZE {
 			if is_partial {
 				encoded[..limit as usize].to_vec()
