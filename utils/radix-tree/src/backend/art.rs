@@ -342,7 +342,7 @@ impl<N> ArtEncoded<N>
 	}
 
 	fn write_prefix_buf(result: &mut[u8], key: &PrefixKey<Vec<u8>, AlignmentFor<N>, N::LimitPartial>, nb: usize, data_len: usize) {
-		let offset = if <N::Radix as RadixConf>::Alignment::DEFAULT.is_some() {
+		let mut offset = if <N::Radix as RadixConf>::Alignment::DEFAULT.is_some() {
 			0
 		} else {
 			result[0] = <N::Radix as RadixConf>::Alignment::encode_mask(key.start);
@@ -353,10 +353,11 @@ impl<N> ArtEncoded<N>
 		} else {
 			varint_encode(key.data.len() as u64, &mut result[offset..], nb);
 		};
-		result[..data_len].copy_from_slice(&key.data[..data_len]);
+		offset += nb;
+		result[offset..offset + data_len].copy_from_slice(&key.data[..data_len]);
 		if <N::Radix as RadixConf>::Alignment::DEFAULT.is_some() {
 		} else {
-			result[data_len] = <N::Radix as RadixConf>::Alignment::encode_mask(key.end);
+			result[offset + data_len] = <N::Radix as RadixConf>::Alignment::encode_mask(key.end);
 		};
 	}
 
@@ -903,19 +904,28 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 	}
 
 	fn fetch_value(&self, backend: &N::Backend) -> Option<N::Value> {
-		if let Some(ix) = self.encoded.fetch_value_index() {
+		self.fetch_value_and_full_key(backend).map(|(v, _k)| v)
+	}
+
+	fn fetch_value_and_full_key(&self, backend: &N::Backend) -> Option<(N::Value, Key)> {
+		let encoded = if let Some(ix) = self.encoded.fetch_value_index() {
 			backend.get_value(ix)
 		} else {
 			None
-		}
+		};
+		// TODO have backend primitives for it.
+		encoded.map(|encoded| {
+			if N::LimitPartial::LIMIT_SIZE.is_some() {
+				let (key, value) = codec::Decode::decode(&mut encoded.as_slice()).unwrap();
+				(value, key)
+			} else {
+				(encoded, Default::default())
+			}
+		})
 	}
 
-	fn fetch_value_and_full_key(&self, _backend: &N::Backend) -> Option<(N::Value, Key)> {
-		unimplemented!("full key storage")
-	}
-
-	fn fetch_full_key(&self, _backend: &N::Backend) -> Option<Key> {
-		unimplemented!("full key storage")
+	fn fetch_full_key(&self, backend: &N::Backend) -> Option<Key> {
+		self.fetch_value_and_full_key(backend).map(|(_v, k)| k)
 	}
 
 	fn set_change(&mut self) {
