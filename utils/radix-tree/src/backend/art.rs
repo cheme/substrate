@@ -276,7 +276,11 @@ impl<N> ArtEncoded<N>
 			encoded = &encoded[1..];
 			<N::Radix as RadixConf>::Alignment::decode_mask(b)
 		};
-		let (size, r) = varint_decode(encoded);
+		let (size, r) = if let Some(limit) = N::LimitPartial::LIMIT_SIZE {
+			limit_decode(encoded, limit)
+		} else {
+			varint_decode(encoded)
+		};
 		encoded = &encoded[r..];
 
 		debug_assert!(size as usize == encoded.len()); // TODO assert?
@@ -297,21 +301,36 @@ impl<N> ArtEncoded<N>
 
 	// TODO use in node_test
 	pub fn write_prefix(key: &PrefixKey<Vec<u8>, AlignmentFor<N>, N::LimitPartial>) -> Vec<u8> {
-		let mut result = Vec::with_capacity(key.data.len() + 1 + if <N::Radix as RadixConf>::Alignment::DEFAULT.is_some() {
+		let mask_size = if <N::Radix as RadixConf>::Alignment::DEFAULT.is_some() {
 			0
 		} else {
 			2
-		});
+		};
+		let (nb, capacity, data_len) = if let Some(limit) = N::LimitPartial::LIMIT_SIZE {
+			let (size, size_size) = limited_encoded_len(limit);
+			(size_size, size + size_size + mask_size, std::cmp::min(key.data.len(), limit))
+		} else {
+			(
+				varint_encoded_len(key.data.len() as u64),
+				key.data.len() + 1 + mask_size,
+				key.data.len(),
+			)
+		};
+		let mut result = Vec::with_capacity(capacity);
 		let offset = if <N::Radix as RadixConf>::Alignment::DEFAULT.is_some() {
 			0
 		} else {
 			result.push(<N::Radix as RadixConf>::Alignment::encode_mask(key.start));
 			result.len()
 		};
-		let nb = varint_encoded_len(key.data.len() as u64);
 		result.resize(offset + nb, 0);
-		varint_encode(key.data.len() as u64, &mut result[offset..], nb);
-		result.extend_from_slice(key.data.as_slice());
+
+		if N::LimitPartial::LIMIT_SIZE.is_some() {
+			limit_encode_len(key.data.len() as u64, &mut result[offset..], nb);
+		} else {
+			varint_encode(key.data.len() as u64, &mut result[offset..], nb);
+		};
+		result.extend_from_slice(&key.data[..data_len]);
 		if <N::Radix as RadixConf>::Alignment::DEFAULT.is_some() {
 		} else {
 			result.push(<N::Radix as RadixConf>::Alignment::encode_mask(key.end));
@@ -1117,6 +1136,64 @@ fn varint_decode(buf: &[u8]) -> (u64, usize) {
 fn varint_encoded_len(size: u64) -> usize {
 	let nb_bit = core::cmp::max(64 - size.leading_zeros(), 1);
 	(nb_bit as usize + 6) / 7
+}
+
+fn limit_encode_len(mut size: u64, buf: &mut [u8], encoded_len: usize) -> &[u8] {
+	if encoded_len == 0 {
+	} else if encoded_len == 1 {
+		let size = size as u8;
+		buf[0] = size;
+	} else if encoded_len == 2 {
+		let size = size as u16;
+		buf[..encoded_len].copy_from_slice(&size.to_le_bytes());
+	} else if encoded_len == 4 {
+		let size = size as u32;
+		buf[..encoded_len].copy_from_slice(&size.to_le_bytes());
+	} else if encoded_len == 8 {
+		let size = size as u64;
+		buf[..encoded_len].copy_from_slice(&size.to_le_bytes());
+	} else {
+		unreachable!()
+	}
+	&buf[encoded_len..]
+}
+
+fn limit_decode(encoded: &[u8], limit: usize) -> (u64, usize) {
+	let size_size = limited_encoded_len(limit).0;
+	let size = match size_size {
+		0 => encoded[0] as u64,
+		2 => {
+			let mut buf = [0; 2];
+			buf.copy_from_slice(&encoded[..size_size]);
+			u16::from_le_bytes(buf) as u64
+		},
+		4 => {
+			let mut buf = [0; 4];
+			buf.copy_from_slice(&encoded[..size_size]);
+			u32::from_le_bytes(buf) as u64
+		},
+		8 => {
+			let mut buf = [0; 8];
+			buf.copy_from_slice(&encoded[..size_size]);
+			u64::from_le_bytes(buf)
+		},
+		_ => unreachable!(),
+	};
+	(size, size_size)
+}
+
+const fn limited_encoded_len(limit: usize) -> (usize, usize) {
+	if limit == 0 {
+		(0, 0)
+	} else if limit <= u8::MAX as usize {
+		(1, 8)
+	} else if limit <= u16::MAX as usize {
+		(2, 16)
+	} else if limit <= u32::MAX as usize {
+		(4, 32)
+	} else {
+		(8, 64)
+	}
 }
 
 fn read_u64(enc: &[u8]) -> u64 {
