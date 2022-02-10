@@ -1330,8 +1330,7 @@ mod tests {
 			(key, value)
 		}).collect();
 
-		let mut art = ArtLocalBackend::<TestConf>::with_capacity(49).encoded;
-		panic!("{:?}", art.as_ref().len());
+		let mut art = ArtLocalBackend::<TestConf>::with_capacity(0).encoded;
 		let mut witness = std::collections::BTreeSet::<u8>::new();
 
 		let mut order: Vec<usize> = (0..nb).collect();
