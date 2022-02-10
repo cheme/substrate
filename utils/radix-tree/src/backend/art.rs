@@ -276,7 +276,7 @@ impl<N> ArtEncoded<N>
 			encoded = &encoded[1..];
 			<N::Radix as RadixConf>::Alignment::decode_mask(b)
 		};
-		let (size, r) = if let Some(limit) = N::LimitPartial::LIMIT_SIZE {
+		let (size, r, is_partial) = if let Some(limit) = N::LimitPartial::LIMIT_SIZE {
 			limit_decode(encoded, limit)
 		} else {
 			varint_decode(encoded)
@@ -284,7 +284,15 @@ impl<N> ArtEncoded<N>
 		encoded = &encoded[r..];
 
 		debug_assert!(size as usize == encoded.len()); // TODO assert?
-		let prefix: Vec<u8> = encoded[..size as usize].to_vec();
+		let prefix: Vec<u8> = if let Some(limit) = N::LimitPartial::LIMIT_SIZE {
+			if is_partial {
+				encoded[..limit as usize].to_vec()
+			} else {
+				encoded[..size as usize].to_vec()
+			}
+		} else {
+			encoded[..size as usize].to_vec()
+		};
 		let end = if end_mask == MaskFor::<N::Radix>::FIRST {
 			PositionFor::<N>  {
 				index: prefix.len(),
@@ -296,7 +304,11 @@ impl<N> ArtEncoded<N>
 				mask: end_mask,
 			}
 		};
-		PrefixKey::new_offset(prefix, start, end)
+		if is_partial {
+			PrefixKey::new_offset_limitted(prefix, start, N::LimitPartial::LIMIT_SIZE.unwrap(), size as usize)
+		} else {
+			PrefixKey::new_offset(prefix, start, end)
+		}
 	}
 
 	// TODO use in node_test
@@ -323,11 +335,10 @@ impl<N> ArtEncoded<N>
 		};
 
 		let limit = N::LimitPartial::LIMIT_SIZE.unwrap();
-		let (size, nb) = limited_encoded_len(limit);
-		let capacity = size + std::cmp::min(nb, limit) + mask_size;
 		let data_len = std::cmp::min(key.data.len(), limit);
+		let capacity = LIMITED_ENCODED_LEN + data_len + mask_size;
 		let start = encoded.len() - capacity;
-		Self::write_prefix_buf(&mut encoded[start..], key, nb, data_len);
+		Self::write_prefix_buf(&mut encoded[start..], key, LIMITED_ENCODED_LEN, data_len);
 	}
 
 	fn write_prefix_buf(result: &mut[u8], key: &PrefixKey<Vec<u8>, AlignmentFor<N>, N::LimitPartial>, nb: usize, data_len: usize) {
@@ -338,7 +349,7 @@ impl<N> ArtEncoded<N>
 			1
 		};
 		if N::LimitPartial::LIMIT_SIZE.is_some() {
-			limit_encode_len(key.data.len() as u64, &mut result[offset..], nb);
+			limit_encode_len(key.data.len() as u64, &mut result[offset..]);
 		} else {
 			varint_encode(key.data.len() as u64, &mut result[offset..], nb);
 		};
@@ -655,14 +666,9 @@ const ART256_NB: usize = 256;
 
 const fn prefix_limit_len(limit: Option<usize>) -> usize {
 	if let Some(limit) = limit {
-		let (enc_len, size) = limited_encoded_len(limit);
-		enc_len + if limit < size {
-			limit
-		} else {
-			size
-		}
+		limit + LIMITED_ENCODED_LEN // No need for mask, art is aligned.
 	} else {
-	 0
+		0
 	}
 }
 
@@ -1158,7 +1164,7 @@ fn varint_encode(mut size: u64, buf: &mut [u8], encoded_len: usize) -> &[u8] {
 	&buf[..nb]
 }
 
-fn varint_decode(buf: &[u8]) -> (u64, usize) {
+fn varint_decode(buf: &[u8]) -> (u64, usize, bool) {
 	let mut result = 0u64;
 	// out of bound error on > u64
 	for i in 0..buf.len() {
@@ -1168,7 +1174,7 @@ fn varint_decode(buf: &[u8]) -> (u64, usize) {
 		} else {
 			result <<= 7;
 			result |= buf[i] as u64;
-			return (result, i + 1);
+			return (result, i + 1, false);
 		}
 	}
 	panic!("Out of range varint");
@@ -1179,63 +1185,20 @@ fn varint_encoded_len(size: u64) -> usize {
 	(nb_bit as usize + 6) / 7
 }
 
-fn limit_encode_len(mut size: u64, buf: &mut [u8], encoded_len: usize) -> &[u8] {
-	if encoded_len == 0 {
-	} else if encoded_len == 1 {
-		let size = size as u8;
-		buf[0] = size;
-	} else if encoded_len == 2 {
-		let size = size as u16;
-		buf[..encoded_len].copy_from_slice(&size.to_le_bytes());
-	} else if encoded_len == 4 {
-		let size = size as u32;
-		buf[..encoded_len].copy_from_slice(&size.to_le_bytes());
-	} else if encoded_len == 8 {
-		let size = size as u64;
-		buf[..encoded_len].copy_from_slice(&size.to_le_bytes());
-	} else {
-		unreachable!()
-	}
-	&buf[encoded_len..]
+fn limit_encode_len(size: u64, buf: &mut [u8]) -> &[u8] {
+	let size = size as u32;
+	buf[..LIMITED_ENCODED_LEN].copy_from_slice(&size.to_le_bytes());
+	&buf[LIMITED_ENCODED_LEN..]
 }
 
-fn limit_decode(encoded: &[u8], limit: usize) -> (u64, usize) {
-	let size_size = limited_encoded_len(limit).0;
-	let size = match size_size {
-		0 => encoded[0] as u64,
-		2 => {
-			let mut buf = [0; 2];
-			buf.copy_from_slice(&encoded[..size_size]);
-			u16::from_le_bytes(buf) as u64
-		},
-		4 => {
-			let mut buf = [0; 4];
-			buf.copy_from_slice(&encoded[..size_size]);
-			u32::from_le_bytes(buf) as u64
-		},
-		8 => {
-			let mut buf = [0; 8];
-			buf.copy_from_slice(&encoded[..size_size]);
-			u64::from_le_bytes(buf)
-		},
-		_ => unreachable!(),
-	};
-	(size, size_size)
+fn limit_decode(encoded: &[u8], limit: usize) -> (u64, usize, bool) {
+	let mut buf = [0; LIMITED_ENCODED_LEN];
+	buf.copy_from_slice(&encoded[..LIMITED_ENCODED_LEN]);
+	let size = u32::from_le_bytes(buf) as u64;
+	(size, LIMITED_ENCODED_LEN, size > limit as u64 )
 }
 
-const fn limited_encoded_len(limit: usize) -> (usize, usize) {
-	if limit == 0 {
-		(0, 0)
-	} else if limit <= u8::MAX as usize {
-		(1, 8)
-	} else if limit <= u16::MAX as usize {
-		(2, 16)
-	} else if limit <= u32::MAX as usize {
-		(4, 32)
-	} else {
-		(8, 64)
-	}
-}
+const LIMITED_ENCODED_LEN: usize = 4; // u32
 
 fn read_u64(enc: &[u8]) -> u64 {
 	let mut buf = [0; 8];
