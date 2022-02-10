@@ -482,22 +482,23 @@ macro_rules! art_impl_1 {
 impl<I: Index, VI: Index, L: LimitPartial> $art<I, VI, L> {
 	fn read_child_index(&self, at: usize) -> I {
 		let i = $art_nb - at;
-		let i = $art_fix_len(I::SIZE, VI::SIZE, L::LIMIT_SIZE) - i * I::SIZE - VI::SIZE;
+		let i = $art_fix_len(I::SIZE, VI::SIZE) - i * I::SIZE - VI::SIZE;
 		I::read_index(&self.0[i .. i + I::SIZE])
 	}
 
 	fn read(encoded: Vec<u8>) -> ($art<I, VI, L>, usize) {
-		debug_assert!(encoded.len() >= $art_fix_len(I::SIZE, VI::SIZE, L::LIMIT_SIZE));
-		($art(encoded, PhantomData), $art_fix_len(I::SIZE, VI::SIZE, L::LIMIT_SIZE))
+		let to_read = $art_fix_len(I::SIZE, VI::SIZE) + prefix_limit_len(L::LIMIT_SIZE);
+		debug_assert!(encoded.len() >= to_read);
+		($art(encoded, PhantomData), to_read)
 	}
 
 	fn fetch_value_index(&self) -> Option<VI> {
-		let index = VI::read_index(&self.0[$art_fix_len(I::SIZE, VI::SIZE, L::LIMIT_SIZE) - VI::SIZE .. $art_fix_len(I::SIZE, VI::SIZE, L::LIMIT_SIZE)]);
+		let index = VI::read_index(&self.0[$art_fix_len(I::SIZE, VI::SIZE) - VI::SIZE .. $art_fix_len(I::SIZE, VI::SIZE)]);
 		(index != VI::UNDEFINED).then(|| index)
 	}
 
 	fn set_value_index(&mut self, index: &VI) {
-		let i = $art_fix_len(I::SIZE, VI::SIZE, L::LIMIT_SIZE) - VI::SIZE;
+		let i = $art_fix_len(I::SIZE, VI::SIZE) - VI::SIZE;
 		index.write_index(&mut self.0[i .. i + VI::SIZE]);
 	}
 
@@ -506,7 +507,7 @@ impl<I: Index, VI: Index, L: LimitPartial> $art<I, VI, L> {
 	}
 
 	fn set_prefix(&mut self, mut prefix: Vec<u8>) {
-		self.0.truncate($art_fix_len(I::SIZE, VI::SIZE, L::LIMIT_SIZE));
+		self.0.truncate($art_fix_len(I::SIZE, VI::SIZE));
 		self.0.append(&mut prefix);
 	}
 }
@@ -622,8 +623,8 @@ impl<I: Index, VI: Index, L: LimitPartial> $art<I, VI, L> {
 				four_ix = i;
 				self.0.copy_within(i + 1 .. $art_nb, i + 2);
 				let i = $art_nb - four_ix;
-				let i = $art_fix_len(I::SIZE, VI::SIZE, L::LIMIT_SIZE) - i * I::SIZE - VI::SIZE;
-				let ie = $art_fix_len(I::SIZE, VI::SIZE, L::LIMIT_SIZE) - I::SIZE - VI::SIZE;
+				let i = $art_fix_len(I::SIZE, VI::SIZE) - i * I::SIZE - VI::SIZE;
+				let ie = $art_fix_len(I::SIZE, VI::SIZE) - I::SIZE - VI::SIZE;
 				self.0.copy_within(i .. ie, i + I::SIZE);
 				break;
 			}
@@ -631,7 +632,7 @@ impl<I: Index, VI: Index, L: LimitPartial> $art<I, VI, L> {
 		if four_ix != $art_nb {
 			self.0[four_ix + 1] = at as u8;
 			let i = $art_nb - four_ix;
-			let i = $art_fix_len(I::SIZE, VI::SIZE, L::LIMIT_SIZE) - i * I::SIZE - VI::SIZE;
+			let i = $art_fix_len(I::SIZE, VI::SIZE) - i * I::SIZE - VI::SIZE;
 			index.write_index(&mut self.0[i .. i + I::SIZE]);
 			true
 		} else {
@@ -650,8 +651,8 @@ impl<I: Index, VI: Index, L: LimitPartial> $art<I, VI, L> {
 				self.0.copy_within(i + 2 .. $art_nb + 1, i + 1);
 				self.0[$art_nb] = 0;
 				let i = $art_nb - i - 1;
-				let i =	$art_fix_len(I::SIZE, VI::SIZE, L::LIMIT_SIZE) - i * I::SIZE - VI::SIZE;
-				let ie = $art_fix_len(I::SIZE, VI::SIZE, L::LIMIT_SIZE) - VI::SIZE;
+				let i =	$art_fix_len(I::SIZE, VI::SIZE) - i * I::SIZE - VI::SIZE;
+				let ie = $art_fix_len(I::SIZE, VI::SIZE) - VI::SIZE;
 				self.0.copy_within(i .. ie, i - I::SIZE);
 				I::UNDEFINED.write_index(&mut self.0[ie - I::SIZE .. ie]);
 				break;
@@ -678,20 +679,20 @@ const fn prefix_limit_len(limit: Option<usize>) -> usize {
 	}
 }
 
-const fn art4_fix_len(index_size: usize, value_index_size: usize, limit: Option<usize>) -> usize {
-	1 + 4 + 4 * index_size + value_index_size + prefix_limit_len(limit)
+const fn art4_fix_len(index_size: usize, value_index_size: usize) -> usize {
+	1 + 4 + 4 * index_size + value_index_size
 }
 
-const fn art16_fix_len(index_size: usize, value_index_size: usize, limit: Option<usize>) -> usize {
-	1 + 16 + 16 * index_size + value_index_size + prefix_limit_len(limit)
+const fn art16_fix_len(index_size: usize, value_index_size: usize) -> usize {
+	1 + 16 + 16 * index_size + value_index_size
 }
 
-const fn art48_fix_len(index_size: usize, value_index_size: usize, limit: Option<usize>) -> usize {
-	1 + 256 + 48 * index_size + value_index_size + prefix_limit_len(limit)
+const fn art48_fix_len(index_size: usize, value_index_size: usize) -> usize {
+	1 + 256 + 48 * index_size + value_index_size
 }
 
-const fn art256_fix_len(index_size: usize, value_index_size: usize, limit: Option<usize>) -> usize {
-	1 + 1 + 256 * index_size + value_index_size + prefix_limit_len(limit)
+const fn art256_fix_len(index_size: usize, value_index_size: usize) -> usize {
+	1 + 1 + 256 * index_size + value_index_size
 }
 
 art_impl_1!(Art4, ART4_NB, art4_fix_len, test_art4);
@@ -703,13 +704,13 @@ art_impl_2!(Art16, ART16_NB, art16_fix_len, test_art16);
 
 impl<I: Index, VI: Index, L: LimitPartial> Art4<I, VI, L> {
 	fn empty() -> Self {
-		Art4(vec![0; art4_fix_len(I::SIZE, VI::SIZE, L::LIMIT_SIZE)], PhantomData)
+		Art4(vec![0; art4_fix_len(I::SIZE, VI::SIZE) + prefix_limit_len(L::LIMIT_SIZE)], PhantomData)
 	}
 }
 
 impl<I: Index, VI: Index, L: LimitPartial> Art16<I, VI, L> {
 	fn empty() -> Self {
-		let mut result = Art16(vec![0; art16_fix_len(I::SIZE, VI::SIZE, L::LIMIT_SIZE)], PhantomData);
+		let mut result = Art16(vec![0; art16_fix_len(I::SIZE, VI::SIZE) + prefix_limit_len(L::LIMIT_SIZE)], PhantomData);
 		result.0[0] |= 1 << 6;
 		result
 	}
@@ -717,7 +718,7 @@ impl<I: Index, VI: Index, L: LimitPartial> Art16<I, VI, L> {
 
 impl<I: Index, VI: Index, L: LimitPartial> Art48<I, VI, L> {
 	fn empty() -> Self {
-		let mut result = Art48(vec![0; art48_fix_len(I::SIZE, VI::SIZE, L::LIMIT_SIZE)], PhantomData);
+		let mut result = Art48(vec![0; art48_fix_len(I::SIZE, VI::SIZE) + prefix_limit_len(L::LIMIT_SIZE)], PhantomData);
 		result.0[0] |= 2 << 6;
 		result
 	}
@@ -753,7 +754,7 @@ impl<I: Index, VI: Index, L: LimitPartial> Art48<I, VI, L> {
 			// Then can remove the undefined resetting.
 			for at in 0..48 {
 				let i = ART48_NB - at;
-				let i = art48_fix_len(I::SIZE, VI::SIZE, L::LIMIT_SIZE) - i * I::SIZE - VI::SIZE;
+				let i = art48_fix_len(I::SIZE, VI::SIZE) - i * I::SIZE - VI::SIZE;
 				if I::read_index(&self.0[i .. i + I::SIZE]) == I::UNDEFINED {
 					available = at;
 					break;
@@ -762,13 +763,13 @@ impl<I: Index, VI: Index, L: LimitPartial> Art48<I, VI, L> {
 			debug_assert!(available != 48); // otherwise bug in children counting.
 			self.0[at + 1] = available as u8 + 1;
 			let i = ART48_NB - available;
-			let i = art48_fix_len(I::SIZE, VI::SIZE, L::LIMIT_SIZE) - i * I::SIZE - VI::SIZE;
+			let i = art48_fix_len(I::SIZE, VI::SIZE) - i * I::SIZE - VI::SIZE;
 			debug_assert!(I::read_index(&self.0[i .. i + I::SIZE]) == I::UNDEFINED); 
 			self.0[0] += 1;
 			index.write_index(&mut self.0[i .. i + I::SIZE]);
 		} else {
 			let i = ART48_NB - (self.0[at + 1] as usize - 1);
-			let i = art48_fix_len(I::SIZE, VI::SIZE, L::LIMIT_SIZE) - i * I::SIZE - VI::SIZE;
+			let i = art48_fix_len(I::SIZE, VI::SIZE) - i * I::SIZE - VI::SIZE;
 			debug_assert!(I::read_index(&self.0[i .. i + I::SIZE]) != I::UNDEFINED); 
 			index.write_index(&mut self.0[i .. i + I::SIZE]);
 		}
@@ -780,7 +781,7 @@ impl<I: Index, VI: Index, L: LimitPartial> Art48<I, VI, L> {
 		if i != 0 {
 			self.0[at + 1] = 0;
 			let i = ART48_NB - (i as usize - 1);
-			let i = art48_fix_len(I::SIZE, VI::SIZE, L::LIMIT_SIZE) - i * I::SIZE - VI::SIZE;
+			let i = art48_fix_len(I::SIZE, VI::SIZE) - i * I::SIZE - VI::SIZE;
 			debug_assert!(I::read_index(&self.0[i .. i + I::SIZE]) != I::UNDEFINED); 
 			self.0[0] -= 1;
 			I::UNDEFINED.write_index(&mut self.0[i .. i + I::SIZE]);
@@ -790,7 +791,7 @@ impl<I: Index, VI: Index, L: LimitPartial> Art48<I, VI, L> {
 
 impl<I: Index, VI: Index, L: LimitPartial> Art256<I, VI, L> {
 	fn empty() -> Self {
-		let mut result = Art256(vec![0; art256_fix_len(I::SIZE, VI::SIZE, L::LIMIT_SIZE)], PhantomData);
+		let mut result = Art256(vec![0; art256_fix_len(I::SIZE, VI::SIZE) + prefix_limit_len(L::LIMIT_SIZE)], PhantomData);
 		result.0[0] |= 3 << 6;
 		result
 	}
@@ -820,7 +821,7 @@ impl<I: Index, VI: Index, L: LimitPartial> Art256<I, VI, L> {
 
 	fn set_children_index(&mut self, at: usize, index: &I) -> bool {
 		let i = ART256_NB - at;
-		let i = art256_fix_len(I::SIZE, VI::SIZE, L::LIMIT_SIZE) - i * I::SIZE - VI::SIZE;
+		let i = art256_fix_len(I::SIZE, VI::SIZE) - i * I::SIZE - VI::SIZE;
 		if I::read_index(&self.0[i .. i + I::SIZE]) == I::UNDEFINED {
 			if self.0[1] == 255 {
 				self.0[0] |= 0b0000_0001;
@@ -834,7 +835,7 @@ impl<I: Index, VI: Index, L: LimitPartial> Art256<I, VI, L> {
 
 	fn remove_children_index(&mut self, at: usize) {
 		let i = ART256_NB - at;
-		let i = art256_fix_len(I::SIZE, VI::SIZE, L::LIMIT_SIZE) - i * I::SIZE - VI::SIZE;
+		let i = art256_fix_len(I::SIZE, VI::SIZE) - i * I::SIZE - VI::SIZE;
 		if I::read_index(&self.0[i .. i + I::SIZE]) != I::UNDEFINED {
 			if self.0[0] & 0b0000_0001 > 0 {
 				self.0[0] &= !0b0000_0001;
