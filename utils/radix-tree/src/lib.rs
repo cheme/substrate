@@ -1938,7 +1938,7 @@ pub struct ArtTestBackend<V>(core::marker::PhantomData<V>);
 impl<V> TreeConf for ArtTestBackend<V> {
 	type Radix = Radix256Conf;
 	type Value = Vec<u8>;
-	type LimitPartial = ();
+	type LimitPartial = LimitPartial16;
 	type Children = Children256<ChildFor<Self>>;
 	type Backend = Rc<RefCell<TestBackend>>;
 	type NodeBackend = backend::art::ArtLocalBackend<Self>;
