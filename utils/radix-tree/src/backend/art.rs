@@ -133,7 +133,7 @@ impl<N> ArtLocalBackend<N>
 		encoded: Vec<u8>,
 		index: IndexFor<N>,
 	) -> (ArtLocalBackend<N>, PrefixKey<Vec<u8>, AlignmentFor<N>, N::LimitPartial>) {
-		let (encoded, prefix) = ArtEncoded::read(encoded);
+		let (encoded, prefix) = ArtEncoded::read(encoded); // TODO can have prefix unfetched when limitted
 		let original_nb_children = encoded.nb_children();
 
 		(ArtLocalBackend {
@@ -226,21 +226,25 @@ impl<N> ArtEncoded<N>
 		match (encoded[0] & 0b1100_0000) >> 6 {
 			0 => {
 				let (art, offset) = Art4::read(encoded);
+				let offset = offset - prefix_limit_len(N::LimitPartial::LIMIT_SIZE);
 				let prefix = Self::read_prefix(&art.as_ref()[offset..]);
 				(ArtEncoded::Art4(art, PhantomData), prefix)
 			},
 			1 => { 
 				let (art, offset) = Art16::read(encoded);
+				let offset = offset - prefix_limit_len(N::LimitPartial::LIMIT_SIZE);
 				let prefix = Self::read_prefix(&art.as_ref()[offset..]);
 				(ArtEncoded::Art16(art), prefix)
 			},
 			2 => { 
 				let (art, offset) = Art48::read(encoded);
+				let offset = offset - prefix_limit_len(N::LimitPartial::LIMIT_SIZE);
 				let prefix = Self::read_prefix(&art.as_ref()[offset..]);
 				(ArtEncoded::Art48(art), prefix)
 			},
 			3 => {
 				let (art, offset) = Art256::read(encoded);
+				let offset = offset - prefix_limit_len(N::LimitPartial::LIMIT_SIZE);
 				let prefix = Self::read_prefix(&art.as_ref()[offset..]);
 				(ArtEncoded::Art256(art), prefix)
 			},
