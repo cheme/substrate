@@ -1449,6 +1449,11 @@ impl<N: TreeConf> Tree<N> {
 		} else {
 			return;
 		};
+		if let Some(Some(fullkey)) = current.full_key_mut(backend).map(FullKey::as_mut) {
+			Self::fill_full_key(fullkey.as_slice(), fullkeys);
+			fullkeys.clear();
+			return;
+		}
 		let mut o_index = None;
 		while let Some(index) = current.get_next_child_index(o_index) {
 			position = position.next_by::<N::Radix>(current.depth());
