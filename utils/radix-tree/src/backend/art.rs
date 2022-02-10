@@ -1057,10 +1057,19 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 		let mut encoded_change = false;
 		if node.backend.value_state == ValueState::Modified || node.backend.value_state == ValueState::Modified {
 			if let Some(value) = node.value.as_ref() {
-				let ix = if let Some(previous) = node.backend.encoded.fetch_value_index() {
-					backend.update_value(previous.clone(), value.clone()).unwrap_or(previous)
+
+				// TODO correct backend
+				let value = if N::LimitPartial::LIMIT_SIZE.is_some() {
+					use crate::FullKey;
+					use codec::Encode;
+					(node.full_key.as_ref().expect("resolved"), value).encode()
 				} else {
-					backend.set_new_value(value.clone())
+					value.clone()
+				};
+				let ix = if let Some(previous) = node.backend.encoded.fetch_value_index() {
+					backend.update_value(previous.clone(), value).unwrap_or(previous)
+				} else {
+					backend.set_new_value(value)
 				};
 
 				node.backend.encoded.set_value_index(&ix);
