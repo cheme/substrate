@@ -864,7 +864,7 @@ mod benchmarks {
 	}
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "remote-tests"))]
 mod mock {
 	use super::*;
 	use crate as pallet_state_trie_migration;
@@ -1285,7 +1285,7 @@ mod test {
 }
 
 /// Exported set of tests to be called against different runtimes.
-#[cfg(feature = "remote-test")]
+#[cfg(feature = "remote-tests")]
 pub mod remote_tests {
 	use crate::{AutoLimits, MigrationLimits, Pallet as StateTrieMigration, LOG_TARGET};
 	use codec::Encode;
@@ -1400,6 +1400,21 @@ pub mod remote_tests {
 		let (top_left, child_left) = ext.as_backend().essence().check_migration_state().unwrap();
 		assert_eq!(top_left, 0);
 		assert_eq!(child_left, 0);
+	}
+
+	pub async fn migration_state<
+		Runtime: crate::Config<Hash = H256>,
+		Block: BlockT<Hash = H256> + serde::de::DeserializeOwned,
+	>(
+		mode: Mode<Block>,
+	) -> (u64, u64) {
+		let ext = remote_externalities::Builder::<Block>::new()
+			.mode(mode)
+			.state_version(sp_core::storage::StateVersion::V0)
+			.build()
+			.await
+			.unwrap();
+		ext.as_backend().essence().check_migration_state().unwrap()
 	}
 }
 

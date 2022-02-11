@@ -9,6 +9,10 @@ repository = "https://github.com/paritytech/substrate/"
 description = "FRAME pallet migration of trie"
 readme = "README.md"
 
+[[bin]]
+name = "check_migration"
+required-features = ["remote-tests"]
+
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
 
@@ -28,14 +32,14 @@ frame-benchmarking = { version = "4.0.0-dev", default-features = false, path = "
 
 serde = { version = "1.0.133", optional = true }
 thousands = { version = "0.2.0", optional = true }
+remote-externalities = { path = "../../utils/frame/remote-externalities", version = "0.10.0-dev", optional = true }
+zstd = { version = "0.9.0", optional = true }
+pallet-balances = { path = "../balances", version = "4.0.0-dev", optional = true }
+sp-tracing = { path = "../../primitives/tracing", version = "4.0.0-dev", optional = true }
 
 [dev-dependencies]
-pallet-balances = { path = "../balances", version = "4.0.0-dev" }
 parking_lot = "0.12.0"
-sp-tracing = { path = "../../primitives/tracing", version = "4.0.0-dev" }
-remote-externalities = { path = "../../utils/frame/remote-externalities", version = "0.10.0-dev" }
 tokio = { version = "1.10", features = ["macros"] }
-zstd = "0.9.0"
 
 [features]
 default = ["std"]
@@ -54,4 +58,4 @@ std = [
 runtime-benchmarks = ["frame-benchmarking"]
 try-runtime = ["frame-support/try-runtime"]
 
-remote-tests = [ "std", "serde", "thousands" ]
+remote-tests = [ "std", "serde", "thousands", "remote-externalities", "zstd", "pallet-balances", "sp-tracing" ]
