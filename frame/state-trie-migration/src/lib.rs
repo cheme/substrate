@@ -1445,3 +1445,73 @@ mod remote_tests_local {
 		.await;
 	}
 }
+
+#[cfg(feature = "std")]
+pub mod rpc {
+	use jsonrpc_core::{Error, ErrorCode, Result};
+	use jsonrpc_derive::rpc;
+	use serde::{Deserialize, Serialize};
+
+	#[derive(Serialize, Deserialize)]
+	#[serde(rename_all = "camelCase")]
+	#[serde(deny_unknown_fields)]
+	pub struct MigrationStatusResult {
+		top_remaining_to_migrate: u64,
+		child_remaining_to_migrate: u64,
+	}
+
+	/// Migration RPC methods.
+	#[rpc]
+	pub trait StateMigrationRpc<BlockHash>
+	{
+		/// Check current migration state.
+		///
+		/// This call is performed locally without submitting any transactions. Thus executing this
+		/// won't change any state. Nonetheless it is a VERY costy call that should be
+		/// only exposed to trusted peers.
+		#[rpc(name = "state-trie-migration-status")]
+		fn call(
+			&self,
+			at: Option<BlockHash>,
+		) -> Result<MigrationStatusResult>;
+	}
+
+	/// An implementation of state migration specific RPC methods.
+	pub struct MigrationRpc<C, B> {
+		client: Arc<C>,
+		_marker: std::marker::PhantomData<B>,
+	}
+
+	impl<C, B> MigrationRpc<C, B> {
+		/// Create new state migration rpc for the given reference to the client.
+		pub fn new(client: Arc<C>) -> Self {
+			Contracts { client, _marker: Default::default() }
+		}
+	}
+
+impl<C, Block> MigrationRpc<<Block as BlockT>::Hash> for Contracts<C, Block>
+where
+	Block: BlockT,
+	C: Send + Sync + 'static + ProvideRuntimeApi<Block> + HeaderBackend<Block>,
+{
+	fn call(
+		&self,
+		at: Option<BlockHash>,
+	) -> Result<MigrationStatusResult> {
+	}
+
+	fn call(
+		&self,
+		call_request: CallRequest<AccountId>,
+		at: Option<<Block as BlockT>::Hash>,
+	) -> Result<ContractExecResult<Balance>> {
+		let api = self.client.runtime_api();
+		let at = BlockId::hash(at.unwrap_or_else(||
+			// If the block hash is not supplied assume the best block.
+			self.client.info().best_hash));
+
+		let CallRequest { origin, dest, value, gas_limit, storage_deposit_limit, input_data } =
+			call_request;
+
+
+}
