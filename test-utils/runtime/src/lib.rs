@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2017-2021 Parity Technologies (UK) Ltd.
+// Copyright (C) 2017-2022 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -27,10 +27,11 @@ use codec::{Decode, Encode, Error, Input};
 use scale_info::TypeInfo;
 use sp_std::{marker::PhantomData, prelude::*};
 
+use trie_db::{Trie, TrieMut};
 use cfg_if::cfg_if;
 use frame_support::{
 	parameter_types,
-	traits::{CrateVersion, KeyOwnerProofSystem},
+	traits::{ConstU32, ConstU64, CrateVersion, KeyOwnerProofSystem},
 	weights::RuntimeDbWeight,
 };
 use frame_system::limits::{BlockLength, BlockWeights};
@@ -55,13 +56,14 @@ use sp_runtime::{
 };
 use sp_tasks::WorkerDeclarationKind;
 use sp_trie::{
-	trie_types::{TrieDB, TrieDBMut},
+	trie_types::TrieDB,
 	PrefixedMemoryDB, StorageProof,
 };
 #[cfg(any(feature = "std", test))]
 use sp_version::NativeVersion;
 use sp_version::RuntimeVersion;
-use trie_db::{Trie, TrieMut};
+// bench on latest state.
+use sp_trie::trie_types::TrieDBMutV1 as TrieDBMut;
 
 // Ensure Babe and Aura use the same crypto to simplify things a bit.
 pub use sp_consensus_babe::{AllowedSlots, AuthorityId, Slot};
@@ -105,6 +107,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	impl_version: 2,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
+	state_version: 1,
 };
 
 fn version() -> RuntimeVersion {
@@ -132,16 +135,8 @@ impl Transfer {
 	pub fn into_signed_tx(self) -> Extrinsic {
 		let signature = sp_keyring::AccountKeyring::from_public(&self.from)
 			.expect("Creates keyring from public key.")
-			.sign(&self.encode())
-			.into();
-		Extrinsic {
-			call: ExtrinsicCall::Transfer {
-				transfer: self,
-				signature,
-				exhaust_resources_when_not_first: false,
-			},
-			worker_group: Default::default(),
-		}
+			.sign(&self.encode());
+		Extrinsic::Transfer { transfer: self, signature, exhaust_resources_when_not_first: false }
 	}
 
 	/// Convert into a signed extrinsic, which will only end up included in the block
@@ -151,31 +146,14 @@ impl Transfer {
 	pub fn into_resources_exhausting_tx(self) -> Extrinsic {
 		let signature = sp_keyring::AccountKeyring::from_public(&self.from)
 			.expect("Creates keyring from public key.")
-			.sign(&self.encode())
-			.into();
-		Extrinsic {
-			call: ExtrinsicCall::Transfer {
-				transfer: self,
-				signature,
-				exhaust_resources_when_not_first: true,
-			},
-			worker_group: Default::default(),
-		}
+			.sign(&self.encode());
+		Extrinsic::Transfer { transfer: self, signature, exhaust_resources_when_not_first: true }
 	}
 }
 
 /// Extrinsic for test-runtime.
 #[derive(Clone, PartialEq, Eq, Encode, Decode, RuntimeDebug)]
-pub struct Extrinsic {
-	/// Call for extrinsic.
-	pub call: ExtrinsicCall,
-	/// Worker strategy for extrinsic.
-	pub worker_group: WorkerGroup,
-}
-
-/// Extrinsic call for test-runtime.
-#[derive(Clone, PartialEq, Eq, Encode, Decode, RuntimeDebug)]
-pub enum ExtrinsicCall {
+pub enum Extrinsic {
 	AuthoritiesChange(Vec<AuthorityId>),
 	Transfer {
 		transfer: Transfer,
@@ -184,7 +162,6 @@ pub enum ExtrinsicCall {
 	},
 	IncludeData(Vec<u8>),
 	StorageChange(Vec<u8>, Option<Vec<u8>>),
-	ChangesTrieConfigUpdate(Option<ChangesTrieConfiguration>),
 	OffchainIndexSet(Vec<u8>, Vec<u8>),
 	OffchainIndexClear(Vec<u8>),
 	Store(Vec<u8>),
@@ -198,8 +175,7 @@ impl serde::Serialize for Extrinsic {
 	where
 		S: ::serde::Serializer,
 	{
-		// TODO what is use of serialize (we probably also need the worker group in.
-		self.call.using_encoded(|bytes| seq.serialize_bytes(bytes))
+		self.using_encoded(|bytes| seq.serialize_bytes(bytes))
 	}
 }
 
@@ -207,20 +183,24 @@ impl BlindCheckable for Extrinsic {
 	type Checked = Self;
 
 	fn check(self) -> Result<Self, TransactionValidityError> {
-		match &self.call {
-			ExtrinsicCall::AuthoritiesChange(_) => (),
-			ExtrinsicCall::Transfer { transfer, signature, .. } =>
-				if !sp_runtime::verify_encoded_lazy(signature, transfer, &transfer.from) {
-					return Err(InvalidTransaction::BadProof.into())
+		match self {
+			Extrinsic::AuthoritiesChange(new_auth) => Ok(Extrinsic::AuthoritiesChange(new_auth)),
+			Extrinsic::Transfer { transfer, signature, exhaust_resources_when_not_first } =>
+				if sp_runtime::verify_encoded_lazy(&signature, &transfer, &transfer.from) {
+					Ok(Extrinsic::Transfer {
+						transfer,
+						signature,
+						exhaust_resources_when_not_first,
+					})
+				} else {
+					Err(InvalidTransaction::BadProof.into())
 				},
-			ExtrinsicCall::IncludeData(..) => (),
-			ExtrinsicCall::StorageChange(..) => (),
-			ExtrinsicCall::ChangesTrieConfigUpdate(..) => (),
-			ExtrinsicCall::OffchainIndexSet(..) => (),
-			ExtrinsicCall::OffchainIndexClear(..) => (),
-			ExtrinsicCall::Store(..) => (),
+			Extrinsic::IncludeData(v) => Ok(Extrinsic::IncludeData(v)),
+			Extrinsic::StorageChange(key, value) => Ok(Extrinsic::StorageChange(key, value)),
+			Extrinsic::OffchainIndexSet(key, value) => Ok(Extrinsic::OffchainIndexSet(key, value)),
+			Extrinsic::OffchainIndexClear(key) => Ok(Extrinsic::OffchainIndexClear(key)),
+			Extrinsic::Store(data) => Ok(Extrinsic::Store(data)),
 		}
-		Ok(self)
 	}
 }
 
@@ -229,23 +209,15 @@ impl ExtrinsicT for Extrinsic {
 	type SignaturePayload = ();
 
 	fn is_signed(&self) -> Option<bool> {
-		if let ExtrinsicCall::IncludeData(_) = self.call {
+		if let Extrinsic::IncludeData(_) = *self {
 			Some(false)
 		} else {
 			Some(true)
 		}
 	}
 
-	fn worker_group(&self) -> WorkerGroup {
-		self.worker_group.clone()
-	}
-
-	fn set_worker_group(&mut self, worker_group: WorkerGroup) {
-		self.worker_group = worker_group;
-	}
-
 	fn new(call: Self::Call, _signature_payload: Option<Self::SignaturePayload>) -> Option<Self> {
-		Some(Extrinsic { call, worker_group: Default::default() })
+		Some(call)
 	}
 }
 
@@ -271,8 +243,8 @@ impl Extrinsic {
 	///
 	/// Returns `None` if this is no `Transfer` extrinsic.
 	pub fn try_transfer(&self) -> Option<&Transfer> {
-		match &self.call {
-			ExtrinsicCall::Transfer { transfer, .. } => Some(transfer),
+		match self {
+			Extrinsic::Transfer { ref transfer, .. } => Some(transfer),
 			_ => None,
 		}
 	}
@@ -291,9 +263,9 @@ pub type BlockNumber = u64;
 /// Index of a transaction.
 pub type Index = u64;
 /// The item of a block digest.
-pub type DigestItem = sp_runtime::generic::DigestItem<H256>;
+pub type DigestItem = sp_runtime::generic::DigestItem;
 /// The digest of a block.
-pub type Digest = sp_runtime::generic::Digest<H256>;
+pub type Digest = sp_runtime::generic::Digest;
 /// A test block.
 pub type Block = sp_runtime::generic::Block<Header, Extrinsic>;
 /// A test block's header.
@@ -306,9 +278,9 @@ pub fn run_tests(mut input: &[u8]) -> Vec<u8> {
 	print("run_tests...");
 	let block = Block::decode(&mut input).unwrap();
 	print("deserialized block.");
-	let stxs = block.extrinsics.iter().map(Encode::encode).collect::<Vec<_>>();
+	let stxs = block.extrinsics.iter().map(Encode::encode);
 	print("reserialized transactions.");
-	[stxs.len() as u8].encode()
+	[stxs.count() as u8].encode()
 }
 
 /// A type that can not be decoded.
@@ -325,9 +297,9 @@ impl<B: BlockT> Encode for DecodeFails<B> {
 
 impl<B: BlockT> codec::EncodeLike for DecodeFails<B> {}
 
-impl<B: BlockT> DecodeFails<B> {
-	/// Create a new instance.
-	pub fn new() -> DecodeFails<B> {
+impl<B: BlockT> Default for DecodeFails<B> {
+	/// Create a default instance.
+	fn default() -> DecodeFails<B> {
 		DecodeFails { _phantom: Default::default() }
 	}
 }
@@ -461,7 +433,7 @@ impl GetRuntimeBlockType for Runtime {
 	type RuntimeBlock = Block;
 }
 
-#[derive(Clone, RuntimeDebug)]
+#[derive(Clone, RuntimeDebug, Encode, Decode, PartialEq, Eq, TypeInfo)]
 pub struct Origin;
 
 impl From<frame_system::Origin<Runtime>> for Origin {
@@ -469,8 +441,8 @@ impl From<frame_system::Origin<Runtime>> for Origin {
 		unimplemented!("Not required in tests!")
 	}
 }
-impl Into<Result<frame_system::Origin<Runtime>, Origin>> for Origin {
-	fn into(self) -> Result<frame_system::Origin<Runtime>, Origin> {
+impl From<Origin> for Result<frame_system::Origin<Runtime>, Origin> {
+	fn from(_origin: Origin) -> Result<frame_system::Origin<Runtime>, Origin> {
 		unimplemented!("Not required in tests!")
 	}
 }
@@ -589,7 +561,6 @@ impl frame_support::traits::PalletInfo for Runtime {
 
 parameter_types! {
 	pub const BlockHashCount: BlockNumber = 2400;
-	pub const MinimumPeriod: u64 = 5;
 	pub const DbWeight: RuntimeDbWeight = RuntimeDbWeight {
 		read: 100,
 		write: 1000,
@@ -624,25 +595,24 @@ impl frame_system::Config for Runtime {
 	type SystemWeightInfo = ();
 	type SS58Prefix = ();
 	type OnSetCode = ();
+	type MaxConsumers = ConstU32<16>;
 }
 
 impl pallet_timestamp::Config for Runtime {
 	/// A timestamp: milliseconds since the unix epoch.
 	type Moment = u64;
 	type OnTimestampSet = ();
-	type MinimumPeriod = MinimumPeriod;
+	type MinimumPeriod = ConstU64<5>;
 	type WeightInfo = ();
 }
 
 parameter_types! {
 	pub const EpochDuration: u64 = 6;
-	pub const ExpectedBlockTime: u64 = 10_000;
-	pub const MaxAuthorities: u32 = 10;
 }
 
 impl pallet_babe::Config for Runtime {
 	type EpochDuration = EpochDuration;
-	type ExpectedBlockTime = ExpectedBlockTime;
+	type ExpectedBlockTime = ConstU64<10_000>;
 	// there is no actual runtime in this test-runtime, so testing crates
 	// are manually adding the digests. normally in this situation you'd use
 	// pallet_babe::SameAuthoritiesForever.
@@ -662,7 +632,7 @@ impl pallet_babe::Config for Runtime {
 	type HandleEquivocation = ();
 	type WeightInfo = ();
 
-	type MaxAuthorities = MaxAuthorities;
+	type MaxAuthorities = ConstU32<10>;
 }
 
 /// Adds one to the given input and returns the final result.
@@ -686,12 +656,9 @@ fn code_using_trie() -> u64 {
 	let mut mdb = PrefixedMemoryDB::default();
 	let mut root = sp_std::default::Default::default();
 	let _ = {
-		let v = &pairs;
 		let mut t = TrieDBMut::<Hashing>::new(&mut mdb, &mut root);
-		for i in 0..v.len() {
-			let key: &[u8] = &v[i].0;
-			let val: &[u8] = &v[i].1;
-			if !t.insert(key, val).is_ok() {
+		for (key, value) in &pairs {
+			if t.insert(key, value).is_err() {
 				return 101
 			}
 		}
@@ -700,13 +667,7 @@ fn code_using_trie() -> u64 {
 
 	if let Ok(trie) = TrieDB::<Hashing>::new(&mdb, &root) {
 		if let Ok(iter) = trie.iter() {
-			let mut iter_pairs = Vec::new();
-			for pair in iter {
-				if let Ok((key, value)) = pair {
-					iter_pairs.push((key, value.to_vec()));
-				}
-			}
-			iter_pairs.len() as u64
+			iter.flatten().count() as u64
 		} else {
 			102
 		}
@@ -752,7 +713,7 @@ cfg_if! {
 					utx: <Block as BlockT>::Extrinsic,
 					_: <Block as BlockT>::Hash,
 				) -> TransactionValidity {
-					if let ExtrinsicCall::IncludeData(data) = utx.call {
+					if let Extrinsic::IncludeData(data) = utx {
 						return Ok(ValidTransaction {
 							priority: data.len() as u64,
 							requires: vec![],
@@ -820,7 +781,7 @@ cfg_if! {
 				fn fail_convert_parameter(_: DecodeFails<Block>) {}
 
 				fn fail_convert_return_value() -> DecodeFails<Block> {
-					DecodeFails::new()
+					DecodeFails::default()
 				}
 
 				fn function_signature_changed() -> u64 {
@@ -950,10 +911,7 @@ cfg_if! {
 
 			impl sp_offchain::OffchainWorkerApi<Block> for Runtime {
 				fn offchain_worker(header: &<Block as BlockT>::Header) {
-					let ex = Extrinsic {
-						call: ExtrinsicCall::IncludeData(header.number.encode()),
-						worker_group: Default::default(),
-					};
+					let ex = Extrinsic::IncludeData(header.number.encode());
 					sp_io::offchain::submit_transaction(ex.encode()).unwrap();
 				}
 			}
@@ -1031,8 +989,8 @@ cfg_if! {
 					utx: <Block as BlockT>::Extrinsic,
 					_: <Block as BlockT>::Hash,
 				) -> TransactionValidity {
-					if let ExtrinsicCall::IncludeData(data) = utx.call {
-						return Ok(ValidTransaction {
+					if let Extrinsic::IncludeData(data) = utx {
+						return Ok(ValidTransaction{
 							priority: data.len() as u64,
 							requires: vec![],
 							provides: vec![data],
@@ -1099,7 +1057,7 @@ cfg_if! {
 				fn fail_convert_parameter(_: DecodeFails<Block>) {}
 
 				fn fail_convert_return_value() -> DecodeFails<Block> {
-					DecodeFails::new()
+					DecodeFails::default()
 				}
 
 				fn function_signature_changed() -> Vec<u64> {
@@ -1233,10 +1191,7 @@ cfg_if! {
 
 			impl sp_offchain::OffchainWorkerApi<Block> for Runtime {
 				fn offchain_worker(header: &<Block as BlockT>::Header) {
-					let ex = Extrinsic {
-						call: ExtrinsicCall::IncludeData(header.number.encode()),
-						worker_group: Default::default(),
-					};
+					let ex = Extrinsic::IncludeData(header.number.encode());
 					sp_io::offchain::submit_transaction(ex.encode()).unwrap()
 				}
 			}
@@ -1344,14 +1299,12 @@ fn test_witness(proof: StorageProof, root: crate::Hash) {
 	let db: sp_trie::MemoryDB<crate::Hashing> = proof.into_memory_db();
 	let backend = sp_state_machine::TrieBackend::<_, crate::Hashing>::new(db, root);
 	let mut overlay = sp_state_machine::OverlayedChanges::default();
-	let mut cache = sp_state_machine::StorageTransactionCache::<_, _, BlockNumber>::default();
+	let mut cache = sp_state_machine::StorageTransactionCache::default();
 	let mut extensions = sp_externalities::Extensions::default();
 	let mut ext = sp_state_machine::Ext::new(
 		&mut overlay,
 		&mut cache,
 		&backend,
-		#[cfg(feature = "std")]
-		None,
 		Some(&mut extensions),
 	);
 	assert!(ext.storage(b"value3").is_some());
@@ -1535,7 +1488,7 @@ mod tests {
 		let mut root = crate::Hash::default();
 		let mut mdb = sp_trie::MemoryDB::<crate::Hashing>::default();
 		{
-			let mut trie = sp_trie::trie_types::TrieDBMut::new(&mut mdb, &mut root);
+			let mut trie = sp_trie::trie_types::TrieDBMutV1::new(&mut mdb, &mut root);
 			trie.insert(b"value3", &[142]).expect("insert failed");
 			trie.insert(b"value4", &[124]).expect("insert failed");
 		};

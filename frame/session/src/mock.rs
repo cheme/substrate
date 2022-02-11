@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2019-2021 Parity Technologies (UK) Ltd.
+// Copyright (C) 2019-2022 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -22,17 +22,21 @@ use crate as pallet_session;
 #[cfg(feature = "historical")]
 use crate::historical as pallet_session_historical;
 
-use std::cell::RefCell;
+use std::{cell::RefCell, collections::BTreeMap};
 
 use sp_core::{crypto::key_types::DUMMY, H256};
 use sp_runtime::{
 	impl_opaque_keys,
 	testing::{Header, UintAuthorityId},
-	traits::{BlakeTwo256, ConvertInto, IdentityLookup},
+	traits::{BlakeTwo256, IdentityLookup},
 };
 use sp_staking::SessionIndex;
 
-use frame_support::{parameter_types, traits::GenesisBuild, BasicExternalities};
+use frame_support::{
+	parameter_types,
+	traits::{ConstU32, ConstU64, GenesisBuild},
+	BasicExternalities,
+};
 
 impl_opaque_keys! {
 	pub struct MockSessionKeys {
@@ -111,6 +115,7 @@ thread_local! {
 	pub static DISABLED: RefCell<bool> = RefCell::new(false);
 	// Stores if `on_before_session_end` was called
 	pub static BEFORE_SESSION_END_CALLED: RefCell<bool> = RefCell::new(false);
+	pub static VALIDATOR_ACCOUNTS: RefCell<BTreeMap<u64, u64>> = RefCell::new(BTreeMap::new());
 }
 
 pub struct TestShouldEndSession;
@@ -225,12 +230,14 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 	pallet_session::GenesisConfig::<Test> { keys }
 		.assimilate_storage(&mut t)
 		.unwrap();
+	NEXT_VALIDATORS.with(|l| {
+		let v = l.borrow().iter().map(|&i| (i, i)).collect();
+		VALIDATOR_ACCOUNTS.with(|m| *m.borrow_mut() = v);
+	});
 	sp_io::TestExternalities::new(t)
 }
 
 parameter_types! {
-	pub const MinimumPeriod: u64 = 5;
-	pub const BlockHashCount: u64 = 250;
 	pub BlockWeights: frame_system::limits::BlockWeights =
 		frame_system::limits::BlockWeights::simple_max(1024);
 }
@@ -250,7 +257,7 @@ impl frame_system::Config for Test {
 	type Lookup = IdentityLookup<Self::AccountId>;
 	type Header = Header;
 	type Event = Event;
-	type BlockHashCount = BlockHashCount;
+	type BlockHashCount = ConstU64<250>;
 	type Version = ();
 	type PalletInfo = PalletInfo;
 	type AccountData = ();
@@ -259,13 +266,26 @@ impl frame_system::Config for Test {
 	type SystemWeightInfo = ();
 	type SS58Prefix = ();
 	type OnSetCode = ();
+	type MaxConsumers = ConstU32<16>;
 }
 
 impl pallet_timestamp::Config for Test {
 	type Moment = u64;
 	type OnTimestampSet = ();
-	type MinimumPeriod = MinimumPeriod;
+	type MinimumPeriod = ConstU64<5>;
 	type WeightInfo = ();
+}
+
+pub struct TestValidatorIdOf;
+impl TestValidatorIdOf {
+	pub fn set(v: BTreeMap<u64, u64>) {
+		VALIDATOR_ACCOUNTS.with(|m| *m.borrow_mut() = v);
+	}
+}
+impl Convert<u64, Option<u64>> for TestValidatorIdOf {
+	fn convert(x: u64) -> Option<u64> {
+		VALIDATOR_ACCOUNTS.with(|m| m.borrow().get(&x).cloned())
+	}
 }
 
 impl Config for Test {
@@ -276,7 +296,7 @@ impl Config for Test {
 	type SessionManager = TestSessionManager;
 	type SessionHandler = TestSessionHandler;
 	type ValidatorId = u64;
-	type ValidatorIdOf = ConvertInto;
+	type ValidatorIdOf = TestValidatorIdOf;
 	type Keys = MockSessionKeys;
 	type Event = Event;
 	type NextSessionRotation = ();

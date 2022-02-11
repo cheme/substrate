@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2019-2021 Parity Technologies (UK) Ltd.
+// Copyright (C) 2019-2022 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: GPL-3.0-or-later WITH Classpath-exception-2.0
 
 // This program is free software: you can redistribute it and/or modify
@@ -248,14 +248,24 @@ impl TaskExecutor {
 }
 
 impl SpawnNamed for TaskExecutor {
-	fn spawn_blocking(&self, _: &'static str, future: BoxFuture<'static, ()>) {
-		self.pool.spawn_ok(future);
-	}
-
-	fn spawn(&self, _name: &'static str, future: BoxFuture<'static, ()>) -> Option<TaskHandle> {
+	fn spawn(
+		&self,
+		_: &'static str,
+		_: Option<&'static str>,
+		future: futures::future::BoxFuture<'static, ()>,
+	) -> Option<TaskHandle> {
 		self.pool.spawn_ok(future);
 		// no dismiss
 		None
+	}
+
+	fn spawn_blocking(
+		&self,
+		_: &'static str,
+		_: Option<&'static str>,
+		future: futures::future::BoxFuture<'static, ()>,
+	) {
+		self.pool.spawn_ok(future);
 	}
 }
 
@@ -406,7 +416,7 @@ impl BenchDb {
 		let backend = sc_service::new_db_backend(db_config).expect("Should not fail");
 		let client = sc_service::new_client(
 			backend.clone(),
-			NativeElseWasmExecutor::new(WasmExecutionMethod::Compiled, None, 8),
+			NativeElseWasmExecutor::new(WasmExecutionMethod::Compiled, None, 8, 2),
 			&keyring.generate_genesis(),
 			None,
 			None,
@@ -602,7 +612,6 @@ impl BenchKeyring {
 	/// Generate genesis with accounts from this keyring endowed with some balance.
 	pub fn generate_genesis(&self) -> node_runtime::GenesisConfig {
 		crate::genesis::config_endowed(
-			false,
 			Some(node_runtime::wasm_binary_unwrap()),
 			self.collect_account_ids(),
 		)

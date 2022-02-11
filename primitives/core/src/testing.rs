@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2019-2021 Parity Technologies (UK) Ltd.
+// Copyright (C) 2019-2022 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -152,13 +152,19 @@ impl Default for TaskExecutor {
 
 #[cfg(feature = "std")]
 impl crate::traits::SpawnNamed for TaskExecutor {
-	fn spawn_blocking(&self, _: &'static str, future: futures::future::BoxFuture<'static, ()>) {
+	fn spawn_blocking(
+		&self,
+		_name: &'static str,
+		_group: Option<&'static str>,
+		future: futures::future::BoxFuture<'static, ()>,
+	) {
 		self.0.spawn_ok(future);
 	}
 
 	fn spawn(
 		&self,
 		_name: &'static str,
+		_group: Option<&'static str>,
 		future: futures::future::BoxFuture<'static, ()>,
 	) -> Option<crate::traits::TaskHandle> {
 		use futures::task::SpawnExt;
@@ -205,11 +211,17 @@ impl crate::traits::SpawnEssentialNamed for TaskExecutor {
 	fn spawn_essential_blocking(
 		&self,
 		_: &'static str,
+		_: Option<&'static str>,
 		future: futures::future::BoxFuture<'static, ()>,
 	) {
 		self.0.spawn_ok(future);
 	}
-	fn spawn_essential(&self, _: &'static str, future: futures::future::BoxFuture<'static, ()>) {
+	fn spawn_essential(
+		&self,
+		_: &'static str,
+		_: Option<&'static str>,
+		future: futures::future::BoxFuture<'static, ()>,
+	) {
 		self.0.spawn_ok(future);
 	}
 }

@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2019-2021 Parity Technologies (UK) Ltd.
+// Copyright (C) 2019-2022 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -246,18 +246,26 @@ pub type TaskHandle = Box<dyn TaskHandleTrait>;
 /// Alias of the future type to use with `SpawnedNamed` trait.
 pub type BoxFuture = futures::future::BoxFuture<'static, ()>;
 
-/// Something that can spawn tasks (blocking and non-blocking) with an assigned name.
+/// Something that can spawn tasks (blocking and non-blocking) with an assigned name
+/// and optional group.
 pub trait SpawnNamed: SpawnLimit + DynClone + Send + Sync {
 	/// Spawn the given blocking future.
 	///
-	/// The given `name` is used to identify the future in tracing.
-	fn spawn_blocking(&self, name: &'static str, future: BoxFuture);
+	/// The given `group` and `name` is used to identify the future in tracing.
+	fn spawn_blocking(
+		&self,
+		name: &'static str,
+		group: Option<&'static str>,
+		future: BoxFuture,
+	);
 
 	/// Spawn the given non-blocking future.
 	/// The handle optionally allows to signal that the task can be dismiss.
 	///
-	/// The given `name` is used to identify the future in tracing.
-	fn spawn(&self, name: &'static str, future: BoxFuture) -> Option<TaskHandle>;
+	/// The given `group` and `name` is used to identify the future in tracing.
+	fn spawn(&self, name: &'static str,
+		group: Option<&'static str>,
+		future: BoxFuture) -> Option<TaskHandle>;
 }
 dyn_clone::clone_trait_object!(SpawnNamed);
 
@@ -280,12 +288,16 @@ pub trait TaskHandleTrait: Send {
 }
 
 impl SpawnNamed for Box<dyn SpawnNamed> {
-	fn spawn_blocking(&self, name: &'static str, future: BoxFuture) {
-		(**self).spawn_blocking(name, future)
+	fn spawn_blocking(&self, name: &'static str,
+		group: Option<&'static str>,
+		future: BoxFuture) {
+		(**self).spawn_blocking(name, group, future)
 	}
 
-	fn spawn(&self, name: &'static str, future: BoxFuture) -> Option<TaskHandle> {
-		(**self).spawn(name, future)
+	fn spawn(&self, name: &'static str,
+		group: Option<&'static str>,
+		future: BoxFuture) -> Option<TaskHandle> {
+		(**self).spawn(name, group, future)
 	}
 }
 
@@ -299,22 +311,29 @@ impl SpawnLimit for Box<dyn SpawnNamed> {
 	}
 }
 
-/// Something that can spawn essential tasks (blocking and non-blocking) with an assigned name.
+/// Something that can spawn essential tasks (blocking and non-blocking) with an assigned name
+/// and optional group.
 ///
 /// Essential tasks are special tasks that should take down the node when they end.
 pub trait SpawnEssentialNamed: DynClone + Send + Sync {
 	/// Spawn the given blocking future.
 	///
-	/// The given `name` is used to identify the future in tracing.
+	/// The given `group` and `name` is used to identify the future in tracing.
 	fn spawn_essential_blocking(
 		&self,
 		name: &'static str,
+		group: Option<&'static str>,
 		future: futures::future::BoxFuture<'static, ()>,
 	);
 	/// Spawn the given non-blocking future.
 	///
-	/// The given `name` is used to identify the future in tracing.
-	fn spawn_essential(&self, name: &'static str, future: futures::future::BoxFuture<'static, ()>);
+	/// The given `group` and `name` is used to identify the future in tracing.
+	fn spawn_essential(
+		&self,
+		name: &'static str,
+		group: Option<&'static str>,
+		future: futures::future::BoxFuture<'static, ()>,
+	);
 }
 dyn_clone::clone_trait_object!(SpawnEssentialNamed);
 
@@ -323,12 +342,18 @@ impl SpawnEssentialNamed for Box<dyn SpawnEssentialNamed> {
 	fn spawn_essential_blocking(
 		&self,
 		name: &'static str,
+		group: Option<&'static str>,
 		future: futures::future::BoxFuture<'static, ()>,
 	) {
-		(**self).spawn_essential_blocking(name, future)
+		(**self).spawn_essential_blocking(name, group, future)
 	}
 
-	fn spawn_essential(&self, name: &'static str, future: futures::future::BoxFuture<'static, ()>) {
-		(**self).spawn_essential(name, future)
+	fn spawn_essential(
+		&self,
+		name: &'static str,
+		group: Option<&'static str>,
+		future: futures::future::BoxFuture<'static, ()>,
+	) {
+		(**self).spawn_essential(name, group, future)
 	}
 }

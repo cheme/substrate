@@ -1,6 +1,6 @@
 // This file is part of Substrate.
 
-// Copyright (C) 2017-2021 Parity Technologies (UK) Ltd.
+// Copyright (C) 2017-2022 Parity Technologies (UK) Ltd.
 // SPDX-License-Identifier: Apache-2.0
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -108,22 +108,12 @@
 
 #[cfg(feature = "historical")]
 pub mod historical;
+pub mod migrations;
 #[cfg(test)]
 mod mock;
 #[cfg(test)]
 mod tests;
 pub mod weights;
-
-use sp_runtime::{
-	traits::{AtLeast32BitUnsigned, Convert, Member, One, OpaqueKeys, Zero},
-	ConsensusEngineId, KeyTypeId, Permill, RuntimeAppPublic,
-};
-use sp_staking::SessionIndex;
-use sp_std::{
-	marker::PhantomData,
-	ops::{Rem, Sub},
-	prelude::*,
-};
 
 use frame_support::{
 	codec::{Decode, MaxEncodedLen},
@@ -135,6 +125,16 @@ use frame_support::{
 	},
 	weights::Weight,
 	Parameter,
+};
+use sp_runtime::{
+	traits::{AtLeast32BitUnsigned, Convert, Member, One, OpaqueKeys, Zero},
+	ConsensusEngineId, KeyTypeId, Permill, RuntimeAppPublic,
+};
+use sp_staking::SessionIndex;
+use sp_std::{
+	marker::PhantomData,
+	ops::{Rem, Sub},
+	prelude::*,
 };
 
 pub use pallet::*;
@@ -312,8 +312,10 @@ impl<AId> SessionHandler<AId> for Tuple {
 		for_tuples!(
 			#(
 				let our_keys: Box<dyn Iterator<Item=_>> = Box::new(validators.iter()
-					.map(|k| (&k.0, k.1.get::<Tuple::Key>(<Tuple::Key as RuntimeAppPublic>::ID)
-						.unwrap_or_default())));
+					.filter_map(|k|
+						k.1.get::<Tuple::Key>(<Tuple::Key as RuntimeAppPublic>::ID).map(|k1| (&k.0, k1))
+					)
+				);
 
 				Tuple::on_genesis_session(our_keys);
 			)*
@@ -328,11 +330,13 @@ impl<AId> SessionHandler<AId> for Tuple {
 		for_tuples!(
 			#(
 				let our_keys: Box<dyn Iterator<Item=_>> = Box::new(validators.iter()
-					.map(|k| (&k.0, k.1.get::<Tuple::Key>(<Tuple::Key as RuntimeAppPublic>::ID)
-						.unwrap_or_default())));
+					.filter_map(|k|
+						k.1.get::<Tuple::Key>(<Tuple::Key as RuntimeAppPublic>::ID).map(|k1| (&k.0, k1))
+					));
 				let queued_keys: Box<dyn Iterator<Item=_>> = Box::new(queued_validators.iter()
-					.map(|k| (&k.0, k.1.get::<Tuple::Key>(<Tuple::Key as RuntimeAppPublic>::ID)
-						.unwrap_or_default())));
+					.filter_map(|k|
+						k.1.get::<Tuple::Key>(<Tuple::Key as RuntimeAppPublic>::ID).map(|k1| (&k.0, k1))
+					));
 				Tuple::on_new_session(changed, our_keys, queued_keys);
 			)*
 		)
@@ -369,6 +373,7 @@ pub mod pallet {
 	#[pallet::pallet]
 	#[pallet::generate_store(pub(super) trait Store)]
 	#[pallet::storage_version(STORAGE_VERSION)]
+	#[pallet::without_storage_info]
 	pub struct Pallet<T>(_);
 
 	#[pallet::config]
@@ -377,7 +382,11 @@ pub mod pallet {
 		type Event: From<Event> + IsType<<Self as frame_system::Config>::Event>;
 
 		/// A stable ID for a validator.
-		type ValidatorId: Member + Parameter + MaybeSerializeDeserialize + MaxEncodedLen;
+		type ValidatorId: Member
+			+ Parameter
+			+ MaybeSerializeDeserialize
+			+ MaxEncodedLen
+			+ TryFrom<Self::AccountId>;
 
 		/// A conversion from account ID to validator ID.
 		///
@@ -399,7 +408,7 @@ pub mod pallet {
 		type SessionHandler: SessionHandler<Self::ValidatorId>;
 
 		/// The keys.
-		type Keys: OpaqueKeys + Member + Parameter + Default + MaybeSerializeDeserialize;
+		type Keys: OpaqueKeys + Member + Parameter + MaybeSerializeDeserialize;
 
 		/// Weight information for extrinsics in this pallet.
 		type WeightInfo: WeightInfo;
@@ -440,7 +449,7 @@ pub mod pallet {
 			for (account, val, keys) in self.keys.iter().cloned() {
 				<Pallet<T>>::inner_set_keys(&val, keys)
 					.expect("genesis config must not contain duplicates; qed");
-				if frame_system::Pallet::<T>::inc_consumers(&account).is_err() {
+				if frame_system::Pallet::<T>::inc_consumers_without_limit(&account).is_err() {
 					// This will leak a provider reference, however it only happens once (at
 					// genesis) so it's really not a big deal and we assume that the user wants to
 					// do this since it's the only way a non-endowed account can contain a session
@@ -472,13 +481,18 @@ pub mod pallet {
 			let queued_keys: Vec<_> = initial_validators_1
 				.iter()
 				.cloned()
-				.map(|v| (v.clone(), <Pallet<T>>::load_keys(&v).unwrap_or_default()))
+				.map(|v| {
+					(
+						v.clone(),
+						Pallet::<T>::load_keys(&v).expect("Validator in session 1 missing keys!"),
+					)
+				})
 				.collect();
 
 			// Tell everyone about the genesis session keys
 			T::SessionHandler::on_genesis_session::<T::Keys>(&queued_keys);
 
-			<Validators<T>>::put(initial_validators_0);
+			Validators::<T>::put(initial_validators_0);
 			<QueuedKeys<T>>::put(queued_keys);
 
 			T::SessionManager::start_session(0);
@@ -528,9 +542,9 @@ pub mod pallet {
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event {
-		/// New session has happened. Note that the argument is the \[session_index\], not the
+		/// New session has happened. Note that the argument is the session index, not the
 		/// block number as the type might suggest.
-		NewSession(SessionIndex),
+		NewSession { session_index: SessionIndex },
 	}
 
 	/// Old name generated by `decl_event`.
@@ -595,9 +609,13 @@ pub mod pallet {
 		}
 
 		/// Removes any session key(s) of the function caller.
+		///
 		/// This doesn't take effect until the next session.
 		///
-		/// The dispatch origin of this function must be signed.
+		/// The dispatch origin of this function must be Signed and the account must be either be
+		/// convertible to a validator ID using the chain's typical addressing system (this usually
+		/// means being a controller account) or directly convertible into a validator ID (which
+		/// usually means being a stash account).
 		///
 		/// # <weight>
 		/// - Complexity: `O(1)` in number of key types. Actual cost depends on the number of length
@@ -633,7 +651,7 @@ impl<T: Config> Pallet<T> {
 		let session_keys = <QueuedKeys<T>>::get();
 		let validators =
 			session_keys.iter().map(|(validator, _)| validator.clone()).collect::<Vec<_>>();
-		<Validators<T>>::put(&validators);
+		Validators::<T>::put(&validators);
 
 		if changed {
 			// reset disabled validators
@@ -655,7 +673,7 @@ impl<T: Config> Pallet<T> {
 				// same as before, as underlying economic conditions may have changed.
 				(validators, true)
 			} else {
-				(<Validators<T>>::get(), false)
+				(Validators::<T>::get(), false)
 			};
 
 		// Queue next session keys.
@@ -681,10 +699,10 @@ impl<T: Config> Pallet<T> {
 			};
 			let queued_amalgamated = next_validators
 				.into_iter()
-				.map(|a| {
-					let k = Self::load_keys(&a).unwrap_or_default();
+				.filter_map(|a| {
+					let k = Self::load_keys(&a)?;
 					check_next_changed(&k);
-					(a, k)
+					Some((a, k))
 				})
 				.collect::<Vec<_>>();
 
@@ -695,7 +713,7 @@ impl<T: Config> Pallet<T> {
 		<QueuedChanged<T>>::put(next_changed);
 
 		// Record that this happened.
-		Self::deposit_event(Event::NewSession(session_index));
+		Self::deposit_event(Event::NewSession { session_index });
 
 		// Tell everyone about the new session keys.
 		T::SessionHandler::on_new_session::<T::Keys>(changed, &session_keys, &queued_amalgamated);
@@ -841,6 +859,10 @@ impl<T: Config> Pallet<T> {
 
 	fn do_purge_keys(account: &T::AccountId) -> DispatchResult {
 		let who = T::ValidatorIdOf::convert(account.clone())
+			// `purge_keys` may not have a controller-stash pair any more. If so then we expect the
+			// stash account to be passed in directly and convert that to a `ValidatorId` using the
+			// `TryFrom` trait if supported.
+			.or_else(|| T::ValidatorId::try_from(account.clone()).ok())
 			.ok_or(Error::<T>::NoAssociatedValidatorId)?;
 
 		let old_keys = Self::take_keys(&who).ok_or(Error::<T>::NoKeys)?;
