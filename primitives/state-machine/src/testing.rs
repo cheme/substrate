@@ -25,7 +25,7 @@ use std::{
 use crate::{
 	backend::{AsyncBackendAdapterRef, Backend},
 	ext::Ext,
-	InMemoryBackend, OverlayedChanges, StorageKey, StorageTransactionCache, StorageValue,
+	InMemoryBackend, InMemoryProvingBackend, OverlayedChanges, StorageKey, StorageTransactionCache, StorageValue,
 };
 
 use hash_db::Hasher;
@@ -252,10 +252,9 @@ where
 	}
 }
 
-impl<H> PartialEq for TestExternalities<H>
+impl<H> TestExternalities<H>
 where
 	H: Hasher,
-	N: ChangesTrieBlockNumber,
 	H::Out: Ord + 'static + codec::Codec,
 {
 	/// This doesn't test if they are in the same state, only if they contains the

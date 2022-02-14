@@ -833,7 +833,7 @@ mod execution {
 	) -> Result<(StorageProof, u32), Box<dyn Error>>
 	where
 		B: Backend<H>,
-		H: Hasher,
+		H: Hasher + 'static,
 		H::Out: Ord + Codec,
 	{
 		let trie_backend = backend
@@ -852,7 +852,7 @@ mod execution {
 	) -> Result<(StorageProof, u32), Box<dyn Error>>
 	where
 		S: trie_backend_essence::TrieBackendStorage<H>,
-		H: Hasher,
+		H: Hasher + 'static,
 		H::Out: Ord + Codec,
 	{
 		if start_at.len() > MAX_NESTED_TRIE_DEPTH {
@@ -1109,7 +1109,7 @@ mod execution {
 		start_at: &[Vec<u8>],
 	) -> Result<(KeyValueStates, usize), Box<dyn Error>>
 	where
-		H: Hasher,
+		H: Hasher + 'static,
 		H::Out: Ord + Codec,
 	{
 		let proving_backend = create_proof_check_backend::<H>(root, proof)?;
@@ -1232,7 +1232,7 @@ mod execution {
 		start_at: &[Vec<u8>],
 	) -> Result<(KeyValueStates, usize), Box<dyn Error>>
 	where
-		H: Hasher,
+		H: Hasher + 'static,
 		H::Out: Ord + Codec,
 	{
 		let mut result = vec![KeyValueStorageLevel {
@@ -1351,7 +1351,7 @@ mod execution {
 
 #[cfg(test)]
 mod tests {
-	use super::{changes_trie::Configuration as ChangesTrieConfig, ext::Ext, *};
+	use super::{ext::Ext, *};
 	use crate::{backend::AsyncBackendAdapterRef, execution::CallResult};
 	use codec::{Decode, Encode};
 	use sp_core::{

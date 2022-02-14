@@ -42,6 +42,7 @@ const EXTRINSIC_FORMAT_VERSION: u8 = 4;
 /// This assumes latest extrinsic version.
 const TEST_WORKERS_VERSION: u8 = 127;
 
+
 /// A extrinsic right from the external world. This is unchecked and so
 /// can contain a signature.
 #[derive(PartialEq, Eq, Clone)]
@@ -266,8 +267,7 @@ where
 
 		let is_signed = version & 0b1000_0000 != 0;
 		let version = version & 0b0111_1111;
-<<<<<<< HEAD
-		if version != EXTRINSIC_VERSION && version != TEST_WORKERS_VERSION {
+		if version != EXTRINSIC_FORMAT_VERSION && version != TEST_WORKERS_VERSION {
 			return Err("Invalid transaction version".into())
 		}
 
@@ -277,15 +277,6 @@ where
 			Default::default()
 		};
 
-		Ok(Self {
-			signature: if is_signed { Some(Decode::decode(input)?) } else { None },
-			function: Decode::decode(input)?,
-			worker_group,
-		})
-=======
-		if version != EXTRINSIC_FORMAT_VERSION {
-			return Err("Invalid transaction version".into())
-		}
 
 		let signature = is_signed.then(|| Decode::decode(input)).transpose()?;
 		let function = Decode::decode(input)?;
@@ -300,8 +291,7 @@ where
 			}
 		}
 
-		Ok(Self { signature, function })
->>>>>>> master
+		Ok(Self { signature, function, worker_group })
 	}
 }
 
@@ -318,9 +308,8 @@ where
 		// 1 byte version id.
 		match self.signature.as_ref() {
 			Some(s) => {
-<<<<<<< HEAD
 				if self.worker_group == Default::default() {
-					tmp.push(EXTRINSIC_VERSION | 0b1000_0000);
+					tmp.push(EXTRINSIC_FORMAT_VERSION | 0b1000_0000);
 				} else {
 					tmp.push(TEST_WORKERS_VERSION | 0b1000_0000);
 					self.worker_group.encode_to(&mut tmp);
@@ -329,18 +318,11 @@ where
 			},
 			None => {
 				if self.worker_group == Default::default() {
-					tmp.push(EXTRINSIC_VERSION & 0b0111_1111);
+					tmp.push(EXTRINSIC_FORMAT_VERSION & 0b0111_1111);
 				} else {
 					tmp.push(TEST_WORKERS_VERSION & 0b0111_1111);
 					self.worker_group.encode_to(&mut tmp);
 				}
-=======
-				tmp.push(EXTRINSIC_FORMAT_VERSION | 0b1000_0000);
-				s.encode_to(&mut tmp);
-			},
-			None => {
-				tmp.push(EXTRINSIC_FORMAT_VERSION & 0b0111_1111);
->>>>>>> master
 			},
 		}
 		self.function.encode_to(&mut tmp);

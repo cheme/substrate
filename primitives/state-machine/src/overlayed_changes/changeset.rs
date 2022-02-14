@@ -765,7 +765,7 @@ mod test {
 				(b"key0".to_vec(), Some(vec![b"data".to_vec()].encode())),
 				(b"key1".to_vec(), Some(vec![5u8])),
 			],
-		)]);
+		)], Default::default());
 		let backend = crate::backend::AsyncBackendAdapterRef::new(&backend);
 
 		let mut changeset = OverlayedChangeSet::default();

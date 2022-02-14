@@ -789,8 +789,6 @@ where
 				)?;
 
 				let state = self.backend.state_at(at)?;
-				let changes_trie_state =
-					changes_tries_state_at_block(&at, self.backend.changes_trie_storage())?;
 
 				let (gen_storage_changes, logged_changes) = runtime_api
 					.into_storage_changes(&state, *parent_hash)

@@ -37,12 +37,7 @@ use sp_std::{
 	vec::Vec,
 };
 
-use crate::{changes_trie::BlockNumber, DefaultError};
-#[cfg(feature = "std")]
-use crate::{
-	changes_trie::{build_changes_trie, State as ChangesTrieState},
-	ChangesTrieTransaction,
-};
+use crate::DefaultError;
 use codec::{Decode, Encode};
 use hash_db::Hasher;
 use sp_core::{
@@ -883,7 +878,7 @@ impl OverlayedChanges {
 		H::Out: Ord + Encode + 'static,
 	{
 		let logs = self.optimistic_logger.extract_parent_log();
-		let r = self.drain_storage_changes(backend, changes_trie_state, parent_hash, &mut cache)?;
+		let r = self.drain_storage_changes(backend, parent_hash, &mut cache, state_version)?;
 		let _ = self.optimistic_logger.extract_parent_log();
 		Ok((r, logs))
 	}

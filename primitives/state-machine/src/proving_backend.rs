@@ -508,11 +508,13 @@ where
 			fn storage_root<'b>(
 				&self,
 				delta: impl Iterator<Item=(&'b [u8], Option<&'b [u8]>)>,
+				version: StateVersion,
 			) -> (H::Out, Self::Transaction) where H::Out: Ord;
 			fn child_storage_root<'b>(
 				&self,
 				child_info: &ChildInfo,
 				delta: impl Iterator<Item=(&'b [u8], Option<&'b [u8]>)>,
+				version: StateVersion,
 			) -> (H::Out, bool, Self::Transaction) where H::Out: Ord;
 			fn register_overlay_stats(&self, _stats: &crate::stats::StateMachineStats);
 			fn usage_info(&self) -> crate::stats::UsageInfo;

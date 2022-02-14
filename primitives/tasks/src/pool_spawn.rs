@@ -278,6 +278,7 @@ impl RuntimeInstanceSpawn {
 		let thread_id = task_handles.new_thread_id(&self.counter);
 		let thread_handle = self.spawn(
 			"executor-extra-runtime-instance",
+			None, // TODO use group id ?
 			Box::pin(async move {
 				let task_receiver = task_receiver.clone();
 				let mut instance: Option<Box<dyn WasmInstance>> = None;
@@ -362,13 +363,13 @@ impl RuntimeInstanceSpawn {
 	}
 
 	#[cfg(feature = "abort-future")]
-	fn spawn(&self, name: &'static str, future: BoxFuture) -> Option<TaskHandle> {
-		self.scheduler.spawn(name, future)
+	fn spawn(&self, name: &'static str, group: Option<&'static str>, future: BoxFuture) -> Option<TaskHandle> {
+		self.scheduler.spawn(name, group, future)
 	}
 
 	#[cfg(not(feature = "abort-future"))]
-	fn spawn(&self, name: &'static str, future: BoxFuture) -> Option<TaskHandle> {
-		self.scheduler.spawn(name, future);
+	fn spawn(&self, name: &'static str, group: Option<&'static str>, future: BoxFuture) -> Option<TaskHandle> {
+		self.scheduler.spawn(name, group, future);
 		None
 	}
 }

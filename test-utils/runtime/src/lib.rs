@@ -38,7 +38,7 @@ use frame_system::limits::{BlockLength, BlockWeights};
 use sp_api::{decl_runtime_apis, impl_runtime_apis};
 use sp_application_crypto::{ecdsa, ed25519, sr25519, RuntimeAppPublic};
 pub use sp_core::hash::H256;
-use sp_core::{offchain::KeyTypeId, ChangesTrieConfiguration, OpaqueMetadata, RuntimeDebug};
+use sp_core::{offchain::KeyTypeId, OpaqueMetadata, RuntimeDebug};
 use sp_inherents::{CheckInherentsResult, InherentData};
 #[cfg(feature = "std")]
 use sp_runtime::traits::NumberFor;
@@ -136,7 +136,14 @@ impl Transfer {
 		let signature = sp_keyring::AccountKeyring::from_public(&self.from)
 			.expect("Creates keyring from public key.")
 			.sign(&self.encode());
-		Extrinsic::Transfer { transfer: self, signature, exhaust_resources_when_not_first: false }
+		Extrinsic {
+			call: ExtrinsicCall::Transfer {
+				transfer: self,
+				signature,
+				exhaust_resources_when_not_first: false,
+			},
+			worker_group: Default::default(),
+		}
 	}
 
 	/// Convert into a signed extrinsic, which will only end up included in the block
@@ -147,13 +154,29 @@ impl Transfer {
 		let signature = sp_keyring::AccountKeyring::from_public(&self.from)
 			.expect("Creates keyring from public key.")
 			.sign(&self.encode());
-		Extrinsic::Transfer { transfer: self, signature, exhaust_resources_when_not_first: true }
+		Extrinsic {
+			call: ExtrinsicCall::Transfer {
+				transfer: self,
+				signature,
+				exhaust_resources_when_not_first: true,
+			},
+			worker_group: Default::default(),
+		}
 	}
 }
 
 /// Extrinsic for test-runtime.
 #[derive(Clone, PartialEq, Eq, Encode, Decode, RuntimeDebug)]
-pub enum Extrinsic {
+pub struct Extrinsic {
+	/// Call for extrinsic.
+	pub call: ExtrinsicCall,
+	/// Worker strategy for extrinsic.
+	pub worker_group: WorkerGroup,
+}
+
+/// Extrinsic call for test-runtime.
+#[derive(Clone, PartialEq, Eq, Encode, Decode, RuntimeDebug)]
+pub enum ExtrinsicCall {
 	AuthoritiesChange(Vec<AuthorityId>),
 	Transfer {
 		transfer: Transfer,
@@ -183,24 +206,19 @@ impl BlindCheckable for Extrinsic {
 	type Checked = Self;
 
 	fn check(self) -> Result<Self, TransactionValidityError> {
-		match self {
-			Extrinsic::AuthoritiesChange(new_auth) => Ok(Extrinsic::AuthoritiesChange(new_auth)),
-			Extrinsic::Transfer { transfer, signature, exhaust_resources_when_not_first } =>
-				if sp_runtime::verify_encoded_lazy(&signature, &transfer, &transfer.from) {
-					Ok(Extrinsic::Transfer {
-						transfer,
-						signature,
-						exhaust_resources_when_not_first,
-					})
-				} else {
-					Err(InvalidTransaction::BadProof.into())
+		match &self.call {
+			ExtrinsicCall::AuthoritiesChange(_) => (),
+			ExtrinsicCall::Transfer { transfer, signature, .. } =>
+				if !sp_runtime::verify_encoded_lazy(signature, transfer, &transfer.from) {
+					return Err(InvalidTransaction::BadProof.into())
 				},
-			Extrinsic::IncludeData(v) => Ok(Extrinsic::IncludeData(v)),
-			Extrinsic::StorageChange(key, value) => Ok(Extrinsic::StorageChange(key, value)),
-			Extrinsic::OffchainIndexSet(key, value) => Ok(Extrinsic::OffchainIndexSet(key, value)),
-			Extrinsic::OffchainIndexClear(key) => Ok(Extrinsic::OffchainIndexClear(key)),
-			Extrinsic::Store(data) => Ok(Extrinsic::Store(data)),
+			ExtrinsicCall::IncludeData(..) => (),
+			ExtrinsicCall::StorageChange(..) => (),
+			ExtrinsicCall::OffchainIndexSet(..) => (),
+			ExtrinsicCall::OffchainIndexClear(..) => (),
+			ExtrinsicCall::Store(..) => (),
 		}
+		Ok(self)
 	}
 }
 
@@ -209,15 +227,23 @@ impl ExtrinsicT for Extrinsic {
 	type SignaturePayload = ();
 
 	fn is_signed(&self) -> Option<bool> {
-		if let Extrinsic::IncludeData(_) = *self {
+		if let ExtrinsicCall::IncludeData(_) = self.call {
 			Some(false)
 		} else {
 			Some(true)
 		}
 	}
 
+	fn worker_group(&self) -> WorkerGroup {
+		self.worker_group.clone()
+	}
+
+	fn set_worker_group(&mut self, worker_group: WorkerGroup) {
+		self.worker_group = worker_group;
+	}
+
 	fn new(call: Self::Call, _signature_payload: Option<Self::SignaturePayload>) -> Option<Self> {
-		Some(call)
+		Some(Extrinsic { call, worker_group: Default::default() })
 	}
 }
 
@@ -243,8 +269,8 @@ impl Extrinsic {
 	///
 	/// Returns `None` if this is no `Transfer` extrinsic.
 	pub fn try_transfer(&self) -> Option<&Transfer> {
-		match self {
-			Extrinsic::Transfer { ref transfer, .. } => Some(transfer),
+		match &self.call {
+			ExtrinsicCall::Transfer { transfer, .. } => Some(transfer),
 			_ => None,
 		}
 	}
@@ -713,7 +739,7 @@ cfg_if! {
 					utx: <Block as BlockT>::Extrinsic,
 					_: <Block as BlockT>::Hash,
 				) -> TransactionValidity {
-					if let Extrinsic::IncludeData(data) = utx {
+					if let ExtrinsicCall::IncludeData(data) = utx.call {
 						return Ok(ValidTransaction {
 							priority: data.len() as u64,
 							requires: vec![],
@@ -911,7 +937,10 @@ cfg_if! {
 
 			impl sp_offchain::OffchainWorkerApi<Block> for Runtime {
 				fn offchain_worker(header: &<Block as BlockT>::Header) {
-					let ex = Extrinsic::IncludeData(header.number.encode());
+					let ex = Extrinsic {
+						call: ExtrinsicCall::IncludeData(header.number.encode()),
+						worker_group: Default::default(),
+					};
 					sp_io::offchain::submit_transaction(ex.encode()).unwrap();
 				}
 			}
@@ -989,8 +1018,8 @@ cfg_if! {
 					utx: <Block as BlockT>::Extrinsic,
 					_: <Block as BlockT>::Hash,
 				) -> TransactionValidity {
-					if let Extrinsic::IncludeData(data) = utx {
-						return Ok(ValidTransaction{
+					if let ExtrinsicCall::IncludeData(data) = utx.call {
+						return Ok(ValidTransaction {
 							priority: data.len() as u64,
 							requires: vec![],
 							provides: vec![data],
@@ -1191,7 +1220,10 @@ cfg_if! {
 
 			impl sp_offchain::OffchainWorkerApi<Block> for Runtime {
 				fn offchain_worker(header: &<Block as BlockT>::Header) {
-					let ex = Extrinsic::IncludeData(header.number.encode());
+					let ex = Extrinsic {
+						call: ExtrinsicCall::IncludeData(header.number.encode()),
+						worker_group: Default::default(),
+					};
 					sp_io::offchain::submit_transaction(ex.encode()).unwrap()
 				}
 			}
@@ -1310,9 +1342,9 @@ fn test_witness(proof: StorageProof, root: crate::Hash) {
 	assert!(ext.storage(b"value3").is_some());
 	assert!(ext.storage(b"xyz").is_none());
 
-	assert!(ext.storage_root().as_slice() == &root[..]);
+	assert!(ext.storage_root(Default::default()).as_slice() == &root[..]);
 	ext.place_storage(vec![0], Some(vec![1]));
-	assert!(ext.storage_root().as_slice() != &root[..]);
+	assert!(ext.storage_root(Default::default()).as_slice() != &root[..]);
 
 	use sp_core::traits::{RuntimeSpawn, RuntimeSpawnExt};
 	use sp_externalities::ExternalitiesExt;

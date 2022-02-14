@@ -233,7 +233,7 @@ impl sp_core::traits::SpawnNamed for SpawnTaskHandle {
 		group: Option<&'static str>,
 		future: BoxFuture<'static, ()>,
 	) -> Option<sp_core::traits::TaskHandle> {
-		self.spawn_inner(name, group, future, TaskType::Async)
+		self.spawn_inner(name, group, future, TaskType::Async);
 		// Not using pool, returned handle is of no use.
 		None
 	}

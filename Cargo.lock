@@ -64,6 +64,12 @@ dependencies = [
 
 [[package]]
 name = "ahash"
+version = "0.4.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "739f4a8db6605981345c5654f3a85b056ce52f37a39d34da03f25bf2151ea16e"
+
+[[package]]
+name = "ahash"
 version = "0.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "43bb833f0bf979d8475d38fbf09ed3b8a55e1885fe93ad3f93239fc6a4f17b98"
@@ -80,6 +86,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1e37cfd5e7657ada45f742d6e99ca5788580b5c529dc78faf11ece6dc702656f"
 dependencies = [
  "memchr",
+]
+
+[[package]]
+name = "ambassador"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "61874b33258f18ca7923047c12887078ccfe95c2811b03c1a09e309c19b7e50b"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -1559,6 +1576,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "delegate"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0fd733b5bf0bb5ca3c7cdea2135c91234c80b730e6e8a270851455a63b46c830"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "derivative"
+version = "2.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fcc3dd5e9e9c0b295d6e1e4d811fb6f157d5ffd784b8d202fc62eac8035a770b"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "derive_more"
 version = "0.99.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1686,27 +1725,6 @@ name = "dtoa"
 version = "0.4.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "56899898ce76aaf4a0f24d914c97ea6ed976d42fec6ad33fcbb0a1103e07b2b0"
-
-[[package]]
-name = "dyn-clonable"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e9232f0e607a262ceb9bd5141a3dfb3e4db6994b31989bbfd845878cba59fd4"
-dependencies = [
- "dyn-clonable-impl",
- "dyn-clone",
-]
-
-[[package]]
-name = "dyn-clonable-impl"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "558e40ea573c374cf53507fd240b7ee2f5477df7cfebdb97323ec61c719399c5"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
 
 [[package]]
 name = "dyn-clone"
@@ -2669,6 +2687,9 @@ name = "hashbrown"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7afe4a420e3fe79967a00898cc1f4db7c8a49a9333a29f8a4bd76a253d5cd04"
+dependencies = [
+ "ahash 0.4.7",
+]
 
 [[package]]
 name = "hashbrown"
@@ -2676,7 +2697,7 @@ version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ab5ef0d4909ef3724cc8cce6ccc8572c5c817592e9285f5464f8e86f8bd3726e"
 dependencies = [
- "ahash",
+ "ahash 0.7.4",
 ]
 
 [[package]]
@@ -4924,6 +4945,7 @@ dependencies = [
  "sp-session",
  "sp-staking",
  "sp-std",
+ "sp-tasks",
  "sp-transaction-pool",
  "sp-version",
  "static_assertions",
@@ -5007,6 +5029,7 @@ dependencies = [
  "sp-runtime",
  "sp-session",
  "sp-std",
+ "sp-tasks",
  "sp-transaction-pool",
  "sp-version",
  "substrate-wasm-builder",
@@ -7181,6 +7204,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "643f8f41a8ebc4c5dc4515c82bb8abd397b527fc20fd681b7c011c2aee5d44fb"
 
 [[package]]
+name = "radix-tree"
+version = "0.8.0"
+source = "git+https://github.com/cheme/substrate?branch=historied-db-backend2#d6aa962401663bf23b74c9ef3d926c3b23d2cd7e"
+dependencies = [
+ "derivative",
+ "hashbrown 0.9.1",
+ "parity-scale-codec",
+ "primitive-types",
+ "smallvec 1.7.0",
+]
+
+[[package]]
 name = "rand"
 version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7862,6 +7897,7 @@ dependencies = [
  "sp-inherents",
  "sp-runtime",
  "sp-state-machine",
+ "sp-tasks",
  "substrate-test-runtime-client",
 ]
 
@@ -8283,12 +8319,10 @@ version = "0.10.0-dev"
 dependencies = [
  "environmental",
  "parity-scale-codec",
- "sc-allocator",
  "sp-core",
  "sp-maybe-compressed-blob",
- "sp-serializer",
+ "sp-tasks",
  "sp-wasm-interface",
- "thiserror",
  "wasm-instrument",
  "wasmer",
  "wasmer-compiler-singlepass",
@@ -9512,6 +9546,7 @@ dependencies = [
  "sp-inherents",
  "sp-runtime",
  "sp-std",
+ "sp-tasks",
 ]
 
 [[package]]
@@ -9631,7 +9666,7 @@ dependencies = [
  "blake2-rfc",
  "byteorder",
  "criterion",
- "dyn-clonable",
+ "dyn-clone",
  "ed25519-dalek",
  "futures 0.3.16",
  "hash-db",
@@ -9717,8 +9752,11 @@ dependencies = [
 name = "sp-externalities"
 version = "0.11.0"
 dependencies = [
+ "ambassador",
  "environmental",
  "parity-scale-codec",
+ "scale-info",
+ "serde",
  "sp-std",
  "sp-storage",
 ]
@@ -9802,6 +9840,7 @@ dependencies = [
  "serde",
  "sp-core",
  "sp-externalities",
+ "sp-std",
  "thiserror",
 ]
 
@@ -9904,6 +9943,7 @@ dependencies = [
  "sp-application-crypto",
  "sp-arithmetic",
  "sp-core",
+ "sp-externalities",
  "sp-io",
  "sp-state-machine",
  "sp-std",
@@ -10033,6 +10073,7 @@ dependencies = [
 name = "sp-state-machine"
 version = "0.11.0"
 dependencies = [
+ "delegate",
  "hash-db",
  "hex-literal",
  "log 0.4.14",
@@ -10040,6 +10081,7 @@ dependencies = [
  "parity-scale-codec",
  "parking_lot 0.11.2",
  "pretty_assertions",
+ "radix-tree",
  "rand 0.7.3",
  "smallvec 1.7.0",
  "sp-core",
@@ -10074,13 +10116,22 @@ dependencies = [
 name = "sp-tasks"
 version = "4.0.0-dev"
 dependencies = [
+ "ambassador",
+ "derive_more",
  "log 0.4.14",
  "parity-scale-codec",
+ "parking_lot 0.11.2",
+ "sc-allocator",
  "sp-core",
  "sp-externalities",
  "sp-io",
+ "sp-panic-handler",
  "sp-runtime-interface",
+ "sp-serializer",
  "sp-std",
+ "sp-wasm-interface",
+ "thiserror",
+ "wasmi",
 ]
 
 [[package]]
@@ -10431,6 +10482,7 @@ dependencies = [
  "sp-session",
  "sp-state-machine",
  "sp-std",
+ "sp-tasks",
  "sp-transaction-pool",
  "sp-trie",
  "sp-version",

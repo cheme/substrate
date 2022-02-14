@@ -306,20 +306,16 @@ impl Externalities for AsyncExt {
 		self.overlay.append_storage(key, value);
 	}
 
-	fn storage_root(&mut self) -> Vec<u8> {
+	fn storage_root(&mut self, _: sp_core::storage::StateVersion) -> Vec<u8> {
 		// TODO currently no storage_root function to avoid having to move the hasher trait
 		// in AsyncExternalities extension.
 		panic!("`storage_root`: should not be used in async externalities!")
 	}
 
-	fn child_storage_root(&mut self, _child_info: &ChildInfo) -> Vec<u8> {
+	fn child_storage_root(&mut self, _child_info: &ChildInfo, _: sp_core::storage::StateVersion) -> Vec<u8> {
 		// TODO currently no storage_root function to avoid having to move the hasher trait
 		// in AsyncExternalities extension.
 		panic!("`child_storage_root`: should not be used in async externalities!")
-	}
-
-	fn storage_changes_root(&mut self, _parent: &[u8]) -> Result<Option<Vec<u8>>, ()> {
-		panic!("`storage_changes_root`: should not be used in async externalities!")
 	}
 
 	fn storage_start_transaction(&mut self) {

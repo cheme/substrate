@@ -365,5 +365,12 @@ pub fn uxt(who: AccountKeyring, nonce: Index) -> Extrinsic {
 	let dummy = codec::Decode::decode(&mut TrailingZeroInput::zeroes()).unwrap();
 	let transfer = Transfer { from: who.into(), to: dummy, nonce, amount: 1 };
 	let signature = transfer.using_encoded(|e| who.sign(e));
-	Extrinsic::Transfer { transfer, signature, exhaust_resources_when_not_first: false }
+	Extrinsic {
+		call: ExtrinsicCall::Transfer {
+			transfer,
+			signature,
+			exhaust_resources_when_not_first: false,
+		},
+		worker_group: Default::default(),
+	}
 }

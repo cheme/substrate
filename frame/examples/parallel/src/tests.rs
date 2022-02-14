@@ -185,7 +185,7 @@ fn it_can_pending_enlist() {
 
 			let event_name = b"test";
 
-			Example::run_event(Origin::signed(Default::default()), event_name.to_vec())
+			Example::run_event(test_origin(1), event_name.to_vec())
 				.expect("Failed to enlist");
 
 			let participants: Vec<_> = pairs
@@ -196,13 +196,13 @@ fn it_can_pending_enlist() {
 				})
 				.collect();
 
-			Example::enlist_pending_participants(Origin::signed(Default::default()), participants)
+			Example::enlist_pending_participants(test_origin(1), participants)
 				.expect("Failed to enlist");
 
 			assert_eq!(Example::pending_participants().len(), nb);
 			assert_eq!(Example::participants().len(), 0);
 
-			Example::validate_pendings_participants(Origin::signed(Default::default()), nb as u32)
+			Example::validate_pendings_participants(test_origin(1), nb as u32)
 				.expect("Failed to enlist");
 
 			assert_eq!(Example::pending_participants().len(), 0);

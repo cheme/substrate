@@ -23,6 +23,7 @@ codec = { package = "parity-scale-codec", version = "2.0.0", default-features = 
 schnorrkel = { version = "0.9.1", features = ["preaudit_deprecated", "u64_backend"], default-features = false }
 merlin = { version = "2.0", default-features = false }
 sp-core = { version = "5.0.0", path = "../core" }
+sp-std = { version = "4.0.0", path = "../std" }
 sp-externalities = { version = "0.11.0", path = "../externalities", default-features = false }
 
 [dev-dependencies]
@@ -34,4 +35,5 @@ default = ["std"]
 std = [
 	"serde",
 	"schnorrkel/std",
+	"sp-std/std",
 ]

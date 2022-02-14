@@ -30,7 +30,7 @@ use sp_runtime::{
 	},
 };
 use std::{collections::HashSet, sync::Arc};
-use substrate_test_runtime::{Block, Extrinsic, Hashing, Transfer, H256};
+use substrate_test_runtime::{Block, Extrinsic, ExtrinsicCall, Hashing, Transfer, H256};
 
 pub(crate) const INVALID_NONCE: u64 = 254;
 
@@ -68,8 +68,8 @@ impl ChainApi for TestApi {
 		let hash = self.hash_and_length(&uxt).0;
 		let block_number = self.block_id_to_number(at).unwrap().unwrap();
 
-		let res = match uxt {
-			Extrinsic::Transfer { transfer, .. } => {
+		let res = match &uxt.call {
+			ExtrinsicCall::Transfer { transfer, .. } => {
 				let nonce = transfer.nonce;
 
 				// This is used to control the test flow.
@@ -114,14 +114,14 @@ impl ChainApi for TestApi {
 					Ok(transaction)
 				}
 			},
-			Extrinsic::IncludeData(_) => Ok(ValidTransaction {
+			ExtrinsicCall::IncludeData(_) => Ok(ValidTransaction {
 				priority: 9001,
 				requires: vec![],
 				provides: vec![vec![42]],
 				longevity: 9001,
 				propagate: false,
 			}),
-			Extrinsic::Store(_) => Ok(ValidTransaction {
+			ExtrinsicCall::Store(_) => Ok(ValidTransaction {
 				priority: 9001,
 				requires: vec![],
 				provides: vec![vec![43]],
@@ -177,7 +177,10 @@ impl ChainApi for TestApi {
 
 pub(crate) fn uxt(transfer: Transfer) -> Extrinsic {
 	let signature = TryFrom::try_from(&[0; 64][..]).unwrap();
-	Extrinsic::Transfer { transfer, signature, exhaust_resources_when_not_first: false }
+	Extrinsic {
+		call: ExtrinsicCall::Transfer { transfer, signature, exhaust_resources_when_not_first: false },
+		worker_group: Default::default(),
+	}
 }
 
 pub(crate) fn pool() -> Pool<TestApi> {

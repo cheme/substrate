@@ -945,7 +945,10 @@ mod tests {
 
 				let pool = Pool::new(options, true.into(), TestApi::default().into());
 
-				let xt = Extrinsic::IncludeData(Vec::new());
+				let xt = Extrinsic {
+					call: ExtrinsicCall::IncludeData(Vec::new()),
+					worker_group: Default::default(),
+				};
 				block_on(pool.submit_one(&BlockId::Number(0), SOURCE, xt)).unwrap();
 				assert_eq!(pool.validated_pool().status().ready, 1);
 
@@ -970,7 +973,10 @@ mod tests {
 
 				let pool = Pool::new(options, true.into(), TestApi::default().into());
 
-				let xt = Extrinsic::IncludeData(Vec::new());
+				let xt = Extrinsic {
+					call: ExtrinsicCall::IncludeData(Vec::new()),
+					worker_group: Default::default(),
+				};
 				block_on(pool.submit_and_watch(&BlockId::Number(0), SOURCE, xt)).unwrap();
 				assert_eq!(pool.validated_pool().status().ready, 1);
 
@@ -985,7 +991,10 @@ mod tests {
 				assert_eq!(pool.validated_pool().status().ready, 2);
 
 				// when
-				let xt = Extrinsic::Store(Vec::new());
+				let xt = Extrinsic{
+					call: ExtrinsicCall::Store(Vec::new()),
+					worker_group: Default::default(),
+				};
 				block_on(pool.submit_one(&BlockId::Number(1), SOURCE, xt)).unwrap();
 				assert_eq!(pool.validated_pool().status().ready, 2);
 

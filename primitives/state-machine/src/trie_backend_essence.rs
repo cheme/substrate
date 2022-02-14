@@ -28,7 +28,7 @@ use sp_std::{boxed::Box, vec::Vec};
 use sp_trie::{
 	empty_child_trie_root, read_child_trie_value, read_trie_value,
 	trie_types::{TrieDB, TrieError},
-	DBValue, KeySpacedDB, PrefixedMemoryDB, Trie, TrieDBIterator, TrieDBKeyIterator,
+	DBValue, KeySpacedDB, MemoryDB, PrefixedMemoryDB, Trie, TrieDBIterator, TrieDBKeyIterator,
 };
 #[cfg(feature = "std")]
 use std::collections::HashMap;
@@ -589,35 +589,10 @@ impl<H: Hasher + 'static> TrieBackendStorage<H> for Arc<dyn Storage<H>> {
 	}
 }
 
-// This implementation is used by test storage trie clients.
-impl<H: Hasher + 'static> TrieBackendStorage<H> for PrefixedMemoryDB<H> {
-	type Overlay = PrefixedMemoryDB<H>;
-	type AsyncStorage = Self;
-
-	fn get(&self, key: &H::Out, prefix: Prefix) -> Result<Option<DBValue>> {
-		Ok(hash_db::HashDB::get(self, key, prefix))
-	}
-	fn async_storage(&self) -> Self::AsyncStorage {
-		self.clone()
-	}
-}
-
-impl<H: Hasher + 'static> TrieBackendStorage<H> for MemoryDB<H> {
-	type Overlay = MemoryDB<H>;
-	type AsyncStorage = Self;
-
-	fn get(&self, key: &H::Out, prefix: Prefix) -> Result<Option<DBValue>> {
-		Ok(hash_db::HashDB::get(self, key, prefix))
-	}
-	fn async_storage(&self) -> Self::AsyncStorage {
-		self.clone()
-	}
-}
-
 impl<H, KF> TrieBackendStorage<H> for sp_trie::GenericMemoryDB<H, KF>
 where
-	H: Hasher,
-	KF: sp_trie::KeyFunction<H> + Send + Sync,
+	H: Hasher + 'static,
+	KF: sp_trie::KeyFunction<H> + Send + Sync + 'static,
 {
 	type Overlay = sp_trie::GenericMemoryDB<H, KF>;
 	type AsyncStorage = Self;
