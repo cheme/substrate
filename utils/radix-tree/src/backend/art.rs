@@ -854,7 +854,7 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 		IndexFor<N>: Index,
 		ValueIndexFor<N>: Index,
 {
-	const FUSE_ON_COMMIT: bool = true;
+	// TODO restore when fixed const FUSE_ON_COMMIT: bool = true;
 	const DELETE_CHILD_FIRST: bool = true;
 
 	type ChildState = crate::Child<Node<N>>;
@@ -1075,6 +1075,7 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 				node.backend.encoded.set_value_index(&ix);
 				encoded_change = true;
 				node.backend.value_state = ValueState::Resolved;
+				node.backend.fullkey_state = ValueState::Resolved;
 			} else {
 				unreachable!("modified should be some");
 			}
@@ -1162,6 +1163,8 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 		self.children_changed = true;
 		self.prefix_changed = true;
 		self.index = index; // got index relative to a capacity.
+		self.value_state = ValueState::Unfetched;
+		self.fullkey_state = ValueState::Unfetched;
 		result
 	}
 
