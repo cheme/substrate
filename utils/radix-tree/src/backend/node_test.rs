@@ -499,12 +499,13 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 	fn clear_content(&mut self) -> Option<ValueIndexFor<N>> {
 		self.encoded.clear();
 		self.child_index = vec![None; <<N as TreeConf>::Radix as RadixConf>::CHILDREN_CAPACITY];
-		let result = self.value.take();
+		let result = self.value.take(); // TODO was it fetch from encoded before clear??
 		self.nb_children = 0;
 		self.pending_nb_children = 0;
 		self.children_changed = false;
 		self.prefix_changed = true; // to ensure update
-		self.value_state = ValueState::Resolved;
+		self.value_state = ValueState::Unfetched;
+		self.fullkey_state = ValueState::Unfetched;
 		result
 	}
 

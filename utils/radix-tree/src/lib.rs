@@ -1515,9 +1515,9 @@ impl<N: TreeConf> Tree<N> {
 			let node: &mut Node<_> = unsafe { node.as_mut().unwrap() };
 			let end = start.next_by::<N::Radix>(node.depth());
 			node.key.partial = N::LimitPartial::new(None);
-			let end_ix = if end == *start {
-				end.index
-			} else if end.mask == MaskFor::<N::Radix>::FIRST {
+			let end_ix = /*if end == *start {
+				end.index + 1 // TODO on decode with 0 len just put [0] or [] if first and mark as resolved.
+			} else */if end.mask == MaskFor::<N::Radix>::FIRST {
 				end.index
 			} else {
 				end.index + 1
@@ -1722,7 +1722,7 @@ impl<N: TreeConf> Tree<N> {
 								}
 								if !N::NodeBackend::FUSE_ON_COMMIT { // TODO this could ignore fuse on commit (do not query additional nodes).
 									if !parent.has_value() && parent.number_child() == 1 {
-										Node::<N>::fuse_child(parent, &mut self.removed_node, &mut self.removed_value, &self.backend, position, &mut fullkeys);
+										Node::<N>::fuse_child(parent, &mut self.removed_node, &mut self.removed_value, &self.backend, parent_position, &mut fullkeys);
 									}
 								}
 							} else {
