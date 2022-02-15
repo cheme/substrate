@@ -1159,7 +1159,7 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 		let index = self.index.clone();
 		let result = self.encoded.fetch_value_index();
 		debug_assert!(result.is_none() || self.value_state == ValueState::Deleted); // TODO can actually only fetch if deleted, but assert for now.
-		*self = ArtLocalBackend::with_capacity(self.original_nb_children);
+		*self = ArtLocalBackend::with_capacity(0);
 		self.children_changed = true;
 		self.prefix_changed = true;
 		self.index = index; // got index relative to a capacity.
