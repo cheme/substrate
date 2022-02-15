@@ -105,7 +105,7 @@ impl FullKey for () {
 	}
 
 	fn set_full_key(&mut self, _key: Option<Key>) {
-		unreachable!("Misconfigured LimitPartial");
+		()
 	}
 
 	fn need_update(&self, _key: &[u8]) -> bool {
@@ -506,6 +506,19 @@ impl<P, L> PrefixKey<NodeKeyBuff, P, L>
 		}
 	}
 
+	// TODO this is only for test (clean node persistence as if loaded from backend).
+	fn limit(&mut self) {
+		if let Some(limit) = L::LIMIT_SIZE {
+			if self.data[..].len() >= limit {
+				let depth = self.depth();
+				let resized = Self::new_offset_limitted(self.data.as_slice(), Position {
+					index: 0,
+					mask: self.start
+				}, limit, depth);
+				*self = resized;
+			}
+		}
+	}
 }
 
 impl<'a, P, L> PrefixKey<&'a [u8], P, L>
@@ -869,7 +882,6 @@ impl<N: TreeConf> Node<N> {
 				self.value_mut(backend);
 			}
 			self.backend.set_value_state(ValueState::Deleted);
-			self.backend.set_fullkey_state(ValueState::Deleted);
 		}
 		replace(&mut self.value, None)
 	}
@@ -1051,12 +1063,29 @@ impl<N: TreeConf> Node<N> {
 		removed_node: &mut Vec<N::NodeBackend>,
 		removed_value: &mut Vec<ValueIndexFor<N>>,
 		backend: &N::Backend,
+		value_position: PositionFor<N>,
+		fullkeys: &mut Vec<(PositionFor<N>, *mut Node<N>)>,
 	) {
 		if N::Backend::ACTIVE {
+			// TODO should only commit removed nodes!! (not remaining child)
 			N::NodeBackend::commit_change_children_part(node, removed_node, removed_value, backend);
+			// TODO incorrect when FUSE not in commit, should use a removed value buffer until commit.
 			N::NodeBackend::commit_change_value_part(node, removed_node, removed_value, backend);
 		}
 		if let Some(index) = node.get_next_child_index(None) {
+			if N::LimitPartial::LIMIT_SIZE.is_some() {
+				let mut do_resolve = node.key.partial.partial_full_depth().is_some();
+				if let Some(child) = node.get_child_mut_deref(index, backend) {
+					if child.key.partial.partial_full_depth().is_some() {
+						do_resolve = true;
+						fullkeys.push((value_position.next::<N::Radix>(), child as *mut _));
+					}
+				}
+				if do_resolve {
+					Tree::<N>::resolve_full_key(fullkeys, backend);
+				}
+			}
+
 			if N::Backend::ACTIVE {
 				// fetch first
 				node.get_child_mut(index, backend);
@@ -1073,7 +1102,7 @@ impl<N: TreeConf> Node<N> {
 				position_start.set_index::<N::Radix>(&mut node.key.data, index);
 				let position_cat = position_start.next::<N::Radix>();
 				let mut child = child.extract_node().expect("resolved on remove child");
-				child.new_end(&mut node.key.data, position_cat);
+				child.new_end(&mut node.key.data, position_cat, false);
 				node.key.end = child.key.end;
 				child.key = replace(&mut node.key, child.key);
 				child.backend.set_prefix_change();
@@ -1095,8 +1124,10 @@ impl<N: TreeConf> Node<N> {
 
 	// TODO make it a trait function for Radix_conf? TODO reverse logic (update the other way)
 	/// Push node partial on the current node/stack key, given the node start position.
-	fn new_end(&self, stack: &mut Key, node_position: PositionFor<N>) {
-		if N::LimitPartial::LIMIT_SIZE.is_some() {
+	fn new_end(&self, stack: &mut Key, node_position: PositionFor<N>, from_iter: bool) {
+		// TODO remove from_iter, currently we resolve child node when fuse
+		// but we would need to resolve child node in iter too.
+		if from_iter && N::LimitPartial::LIMIT_SIZE.is_some() {
 			// only set key when touching value.
 			// TODO for iterator to show key of node, it requires
 			// buffing its node until a value is reach when descending.
@@ -1168,6 +1199,8 @@ impl<N: TreeConf> Node<N> {
 	fn clean_local_nodes(&mut self) {
 		self.children = Self::children_with_backend(&mut self.backend);
 		self.value = None;
+		self.full_key.set_full_key(None);
+		self.key.limit();
 		self.backend.set_value_state(ValueState::Unfetched);
 		self.backend.set_fullkey_state(ValueState::Unfetched);
 	}
@@ -1612,8 +1645,8 @@ impl<N: TreeConf> Tree<N> {
 				} else {
 					if !N::NodeBackend::FUSE_ON_COMMIT {
 						if current.number_child() == 1 {
-							Self::resolve_full_key(&mut fullkeys, &self.backend);
-							Node::<N>::fuse_child(current, &mut self.removed_node, &mut self.removed_value, &self.backend);
+							let position = position.next_by::<N::Radix>(current.depth());
+							Node::<N>::fuse_child(current, &mut self.removed_node, &mut self.removed_value, &self.backend, position, &mut fullkeys);
 						}
 						return result;
 					}
@@ -1671,7 +1704,7 @@ impl<N: TreeConf> Tree<N> {
 					Descent::Middle(_middle_position, _index) => {
 						return None;
 					},
-					Descent::Match(_position) => {
+					Descent::Match(position) => {
 						let result = current.remove_value(with_value, &self.backend);
 						if current.number_child() == 0 {
 							if let Some((parent, parent_position)) = parent {
@@ -1689,8 +1722,7 @@ impl<N: TreeConf> Tree<N> {
 								}
 								if !N::NodeBackend::FUSE_ON_COMMIT { // TODO this could ignore fuse on commit (do not query additional nodes).
 									if !parent.has_value() && parent.number_child() == 1 {
-										Self::resolve_full_key(&mut fullkeys, &self.backend);
-										Node::<N>::fuse_child(parent, &mut self.removed_node, &mut self.removed_value, &self.backend);
+										Node::<N>::fuse_child(parent, &mut self.removed_node, &mut self.removed_value, &self.backend, position, &mut fullkeys);
 									}
 								}
 							} else {
@@ -1699,8 +1731,7 @@ impl<N: TreeConf> Tree<N> {
 								break;
 							}
 						} else if !N::NodeBackend::FUSE_ON_COMMIT && current.number_child() == 1 {
-							Self::resolve_full_key(&mut fullkeys, &self.backend);
-							Node::<N>::fuse_child(current, &mut self.removed_node, &mut self.removed_value, &self.backend);
+							Node::<N>::fuse_child(current, &mut self.removed_node, &mut self.removed_value, &self.backend, position, &mut fullkeys);
 						}
 
 						//return current.set_value(value);

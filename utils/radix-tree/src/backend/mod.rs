@@ -17,7 +17,7 @@
 
 //! Node backends for storing tree nodes.
 
-use crate::{TreeConf, KeyIndexFor, ValueIndexFor,
+use crate::{TreeConf, KeyIndexFor, ValueIndexFor, PositionFor, LimitPartial,
 	NodeBox, Node, ValueState, IndexFor, Key};
 use alloc::vec::Vec;
 use alloc::boxed::Box;
@@ -197,7 +197,12 @@ pub trait NodeBackend<N: TreeConf>: Clone {
 			&& node.number_child() == 1
 			&& !node.has_value()
 		{
-			Node::<N>::fuse_child(node, remove_node, remove_value, backend);
+			let position = unimplemented!("TODO pass node position and fullkeys in commit function"); // warn it is position + current.depth()
+			let mut fullkeys: Vec<(PositionFor<N>, *mut Node<N>)> = vec![];
+			if node.key.partial.partial_full_depth().is_some() {
+				fullkeys.push((position, node.as_mut() as *mut _));
+			}
+			Node::<N>::fuse_child(node, remove_node, remove_value, backend, position, &mut fullkeys);
 		}
 		Self::commit_change(node, remove_node, remove_value, backend)
 	}

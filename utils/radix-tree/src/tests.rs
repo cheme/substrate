@@ -439,6 +439,7 @@ pub mod $module_name {
 	fn test_insert_remove_inner(mut data: Vec<Do>, with_clean: bool) {
 		// ensure test at end
 		data.push(Do::Commit);
+		data.append(&mut data.clone());// replay twice
 		let backend = new_backend();
 		let mut a = 0;
 		let mut t1 = Tree::<TreeConf>::new(backend.clone());

@@ -551,7 +551,7 @@ impl<'a, N: TreeConf> $iter<'a, N> {
 					let position = last.0;
 					position.set_index::<N::Radix>(&mut self.stack.key, last.2);
 					let position = position.next::<N::Radix>();
-					child.new_end(&mut self.stack.key, position);
+					child.new_end(&mut self.stack.key, position, true);
 					let position = position.next_by::<N::Radix>(child.depth());
 
 					let first_key = child.get_next_child_index(None)
@@ -578,7 +578,7 @@ impl<'a, N: TreeConf> $iter<'a, N> {
 					let zero = PositionFor::<N>::zero();
 					let first_key = node.get_next_child_index(None)
 						.unwrap_or(KeyIndexFor::<N>::zero());
-					node.new_end(&mut self.stack.key, zero);
+					node.new_end(&mut self.stack.key, zero, true);
 					let zero = zero.next_by::<N::Radix>(node.depth()); // could just use node prefix end and index
 					self.stack.stack.push((zero, $to_stack(node), first_key));
 				} else {

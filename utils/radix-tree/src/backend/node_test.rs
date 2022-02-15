@@ -217,7 +217,8 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 		IndexFor<N>: Clone + Debug + Decode + Encode,
 		ValueIndexFor<N>: Clone + Debug + Decode + Encode,
 {
-	const FUSE_ON_COMMIT: bool = true;
+//	const FUSE_ON_COMMIT: bool = true; TODO restore to true currently fullkey resolution is not
+//	fully implemented on commit.
 	type ChildState = crate::Child<Node<N>>;
 	//type ChildState = Box<Node<N>>;
 
@@ -413,6 +414,7 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 					encoded_change = true;
 				}
 				node.backend.value_state = ValueState::Resolved;
+				node.backend.fullkey_state = ValueState::Resolved;
 			} else {
 				unreachable!("modified should be some");
 			}
@@ -427,7 +429,7 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 			};
 			node.backend.value = None;
 			node.backend.value_state = ValueState::Resolved;
-			node.backend.fullkey_state = ValueState::Resolved;
+			node.backend.fullkey_state = ValueState::Resolved; // TODO this is potentially creating resolved without child -> currently we resolve on edit so fine
 		}
 
 		encoded_change
