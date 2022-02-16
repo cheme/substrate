@@ -19,6 +19,23 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
+
+/// TODO
+/// Node on dummy:
+/// - H::Out remove from state-machine child api.
+/// Generally does not allow using custom hasher (as it will need to be
+/// exposed as a host function). TODO maybe just have no_std hasher for proto.
+/// - uses H.
+/// next step would be to have a child trie specific H.
+/// Generally it needs a way to expose generically in
+/// a trait access to a set of host function. Or could use a no_std hasher.
+/// - TODO first step could be to have child specific H ?? Or just specifically
+/// expose the hashing io as two H in state machine.
+/// - uses same externalites api (easier in state machine): check if can extend.
+/// - TODO a child file tree with tree being compatible with blake3.
+
+
+
 #[cfg(feature = "std")]
 use serde::{Deserialize, Serialize};
 use sp_debug_derive::RuntimeDebug;
@@ -210,12 +227,23 @@ pub mod well_known_keys {
 	/// Prefix of the default child storage keys in the top trie.
 	pub const DEFAULT_CHILD_STORAGE_KEY_PREFIX: &'static [u8] = b":child_storage:default:";
 
+	/// Prefix of the dummy child storage keys in the top trie.
+	pub const DUMMY_CHILD_STORAGE_KEY_PREFIX: &'static [u8] = b":child_storage:dummy:";
+
 	/// Whether a key is a default child storage key.
 	///
 	/// This is convenience function which basically checks if the given `key` starts
 	/// with `DEFAULT_CHILD_STORAGE_KEY_PREFIX` and doesn't do anything apart from that.
 	pub fn is_default_child_storage_key(key: &[u8]) -> bool {
 		key.starts_with(DEFAULT_CHILD_STORAGE_KEY_PREFIX)
+	}
+
+	/// Whether a key is a dummy child storage key.
+	///
+	/// This is convenience function which basically checks if the given `key` starts
+	/// with `DUMMy_CHILD_STORAGE_KEY_PREFIX` and doesn't do anything apart from that.
+	pub fn is_dummy_child_storage_key(key: &[u8]) -> bool {
+		key.starts_with(DUMMY_CHILD_STORAGE_KEY_PREFIX)
 	}
 
 	/// Whether a key is a child storage key.
@@ -246,9 +274,17 @@ pub const TRIE_VALUE_NODE_THRESHOLD: u32 = 33;
 pub enum ChildInfo {
 	/// This is the one used by default.
 	ParentKeyId(ChildTrieParentKeyId),
+	/// Placeholder for a different child trie kind.
+	Dummy(ChildTrieParentKeyId),
 }
 
 impl ChildInfo {
+	/// Placeholder for a different child trie kind.
+	pub fn new_dummy(storage_key: &[u8]) -> Self {
+		let data = storage_key.to_vec();
+		ChildInfo::Dummy(ChildTrieParentKeyId { data })
+	}
+
 	/// Instantiates child information for a default child trie
 	/// of kind `ChildType::ParentKeyId`, using an unprefixed parent
 	/// storage key.
@@ -267,6 +303,7 @@ impl ChildInfo {
 	pub fn try_update(&mut self, other: &ChildInfo) -> bool {
 		match self {
 			ChildInfo::ParentKeyId(child_trie) => child_trie.try_update(other),
+			ChildInfo::Dummy(child_trie) => child_trie.try_update(other),
 		}
 	}
 
@@ -276,6 +313,7 @@ impl ChildInfo {
 	pub fn keyspace(&self) -> &[u8] {
 		match self {
 			ChildInfo::ParentKeyId(..) => self.storage_key(),
+			ChildInfo::Dummy(..) => self.storage_key(),
 		}
 	}
 
@@ -285,6 +323,7 @@ impl ChildInfo {
 	pub fn storage_key(&self) -> &[u8] {
 		match self {
 			ChildInfo::ParentKeyId(ChildTrieParentKeyId { data }) => &data[..],
+			ChildInfo::Dummy(ChildTrieParentKeyId { data }) => &data[..],
 		}
 	}
 
@@ -294,6 +333,8 @@ impl ChildInfo {
 		match self {
 			ChildInfo::ParentKeyId(ChildTrieParentKeyId { data }) =>
 				ChildType::ParentKeyId.new_prefixed_key(data.as_slice()),
+			ChildInfo::Dummy(ChildTrieParentKeyId { data }) =>
+				ChildType::Dummy.new_prefixed_key(data.as_slice()),
 		}
 	}
 
@@ -305,6 +346,10 @@ impl ChildInfo {
 				ChildType::ParentKeyId.do_prefix_key(&mut data);
 				PrefixedStorageKey(data)
 			},
+			ChildInfo::Dummy(ChildTrieParentKeyId { mut data }) => {
+				ChildType::Dummy.do_prefix_key(&mut data);
+				PrefixedStorageKey(data)
+			},
 		}
 	}
 
@@ -312,6 +357,7 @@ impl ChildInfo {
 	pub fn child_type(&self) -> ChildType {
 		match self {
 			ChildInfo::ParentKeyId(..) => ChildType::ParentKeyId,
+			ChildInfo::Dummy(..) => ChildType::Dummy,
 		}
 	}
 }
@@ -326,6 +372,9 @@ pub enum ChildType {
 	/// If runtime module ensures that the child key is a unique id that will
 	/// only be used once, its parent key is used as a child trie unique id.
 	ParentKeyId = 1,
+	/// If runtime module ensures that the child key is a unique id that will
+	/// only be used once, its parent key is used as a child trie unique id.
+	Dummy = 2,
 }
 
 impl ChildType {
@@ -376,6 +425,7 @@ impl ChildType {
 	pub fn parent_prefix(&self) -> &'static [u8] {
 		match self {
 			&ChildType::ParentKeyId => well_known_keys::DEFAULT_CHILD_STORAGE_KEY_PREFIX,
+			&ChildType::Dummy => well_known_keys::DUMMY_CHILD_STORAGE_KEY_PREFIX,
 		}
 	}
 }
@@ -400,6 +450,7 @@ impl ChildTrieParentKeyId {
 	fn try_update(&mut self, other: &ChildInfo) -> bool {
 		match other {
 			ChildInfo::ParentKeyId(other) => self.data[..] == other.data[..],
+			ChildInfo::Dummy(other) => self.data[..] == other.data[..],
 		}
 	}
 }

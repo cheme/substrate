@@ -689,10 +689,7 @@ impl<S: StateBackend<HashFor<B>>, B: BlockT> StateBackend<HashFor<B>> for Cachin
 		child_info: &ChildInfo,
 		delta: impl Iterator<Item = (&'a [u8], Option<&'a [u8]>)>,
 		state_version: StateVersion,
-	) -> (B::Hash, bool, Self::Transaction)
-	where
-		B::Hash: Ord,
-	{
+	) -> (Vec<u8>, bool, Self::Transaction) {
 		self.state.child_storage_root(child_info, delta, state_version)
 	}
 
@@ -889,10 +886,7 @@ impl<S: StateBackend<HashFor<B>>, B: BlockT> StateBackend<HashFor<B>>
 		child_info: &ChildInfo,
 		delta: impl Iterator<Item = (&'a [u8], Option<&'a [u8]>)>,
 		state_version: StateVersion,
-	) -> (B::Hash, bool, Self::Transaction)
-	where
-		B::Hash: Ord,
-	{
+	) -> (Vec<u8>, bool, Self::Transaction) {
 		self.caching_state().child_storage_root(child_info, delta, state_version)
 	}
 

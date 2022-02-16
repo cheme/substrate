@@ -153,9 +153,7 @@ pub trait Backend<H: Hasher>: sp_std::fmt::Debug {
 		child_info: &ChildInfo,
 		delta: impl Iterator<Item = (&'a [u8], Option<&'a [u8]>)>,
 		state_version: StateVersion,
-	) -> (H::Out, bool, Self::Transaction)
-	where
-		H::Out: Ord;
+	) -> (Vec<u8>, bool, Self::Transaction);
 
 	/// Get all key/value pairs into a Vec.
 	fn pairs(&self) -> Vec<(StorageKey, StorageValue)>;

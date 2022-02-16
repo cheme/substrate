@@ -22,7 +22,7 @@ use crate::{
 	trie_backend_essence::{Ephemeral, TrieBackendEssence, TrieBackendStorage},
 	warn, Backend, StorageKey, StorageValue,
 };
-use codec::{Codec, Decode};
+use codec::{Codec, Encode, Decode};
 use hash_db::Hasher;
 use sp_core::storage::{ChildInfo, ChildType, StateVersion};
 use sp_std::{boxed::Box, vec::Vec};
@@ -217,43 +217,52 @@ where
 		child_info: &ChildInfo,
 		delta: impl Iterator<Item = (&'a [u8], Option<&'a [u8]>)>,
 		state_version: StateVersion,
-	) -> (H::Out, bool, Self::Transaction)
-	where
-		H::Out: Ord,
+	) -> (Vec<u8>, bool, Self::Transaction)
+		where
+			H::Out: Encode,
 	{
-		let default_root = match child_info.child_type() {
-			ChildType::ParentKeyId => empty_child_trie_root::<LayoutV1<H>>(),
-		};
+		let default_root = crate::empty_child_trie_root::<H>(child_info, state_version);
 		let mut write_overlay = S::Overlay::default();
 		let prefixed_storage_key = child_info.prefixed_storage_key();
-		let mut root = match self.storage(prefixed_storage_key.as_slice()) {
-			Ok(value) => value
-				.and_then(|r| Decode::decode(&mut &r[..]).ok())
-				.unwrap_or_else(|| default_root.clone()),
-			Err(e) => {
-				warn!(target: "trie", "Failed to read child storage root: {}", e);
-				default_root.clone()
-			},
+		let fetch_root = || {
+			match self.storage(prefixed_storage_key.as_slice()) {
+				Ok(value) => value
+					.unwrap_or_else(|| default_root.clone()),
+				Err(e) => {
+					warn!(target: "trie", "Failed to read child storage root: {}", e);
+					default_root.clone()
+				},
+			}
 		};
+		let mut root = fetch_root();
 
 		{
 			let mut eph = Ephemeral::new(self.essence.backend_storage(), &mut write_overlay);
-			match match state_version {
-				StateVersion::V0 => child_delta_trie_root::<LayoutV0<H>, _, _, _, _, _, _>(
+			match match (state_version, child_info.child_type()) {
+				(StateVersion::V0, ChildType::ParentKeyId) => child_delta_trie_root::<LayoutV0<H>, _, _, _, _, _, _>(
 					child_info.keyspace(),
 					&mut eph,
 					root,
 					delta,
 				),
-				StateVersion::V1 => child_delta_trie_root::<LayoutV1<H>, _, _, _, _, _, _>(
+				(StateVersion::V1, ChildType::ParentKeyId) => child_delta_trie_root::<LayoutV1<H>, _, _, _, _, _, _>(
+					child_info.keyspace(),
+					&mut eph,
+					root,
+					delta,
+				),
+				(_, ChildType::Dummy) => child_delta_trie_root::<LayoutV0<H>, _, _, _, _, _, _>(
 					child_info.keyspace(),
 					&mut eph,
 					root,
 					delta,
 				),
 			} {
-				Ok(ret) => root = ret,
-				Err(e) => warn!(target: "trie", "Failed to write to trie: {}", e),
+				Ok(ret) => root = ret.encode(),
+				Err(e) => {
+					warn!(target: "trie", "Failed to write to trie: {}", e);
+					root = fetch_root();
+				},
 			}
 		}
 

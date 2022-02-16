@@ -30,7 +30,7 @@ use sp_core::{
 	Blake2Hasher,
 };
 use sp_externalities::{Extension, Extensions};
-use sp_trie::{empty_child_trie_root, LayoutV0, LayoutV1, TrieConfiguration};
+use sp_trie::{empty_trie_root, LayoutV0, LayoutV1, TrieConfiguration};
 use std::{
 	any::{Any, TypeId},
 	collections::BTreeMap,
@@ -285,7 +285,7 @@ impl Externalities for BasicExternalities {
 		// Single child trie implementation currently allows using the same child
 		// empty root for all child trie. Using null storage key until multiple
 		// type of child trie support.
-		let empty_hash = empty_child_trie_root::<LayoutV1<Blake2Hasher>>();
+		let empty_hash = empty_trie_root::<LayoutV1<Blake2Hasher>>();
 		for (prefixed_storage_key, child_info) in prefixed_keys {
 			let child_root = self.child_storage_root(&child_info, state_version);
 			if &empty_hash[..] == &child_root[..] {
@@ -314,9 +314,8 @@ impl Externalities for BasicExternalities {
 				.child_storage_root(&child.child_info, delta, state_version)
 				.0
 		} else {
-			empty_child_trie_root::<LayoutV1<Blake2Hasher>>()
+			crate::empty_child_trie_root::<Blake2Hasher>(child_info, state_version)
 		}
-		.encode()
 	}
 
 	fn storage_start_transaction(&mut self) {

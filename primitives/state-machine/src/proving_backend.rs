@@ -77,7 +77,7 @@ where
 			.storage(storage_key)?
 			.and_then(|r| Decode::decode(&mut &r[..]).ok())
 			// V1 is equivalent to V0 on empty trie
-			.unwrap_or_else(|| empty_child_trie_root::<LayoutV1<H>>());
+			.unwrap_or_else(|| crate::empty_child_trie_root::<H>(child_info, StateVersion::V0));
 
 		let mut read_overlay = S::Overlay::default();
 		let eph = Ephemeral::new(self.backend.backend_storage(), &mut read_overlay);
@@ -352,10 +352,7 @@ where
 		child_info: &ChildInfo,
 		delta: impl Iterator<Item = (&'b [u8], Option<&'b [u8]>)>,
 		state_version: StateVersion,
-	) -> (H::Out, bool, Self::Transaction)
-	where
-		H::Out: Ord,
-	{
+	) -> (Vec<u8>, bool, Self::Transaction) {
 		self.0.child_storage_root(child_info, delta, state_version)
 	}
 

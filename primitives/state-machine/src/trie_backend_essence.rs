@@ -23,7 +23,7 @@ use codec::Encode;
 use hash_db::{self, AsHashDB, HashDB, HashDBRef, Hasher, Prefix};
 #[cfg(feature = "std")]
 use parking_lot::RwLock;
-use sp_core::storage::ChildInfo;
+use sp_core::storage::{ChildInfo, StateVersion};
 use sp_std::{boxed::Box, vec::Vec};
 use sp_trie::{
 	empty_child_trie_root, read_child_trie_value, read_trie_value,
@@ -74,6 +74,7 @@ pub struct TrieBackendEssence<S: TrieBackendStorage<H>, H: Hasher> {
 	storage: S,
 	root: H::Out,
 	empty: H::Out,
+	// TODO empty dummy
 	#[cfg(feature = "std")]
 	pub(crate) cache: Arc<RwLock<Cache>>,
 }
@@ -282,7 +283,8 @@ where
 		let mut child_root = H::Out::default();
 		let root = if let Some(child_info) = child_info.as_ref() {
 			let root_vec = match self.child_root(child_info) {
-				Ok(v) => v.unwrap_or_else(|| empty_child_trie_root::<Layout<H>>().encode()),
+				// TODO state version should be define for read operation (here we default to V0).
+				Ok(v) => v.unwrap_or_else(|| crate::empty_child_trie_root::<H>(child_info, StateVersion::V0)),
 				Err(e) => {
 					debug!(target: "trie", "Error while iterating child storage: {}", e);
 					return
@@ -305,7 +307,7 @@ where
 		mut f: impl FnMut(&[u8]),
 	) {
 		let root_vec = match self.child_root(child_info) {
-			Ok(v) => v.unwrap_or_else(|| empty_child_trie_root::<Layout<H>>().encode()),
+			Ok(v) => v.unwrap_or_else(|| crate::empty_child_trie_root::<H>(child_info, StateVersion::V0)),
 			Err(e) => {
 				debug!(target: "trie", "Error while iterating child storage: {}", e);
 				return
