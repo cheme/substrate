@@ -35,7 +35,7 @@ pub use memory_db::prefixed_key;
 /// Various re-exports from the `memory-db` crate.
 pub use memory_db::KeyFunction;
 /// The Substrate format implementation of `NodeCodec`.
-pub use node_codec::NodeCodec;
+pub use node_codec::{NodeCodec, NodeCodecWithSize};
 use sp_std::{borrow::Borrow, boxed::Box, marker::PhantomData, vec::Vec};
 pub use storage_proof::{CompactProof, StorageProof};
 /// Trie codec reexport, mainly child trie support
@@ -58,6 +58,10 @@ pub struct LayoutV0<H>(sp_std::marker::PhantomData<H>);
 
 /// substrate trie layout, with external value nodes.
 pub struct LayoutV1<H>(sp_std::marker::PhantomData<H>);
+
+/// substrate trie layout, with external value nodes and size
+/// in parent.
+pub struct LayoutWithSize<H>(sp_std::marker::PhantomData<H>);
 
 impl<H> TrieLayout for LayoutV0<H>
 where
@@ -114,6 +118,48 @@ where
 }
 
 impl<H> TrieConfiguration for LayoutV1<H>
+where
+	H: Hasher,
+{
+	fn trie_root<I, A, B>(input: I) -> <Self::Hash as Hasher>::Out
+	where
+		I: IntoIterator<Item = (A, B)>,
+		A: AsRef<[u8]> + Ord,
+		B: AsRef<[u8]>,
+	{
+		trie_root::trie_root_no_extension::<H, TrieStream, _, _, _>(input, Self::MAX_INLINE_VALUE)
+	}
+
+	fn trie_root_unhashed<I, A, B>(input: I) -> Vec<u8>
+	where
+		I: IntoIterator<Item = (A, B)>,
+		A: AsRef<[u8]> + Ord,
+		B: AsRef<[u8]>,
+	{
+		trie_root::unhashed_trie_no_extension::<H, TrieStream, _, _, _>(
+			input,
+			Self::MAX_INLINE_VALUE,
+		)
+	}
+
+	fn encode_index(input: u32) -> Vec<u8> {
+		codec::Encode::encode(&codec::Compact(input))
+	}
+}
+
+impl<H> TrieLayout for LayoutWithSize<H>
+where
+	H: Hasher,
+{
+	const USE_EXTENSION: bool = false;
+	const ALLOW_EMPTY: bool = true;
+	const MAX_INLINE_VALUE: Option<u32> = Some(sp_core::storage::TRIE_VALUE_NODE_THRESHOLD);
+
+	type Hash = H;
+	type Codec = NodeCodecWithSize<Self::Hash>;
+}
+
+impl<H> TrieConfiguration for LayoutWithSize<H>
 where
 	H: Hasher,
 {
