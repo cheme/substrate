@@ -23,11 +23,11 @@ use codec::Encode;
 use hash_db::{self, AsHashDB, HashDB, HashDBRef, Hasher, Prefix};
 #[cfg(feature = "std")]
 use parking_lot::RwLock;
-use sp_core::storage::{ChildInfo, StateVersion};
+use sp_core::storage::{ChildInfo, ChildType, StateVersion};
 use sp_std::{boxed::Box, vec::Vec};
 use sp_trie::{
 	empty_child_trie_root, read_child_trie_value, read_trie_value,
-	trie_types::{TrieDB, TrieError},
+	trie_types::{TrieDB, TrieDBDummy},
 	DBValue, KeySpacedDB, PrefixedMemoryDB, Trie, TrieDBIterator, TrieDBKeyIterator,
 };
 #[cfg(feature = "std")]
@@ -36,7 +36,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 // In this module, we only use layout for read operation and empty root,
 // where V1 and V0 are equivalent.
-use sp_trie::LayoutV1 as Layout;
+use sp_trie::{LayoutV1 as Layout, LayoutDummy};
 
 #[cfg(not(feature = "std"))]
 macro_rules! format {
@@ -74,7 +74,6 @@ pub struct TrieBackendEssence<S: TrieBackendStorage<H>, H: Hasher> {
 	storage: S,
 	root: H::Out,
 	empty: H::Out,
-	// TODO empty dummy
 	#[cfg(feature = "std")]
 	pub(crate) cache: Arc<RwLock<Cache>>,
 }
@@ -191,8 +190,28 @@ where
 			dyn_eph = self;
 		}
 
-		let trie =
-			TrieDB::<H>::new(dyn_eph, root).map_err(|e| format!("TrieDB creation error: {}", e))?;
+		
+		match child_info.as_ref().map(|info| info.child_type()) {
+			Some(ChildType::ParentKeyId)
+				| None => {
+				let trie =
+					TrieDB::<H>::new(dyn_eph, root).map_err(|e| format!("TrieDB creation error: {}", e))?;
+				self.next_storage_key_from_root_inner::<Layout<H>>(trie, key)
+			},
+			Some(ChildType::Dummy) => {
+				let trie =
+					TrieDBDummy::<H>::new(dyn_eph, root).map_err(|e| format!("TrieDB creation error: {}", e))?;
+				self.next_storage_key_from_root_inner::<LayoutDummy<H>>(trie, key)
+			}
+		}
+	}
+
+	fn next_storage_key_from_root_inner<L: sp_trie::TrieLayout>(
+		&self,
+		trie: sp_trie::TrieDB<L>,
+		key: &[u8],
+	) -> Result<Option<StorageKey>> {
+	
 		let mut iter = trie.key_iter().map_err(|e| format!("TrieDB iteration error: {}", e))?;
 
 		// The key just after the one given in input, basically `key++0`.
@@ -238,8 +257,13 @@ where
 
 		let map_e = |e| format!("Trie lookup error: {}", e);
 
-		read_child_trie_value::<Layout<H>, _>(child_info.keyspace(), self, &root, key)
-			.map_err(map_e)
+		match child_info.child_type() {
+			ChildType::ParentKeyId => read_child_trie_value::<Layout<H>, _>(child_info.keyspace(), self, &root, key)
+					.map_err(map_e),
+			ChildType::Dummy => read_child_trie_value::<LayoutDummy<H>, _>(child_info.keyspace(), self, &root, key)
+					.map_err(map_e),
+		}
+
 	}
 
 	/// Retrieve all entries keys of storage and call `f` for each of those keys.
@@ -343,11 +367,32 @@ where
 		&self,
 		root: &H::Out,
 		prefix: Option<&[u8]>,
-		mut f: F,
+		f: F,
 		child_info: Option<&ChildInfo>,
 	) {
-		let mut iter = move |db| -> sp_std::result::Result<(), Box<TrieError<H::Out>>> {
-			let trie = TrieDB::<H>::new(db, root)?;
+		match child_info.as_ref().map(|info| info.child_type()) {
+			Some(ChildType::ParentKeyId)
+				| None => {
+				self.trie_iter_key_inner2::<_, Layout<H>>(root, prefix, f, child_info)
+			},
+			Some(ChildType::Dummy) => {
+				self.trie_iter_key_inner2::<_, LayoutDummy<H>>(root, prefix, f, child_info)
+			},
+		}
+	}
+	fn trie_iter_key_inner2<F, L>(
+		&self,
+		root: &H::Out,
+		prefix: Option<&[u8]>,
+		mut f: F,
+		child_info: Option<&ChildInfo>,
+	)
+		where
+			F: FnMut(&[u8]) -> bool,
+			L: sp_trie::TrieLayout<Hash = H>,
+	{
+		let mut iter = move |db| -> sp_std::result::Result<(), Box<sp_trie::TrieError<L>>> {
+			let trie = sp_trie::TrieDB::<L>::new(db, root)?;
 			let iter = if let Some(prefix) = prefix.as_ref() {
 				TrieDBKeyIterator::new_prefixed(&trie, prefix)?
 			} else {
@@ -385,13 +430,37 @@ where
 		&self,
 		root: &H::Out,
 		prefix: Option<&[u8]>,
-		mut f: F,
+		f: F,
 		child_info: Option<&ChildInfo>,
 		start_at: Option<&[u8]>,
 		allow_missing_nodes: bool,
 	) -> Result<bool> {
-		let mut iter = move |db| -> sp_std::result::Result<bool, Box<TrieError<H::Out>>> {
-			let trie = TrieDB::<H>::new(db, root)?;
+		match child_info.as_ref().map(|info| info.child_type()) {
+			Some(ChildType::ParentKeyId)
+				| None => {
+				self.trie_iter_inner2::<F, Layout<H>>(root, prefix, f, child_info, start_at, allow_missing_nodes)
+			},
+			Some(ChildType::Dummy) => {
+				self.trie_iter_inner2::<F, LayoutDummy<H>>(root, prefix, f, child_info, start_at, allow_missing_nodes)
+			},
+		}
+	}
+
+	fn trie_iter_inner2<F, L>(
+		&self,
+		root: &H::Out,
+		prefix: Option<&[u8]>,
+		mut f: F,
+		child_info: Option<&ChildInfo>,
+		start_at: Option<&[u8]>,
+		allow_missing_nodes: bool,
+	) -> Result<bool>
+		where
+			F: FnMut(Vec<u8>, Vec<u8>) -> bool,
+			L: sp_trie::TrieLayout<Hash = H>,
+	{
+		let mut iter = move |db| -> sp_std::result::Result<bool, Box<sp_trie::TrieError<L>>> {
+			let trie = sp_trie::TrieDB::<L>::new(db, root)?;
 
 			let prefix = prefix.unwrap_or(&[]);
 			let iterator = if let Some(start_at) = start_at {
@@ -420,7 +489,7 @@ where
 		};
 		match result {
 			Ok(completed) => Ok(completed),
-			Err(e) if matches!(*e, TrieError::IncompleteDatabase(_)) && allow_missing_nodes =>
+			Err(e) if matches!(*e, sp_trie::TrieError::<L>::IncompleteDatabase(_)) && allow_missing_nodes =>
 				Ok(false),
 			Err(e) => Err(format!("TrieDB iteration error: {}", e)),
 		}

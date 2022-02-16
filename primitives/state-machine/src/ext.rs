@@ -28,7 +28,6 @@ use sp_core::storage::{
 	well_known_keys::is_child_storage_key, ChildInfo, StateVersion, TrackedStorageKey,
 };
 use sp_externalities::{Extension, ExtensionStore, Externalities};
-use sp_trie::{empty_child_trie_root, LayoutV1};
 
 use crate::{log_error, trace, warn, StorageTransactionCache};
 use sp_std::{

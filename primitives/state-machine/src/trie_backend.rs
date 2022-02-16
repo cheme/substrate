@@ -22,14 +22,14 @@ use crate::{
 	trie_backend_essence::{Ephemeral, TrieBackendEssence, TrieBackendStorage},
 	warn, Backend, StorageKey, StorageValue,
 };
-use codec::{Codec, Encode, Decode};
+use codec::{Codec, Encode};
 use hash_db::Hasher;
 use sp_core::storage::{ChildInfo, ChildType, StateVersion};
 use sp_std::{boxed::Box, vec::Vec};
 use sp_trie::{
-	child_delta_trie_root, delta_trie_root, empty_child_trie_root,
+	child_delta_trie_root, delta_trie_root,
 	trie_types::{TrieDB, TrieError},
-	LayoutV0, LayoutV1, Trie,
+	LayoutV0, LayoutV1, LayoutDummy, Trie,
 };
 
 /// Patricia trie-based backend. Transaction type is an overlay of changes to commit.
@@ -251,7 +251,7 @@ where
 					root,
 					delta,
 				),
-				(_, ChildType::Dummy) => child_delta_trie_root::<LayoutV0<H>, _, _, _, _, _, _>(
+				(_, ChildType::Dummy) => child_delta_trie_root::<LayoutDummy<H>, _, _, _, _, _, _>(
 					child_info.keyspace(),
 					&mut eph,
 					root,
