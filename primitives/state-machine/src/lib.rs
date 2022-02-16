@@ -1355,10 +1355,11 @@ use sp_std::vec::Vec;
 use hash_db::Hasher;
 use sp_core::storage::{ChildInfo, ChildType, StateVersion};
 use codec::Encode;
+/// TODO
 pub fn empty_child_trie_root<H>(child_info: &ChildInfo, state_version: StateVersion) -> Vec<u8>
 where H: Hasher, H::Out: Encode,
 { // TODO move to execution and pub use here
-	use sp_trie::{LayoutV0, LayoutV1, empty_child_trie_root};
+	use sp_trie::{empty_child_trie_root};
 	match child_info.child_type() {
 		ChildType::ParentKeyId => {
 			match state_version {
