@@ -44,6 +44,21 @@ pub fn get<T: Decode + Sized>(child_info: &ChildInfo, key: &[u8]) -> Option<T> {
 				})
 			})
 		},
+		ChildType::Dummy => {
+			let storage_key = child_info.storage_key();
+			sp_io::dummy_child_storage::get(storage_key, key).and_then(|v| {
+				Decode::decode(&mut &v[..]).map(Some).unwrap_or_else(|_| {
+					// TODO #3700: error should be handleable.
+					log::error!(
+						target: "runtime::storage",
+						"Corrupted state in child trie at {:?}/{:?}",
+						storage_key,
+						key,
+					);
+					None
+				})
+			})
+		},
 	}
 }
 
@@ -74,6 +89,9 @@ pub fn put<T: Encode>(child_info: &ChildInfo, key: &[u8], value: &T) {
 	match child_info.child_type() {
 		ChildType::ParentKeyId => value.using_encoded(|slice| {
 			sp_io::default_child_storage::set(child_info.storage_key(), key, slice)
+		}),
+		ChildType::Dummy => value.using_encoded(|slice| {
+			sp_io::dummy_child_storage::set(child_info.storage_key(), key, slice)
 		}),
 	}
 }
@@ -114,6 +132,8 @@ pub fn exists(child_info: &ChildInfo, key: &[u8]) -> bool {
 	match child_info.child_type() {
 		ChildType::ParentKeyId =>
 			sp_io::default_child_storage::exists(child_info.storage_key(), key),
+		ChildType::Dummy =>
+			sp_io::dummy_child_storage::exists(child_info.storage_key(), key),
 	}
 }
 
@@ -140,6 +160,8 @@ pub fn kill_storage(child_info: &ChildInfo, limit: Option<u32>) -> KillStorageRe
 	match child_info.child_type() {
 		ChildType::ParentKeyId =>
 			sp_io::default_child_storage::storage_kill(child_info.storage_key(), limit),
+		ChildType::Dummy =>
+			sp_io::dummy_child_storage::storage_kill(child_info.storage_key(), limit),
 	}
 }
 
@@ -149,6 +171,9 @@ pub fn kill(child_info: &ChildInfo, key: &[u8]) {
 		ChildType::ParentKeyId => {
 			sp_io::default_child_storage::clear(child_info.storage_key(), key);
 		},
+		ChildType::Dummy => {
+			sp_io::dummy_child_storage::clear(child_info.storage_key(), key);
+		},
 	}
 }
 
@@ -156,6 +181,7 @@ pub fn kill(child_info: &ChildInfo, key: &[u8]) {
 pub fn get_raw(child_info: &ChildInfo, key: &[u8]) -> Option<Vec<u8>> {
 	match child_info.child_type() {
 		ChildType::ParentKeyId => sp_io::default_child_storage::get(child_info.storage_key(), key),
+		ChildType::Dummy => sp_io::dummy_child_storage::get(child_info.storage_key(), key),
 	}
 }
 
@@ -164,6 +190,8 @@ pub fn put_raw(child_info: &ChildInfo, key: &[u8], value: &[u8]) {
 	match child_info.child_type() {
 		ChildType::ParentKeyId =>
 			sp_io::default_child_storage::set(child_info.storage_key(), key, value),
+		ChildType::Dummy =>
+			sp_io::dummy_child_storage::set(child_info.storage_key(), key, value),
 	}
 }
 
@@ -172,6 +200,8 @@ pub fn root(child_info: &ChildInfo, version: StateVersion) -> Vec<u8> {
 	match child_info.child_type() {
 		ChildType::ParentKeyId =>
 			sp_io::default_child_storage::root(child_info.storage_key(), version),
+		ChildType::Dummy =>
+			sp_io::dummy_child_storage::root(child_info.storage_key(), version),
 	}
 }
 
@@ -181,6 +211,10 @@ pub fn len(child_info: &ChildInfo, key: &[u8]) -> Option<u32> {
 		ChildType::ParentKeyId => {
 			let mut buffer = [0; 0];
 			sp_io::default_child_storage::read(child_info.storage_key(), key, &mut buffer, 0)
+		},
+		ChildType::Dummy => {
+			let mut buffer = [0; 0];
+			sp_io::dummy_child_storage::read(child_info.storage_key(), key, &mut buffer, 0)
 		},
 	}
 }

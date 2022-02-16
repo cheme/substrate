@@ -409,6 +409,157 @@ pub trait DefaultChildStorage {
 	}
 }
 
+/// Interface for accessing the child storage for dummy child trie,
+/// from within the runtime.
+#[runtime_interface]
+pub trait DummyChildStorage {
+	/// Get a dummy child storage value for a given key.
+	///
+	/// Parameter `storage_key` is the unprefixed location of the root of the child trie in the
+	/// parent trie. Result is `None` if the value for `key` in the child storage can not be found.
+	fn get(&self, storage_key: &[u8], key: &[u8]) -> Option<Vec<u8>> {
+		let child_info = ChildInfo::new_dummy(storage_key);
+		self.child_storage(&child_info, key).map(|s| s.to_vec())
+	}
+
+	/// Allocation efficient variant of `get`.
+	///
+	/// Get `key` from child storage, placing the value into `value_out` and return the number
+	/// of bytes that the entry in storage has beyond the offset or `None` if the storage entry
+	/// doesn't exist at all.
+	/// If `value_out` length is smaller than the returned length, only `value_out` length bytes
+	/// are copied into `value_out`.
+	fn read(
+		&self,
+		storage_key: &[u8],
+		key: &[u8],
+		value_out: &mut [u8],
+		value_offset: u32,
+	) -> Option<u32> {
+		let child_info = ChildInfo::new_dummy(storage_key);
+		self.child_storage(&child_info, key).map(|value| {
+			let value_offset = value_offset as usize;
+			let data = &value[value_offset.min(value.len())..];
+			let written = std::cmp::min(data.len(), value_out.len());
+			value_out[..written].copy_from_slice(&data[..written]);
+			data.len() as u32
+		})
+	}
+
+	/// Set a child storage value.
+	///
+	/// Set `key` to `value` in the child storage denoted by `storage_key`.
+	fn set(&mut self, storage_key: &[u8], key: &[u8], value: &[u8]) {
+		let child_info = ChildInfo::new_dummy(storage_key);
+		self.set_child_storage(&child_info, key.to_vec(), value.to_vec());
+	}
+
+	/// Clear a child storage key.
+	///
+	/// For the default child storage at `storage_key`, clear value at `key`.
+	fn clear(&mut self, storage_key: &[u8], key: &[u8]) {
+		let child_info = ChildInfo::new_dummy(storage_key);
+		self.clear_child_storage(&child_info, key);
+	}
+
+	/// Clear an entire child storage.
+	///
+	/// If it exists, the child storage for `storage_key`
+	/// is removed.
+	fn storage_kill(&mut self, storage_key: &[u8]) {
+		let child_info = ChildInfo::new_dummy(storage_key);
+		self.kill_child_storage(&child_info, None);
+	}
+
+	/// Clear a child storage key.
+	///
+	/// See `Storage` module `clear_prefix` documentation for `limit` usage.
+	#[version(2)]
+	fn storage_kill(&mut self, storage_key: &[u8], limit: Option<u32>) -> bool {
+		let child_info = ChildInfo::new_dummy(storage_key);
+		let (all_removed, _num_removed) = self.kill_child_storage(&child_info, limit);
+		all_removed
+	}
+
+	/// Clear a child storage key.
+	///
+	/// See `Storage` module `clear_prefix` documentation for `limit` usage.
+	#[version(3)]
+	fn storage_kill(&mut self, storage_key: &[u8], limit: Option<u32>) -> KillStorageResult {
+		let child_info = ChildInfo::new_dummy(storage_key);
+		let (all_removed, num_removed) = self.kill_child_storage(&child_info, limit);
+		match all_removed {
+			true => KillStorageResult::AllRemoved(num_removed),
+			false => KillStorageResult::SomeRemaining(num_removed),
+		}
+	}
+
+	/// Check a child storage key.
+	///
+	/// Check whether the given `key` exists in dummy child defined at `storage_key`.
+	fn exists(&self, storage_key: &[u8], key: &[u8]) -> bool {
+		let child_info = ChildInfo::new_dummy(storage_key);
+		self.exists_child_storage(&child_info, key)
+	}
+
+	/// Clear child dummy key by prefix.
+	///
+	/// Clear the child storage of each key-value pair where the key starts with the given `prefix`.
+	fn clear_prefix(&mut self, storage_key: &[u8], prefix: &[u8]) {
+		let child_info = ChildInfo::new_dummy(storage_key);
+		let _ = self.clear_child_prefix(&child_info, prefix, None);
+	}
+
+	/// Clear the child storage of each key-value pair where the key starts with the given `prefix`.
+	///
+	/// See `Storage` module `clear_prefix` documentation for `limit` usage.
+	#[version(2)]
+	fn clear_prefix(
+		&mut self,
+		storage_key: &[u8],
+		prefix: &[u8],
+		limit: Option<u32>,
+	) -> KillStorageResult {
+		let child_info = ChildInfo::new_dummy(storage_key);
+		let (all_removed, num_removed) = self.clear_child_prefix(&child_info, prefix, limit);
+		match all_removed {
+			true => KillStorageResult::AllRemoved(num_removed),
+			false => KillStorageResult::SomeRemaining(num_removed),
+		}
+	}
+
+	/// Default child root calculation.
+	///
+	/// "Commit" all existing operations and compute the resulting child storage root.
+	/// The hashing algorithm is defined by the `Block`.
+	///
+	/// Returns a `Vec<u8>` that holds the SCALE encoded hash.
+	fn root(&mut self, storage_key: &[u8]) -> Vec<u8> {
+		let child_info = ChildInfo::new_dummy(storage_key);
+		self.child_storage_root(&child_info, StateVersion::V0)
+	}
+
+	/// Default child root calculation.
+	///
+	/// "Commit" all existing operations and compute the resulting child storage root.
+	/// The hashing algorithm is defined by the `Block`.
+	///
+	/// Returns a `Vec<u8>` that holds the SCALE encoded hash.
+	#[version(2)]
+	fn root(&mut self, storage_key: &[u8], version: StateVersion) -> Vec<u8> {
+		let child_info = ChildInfo::new_dummy(storage_key);
+		self.child_storage_root(&child_info, version)
+	}
+
+	/// Child storage key iteration.
+	///
+	/// Get the next key in storage after the given one in lexicographic order in child storage.
+	fn next_key(&mut self, storage_key: &[u8], key: &[u8]) -> Option<Vec<u8>> {
+		let child_info = ChildInfo::new_dummy(storage_key);
+		self.next_child_storage_key(&child_info, key)
+	}
+}
+
 /// Interface that provides trie related functionality.
 #[runtime_interface]
 pub trait Trie {
