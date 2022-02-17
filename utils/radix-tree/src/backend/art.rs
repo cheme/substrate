@@ -341,8 +341,7 @@ impl<N> ArtEncoded<N>
 
 		let limit = N::LimitPartial::LIMIT_SIZE.unwrap();
 		let data_len = std::cmp::min(key.data.len(), limit);
-		let capacity = LIMITED_ENCODED_LEN + data_len + mask_size;
-		let start = encoded.len() - capacity;
+		let start = encoded.len() - prefix_limit_len(N::LimitPartial::LIMIT_SIZE);
 		Self::write_prefix_buf(&mut encoded[start..], key, LIMITED_ENCODED_LEN, data_len);
 	}
 

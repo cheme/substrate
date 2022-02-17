@@ -1934,8 +1934,8 @@ pub struct Node4LimitTestBackend<V>(core::marker::PhantomData<V>);
 impl <V: Value + Codec> TreeConf for Node4LimitTestBackend<V> {
 	type Radix = Radix4Conf;
 	type Value = V;
-//	type LimitPartial = LimitPartial4;
-	type LimitPartial = NoKey;
+	type LimitPartial = LimitPartial16;
+//	type LimitPartial = NoKey;
 	type Children = Children4<ChildFor<Self>>;
 	type Backend = Rc<RefCell<TestBackend>>;
 	type NodeBackend = backend::node_test::NodeTestBackend<Self>;
