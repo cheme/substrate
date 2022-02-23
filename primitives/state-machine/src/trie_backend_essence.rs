@@ -26,8 +26,7 @@ use parking_lot::RwLock;
 use sp_core::storage::{ChildInfo, ChildType, StateVersion};
 use sp_std::{boxed::Box, vec::Vec};
 use sp_trie::{
-	child_delta_trie_root, delta_trie_root, empty_child_trie_root, read_child_trie_value,
-	read_trie_value,
+	child_delta_trie_root, delta_trie_root, read_child_trie_value, read_trie_value,
 	trie_types::{TrieDB, TrieDBDummy, TrieError},
 	DBValue, KeySpacedDB, PrefixedMemoryDB, Trie, TrieDBIterator, TrieDBKeyIterator,
 };
@@ -589,7 +588,8 @@ where
 	where
 		H::Out: Ord,
 	{
-		let default_root = crate::empty_child_trie_root::<H>(child_info, state_version);
+		let default_root =
+			crate::trie_backend::empty_child_trie_root::<H>(child_info, state_version);
 		let mut write_overlay = S::Overlay::default();
 		let mut root = match self.child_root(child_info) {
 			Ok(Some(hash)) => hash,

@@ -314,7 +314,8 @@ impl Externalities for BasicExternalities {
 				.child_storage_root(&child.child_info, delta, state_version)
 				.0
 		} else {
-			crate::empty_child_trie_root::<Blake2Hasher>(child_info, state_version)
+			crate::trie_backend::empty_child_trie_root::<Blake2Hasher>(child_info, state_version)
+				.encode()
 		}
 	}
 

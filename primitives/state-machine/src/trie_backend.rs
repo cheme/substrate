@@ -24,12 +24,8 @@ use crate::{
 use codec::{Codec, Encode};
 use hash_db::Hasher;
 use sp_core::storage::{ChildInfo, ChildType, StateVersion};
-use sp_std::{boxed::Box, vec::Vec};
-use sp_trie::{
-	child_delta_trie_root, delta_trie_root,
-	trie_types::{TrieDB, TrieError},
-	LayoutDummy, LayoutV0, LayoutV1, Trie,
-};
+use sp_std::vec::Vec;
+use sp_trie::{LayoutDummy, LayoutV0, LayoutV1};
 
 /// Patricia trie-based backend. Transaction type is an overlay of changes to commit.
 pub struct TrieBackend<S: TrieBackendStorage<H>, H: Hasher> {
@@ -170,7 +166,9 @@ where
 	where
 		H::Out: Encode,
 	{
-		self.essence.child_storage_root(child_info, delta, state_version)
+		let (root, is_default, transaction) =
+			self.essence.child_storage_root(child_info, delta, state_version);
+		(root.encode(), is_default, transaction)
 	}
 
 	fn as_trie_backend(&self) -> Option<&TrieBackend<Self::TrieBackendStorage, H>> {
@@ -185,6 +183,21 @@ where
 
 	fn wipe(&self) -> Result<(), Self::Error> {
 		Ok(())
+	}
+}
+
+/// Empty child root for a given child info and state version.
+pub fn empty_child_trie_root<H>(child_info: &ChildInfo, state_version: StateVersion) -> H::Out
+where
+	H: Hasher,
+{
+	use sp_trie::empty_child_trie_root;
+	match child_info.child_type() {
+		ChildType::ParentKeyId => match state_version {
+			StateVersion::V0 => empty_child_trie_root::<LayoutV0<H>>(),
+			StateVersion::V1 => empty_child_trie_root::<LayoutV1<H>>(),
+		},
+		ChildType::Dummy => empty_child_trie_root::<LayoutDummy<H>>(),
 	}
 }
 

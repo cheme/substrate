@@ -73,11 +73,13 @@ where
 		key: &[u8],
 	) -> Result<Option<Vec<u8>>, String> {
 		let storage_key = child_info.storage_key();
-		let root = self
-			.storage(storage_key)?
-			.and_then(|r| Decode::decode(&mut &r[..]).ok())
-			// V1 is equivalent to V0 on empty trie
-			.unwrap_or_else(|| crate::empty_child_trie_root::<H>(child_info, StateVersion::V0));
+		let root: H::Out = if let Some(root) =
+			self.storage(storage_key)?.and_then(|r| Decode::decode(&mut &r[..]).ok())
+		{
+			root
+		} else {
+			return Ok(None)
+		};
 
 		let mut read_overlay = S::Overlay::default();
 		let eph = Ephemeral::new(self.backend.backend_storage(), &mut read_overlay);
@@ -88,7 +90,7 @@ where
 		read_child_trie_value_with::<LayoutV1<H>, _, _>(
 			child_info.keyspace(),
 			&eph,
-			&root.as_ref(),
+			root.as_ref(),
 			key,
 			&mut *self.proof_recorder,
 		)
