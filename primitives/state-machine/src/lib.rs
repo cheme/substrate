@@ -883,8 +883,7 @@ mod execution {
 					Some(match ChildType::from_prefixed_key(&storage_key) {
 						Some((ChildType::ParentKeyId, storage_key)) =>
 							ChildInfo::new_default(storage_key),
-						Some((ChildType::Dummy, storage_key)) =>
-							ChildInfo::new_dummy(storage_key),
+						Some((ChildType::Dummy, storage_key)) => ChildInfo::new_dummy(storage_key),
 						None => return Err(Box::new("Invalid range start child trie key.")),
 					}),
 					2,
@@ -1274,8 +1273,7 @@ mod execution {
 					Some(match ChildType::from_prefixed_key(&storage_key) {
 						Some((ChildType::ParentKeyId, storage_key)) =>
 							ChildInfo::new_default(storage_key),
-						Some((ChildType::Dummy, storage_key)) =>
-							ChildInfo::new_dummy(storage_key),
+						Some((ChildType::Dummy, storage_key)) => ChildInfo::new_dummy(storage_key),
 						None => return Err(Box::new("Invalid range start child trie key.")),
 					}),
 					2,
@@ -1350,29 +1348,27 @@ mod execution {
 	}
 }
 
-
-use sp_std::vec::Vec;
+use codec::Encode;
 use hash_db::Hasher;
 use sp_core::storage::{ChildInfo, ChildType, StateVersion};
-use codec::Encode;
+use sp_std::vec::Vec;
 /// TODO
 pub fn empty_child_trie_root<H>(child_info: &ChildInfo, state_version: StateVersion) -> Vec<u8>
-where H: Hasher, H::Out: Encode,
-{ // TODO move to execution and pub use here
-	use sp_trie::{empty_child_trie_root};
+where
+	H: Hasher,
+	H::Out: Encode,
+{
+	// TODO move to execution and pub use here
+	use sp_trie::empty_child_trie_root;
 	match child_info.child_type() {
-		ChildType::ParentKeyId => {
-			match state_version {
-				StateVersion::V0 => empty_child_trie_root::<LayoutV0<H>>().encode(),
-				StateVersion::V1 => empty_child_trie_root::<LayoutV1<H>>().encode(),
-			}
+		ChildType::ParentKeyId => match state_version {
+			StateVersion::V0 => empty_child_trie_root::<LayoutV0<H>>().encode(),
+			StateVersion::V1 => empty_child_trie_root::<LayoutV1<H>>().encode(),
 		},
-		ChildType::Dummy => {
-			empty_child_trie_root::<LayoutV0<H>>().encode()
-		},
+		ChildType::Dummy => empty_child_trie_root::<LayoutV0<H>>().encode(),
 	}
 }
-	
+
 #[cfg(test)]
 mod tests {
 	use super::{ext::Ext, *};

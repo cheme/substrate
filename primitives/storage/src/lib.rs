@@ -19,7 +19,6 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
-
 /// TODO
 /// Node on dummy:
 /// - H::Out remove from state-machine child api.
@@ -33,8 +32,6 @@
 /// expose the hashing io as two H in state machine.
 /// - uses same externalites api (easier in state machine): check if can extend.
 /// - TODO a child file tree with tree being compatible with blake3.
-
-
 
 #[cfg(feature = "std")]
 use serde::{Deserialize, Serialize};

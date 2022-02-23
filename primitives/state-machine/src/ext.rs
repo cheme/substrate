@@ -592,7 +592,9 @@ where
 					.storage(prefixed_storage_key.as_slice())
 					.and_then(|k| Decode::decode(&mut &k[..]).ok())
 					// V1 is equivalent to V0 on empty root.
-					.unwrap_or_else(|| crate::empty_child_trie_root::<H>(child_info, StateVersion::V0));
+					.unwrap_or_else(|| {
+						crate::empty_child_trie_root::<H>(child_info, StateVersion::V0)
+					});
 				trace!(
 					target: "state",
 					method = "ChildStorageRoot",

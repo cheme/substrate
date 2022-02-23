@@ -29,8 +29,8 @@ use parking_lot::RwLock;
 use sp_core::storage::{ChildInfo, StateVersion};
 pub use sp_trie::trie_types::TrieError;
 use sp_trie::{
-	read_child_trie_value_with, read_trie_value_with, record_all_keys,
-	MemoryDB, Recorder, StorageProof, LayoutV1,
+	read_child_trie_value_with, read_trie_value_with, record_all_keys, LayoutV1, MemoryDB,
+	Recorder, StorageProof,
 };
 use std::{
 	collections::{hash_map::Entry, HashMap},
