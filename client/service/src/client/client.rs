@@ -587,12 +587,10 @@ where
 									let storage_key = PrefixedStorageKey::new_ref(&parent_storage);
 									let (storage_key, child_info) =
 										match ChildType::from_prefixed_key(&storage_key) {
-											Some((ChildType::ParentKeyId, storage_key)) => {
-												(storage_key, ChildInfo::new_default(storage_key))
-											},
-											Some((ChildType::Dummy, storage_key)) => {
-												(storage_key, ChildInfo::new_dummy(storage_key))
-											},
+											Some((ChildType::ParentKeyId, storage_key)) =>
+												(storage_key, ChildInfo::new_default(storage_key)),
+											Some((ChildType::Dummy, storage_key)) =>
+												(storage_key, ChildInfo::new_dummy(storage_key)),
 											None =>
 												return Err(Error::Backend(
 													"Invalid child storage key.".to_string(),
@@ -1209,8 +1207,7 @@ where
 			match ChildType::from_prefixed_key(&storage_key) {
 				Some((ChildType::ParentKeyId, storage_key)) =>
 					Ok(ChildInfo::new_default(storage_key)),
-				Some((ChildType::Dummy, storage_key)) =>
-					Ok(ChildInfo::new_dummy(storage_key)),
+				Some((ChildType::Dummy, storage_key)) => Ok(ChildInfo::new_dummy(storage_key)),
 				None => Err(Error::Backend("Invalid child storage key.".to_string())),
 			}
 		};

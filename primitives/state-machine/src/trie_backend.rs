@@ -18,19 +18,14 @@
 //! Trie-based state machine backend.
 
 use crate::{
-	debug,
-	trie_backend_essence::{Ephemeral, TrieBackendEssence, TrieBackendStorage},
-	warn, Backend, StorageKey, StorageValue,
+	trie_backend_essence::{TrieBackendEssence, TrieBackendStorage},
+	Backend, StorageKey, StorageValue,
 };
 use codec::{Codec, Encode};
 use hash_db::Hasher;
 use sp_core::storage::{ChildInfo, ChildType, StateVersion};
-use sp_std::{boxed::Box, vec::Vec};
-use sp_trie::{
-	child_delta_trie_root, delta_trie_root,
-	trie_types::{TrieDB, TrieError},
-	LayoutV0, LayoutV1, LayoutDummy, Trie,
-};
+use sp_std::vec::Vec;
+use sp_trie::{LayoutDummy, LayoutV0, LayoutV1};
 
 /// Patricia trie-based backend. Transaction type is an overlay of changes to commit.
 pub struct TrieBackend<S: TrieBackendStorage<H>, H: Hasher> {
@@ -144,43 +139,11 @@ where
 	}
 
 	fn pairs(&self) -> Vec<(StorageKey, StorageValue)> {
-		let collect_all = || -> Result<_, Box<TrieError<H::Out>>> {
-			let trie = TrieDB::<H>::new(self.essence(), self.essence.root())?;
-			let mut v = Vec::new();
-			for x in trie.iter()? {
-				let (key, value) = x?;
-				v.push((key.to_vec(), value.to_vec()));
-			}
-
-			Ok(v)
-		};
-
-		match collect_all() {
-			Ok(v) => v,
-			Err(e) => {
-				debug!(target: "trie", "Error extracting trie values: {}", e);
-				Vec::new()
-			},
-		}
+		self.essence.pairs()
 	}
 
 	fn keys(&self, prefix: &[u8]) -> Vec<StorageKey> {
-		let collect_all = || -> Result<_, Box<TrieError<H::Out>>> {
-			let trie = TrieDB::<H>::new(self.essence(), self.essence.root())?;
-			let mut v = Vec::new();
-			for x in trie.iter()? {
-				let (key, _) = x?;
-				if key.starts_with(prefix) {
-					v.push(key.to_vec());
-				}
-			}
-
-			Ok(v)
-		};
-
-		collect_all()
-			.map_err(|e| debug!(target: "trie", "Error extracting trie keys: {}", e))
-			.unwrap_or_default()
+		self.essence.keys(prefix)
 	}
 
 	fn storage_root<'a>(
@@ -191,25 +154,7 @@ where
 	where
 		H::Out: Ord,
 	{
-		let mut write_overlay = S::Overlay::default();
-		let mut root = *self.essence.root();
-
-		{
-			let mut eph = Ephemeral::new(self.essence.backend_storage(), &mut write_overlay);
-			let res = match state_version {
-				StateVersion::V0 =>
-					delta_trie_root::<LayoutV0<H>, _, _, _, _, _>(&mut eph, root, delta),
-				StateVersion::V1 =>
-					delta_trie_root::<LayoutV1<H>, _, _, _, _, _>(&mut eph, root, delta),
-			};
-
-			match res {
-				Ok(ret) => root = ret,
-				Err(e) => warn!(target: "trie", "Failed to write to trie: {}", e),
-			}
-		}
-
-		(root, write_overlay)
+		self.essence.storage_root(delta, state_version)
 	}
 
 	fn child_storage_root<'a>(
@@ -218,57 +163,12 @@ where
 		delta: impl Iterator<Item = (&'a [u8], Option<&'a [u8]>)>,
 		state_version: StateVersion,
 	) -> (Vec<u8>, bool, Self::Transaction)
-		where
-			H::Out: Encode,
+	where
+		H::Out: Encode,
 	{
-		let default_root = crate::empty_child_trie_root::<H>(child_info, state_version);
-		let mut write_overlay = S::Overlay::default();
-		let prefixed_storage_key = child_info.prefixed_storage_key();
-		let fetch_root = || {
-			match self.storage(prefixed_storage_key.as_slice()) {
-				Ok(value) => value
-					.unwrap_or_else(|| default_root.clone()),
-				Err(e) => {
-					warn!(target: "trie", "Failed to read child storage root: {}", e);
-					default_root.clone()
-				},
-			}
-		};
-		let mut root = fetch_root();
-
-		{
-			let mut eph = Ephemeral::new(self.essence.backend_storage(), &mut write_overlay);
-			match match (state_version, child_info.child_type()) {
-				(StateVersion::V0, ChildType::ParentKeyId) => child_delta_trie_root::<LayoutV0<H>, _, _, _, _, _, _>(
-					child_info.keyspace(),
-					&mut eph,
-					root,
-					delta,
-				),
-				(StateVersion::V1, ChildType::ParentKeyId) => child_delta_trie_root::<LayoutV1<H>, _, _, _, _, _, _>(
-					child_info.keyspace(),
-					&mut eph,
-					root,
-					delta,
-				),
-				(_, ChildType::Dummy) => child_delta_trie_root::<LayoutDummy<H>, _, _, _, _, _, _>(
-					child_info.keyspace(),
-					&mut eph,
-					root,
-					delta,
-				),
-			} {
-				Ok(ret) => root = ret.encode(),
-				Err(e) => {
-					warn!(target: "trie", "Failed to write to trie: {}", e);
-					root = fetch_root();
-				},
-			}
-		}
-
-		let is_default = root == default_root;
-
-		(root, is_default, write_overlay)
+		let (root, is_default, transaction) =
+			self.essence.child_storage_root(child_info, delta, state_version);
+		(root.encode(), is_default, transaction)
 	}
 
 	fn as_trie_backend(&self) -> Option<&TrieBackend<Self::TrieBackendStorage, H>> {
@@ -283,6 +183,21 @@ where
 
 	fn wipe(&self) -> Result<(), Self::Error> {
 		Ok(())
+	}
+}
+
+/// Empty child root for a given child info and state version.
+pub fn empty_child_trie_root<H>(child_info: &ChildInfo, state_version: StateVersion) -> H::Out
+where
+	H: Hasher,
+{
+	use sp_trie::empty_child_trie_root;
+	match child_info.child_type() {
+		ChildType::ParentKeyId => match state_version {
+			StateVersion::V0 => empty_child_trie_root::<LayoutV0<H>>(),
+			StateVersion::V1 => empty_child_trie_root::<LayoutV1<H>>(),
+		},
+		ChildType::Dummy => empty_child_trie_root::<LayoutDummy<H>>(),
 	}
 }
 
