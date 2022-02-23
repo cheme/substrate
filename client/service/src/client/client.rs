@@ -585,24 +585,26 @@ where
 							} else {
 								for parent_storage in state.parent_storage_keys {
 									let storage_key = PrefixedStorageKey::new_ref(&parent_storage);
-									let (storage_key, child_info) =
-										match ChildType::from_prefixed_key(&storage_key) {
-											Some((ChildType::ParentKeyId, storage_key)) =>
-												(storage_key, ChildInfo::new_default(storage_key)),
-											Some((ChildType::Dummy, storage_key)) =>
-												(storage_key, ChildInfo::new_dummy(storage_key)),
-											None =>
-												return Err(Error::Backend(
-													"Invalid child storage key.".to_string(),
-												)),
-										};
-									let entry = storage
-										.children_default
-										.entry(storage_key.to_vec())
-										.or_insert_with(|| StorageChild {
-											data: Default::default(),
-											child_info,
-										});
+									let entry = match ChildType::from_prefixed_key(&storage_key) {
+										Some((ChildType::ParentKeyId, storage_key)) => storage
+											.children_default
+											.entry(storage_key.to_vec())
+											.or_insert_with(|| StorageChild {
+												data: Default::default(),
+												child_info: ChildInfo::new_default(storage_key),
+											}),
+										Some((ChildType::Dummy, storage_key)) => storage
+											.children_dummy
+											.entry(storage_key.to_vec())
+											.or_insert_with(|| StorageChild {
+												data: Default::default(),
+												child_info: ChildInfo::new_dummy(storage_key),
+											}),
+										None =>
+											return Err(Error::Backend(
+												"Invalid child storage key.".to_string(),
+											)),
+									};
 									for (key, value) in state.key_values.iter() {
 										entry.data.insert(key.clone(), value.clone());
 									}

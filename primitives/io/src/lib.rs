@@ -1845,6 +1845,7 @@ mod tests {
 		t = BasicExternalities::new(Storage {
 			top: map![b"foo".to_vec() => b"bar".to_vec()],
 			children_default: map![],
+			children_dummy: map![],
 		});
 
 		t.execute_with(|| {
@@ -1853,8 +1854,11 @@ mod tests {
 		});
 
 		let value = vec![7u8; 35];
-		let storage =
-			Storage { top: map![b"foo00".to_vec() => value.clone()], children_default: map![] };
+		let storage = Storage {
+			top: map![b"foo00".to_vec() => value.clone()],
+			children_default: map![],
+			children_dummy: map![],
+		};
 		t = BasicExternalities::new(storage);
 
 		t.execute_with(|| {
@@ -1869,6 +1873,7 @@ mod tests {
 		let mut t = BasicExternalities::new(Storage {
 			top: map![b":test".to_vec() => value.clone()],
 			children_default: map![],
+			children_dummy: map![],
 		});
 
 		t.execute_with(|| {
@@ -1891,6 +1896,7 @@ mod tests {
 				b":abdd".to_vec() => b"\x0b\0\0\0Hello world".to_vec()
 			],
 			children_default: map![],
+			children_dummy: map![],
 		});
 
 		t.execute_with(|| {

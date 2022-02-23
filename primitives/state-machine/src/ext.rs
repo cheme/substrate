@@ -946,6 +946,7 @@ mod tests {
 					vec![40] => vec![40]
 				],
 				children_default: map![],
+				children_dummy: map![],
 			},
 			StateVersion::default(),
 		)
@@ -993,6 +994,7 @@ mod tests {
 					vec![30] => vec![30]
 				],
 				children_default: map![],
+				children_dummy: map![],
 			},
 			StateVersion::default(),
 		)
@@ -1027,6 +1029,7 @@ mod tests {
 						child_info: child_info.to_owned(),
 					}
 				],
+				children_dummy: map![],
 			},
 			StateVersion::default(),
 		)
@@ -1075,6 +1078,7 @@ mod tests {
 						child_info: child_info.to_owned(),
 					}
 				],
+				children_dummy: map![],
 			},
 			StateVersion::default(),
 		)
@@ -1115,6 +1119,7 @@ mod tests {
 						child_info: child_info.to_owned(),
 					}
 				],
+				children_dummy: map![],
 			},
 			StateVersion::default(),
 		)

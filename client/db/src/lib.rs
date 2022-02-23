@@ -779,12 +779,14 @@ impl<Block: BlockT> BlockImportOperation<Block> {
 			return Err(sp_blockchain::Error::InvalidState.into())
 		}
 
-		let child_delta = storage.children_default.iter().map(|(_storage_key, child_content)| {
-			(
-				&child_content.child_info,
-				child_content.data.iter().map(|(k, v)| (&k[..], Some(&v[..]))),
-			)
-		});
+		let child_delta = storage.children_default.iter().chain(storage.children_dummy.iter()).map(
+			|(_storage_key, child_content)| {
+				(
+					&child_content.child_info,
+					child_content.data.iter().map(|(k, v)| (&k[..], Some(&v[..]))),
+				)
+			},
+		);
 
 		let (root, transaction) = self.old_state.full_storage_root(
 			storage.top.iter().map(|(k, v)| (&k[..], Some(&v[..]))),
@@ -2449,6 +2451,7 @@ pub(crate) mod tests {
 				Storage {
 					top: storage.into_iter().collect(),
 					children_default: Default::default(),
+					children_dummy: Default::default(),
 				},
 				state_version,
 			)
@@ -2526,7 +2529,11 @@ pub(crate) mod tests {
 			let hash = header.hash();
 
 			op.reset_storage(
-				Storage { top: Default::default(), children_default: Default::default() },
+				Storage {
+					top: Default::default(),
+					children_default: Default::default(),
+					children_dummy: Default::default(),
+				},
 				state_version,
 			)
 			.unwrap();
@@ -2997,6 +3004,7 @@ pub(crate) mod tests {
 				Storage {
 					top: storage.into_iter().collect(),
 					children_default: Default::default(),
+					children_dummy: Default::default(),
 				},
 				state_version,
 			)

@@ -93,7 +93,22 @@ impl<G: RuntimeGenesis> GenesisSource<G> {
 					})
 					.collect();
 
-				Ok(Genesis::Raw(RawGenesis { top, children_default }))
+				let children_dummy = storage
+					.children_dummy
+					.iter()
+					.map(|(k, child)| {
+						(
+							StorageKey(k.clone()),
+							child
+								.data
+								.iter()
+								.map(|(k, v)| (StorageKey(k.clone()), StorageData(v.clone())))
+								.collect(),
+						)
+					})
+					.collect();
+
+				Ok(Genesis::Raw(RawGenesis { top, children_default, children_dummy }))
 			},
 		}
 	}
@@ -103,12 +118,29 @@ impl<G: RuntimeGenesis, E> BuildStorage for ChainSpec<G, E> {
 	fn build_storage(&self) -> Result<Storage, String> {
 		match self.genesis.resolve()? {
 			Genesis::Runtime(gc) => gc.build_storage(),
-			Genesis::Raw(RawGenesis { top: map, children_default: children_map }) => Ok(Storage {
+			Genesis::Raw(RawGenesis {
+				top: map,
+				children_default: children_map,
+				children_dummy,
+			}) => Ok(Storage {
 				top: map.into_iter().map(|(k, v)| (k.0, v.0)).collect(),
 				children_default: children_map
 					.into_iter()
 					.map(|(storage_key, child_content)| {
 						let child_info = ChildInfo::new_default(storage_key.0.as_slice());
+						(
+							storage_key.0,
+							StorageChild {
+								data: child_content.into_iter().map(|(k, v)| (k.0, v.0)).collect(),
+								child_info,
+							},
+						)
+					})
+					.collect(),
+				children_dummy: children_dummy
+					.into_iter()
+					.map(|(storage_key, child_content)| {
+						let child_info = ChildInfo::new_dummy(storage_key.0.as_slice());
 						(
 							storage_key.0,
 							StorageChild {
@@ -140,6 +172,7 @@ pub type GenesisStorage = BTreeMap<StorageKey, StorageData>;
 pub struct RawGenesis {
 	pub top: GenesisStorage,
 	pub children_default: BTreeMap<StorageKey, GenesisStorage>,
+	pub children_dummy: BTreeMap<StorageKey, GenesisStorage>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -352,8 +385,22 @@ impl<G: RuntimeGenesis, E: serde::Serialize + Clone + 'static> ChainSpec<G, E> {
 						)
 					})
 					.collect();
+				let children_dummy = storage
+					.children_dummy
+					.into_iter()
+					.map(|(sk, child)| {
+						(
+							StorageKey(sk),
+							child
+								.data
+								.into_iter()
+								.map(|(k, v)| (StorageKey(k), StorageData(v)))
+								.collect(),
+						)
+					})
+					.collect();
 
-				Genesis::Raw(RawGenesis { top, children_default })
+				Genesis::Raw(RawGenesis { top, children_default, children_dummy })
 			},
 			(_, genesis) => genesis,
 		};

@@ -44,7 +44,7 @@ use futures::{
 use sc_client_api::BlockchainEvents;
 use sc_service::client::{ClientConfig, LocalCallExecutor};
 use serde::Deserialize;
-use sp_core::storage::ChildInfo;
+use sp_core::storage::{ChildInfo, ChildType};
 use sp_runtime::{codec::Encode, traits::Block as BlockT, OpaqueExtrinsic};
 use std::{
 	collections::{HashMap, HashSet},
@@ -217,13 +217,26 @@ impl<Block: BlockT, ExecutorDispatch, Backend, G: GenesisInit>
 			let mut storage = self.genesis_init.genesis_storage();
 			// Add some child storage keys.
 			for (key, child_content) in self.child_storage_extension {
-				storage.children_default.insert(
-					key,
-					StorageChild {
-						data: child_content.data.into_iter().collect(),
-						child_info: child_content.child_info,
+				match child_content.child_info.child_type() {
+					ChildType::ParentKeyId => {
+						storage.children_default.insert(
+							key,
+							StorageChild {
+								data: child_content.data.into_iter().collect(),
+								child_info: child_content.child_info,
+							},
+						);
 					},
-				);
+					ChildType::Dummy => {
+						storage.children_dummy.insert(
+							key,
+							StorageChild {
+								data: child_content.data.into_iter().collect(),
+								child_info: child_content.child_info,
+							},
+						);
+					},
+				}
 			}
 
 			storage

@@ -364,6 +364,7 @@ mod tests {
 					},
 				],
 				children_default: map![],
+				children_dummy: map![],
 			},
 		)
 	}
