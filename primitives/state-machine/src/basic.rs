@@ -143,6 +143,14 @@ impl Externalities for BasicExternalities {
 		self.inner.top.get(key).cloned()
 	}
 
+	fn exists_storage(&self, key: &[u8]) -> bool {
+		self.inner.top.get(key).is_some()
+	}
+
+	fn value_size(&self, key: &[u8]) -> Option<u32> {
+		self.inner.top.get(key).map(|v| v.len() as u32)
+	}
+
 	fn storage_hash(&self, key: &[u8]) -> Option<Vec<u8>> {
 		self.storage(key).map(|v| Blake2Hasher::hash(&v).encode())
 	}
@@ -153,6 +161,21 @@ impl Externalities for BasicExternalities {
 			.get(child_info.storage_key())
 			.and_then(|child| child.data.get(key))
 			.cloned()
+	}
+
+	fn exists_child_storage(&self, child_info: &ChildInfo, key: &[u8]) -> bool {
+		self.inner
+			.children_default
+			.get(child_info.storage_key())
+			.map(|child| child.data.contains_key(key))
+			.unwrap_or(false)
+	}
+
+	fn child_value_size(&self, child_info: &ChildInfo, key: &[u8]) -> Option<u32> {
+		self.inner
+			.children_default
+			.get(child_info.storage_key())
+			.and_then(|child| child.data.get(key).map(|v| v.len() as u32))
 	}
 
 	fn child_storage_hash(&self, child_info: &ChildInfo, key: &[u8]) -> Option<Vec<u8>> {

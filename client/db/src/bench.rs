@@ -333,6 +333,11 @@ impl<B: BlockT> StateBackend<HashFor<B>> for BenchmarkingState<B> {
 		self.state.borrow().as_ref().ok_or_else(state_err)?.exists_storage(key)
 	}
 
+	fn value_size(&self, key: &[u8]) -> Result<Option<u32>, Self::Error> {
+		self.add_read_key(None, key);
+		self.state.borrow().as_ref().ok_or_else(state_err)?.value_size(key)
+	}
+
 	fn exists_child_storage(
 		&self,
 		child_info: &ChildInfo,
@@ -344,6 +349,19 @@ impl<B: BlockT> StateBackend<HashFor<B>> for BenchmarkingState<B> {
 			.as_ref()
 			.ok_or_else(state_err)?
 			.exists_child_storage(child_info, key)
+	}
+
+	fn child_value_size(
+		&self,
+		child_info: &ChildInfo,
+		key: &[u8],
+	) -> Result<Option<u32>, Self::Error> {
+		self.add_read_key(Some(child_info.storage_key()), key);
+		self.state
+			.borrow()
+			.as_ref()
+			.ok_or_else(state_err)?
+			.child_value_size(child_info, key)
 	}
 
 	fn next_storage_key(&self, key: &[u8]) -> Result<Option<Vec<u8>>, Self::Error> {

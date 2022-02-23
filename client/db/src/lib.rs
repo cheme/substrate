@@ -174,12 +174,24 @@ impl<B: BlockT> StateBackend<HashFor<B>> for RefTrackingState<B> {
 		self.state.exists_storage(key)
 	}
 
+	fn value_size(&self, key: &[u8]) -> Result<Option<u32>, Self::Error> {
+		self.state.value_size(key)
+	}
+
 	fn exists_child_storage(
 		&self,
 		child_info: &ChildInfo,
 		key: &[u8],
 	) -> Result<bool, Self::Error> {
 		self.state.exists_child_storage(child_info, key)
+	}
+
+	fn child_value_size(
+		&self,
+		child_info: &ChildInfo,
+		key: &[u8],
+	) -> Result<Option<u32>, Self::Error> {
+		self.state.child_value_size(child_info, key)
 	}
 
 	fn next_storage_key(&self, key: &[u8]) -> Result<Option<Vec<u8>>, Self::Error> {

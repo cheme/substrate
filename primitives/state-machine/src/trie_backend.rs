@@ -80,12 +80,36 @@ where
 		self.essence.storage(key)
 	}
 
+	fn exists_storage(&self, key: &[u8]) -> Result<bool, Self::Error> {
+		self.essence.exists_storage(key)
+	}
+
+	fn value_size(&self, key: &[u8]) -> Result<Option<u32>, Self::Error> {
+		self.essence.value_size(key)
+	}
+
 	fn child_storage(
 		&self,
 		child_info: &ChildInfo,
 		key: &[u8],
 	) -> Result<Option<StorageValue>, Self::Error> {
 		self.essence.child_storage(child_info, key)
+	}
+
+	fn exists_child_storage(
+		&self,
+		child_info: &ChildInfo,
+		key: &[u8],
+	) -> Result<bool, Self::Error> {
+		self.essence.exists_child_storage(child_info, key)
+	}
+
+	fn child_value_size(
+		&self,
+		child_info: &ChildInfo,
+		key: &[u8],
+	) -> Result<Option<u32>, Self::Error> {
+		self.essence.child_value_size(child_info, key)
 	}
 
 	fn next_storage_key(&self, key: &[u8]) -> Result<Option<StorageKey>, Self::Error> {

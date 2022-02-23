@@ -67,18 +67,21 @@ pub trait Backend<H: Hasher>: sp_std::fmt::Debug {
 	}
 
 	/// true if a key exists in storage.
-	fn exists_storage(&self, key: &[u8]) -> Result<bool, Self::Error> {
-		Ok(self.storage(key)?.is_some())
-	}
+	fn exists_storage(&self, key: &[u8]) -> Result<bool, Self::Error>;
+
+	/// query size of value for a key in storage.
+	fn value_size(&self, key: &[u8]) -> Result<Option<u32>, Self::Error>;
 
 	/// true if a key exists in child storage.
-	fn exists_child_storage(
+	fn exists_child_storage(&self, child_info: &ChildInfo, key: &[u8])
+		-> Result<bool, Self::Error>;
+
+	/// Size of value if a key exists in child storage.
+	fn child_value_size(
 		&self,
 		child_info: &ChildInfo,
 		key: &[u8],
-	) -> Result<bool, Self::Error> {
-		Ok(self.child_storage(child_info, key)?.is_some())
-	}
+	) -> Result<Option<u32>, Self::Error>;
 
 	/// Return the next key in storage in lexicographic order or `None` if there is no value.
 	fn next_storage_key(&self, key: &[u8]) -> Result<Option<StorageKey>, Self::Error>;

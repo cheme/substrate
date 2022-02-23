@@ -85,6 +85,18 @@ impl<'a, H: Hasher, B: 'a + Backend<H>> Externalities for ReadOnlyExternalities<
 			.expect("Backed failed for storage in ReadOnlyExternalities")
 	}
 
+	fn exists_storage(&self, key: &[u8]) -> bool {
+		self.backend
+			.exists_storage(key)
+			.expect("Backed failed for storage in ReadOnlyExternalities")
+	}
+
+	fn value_size(&self, key: &[u8]) -> Option<u32> {
+		self.backend
+			.value_size(key)
+			.expect("Backed failed for storage in ReadOnlyExternalities")
+	}
+
 	fn storage_hash(&self, key: &[u8]) -> Option<Vec<u8>> {
 		self.storage(key).map(|v| Blake2Hasher::hash(&v).encode())
 	}
@@ -93,6 +105,18 @@ impl<'a, H: Hasher, B: 'a + Backend<H>> Externalities for ReadOnlyExternalities<
 		self.backend
 			.child_storage(child_info, key)
 			.expect("Backed failed for child_storage in ReadOnlyExternalities")
+	}
+
+	fn exists_child_storage(&self, child_info: &ChildInfo, key: &[u8]) -> bool {
+		self.backend
+			.exists_child_storage(child_info, key)
+			.expect("Backed failed for storage in ReadOnlyExternalities")
+	}
+
+	fn child_value_size(&self, child_info: &ChildInfo, key: &[u8]) -> Option<u32> {
+		self.backend
+			.child_value_size(child_info, key)
+			.expect("Backed failed for storage in ReadOnlyExternalities")
 	}
 
 	fn child_storage_hash(&self, child_info: &ChildInfo, key: &[u8]) -> Option<Vec<u8>> {

@@ -338,6 +338,34 @@ where
 	TrieDB::<L>::new(&*db, root)?.get(key).map(|x| x.map(|val| val.to_vec()))
 }
 
+/// Does storage contains a value. Depending on storage, this
+/// may not access  the value.
+pub fn contains_trie<L, DB>(
+	db: &DB,
+	root: &TrieHash<L>,
+	key: &[u8],
+) -> Result<bool, Box<TrieError<L>>>
+where
+	L: TrieConfiguration,
+	DB: hash_db::HashDBRef<L::Hash, trie_db::DBValue>,
+{
+	TrieDB::<L>::new(&*db, root)?.contains(key)
+}
+
+/// Size of storage value if it exists. Depending on storage, this
+/// may not access  the value.
+pub fn value_size_trie<L, DB>(
+	db: &DB,
+	root: &TrieHash<L>,
+	key: &[u8],
+) -> Result<Option<u32>, Box<TrieError<L>>>
+where
+	L: TrieConfiguration,
+	DB: hash_db::HashDBRef<L::Hash, trie_db::DBValue>,
+{
+	Ok(TrieDB::<L>::new(&*db, root)?.get_size(key)?.map(|s| s as u32))
+}
+
 /// Read a value from the trie with given Query.
 pub fn read_trie_value_with<L, Q, DB>(
 	db: &DB,
@@ -425,17 +453,50 @@ where
 }
 
 /// Read a value from the child trie.
-pub fn read_child_trie_value<L: TrieConfiguration, DB>(
+pub fn read_child_trie_value<L, DB>(
 	keyspace: &[u8],
 	db: &DB,
 	root: &TrieHash<L>,
 	key: &[u8],
 ) -> Result<Option<Vec<u8>>, Box<TrieError<L>>>
 where
+	L: TrieConfiguration,
 	DB: hash_db::HashDBRef<L::Hash, trie_db::DBValue>,
 {
 	let db = KeySpacedDB::new(&*db, keyspace);
 	TrieDB::<L>::new(&db, root)?.get(key).map(|x| x.map(|val| val.to_vec()))
+}
+
+/// Does storage contains a value. Depending on storage, this
+/// may not access  the value.
+pub fn contains_child_trie<L, DB>(
+	keyspace: &[u8],
+	db: &DB,
+	root: &TrieHash<L>,
+	key: &[u8],
+) -> Result<bool, Box<TrieError<L>>>
+where
+	L: TrieConfiguration,
+	DB: hash_db::HashDBRef<L::Hash, trie_db::DBValue>,
+{
+	let db = KeySpacedDB::new(&*db, keyspace);
+	TrieDB::<L>::new(&db, root)?.contains(key)
+}
+
+/// Size of storage value if it exists. Depending on storage, this
+/// may not access  the value.
+pub fn value_size_child_trie<L, DB>(
+	keyspace: &[u8],
+	db: &DB,
+	root: &TrieHash<L>,
+	key: &[u8],
+) -> Result<Option<u32>, Box<TrieError<L>>>
+where
+	L: TrieConfiguration,
+	DB: hash_db::HashDBRef<L::Hash, trie_db::DBValue>,
+{
+	let db = KeySpacedDB::new(&*db, keyspace);
+	Ok(TrieDB::<L>::new(&db, root)?.get_size(key)?.map(|s| s as u32))
 }
 
 /// Read a value from the child trie with given query.

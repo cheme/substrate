@@ -612,7 +612,17 @@ impl<S: StateBackend<HashFor<B>>, B: BlockT> StateBackend<HashFor<B>> for Cachin
 	}
 
 	fn exists_storage(&self, key: &[u8]) -> Result<bool, Self::Error> {
+		// Note that when using storage cache we access value,
+		// this is not an issue as storage cache is not compatible
+		// with proof production.
 		Ok(self.storage(key)?.is_some())
+	}
+
+	fn value_size(&self, key: &[u8]) -> Result<Option<u32>, Self::Error> {
+		// Note that when using storage cache we access value,
+		// this is not an issue as storage cache is not compatible
+		// with proof production.
+		Ok(self.storage(key)?.map(|value| value.len() as u32))
 	}
 
 	fn exists_child_storage(
@@ -620,7 +630,21 @@ impl<S: StateBackend<HashFor<B>>, B: BlockT> StateBackend<HashFor<B>> for Cachin
 		child_info: &ChildInfo,
 		key: &[u8],
 	) -> Result<bool, Self::Error> {
-		self.state.exists_child_storage(child_info, key)
+		// Note that when using storage cache we access value,
+		// this is not an issue as storage cache is not compatible
+		// with proof production.
+		Ok(self.child_storage(child_info, key)?.is_some())
+	}
+
+	fn child_value_size(
+		&self,
+		child_info: &ChildInfo,
+		key: &[u8],
+	) -> Result<Option<u32>, Self::Error> {
+		// Note that when using storage cache we access value,
+		// this is not an issue as storage cache is not compatible
+		// with proof production.
+		Ok(self.child_storage(child_info, key)?.map(|value| value.len() as u32))
 	}
 
 	fn apply_to_key_values_while<F: FnMut(Vec<u8>, Vec<u8>) -> bool>(
@@ -807,12 +831,24 @@ impl<S: StateBackend<HashFor<B>>, B: BlockT> StateBackend<HashFor<B>>
 		self.caching_state().exists_storage(key)
 	}
 
+	fn value_size(&self, key: &[u8]) -> Result<Option<u32>, Self::Error> {
+		self.caching_state().value_size(key)
+	}
+
 	fn exists_child_storage(
 		&self,
 		child_info: &ChildInfo,
 		key: &[u8],
 	) -> Result<bool, Self::Error> {
 		self.caching_state().exists_child_storage(child_info, key)
+	}
+
+	fn child_value_size(
+		&self,
+		child_info: &ChildInfo,
+		key: &[u8],
+	) -> Result<Option<u32>, Self::Error> {
+		self.caching_state().child_value_size(child_info, key)
 	}
 
 	fn apply_to_key_values_while<F: FnMut(Vec<u8>, Vec<u8>) -> bool>(

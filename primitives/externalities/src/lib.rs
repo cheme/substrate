@@ -101,14 +101,16 @@ pub trait Externalities: ExtensionStore {
 	}
 
 	/// Whether a storage entry exists.
-	fn exists_storage(&self, key: &[u8]) -> bool {
-		self.storage(key).is_some()
-	}
+	fn exists_storage(&self, key: &[u8]) -> bool;
+
+	/// Size of a value if it exists.
+	fn value_size(&self, key: &[u8]) -> Option<u32>;
 
 	/// Whether a child storage entry exists.
-	fn exists_child_storage(&self, child_info: &ChildInfo, key: &[u8]) -> bool {
-		self.child_storage(child_info, key).is_some()
-	}
+	fn exists_child_storage(&self, child_info: &ChildInfo, key: &[u8]) -> bool;
+
+	/// Child storage entry value size if it exists.
+	fn child_value_size(&self, child_info: &ChildInfo, key: &[u8]) -> Option<u32>;
 
 	/// Returns the key immediately following the given key, if it exists.
 	fn next_storage_key(&self, key: &[u8]) -> Option<Vec<u8>>;

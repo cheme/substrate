@@ -137,6 +137,11 @@ pub trait Storage {
 		self.exists_storage(key)
 	}
 
+	/// Check whether the given `key` exists in storage.
+	fn size(&self, key: &[u8]) -> Option<u32> {
+		self.value_size(key)
+	}
+
 	/// Clear the storage of each key-value pair where the key starts with the given `prefix`.
 	fn clear_prefix(&mut self, prefix: &[u8]) {
 		let _ = Externalities::clear_prefix(*self, prefix, None);
@@ -351,6 +356,12 @@ pub trait DefaultChildStorage {
 		self.exists_child_storage(&child_info, key)
 	}
 
+	/// Check whether the given `key` exists in child storage.
+	fn size(&self, storage_key: &[u8], key: &[u8]) -> Option<u32> {
+		let child_info = ChildInfo::new_default(storage_key);
+		self.child_value_size(&child_info, key)
+	}
+
 	/// Clear child default key by prefix.
 	///
 	/// Clear the child storage of each key-value pair where the key starts with the given `prefix`.
@@ -462,29 +473,9 @@ pub trait DummyChildStorage {
 		self.clear_child_storage(&child_info, key);
 	}
 
-	/// Clear an entire child storage.
-	///
-	/// If it exists, the child storage for `storage_key`
-	/// is removed.
-	fn storage_kill(&mut self, storage_key: &[u8]) {
-		let child_info = ChildInfo::new_dummy(storage_key);
-		self.kill_child_storage(&child_info, None);
-	}
-
 	/// Clear a child storage key.
 	///
 	/// See `Storage` module `clear_prefix` documentation for `limit` usage.
-	#[version(2)]
-	fn storage_kill(&mut self, storage_key: &[u8], limit: Option<u32>) -> bool {
-		let child_info = ChildInfo::new_dummy(storage_key);
-		let (all_removed, _num_removed) = self.kill_child_storage(&child_info, limit);
-		all_removed
-	}
-
-	/// Clear a child storage key.
-	///
-	/// See `Storage` module `clear_prefix` documentation for `limit` usage.
-	#[version(3)]
 	fn storage_kill(&mut self, storage_key: &[u8], limit: Option<u32>) -> KillStorageResult {
 		let child_info = ChildInfo::new_dummy(storage_key);
 		let (all_removed, num_removed) = self.kill_child_storage(&child_info, limit);
@@ -502,18 +493,17 @@ pub trait DummyChildStorage {
 		self.exists_child_storage(&child_info, key)
 	}
 
-	/// Clear child dummy key by prefix.
+	/// Check a child storage key.
 	///
-	/// Clear the child storage of each key-value pair where the key starts with the given `prefix`.
-	fn clear_prefix(&mut self, storage_key: &[u8], prefix: &[u8]) {
+	/// Check size of value for the given `key` in dummy child defined at `storage_key`.
+	fn size(&self, storage_key: &[u8], key: &[u8]) -> Option<u32> {
 		let child_info = ChildInfo::new_dummy(storage_key);
-		let _ = self.clear_child_prefix(&child_info, prefix, None);
+		self.child_value_size(&child_info, key)
 	}
 
 	/// Clear the child storage of each key-value pair where the key starts with the given `prefix`.
 	///
 	/// See `Storage` module `clear_prefix` documentation for `limit` usage.
-	#[version(2)]
 	fn clear_prefix(
 		&mut self,
 		storage_key: &[u8],

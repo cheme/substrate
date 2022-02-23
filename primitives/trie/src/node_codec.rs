@@ -470,7 +470,6 @@ where
 	}
 }
 
-
 // utils
 
 /// Encode and allocate node type header (type and size), and partial value.

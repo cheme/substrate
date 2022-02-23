@@ -26,9 +26,11 @@ use parking_lot::RwLock;
 use sp_core::storage::{ChildInfo, ChildType, StateVersion};
 use sp_std::{boxed::Box, vec::Vec};
 use sp_trie::{
-	child_delta_trie_root, delta_trie_root, read_child_trie_value, read_trie_value,
+	child_delta_trie_root, contains_child_trie, contains_trie, delta_trie_root,
+	read_child_trie_value, read_trie_value,
 	trie_types::{TrieDB, TrieDBDummy, TrieError},
-	DBValue, KeySpacedDB, PrefixedMemoryDB, Trie, TrieDBIterator, TrieDBKeyIterator,
+	value_size_child_trie, value_size_trie, DBValue, KeySpacedDB, PrefixedMemoryDB, Trie,
+	TrieDBIterator, TrieDBKeyIterator,
 };
 #[cfg(feature = "std")]
 use std::collections::HashMap;
@@ -238,6 +240,22 @@ where
 		read_trie_value::<Layout<H>, _>(self, &self.root, key).map_err(map_e)
 	}
 
+	/// Does storage contains a value. Depending on storage, this
+	/// may not access  the value.
+	pub fn exists_storage(&self, key: &[u8]) -> Result<bool> {
+		let map_e = |e| format!("Trie lookup error: {}", e);
+
+		contains_trie::<Layout<H>, _>(self, &self.root, key).map_err(map_e)
+	}
+
+	/// Size of storage value if it exists. Depending on storage, this
+	/// may not access  the value.
+	pub fn value_size(&self, key: &[u8]) -> Result<Option<u32>> {
+		let map_e = |e| format!("Trie lookup error: {}", e);
+
+		value_size_trie::<Layout<H>, _>(self, &self.root, key).map_err(map_e)
+	}
+
 	/// Get the value of child storage at given key.
 	pub fn child_storage(
 		&self,
@@ -257,6 +275,46 @@ where
 					.map_err(map_e),
 			ChildType::Dummy =>
 				read_child_trie_value::<LayoutDummy<H>, _>(child_info.keyspace(), self, &root, key)
+					.map_err(map_e),
+		}
+	}
+
+	/// Does storage contains a value. Depending on storage, this
+	/// may not access  the value.
+	pub fn exists_child_storage(&self, child_info: &ChildInfo, key: &[u8]) -> Result<bool> {
+		let root = match self.child_root(child_info)? {
+			Some(root) => root,
+			None => return Ok(false),
+		};
+
+		let map_e = |e| format!("Trie lookup error: {}", e);
+
+		match child_info.child_type() {
+			ChildType::ParentKeyId =>
+				contains_child_trie::<Layout<H>, _>(child_info.keyspace(), self, &root, key)
+					.map_err(map_e),
+			ChildType::Dummy =>
+				contains_child_trie::<LayoutDummy<H>, _>(child_info.keyspace(), self, &root, key)
+					.map_err(map_e),
+		}
+	}
+
+	/// Size of storage value if it exists. Depending on storage, this
+	/// may not access  the value.
+	pub fn child_value_size(&self, child_info: &ChildInfo, key: &[u8]) -> Result<Option<u32>> {
+		let root = match self.child_root(child_info)? {
+			Some(root) => root,
+			None => return Ok(None),
+		};
+
+		let map_e = |e| format!("Trie lookup error: {}", e);
+
+		match child_info.child_type() {
+			ChildType::ParentKeyId =>
+				value_size_child_trie::<Layout<H>, _>(child_info.keyspace(), self, &root, key)
+					.map_err(map_e),
+			ChildType::Dummy =>
+				value_size_child_trie::<LayoutDummy<H>, _>(child_info.keyspace(), self, &root, key)
 					.map_err(map_e),
 		}
 	}
