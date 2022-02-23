@@ -190,6 +190,8 @@ pub struct Storage {
 	/// trie kind, so this is exclusively for the `ChildType::ParentKeyId`
 	/// tries.
 	pub children_default: std::collections::HashMap<Vec<u8>, StorageChild>,
+	/// Changes for `dummy` child.
+	pub children_dummy: std::collections::HashMap<Vec<u8>, StorageChild>,
 }
 
 /// Storage change set

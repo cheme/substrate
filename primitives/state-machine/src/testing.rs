@@ -101,6 +101,7 @@ where
 	) -> Self {
 		assert!(storage.top.keys().all(|key| !is_child_storage_key(key)));
 		assert!(storage.children_default.keys().all(|key| is_child_storage_key(key)));
+		assert!(storage.children_dummy.keys().all(|key| is_child_storage_key(key)));
 
 		storage.top.insert(CODE.to_vec(), code.to_vec());
 

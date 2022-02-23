@@ -23,8 +23,8 @@ use hash_db::Hasher;
 use log::warn;
 use sp_core::{
 	storage::{
-		well_known_keys::is_child_storage_key, ChildInfo, StateVersion, Storage, StorageChild,
-		TrackedStorageKey,
+		well_known_keys::is_child_storage_key, ChildInfo, ChildType, StateVersion, Storage,
+		StorageChild, TrackedStorageKey,
 	},
 	traits::Externalities,
 	Blake2Hasher,
@@ -77,6 +77,7 @@ impl BasicExternalities {
 			inner: Storage {
 				top: std::mem::take(&mut storage.top),
 				children_default: std::mem::take(&mut storage.children_default),
+				children_dummy: std::mem::take(&mut storage.children_dummy),
 			},
 			extensions: Default::default(),
 		};
@@ -109,7 +110,8 @@ impl BasicExternalities {
 impl PartialEq for BasicExternalities {
 	fn eq(&self, other: &BasicExternalities) -> bool {
 		self.inner.top.eq(&other.inner.top) &&
-			self.inner.children_default.eq(&other.inner.children_default)
+			self.inner.children_default.eq(&other.inner.children_default) &&
+			self.inner.children_dummy.eq(&other.inner.children_dummy)
 	}
 }
 
@@ -130,7 +132,11 @@ impl Default for BasicExternalities {
 impl From<BTreeMap<StorageKey, StorageValue>> for BasicExternalities {
 	fn from(hashmap: BTreeMap<StorageKey, StorageValue>) -> Self {
 		BasicExternalities {
-			inner: Storage { top: hashmap, children_default: Default::default() },
+			inner: Storage {
+				top: hashmap,
+				children_default: Default::default(),
+				children_dummy: Default::default(),
+			},
 			extensions: Default::default(),
 		}
 	}
@@ -148,8 +154,11 @@ impl Externalities for BasicExternalities {
 	}
 
 	fn child_storage(&self, child_info: &ChildInfo, key: &[u8]) -> Option<StorageValue> {
-		self.inner
-			.children_default
+		let child_map = match child_info.child_type() {
+			ChildType::ParentKeyId => &self.inner.children_default,
+			ChildType::Dummy => &self.inner.children_dummy,
+		};
+		child_map
 			.get(child_info.storage_key())
 			.and_then(|child| child.data.get(key))
 			.cloned()
@@ -166,8 +175,11 @@ impl Externalities for BasicExternalities {
 
 	fn next_child_storage_key(&self, child_info: &ChildInfo, key: &[u8]) -> Option<StorageKey> {
 		let range = (Bound::Excluded(key), Bound::Unbounded);
-		self.inner
-			.children_default
+		let child_map = match child_info.child_type() {
+			ChildType::ParentKeyId => &self.inner.children_default,
+			ChildType::Dummy => &self.inner.children_dummy,
+		};
+		child_map
 			.get(child_info.storage_key())
 			.and_then(|child| child.data.range::<[u8], _>(range).next().map(|(k, _)| k).cloned())
 	}
@@ -194,14 +206,18 @@ impl Externalities for BasicExternalities {
 		key: StorageKey,
 		value: Option<StorageValue>,
 	) {
-		let child_map = self
-			.inner
-			.children_default
-			.entry(child_info.storage_key().to_vec())
-			.or_insert_with(|| StorageChild {
-				data: Default::default(),
-				child_info: child_info.to_owned(),
-			});
+		let child_map = match child_info.child_type() {
+			ChildType::ParentKeyId => &mut self.inner.children_default,
+			ChildType::Dummy => &mut self.inner.children_dummy,
+		};
+
+		let child_map =
+			child_map
+				.entry(child_info.storage_key().to_vec())
+				.or_insert_with(|| StorageChild {
+					data: Default::default(),
+					child_info: child_info.to_owned(),
+				});
 		if let Some(value) = value {
 			child_map.data.insert(key, value);
 		} else {
@@ -210,12 +226,13 @@ impl Externalities for BasicExternalities {
 	}
 
 	fn kill_child_storage(&mut self, child_info: &ChildInfo, _limit: Option<u32>) -> (bool, u32) {
-		let num_removed = self
-			.inner
-			.children_default
-			.remove(child_info.storage_key())
-			.map(|c| c.data.len())
-			.unwrap_or(0);
+		let child_map = match child_info.child_type() {
+			ChildType::ParentKeyId => &mut self.inner.children_default,
+			ChildType::Dummy => &mut self.inner.children_dummy,
+		};
+
+		let num_removed =
+			child_map.remove(child_info.storage_key()).map(|c| c.data.len()).unwrap_or(0);
 		(true, num_removed as u32)
 	}
 
@@ -250,7 +267,12 @@ impl Externalities for BasicExternalities {
 		prefix: &[u8],
 		_limit: Option<u32>,
 	) -> (bool, u32) {
-		if let Some(child) = self.inner.children_default.get_mut(child_info.storage_key()) {
+		let child_map = match child_info.child_type() {
+			ChildType::ParentKeyId => &mut self.inner.children_default,
+			ChildType::Dummy => &mut self.inner.children_dummy,
+		};
+
+		if let Some(child) = child_map.get_mut(child_info.storage_key()) {
 			let to_remove = child
 				.data
 				.range::<[u8], _>((Bound::Included(prefix), Bound::Unbounded))
@@ -280,6 +302,7 @@ impl Externalities for BasicExternalities {
 			.inner
 			.children_default
 			.iter()
+			.chain(self.inner.children_dummy.iter())
 			.map(|(_k, v)| (v.child_info.prefixed_storage_key(), v.child_info.clone()))
 			.collect();
 		// Single child trie implementation currently allows using the same child
@@ -308,7 +331,12 @@ impl Externalities for BasicExternalities {
 		child_info: &ChildInfo,
 		state_version: StateVersion,
 	) -> Vec<u8> {
-		if let Some(child) = self.inner.children_default.get(child_info.storage_key()) {
+		let child_map = match child_info.child_type() {
+			ChildType::ParentKeyId => &self.inner.children_default,
+			ChildType::Dummy => &self.inner.children_dummy,
+		};
+
+		if let Some(child) = child_map.get(child_info.storage_key()) {
 			let delta = child.data.iter().map(|(k, v)| (k.as_ref(), Some(v.as_ref())));
 			crate::in_memory_backend::new_in_mem::<Blake2Hasher>()
 				.child_storage_root(&child.child_info, delta, state_version)
@@ -424,6 +452,7 @@ mod tests {
 					child_info: child_info.to_owned(),
 				}
 			],
+			children_dummy: map![],
 		});
 
 		assert_eq!(ext.child_storage(child_info, b"doe"), Some(b"reindeer".to_vec()));
@@ -454,6 +483,7 @@ mod tests {
 					child_info: child_info.to_owned(),
 				}
 			],
+			children_dummy: map![],
 		});
 
 		let res = ext.kill_child_storage(child_info, None);
@@ -466,5 +496,6 @@ mod tests {
 		let storage = BasicExternalities::new_empty().into_storages();
 		assert!(storage.top.is_empty());
 		assert!(storage.children_default.is_empty());
+		assert!(storage.children_dummy.is_empty());
 	}
 }
