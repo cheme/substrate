@@ -172,8 +172,25 @@ where
 
 	let mut previous_extracted_child_trie = None;
 	let mut nodes_iter = nodes_iter.peekable();
+	let mut last_child_type = None;
+	let mut skip_till_new_type = false;
 	for (child_root, child_type) in child_tries.into_iter() {
-		if previous_extracted_child_trie.is_none() && nodes_iter.peek().is_some() {
+
+		let peek = nodes_iter.peek();
+		// child trie are not allowed to encode their root/first node
+		// to [trie_constants::ESCAPE_COMPACT_HEADER], otherwhise
+		// please escape it.
+		// TODO implement escape? : if double ESCAPE_COMPACT_HEADER
+		// at start, remove first.
+		if peek == Some(&&[crate::trie_constants::ESCAPE_COMPACT_HEADER][..]) {
+			skip_till_new_type = true;
+		}
+		if skip_till_new_type && last_child_type == Some(child_type) {
+			continue;
+		}
+		skip_till_new_type = false;
+		last_child_type = Some(child_type);
+		if previous_extracted_child_trie.is_none() && peek.is_some() {
 			match child_type {
 				ChildType::ParentKeyId => {
 					let (top_root, _) =
@@ -269,13 +286,20 @@ where
 		trie_db::encode_compact::<L>(&trie)?
 	};
 
+	let mut last_child = None;
+	let mut last_skipped = false;
 	for (child_root, child_type) in child_tries {
+		if last_skipped && Some(child_type) != last_child {
+			compact_proof.push(vec![crate::trie_constants::ESCAPE_COMPACT_HEADER]);
+		}
+		last_child = Some(child_type);
 		if !HashDBT::<L::Hash, _>::contains(&partial_db, &child_root, EMPTY_PREFIX) {
 			// child proof are allowed to be missing (unused root can be included
 			// due to trie structure modification).
-			// TODO have a specific separator when between two different child kind
+			last_skipped = true;
 			continue
 		}
+		last_skipped = false;
 
 		match child_type {
 			ChildType::ParentKeyId => {
