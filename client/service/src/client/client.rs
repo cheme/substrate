@@ -1188,6 +1188,7 @@ where
 		let (proof, count) = prove_range_read_with_child_with_size::<_, HashFor<Block>>(
 			state, size_limit, start_key,
 		)?;
+		// TODO here we have in proof nodes from different trie kind. So encode_compact won't be fine.
 		// This is read proof only, we can use either LayoutV0 or LayoutV1.
 		let proof = sp_trie::encode_compact::<sp_trie::LayoutV0<HashFor<Block>>>(proof, root)
 			.map_err(|e| sp_blockchain::Error::from_state(Box::new(e)))?;
@@ -1315,6 +1316,7 @@ where
 		start_key: &[Vec<u8>],
 	) -> sp_blockchain::Result<(KeyValueStates, usize)> {
 		let mut db = sp_state_machine::MemoryDB::<HashFor<Block>>::new(&[]);
+		// TODO here we need to decode in with support for multiple child kind.
 		// Compact encoding
 		let _ = sp_trie::decode_compact::<sp_state_machine::LayoutV0<HashFor<Block>>, _, _>(
 			&mut db,

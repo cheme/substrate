@@ -128,6 +128,7 @@ where
 
 		let mut iter = trie.iter()?;
 
+		// TODO on all child trie and match kind plus hard code dummy one
 		let childtrie_roots = sp_core::storage::well_known_keys::DEFAULT_CHILD_STORAGE_KEY_PREFIX;
 		if iter.seek(childtrie_roots).is_ok() {
 			loop {
@@ -240,6 +241,7 @@ where
 			continue
 		}
 
+		// TODO here use layout of right child trie kind : resove from parent root : OK
 		let trie = crate::TrieDB::<L>::new(&partial_db, &child_root)?;
 		let child_proof = trie_db::encode_compact::<L>(&trie)?;
 

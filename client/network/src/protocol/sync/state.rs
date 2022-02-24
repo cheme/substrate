@@ -84,6 +84,7 @@ impl<B: BlockT> StateSync<B> {
 		let complete = if !self.skip_proof {
 			debug!(target: "sync", "Importing state from {} trie nodes", response.proof.len());
 			let proof_size = response.proof.len() as u64;
+			// TODO here CompactProof and verify_range_proof will not work with a
 			let proof = match CompactProof::decode(&mut response.proof.as_ref()) {
 				Ok(proof) => proof,
 				Err(e) => {
