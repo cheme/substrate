@@ -204,7 +204,7 @@ pub trait Backend<H: Hasher>: sp_std::fmt::Debug {
 			if empty {
 				child_roots.push((prefixed_storage_key.into_inner(), None));
 			} else {
-				child_roots.push((prefixed_storage_key.into_inner(), Some(child_root.encode())));
+				child_roots.push((prefixed_storage_key.into_inner(), Some(child_root)));
 			}
 		}
 		let (root, parent_txs) = self.storage_root(
