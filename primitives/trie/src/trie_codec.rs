@@ -24,7 +24,7 @@ use crate::{
 	CompactProof, HashDBT, StorageProof, TrieConfiguration, TrieError, TrieHash, EMPTY_PREFIX,
 };
 use sp_core::storage::{well_known_keys, ChildType, PrefixedStorageKey};
-use sp_std::{boxed::Box, vec::Vec};
+use sp_std::{boxed::Box, vec, vec::Vec};
 #[cfg(feature = "std")]
 use std::error::Error as StdError;
 #[cfg(feature = "std")]
@@ -46,7 +46,7 @@ pub enum Error<L: TrieConfiguration> {
 	/// Errors from trie crate.
 	TrieError(Box<TrieError<L>>),
 	/// Errors from trie crate.
-	DummyChildTrieError(Box<TrieError<crate::LayoutDummy<L::Hash>>>),
+	ParentSizedChildTrieError(Box<TrieError<crate::LayoutParentSized<L::Hash>>>),
 }
 
 impl<L: TrieConfiguration> From<Box<TrieError<L>>> for Error<L> {
@@ -65,7 +65,7 @@ impl<L: TrieConfiguration> StdError for Error<L> {
 			Error::IncompleteProof => "Incomplete proof",
 			Error::ExtraneousChildNode => "Extraneous child node",
 			Error::ExtraneousChildProof(..) => "Extraneous child proof",
-			Error::DummyChildTrieError(..) => "Dummy child trie error",
+			Error::ParentSizedChildTrieError(..) => "ParentSized child trie error",
 		}
 	}
 }
@@ -83,7 +83,7 @@ impl<L: TrieConfiguration> fmt::Display for Error<L> {
 		match self {
 			Error::InvalidChildRoot(k, v) => write!(f, "InvalidChildRoot at {:x?}: {:x?}", k, v),
 			Error::TrieError(e) => write!(f, "Trie error: {}", e),
-			Error::DummyChildTrieError(e) => write!(f, "Trie error: {}", e),
+			Error::ParentSizedChildTrieError(e) => write!(f, "Trie error: {}", e),
 			Error::IncompleteProof => write!(f, "Incomplete proof"),
 			Error::ExtraneousChildNode => write!(f, "Child node content with no root in proof"),
 			Error::ExtraneousChildProof(root) => {
@@ -197,13 +197,13 @@ where
 						trie_db::decode_compact_from_iter::<L, _, _>(db, &mut nodes_iter)?;
 					previous_extracted_child_trie = Some(top_root);
 				},
-				ChildType::Dummy => {
+				ChildType::ParentSized => {
 					let (top_root, _) = trie_db::decode_compact_from_iter::<
-						crate::LayoutDummy<L::Hash>,
+						crate::LayoutParentSized<L::Hash>,
 						_,
 						_,
 					>(db, &mut nodes_iter)
-					.map_err(|e| Error::DummyChildTrieError(e))?;
+					.map_err(|e| Error::ParentSizedChildTrieError(e))?;
 					previous_extracted_child_trie = Some(top_root);
 				},
 			}
@@ -308,12 +308,12 @@ where
 
 				compact_proof.extend(child_proof);
 			},
-			ChildType::Dummy => {
+			ChildType::ParentSized => {
 				let trie =
-					crate::TrieDB::<crate::LayoutDummy<L::Hash>>::new(&partial_db, &child_root)
-						.map_err(|e| Error::DummyChildTrieError(e))?;
-				let child_proof = trie_db::encode_compact::<crate::LayoutDummy<L::Hash>>(&trie)
-					.map_err(|e| Error::DummyChildTrieError(e))?;
+					crate::TrieDB::<crate::LayoutParentSized<L::Hash>>::new(&partial_db, &child_root)
+						.map_err(|e| Error::ParentSizedChildTrieError(e))?;
+				let child_proof = trie_db::encode_compact::<crate::LayoutParentSized<L::Hash>>(&trie)
+					.map_err(|e| Error::ParentSizedChildTrieError(e))?;
 
 				compact_proof.extend(child_proof);
 			},

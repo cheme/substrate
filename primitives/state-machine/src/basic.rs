@@ -77,7 +77,7 @@ impl BasicExternalities {
 			inner: Storage {
 				top: std::mem::take(&mut storage.top),
 				children_default: std::mem::take(&mut storage.children_default),
-				children_dummy: std::mem::take(&mut storage.children_dummy),
+				children_sized: std::mem::take(&mut storage.children_sized),
 			},
 			extensions: Default::default(),
 		};
@@ -111,7 +111,7 @@ impl PartialEq for BasicExternalities {
 	fn eq(&self, other: &BasicExternalities) -> bool {
 		self.inner.top.eq(&other.inner.top) &&
 			self.inner.children_default.eq(&other.inner.children_default) &&
-			self.inner.children_dummy.eq(&other.inner.children_dummy)
+			self.inner.children_sized.eq(&other.inner.children_sized)
 	}
 }
 
@@ -135,7 +135,7 @@ impl From<BTreeMap<StorageKey, StorageValue>> for BasicExternalities {
 			inner: Storage {
 				top: hashmap,
 				children_default: Default::default(),
-				children_dummy: Default::default(),
+				children_sized: Default::default(),
 			},
 			extensions: Default::default(),
 		}
@@ -164,7 +164,7 @@ impl Externalities for BasicExternalities {
 	fn child_storage(&self, child_info: &ChildInfo, key: &[u8]) -> Option<StorageValue> {
 		let child_map = match child_info.child_type() {
 			ChildType::ParentKeyId => &self.inner.children_default,
-			ChildType::Dummy => &self.inner.children_dummy,
+			ChildType::ParentSized => &self.inner.children_sized,
 		};
 		child_map
 			.get(child_info.storage_key())
@@ -200,7 +200,7 @@ impl Externalities for BasicExternalities {
 		let range = (Bound::Excluded(key), Bound::Unbounded);
 		let child_map = match child_info.child_type() {
 			ChildType::ParentKeyId => &self.inner.children_default,
-			ChildType::Dummy => &self.inner.children_dummy,
+			ChildType::ParentSized => &self.inner.children_sized,
 		};
 		child_map
 			.get(child_info.storage_key())
@@ -231,7 +231,7 @@ impl Externalities for BasicExternalities {
 	) {
 		let child_map = match child_info.child_type() {
 			ChildType::ParentKeyId => &mut self.inner.children_default,
-			ChildType::Dummy => &mut self.inner.children_dummy,
+			ChildType::ParentSized => &mut self.inner.children_sized,
 		};
 
 		let child_map =
@@ -251,7 +251,7 @@ impl Externalities for BasicExternalities {
 	fn kill_child_storage(&mut self, child_info: &ChildInfo, _limit: Option<u32>) -> (bool, u32) {
 		let child_map = match child_info.child_type() {
 			ChildType::ParentKeyId => &mut self.inner.children_default,
-			ChildType::Dummy => &mut self.inner.children_dummy,
+			ChildType::ParentSized => &mut self.inner.children_sized,
 		};
 
 		let num_removed =
@@ -292,7 +292,7 @@ impl Externalities for BasicExternalities {
 	) -> (bool, u32) {
 		let child_map = match child_info.child_type() {
 			ChildType::ParentKeyId => &mut self.inner.children_default,
-			ChildType::Dummy => &mut self.inner.children_dummy,
+			ChildType::ParentSized => &mut self.inner.children_sized,
 		};
 
 		if let Some(child) = child_map.get_mut(child_info.storage_key()) {
@@ -325,7 +325,7 @@ impl Externalities for BasicExternalities {
 			.inner
 			.children_default
 			.iter()
-			.chain(self.inner.children_dummy.iter())
+			.chain(self.inner.children_sized.iter())
 			.map(|(_k, v)| (v.child_info.prefixed_storage_key(), v.child_info.clone()))
 			.collect();
 		// Single child trie implementation currently allows using the same child
@@ -356,7 +356,7 @@ impl Externalities for BasicExternalities {
 	) -> Vec<u8> {
 		let child_map = match child_info.child_type() {
 			ChildType::ParentKeyId => &self.inner.children_default,
-			ChildType::Dummy => &self.inner.children_dummy,
+			ChildType::ParentSized => &self.inner.children_sized,
 		};
 
 		if let Some(child) = child_map.get(child_info.storage_key()) {
@@ -475,7 +475,7 @@ mod tests {
 					child_info: child_info.to_owned(),
 				}
 			],
-			children_dummy: map![],
+			children_sized: map![],
 		});
 
 		assert_eq!(ext.child_storage(child_info, b"doe"), Some(b"reindeer".to_vec()));
@@ -506,7 +506,7 @@ mod tests {
 					child_info: child_info.to_owned(),
 				}
 			],
-			children_dummy: map![],
+			children_sized: map![],
 		});
 
 		let res = ext.kill_child_storage(child_info, None);
@@ -519,6 +519,6 @@ mod tests {
 		let storage = BasicExternalities::new_empty().into_storages();
 		assert!(storage.top.is_empty());
 		assert!(storage.children_default.is_empty());
-		assert!(storage.children_dummy.is_empty());
+		assert!(storage.children_sized.is_empty());
 	}
 }

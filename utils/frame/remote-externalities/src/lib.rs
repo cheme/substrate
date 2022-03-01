@@ -594,8 +594,8 @@ impl<B: BlockT + DeserializeOwned> Builder<B> {
 				Some((ChildType::ParentKeyId, storage_key)) => {
 					child_kv.push((ChildInfo::new_default(&storage_key), child_kv_inner));
 				},
-				Some((ChildType::Dummy, storage_key)) => {
-					child_kv.push((ChildInfo::new_dummy(&storage_key), child_kv_inner));
+				Some((ChildType::ParentSized, storage_key)) => {
+					child_kv.push((ChildInfo::new_parent_sized(&storage_key), child_kv_inner));
 				},
 				None => {
 					log::error!(target: LOG_TARGET, "invalid key: {:?}", prefixed_top_key);

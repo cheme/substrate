@@ -1336,7 +1336,7 @@ impl<T: Config> Pallet<T> {
 				<ParentHash<T>>::hashed_key().to_vec() => [69u8; 32].encode()
 			],
 			children_default: map![],
-			children_dummy: map![],
+			children_sized: map![],
 		})
 	}
 

@@ -93,8 +93,8 @@ impl<G: RuntimeGenesis> GenesisSource<G> {
 					})
 					.collect();
 
-				let children_dummy = storage
-					.children_dummy
+				let children_sized = storage
+					.children_sized
 					.iter()
 					.map(|(k, child)| {
 						(
@@ -108,7 +108,7 @@ impl<G: RuntimeGenesis> GenesisSource<G> {
 					})
 					.collect();
 
-				Ok(Genesis::Raw(RawGenesis { top, children_default, children_dummy }))
+				Ok(Genesis::Raw(RawGenesis { top, children_default, children_sized }))
 			},
 		}
 	}
@@ -121,7 +121,7 @@ impl<G: RuntimeGenesis, E> BuildStorage for ChainSpec<G, E> {
 			Genesis::Raw(RawGenesis {
 				top: map,
 				children_default: children_map,
-				children_dummy,
+				children_sized,
 			}) => Ok(Storage {
 				top: map.into_iter().map(|(k, v)| (k.0, v.0)).collect(),
 				children_default: children_map
@@ -137,10 +137,10 @@ impl<G: RuntimeGenesis, E> BuildStorage for ChainSpec<G, E> {
 						)
 					})
 					.collect(),
-				children_dummy: children_dummy
+				children_sized: children_sized
 					.into_iter()
 					.map(|(storage_key, child_content)| {
-						let child_info = ChildInfo::new_dummy(storage_key.0.as_slice());
+						let child_info = ChildInfo::new_parent_sized(storage_key.0.as_slice());
 						(
 							storage_key.0,
 							StorageChild {
@@ -172,7 +172,7 @@ pub type GenesisStorage = BTreeMap<StorageKey, StorageData>;
 pub struct RawGenesis {
 	pub top: GenesisStorage,
 	pub children_default: BTreeMap<StorageKey, GenesisStorage>,
-	pub children_dummy: BTreeMap<StorageKey, GenesisStorage>,
+	pub children_sized: BTreeMap<StorageKey, GenesisStorage>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -385,8 +385,8 @@ impl<G: RuntimeGenesis, E: serde::Serialize + Clone + 'static> ChainSpec<G, E> {
 						)
 					})
 					.collect();
-				let children_dummy = storage
-					.children_dummy
+				let children_sized = storage
+					.children_sized
 					.into_iter()
 					.map(|(sk, child)| {
 						(
@@ -400,7 +400,7 @@ impl<G: RuntimeGenesis, E: serde::Serialize + Clone + 'static> ChainSpec<G, E> {
 					})
 					.collect();
 
-				Genesis::Raw(RawGenesis { top, children_default, children_dummy })
+				Genesis::Raw(RawGenesis { top, children_default, children_sized })
 			},
 			(_, genesis) => genesis,
 		};

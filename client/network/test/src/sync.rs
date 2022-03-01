@@ -1068,7 +1068,7 @@ fn syncs_state() {
 		};
 		let child1_dummy = sp_core::storage::StorageChild {
 			data: child_data.clone(),
-			child_info: sp_core::storage::ChildInfo::new_dummy(b"child1"),
+			child_info: sp_core::storage::ChildInfo::new_parent_sized(b"child1"),
 		};
 		let child3 = sp_core::storage::StorageChild {
 			data: child_data.clone(),
@@ -1085,7 +1085,7 @@ fn syncs_state() {
 			.children_default
 			.insert(child1.child_info.storage_key().to_vec(), child1);
 		genesis_storage
-			.children_dummy
+			.children_sized
 			.insert(child1_dummy.child_info.storage_key().to_vec(), child1_dummy);
 		genesis_storage
 			.children_default

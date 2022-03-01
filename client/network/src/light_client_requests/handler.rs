@@ -252,7 +252,7 @@ impl<B: Block> LightClientRequestHandler<B> {
 		let prefixed_key = PrefixedStorageKey::new_ref(&request.storage_key);
 		let child_info = match ChildType::from_prefixed_key(prefixed_key) {
 			Some((ChildType::ParentKeyId, storage_key)) => Ok(ChildInfo::new_default(storage_key)),
-			Some((ChildType::Dummy, storage_key)) => Ok(ChildInfo::new_dummy(storage_key)),
+			Some((ChildType::ParentSized, storage_key)) => Ok(ChildInfo::new_parent_sized(storage_key)),
 			None => Err(sp_blockchain::Error::InvalidChildStorageKey),
 		};
 		let proof = match child_info.and_then(|child_info| {

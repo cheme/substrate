@@ -63,8 +63,8 @@ pub struct LayoutV1<H>(sp_std::marker::PhantomData<H>);
 /// in parent.
 pub struct LayoutWithSize<H>(sp_std::marker::PhantomData<H>);
 
-/// substrate trie layout for dummy child trie.
-pub type LayoutDummy<H> = LayoutWithSize<H>;
+/// substrate trie layout for value sized child trie.
+pub type LayoutParentSized<H> = LayoutWithSize<H>;
 
 impl<H> TrieLayout for LayoutV0<H>
 where
@@ -232,15 +232,15 @@ pub mod trie_types {
 	/// Persistent trie database read-access interface for the a given hasher.
 	/// Read only V1 and V0 are compatible, thus we always use V1.
 	pub type TrieDB<'a, H> = super::TrieDB<'a, LayoutV1<H>>;
-	/// Persistent trie database read-access interface for dummy child trie.
-	pub type TrieDBDummy<'a, H> = super::TrieDB<'a, LayoutDummy<H>>;
+	/// Persistent trie database read-access interface for child with size child trie.
+	pub type TrieDBParentSized<'a, H> = super::TrieDB<'a, LayoutParentSized<H>>;
 	/// Persistent trie database write-access interface for the a given hasher.
 	pub type TrieDBMutV0<'a, H> = super::TrieDBMut<'a, LayoutV0<H>>;
 	/// Persistent trie database write-access interface for the a given hasher.
 	pub type TrieDBMutV1<'a, H> = super::TrieDBMut<'a, LayoutV1<H>>;
 	/// Persistent trie database write-access interface for the a given hasher
 	/// for dumym child trie.
-	pub type TrieDBMutDummy<'a, H> = super::TrieDBMut<'a, LayoutDummy<H>>;
+	pub type TrieDBMutParentSized<'a, H> = super::TrieDBMut<'a, LayoutParentSized<H>>;
 	/// Querying interface, as in `trie_db` but less generic.
 	pub type LookupV0<'a, H, Q> = trie_db::Lookup<'a, LayoutV0<H>, Q>;
 	/// Querying interface, as in `trie_db` but less generic.

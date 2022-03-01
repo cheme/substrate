@@ -593,12 +593,12 @@ where
 												data: Default::default(),
 												child_info: ChildInfo::new_default(storage_key),
 											}),
-										Some((ChildType::Dummy, storage_key)) => storage
-											.children_dummy
+										Some((ChildType::ParentSized, storage_key)) => storage
+											.children_sized
 											.entry(storage_key.to_vec())
 											.or_insert_with(|| StorageChild {
 												data: Default::default(),
-												child_info: ChildInfo::new_dummy(storage_key),
+												child_info: ChildInfo::new_parent_sized(storage_key),
 											}),
 										None =>
 											return Err(Error::Backend(
@@ -1210,7 +1210,7 @@ where
 			match ChildType::from_prefixed_key(&storage_key) {
 				Some((ChildType::ParentKeyId, storage_key)) =>
 					Ok(ChildInfo::new_default(storage_key)),
-				Some((ChildType::Dummy, storage_key)) => Ok(ChildInfo::new_dummy(storage_key)),
+				Some((ChildType::ParentSized, storage_key)) => Ok(ChildInfo::new_parent_sized(storage_key)),
 				None => Err(Error::Backend("Invalid child storage key.".to_string())),
 			}
 		};

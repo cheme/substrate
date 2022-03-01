@@ -779,7 +779,7 @@ impl<Block: BlockT> BlockImportOperation<Block> {
 			return Err(sp_blockchain::Error::InvalidState.into())
 		}
 
-		let child_delta = storage.children_default.iter().chain(storage.children_dummy.iter()).map(
+		let child_delta = storage.children_default.iter().chain(storage.children_sized.iter()).map(
 			|(_storage_key, child_content)| {
 				(
 					&child_content.child_info,
@@ -2451,7 +2451,7 @@ pub(crate) mod tests {
 				Storage {
 					top: storage.into_iter().collect(),
 					children_default: Default::default(),
-					children_dummy: Default::default(),
+					children_sized: Default::default(),
 				},
 				state_version,
 			)
@@ -2532,7 +2532,7 @@ pub(crate) mod tests {
 				Storage {
 					top: Default::default(),
 					children_default: Default::default(),
-					children_dummy: Default::default(),
+					children_sized: Default::default(),
 				},
 				state_version,
 			)
@@ -3004,7 +3004,7 @@ pub(crate) mod tests {
 				Storage {
 					top: storage.into_iter().collect(),
 					children_default: Default::default(),
-					children_dummy: Default::default(),
+					children_sized: Default::default(),
 				},
 				state_version,
 			)

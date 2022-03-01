@@ -28,7 +28,7 @@ use sp_std::{boxed::Box, vec::Vec};
 use sp_trie::{
 	child_delta_trie_root, contains_child_trie, contains_trie, delta_trie_root,
 	read_child_trie_value, read_trie_value,
-	trie_types::{TrieDB, TrieDBDummy, TrieError},
+	trie_types::{TrieDB, TrieDBParentSized, TrieError},
 	value_size_child_trie, value_size_trie, DBValue, KeySpacedDB, PrefixedMemoryDB, Trie,
 	TrieDBIterator, TrieDBKeyIterator,
 };
@@ -38,7 +38,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 // In this module, we only use layout for read operation and empty root,
 // where V1 and V0 are equivalent.
-use sp_trie::{LayoutDummy, LayoutV1 as Layout};
+use sp_trie::{LayoutParentSized, LayoutV1 as Layout};
 
 #[cfg(not(feature = "std"))]
 macro_rules! format {
@@ -194,10 +194,10 @@ where
 					.map_err(|e| format!("TrieDB creation error: {}", e))?;
 				self.next_storage_key_from_root_inner::<Layout<H>>(trie, key)
 			},
-			Some(ChildType::Dummy) => {
-				let trie = TrieDBDummy::<H>::new(dyn_eph, root)
+			Some(ChildType::ParentSized) => {
+				let trie = TrieDBParentSized::<H>::new(dyn_eph, root)
 					.map_err(|e| format!("TrieDB creation error: {}", e))?;
-				self.next_storage_key_from_root_inner::<LayoutDummy<H>>(trie, key)
+				self.next_storage_key_from_root_inner::<LayoutParentSized<H>>(trie, key)
 			},
 		}
 	}
@@ -273,8 +273,8 @@ where
 			ChildType::ParentKeyId =>
 				read_child_trie_value::<Layout<H>, _>(child_info.keyspace(), self, &root, key)
 					.map_err(map_e),
-			ChildType::Dummy =>
-				read_child_trie_value::<LayoutDummy<H>, _>(child_info.keyspace(), self, &root, key)
+			ChildType::ParentSized =>
+				read_child_trie_value::<LayoutParentSized<H>, _>(child_info.keyspace(), self, &root, key)
 					.map_err(map_e),
 		}
 	}
@@ -293,8 +293,8 @@ where
 			ChildType::ParentKeyId =>
 				contains_child_trie::<Layout<H>, _>(child_info.keyspace(), self, &root, key)
 					.map_err(map_e),
-			ChildType::Dummy =>
-				contains_child_trie::<LayoutDummy<H>, _>(child_info.keyspace(), self, &root, key)
+			ChildType::ParentSized =>
+				contains_child_trie::<LayoutParentSized<H>, _>(child_info.keyspace(), self, &root, key)
 					.map_err(map_e),
 		}
 	}
@@ -313,8 +313,8 @@ where
 			ChildType::ParentKeyId =>
 				value_size_child_trie::<Layout<H>, _>(child_info.keyspace(), self, &root, key)
 					.map_err(map_e),
-			ChildType::Dummy =>
-				value_size_child_trie::<LayoutDummy<H>, _>(child_info.keyspace(), self, &root, key)
+			ChildType::ParentSized =>
+				value_size_child_trie::<LayoutParentSized<H>, _>(child_info.keyspace(), self, &root, key)
 					.map_err(map_e),
 		}
 	}
@@ -419,8 +419,8 @@ where
 		match child_info.as_ref().map(|info| info.child_type()) {
 			Some(ChildType::ParentKeyId) | None =>
 				self.trie_iter_key_inner2::<_, Layout<H>>(root, prefix, f, child_info),
-			Some(ChildType::Dummy) =>
-				self.trie_iter_key_inner2::<_, LayoutDummy<H>>(root, prefix, f, child_info),
+			Some(ChildType::ParentSized) =>
+				self.trie_iter_key_inner2::<_, LayoutParentSized<H>>(root, prefix, f, child_info),
 		}
 	}
 	fn trie_iter_key_inner2<F, L>(
@@ -486,7 +486,7 @@ where
 				start_at,
 				allow_missing_nodes,
 			),
-			Some(ChildType::Dummy) => self.trie_iter_inner2::<F, LayoutDummy<H>>(
+			Some(ChildType::ParentSized) => self.trie_iter_inner2::<F, LayoutParentSized<H>>(
 				root,
 				prefix,
 				f,
@@ -675,8 +675,8 @@ where
 						root,
 						delta,
 					),
-				(_, ChildType::Dummy) =>
-					child_delta_trie_root::<sp_trie::LayoutDummy<H>, _, _, _, _, _, _>(
+				(_, ChildType::ParentSized) =>
+					child_delta_trie_root::<sp_trie::LayoutParentSized<H>, _, _, _, _, _, _>(
 						child_info.keyspace(),
 						&mut eph,
 						root,

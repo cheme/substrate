@@ -25,7 +25,7 @@ use codec::{Codec, Encode};
 use hash_db::Hasher;
 use sp_core::storage::{ChildInfo, ChildType, StateVersion};
 use sp_std::vec::Vec;
-use sp_trie::{LayoutDummy, LayoutV0, LayoutV1};
+use sp_trie::{LayoutParentSized, LayoutV0, LayoutV1};
 
 /// Patricia trie-based backend. Transaction type is an overlay of changes to commit.
 pub struct TrieBackend<S: TrieBackendStorage<H>, H: Hasher> {
@@ -221,7 +221,7 @@ where
 			StateVersion::V0 => empty_child_trie_root::<LayoutV0<H>>(),
 			StateVersion::V1 => empty_child_trie_root::<LayoutV1<H>>(),
 		},
-		ChildType::Dummy => empty_child_trie_root::<LayoutDummy<H>>(),
+		ChildType::ParentSized => empty_child_trie_root::<LayoutParentSized<H>>(),
 	}
 }
 

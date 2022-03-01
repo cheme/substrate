@@ -227,8 +227,8 @@ impl<Block: BlockT, ExecutorDispatch, Backend, G: GenesisInit>
 							},
 						);
 					},
-					ChildType::Dummy => {
-						storage.children_dummy.insert(
+					ChildType::ParentSized => {
+						storage.children_sized.insert(
 							key,
 							StorageChild {
 								data: child_content.data.into_iter().collect(),

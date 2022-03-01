@@ -130,7 +130,7 @@ impl<B: BlockT> BenchmarkingState<B> {
 		state.add_whitelist_to_tracker();
 
 		state.reopen()?;
-		let child_delta = genesis.children_default.iter().chain(genesis.children_dummy.iter()).map(
+		let child_delta = genesis.children_default.iter().chain(genesis.children_sized.iter()).map(
 			|(_storage_key, child_content)| {
 				(
 					&child_content.child_info,

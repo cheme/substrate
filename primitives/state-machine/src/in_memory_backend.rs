@@ -137,7 +137,7 @@ where
 		let mut inner: HashMap<Option<ChildInfo>, BTreeMap<StorageKey, StorageValue>> = inners
 			.children_default
 			.into_iter()
-			.chain(inners.children_dummy.into_iter())
+			.chain(inners.children_sized.into_iter())
 			.map(|(_k, c)| (Some(c.child_info), c.data))
 			.collect();
 		inner.insert(None, inners.top);
