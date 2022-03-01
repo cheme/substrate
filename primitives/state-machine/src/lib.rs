@@ -2113,17 +2113,30 @@ mod tests {
 
 	#[test]
 	fn compact_multiple_child_trie() {
-		let size_no_inner_hash = compact_multiple_child_trie_inner(StateVersion::V0);
-		let size_inner_hash = compact_multiple_child_trie_inner(StateVersion::V1);
+		let size_no_inner_hash =
+			compact_multiple_child_trie_inner(StateVersion::V0, Default::default());
+		let size_inner_hash =
+			compact_multiple_child_trie_inner(StateVersion::V1, Default::default());
 		assert!(size_inner_hash < size_no_inner_hash);
+		let sized_inner_hash = compact_multiple_child_trie_inner(Default::default(), true);
+		assert!(size_inner_hash < sized_inner_hash);
 	}
-	fn compact_multiple_child_trie_inner(state_version: StateVersion) -> usize {
+	fn compact_multiple_child_trie_inner(state_version: StateVersion, test_dummy: bool) -> usize {
 		// this root will be queried
-		let child_info1 = ChildInfo::new_default(b"sub1");
+		let child_info1 = if test_dummy {
+			ChildInfo::new_dummy(b"sub1")
+		} else {
+			ChildInfo::new_default(b"sub1")
+		};
 		// this root will not be include in proof
-		let child_info2 = ChildInfo::new_default(b"sub2");
+		let child_info2 = if test_dummy {
+			ChildInfo::new_dummy(b"sub2")
+		} else {
+			ChildInfo::new_default(b"sub2")
+		};
 		// this root will be include in proof
-		let child_info3 = ChildInfo::new_default(b"sub");
+		let child_info3 =
+			if test_dummy { ChildInfo::new_dummy(b"sub") } else { ChildInfo::new_default(b"sub") };
 		let remote_backend = trie_backend::tests::test_trie(state_version);
 		let long_vec: Vec<u8> = (0..1024usize).map(|_| 8u8).collect();
 		let (remote_root, transaction) = remote_backend.full_storage_root(
