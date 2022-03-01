@@ -171,7 +171,9 @@ pub type GenesisStorage = BTreeMap<StorageKey, StorageData>;
 #[serde(deny_unknown_fields)]
 pub struct RawGenesis {
 	pub top: GenesisStorage,
+	#[serde(default)]
 	pub children_default: BTreeMap<StorageKey, GenesisStorage>,
+	#[serde(default)]
 	pub children_dummy: BTreeMap<StorageKey, GenesisStorage>,
 }
 
