@@ -175,7 +175,6 @@ where
 	let mut last_child_type = None;
 	let mut skip_till_new_type = false;
 	for (child_root, child_type) in child_tries.into_iter() {
-
 		let peek = nodes_iter.peek();
 		// child trie are not allowed to encode their root/first node
 		// to [trie_constants::ESCAPE_COMPACT_HEADER], otherwhise
@@ -186,7 +185,7 @@ where
 			skip_till_new_type = true;
 		}
 		if skip_till_new_type && last_child_type == Some(child_type) {
-			continue;
+			continue
 		}
 		skip_till_new_type = false;
 		last_child_type = Some(child_type);
@@ -309,11 +308,14 @@ where
 				compact_proof.extend(child_proof);
 			},
 			ChildType::ParentSized => {
-				let trie =
-					crate::TrieDB::<crate::LayoutParentSized<L::Hash>>::new(&partial_db, &child_root)
+				let trie = crate::TrieDB::<crate::LayoutParentSized<L::Hash>>::new(
+					&partial_db,
+					&child_root,
+				)
+				.map_err(|e| Error::ParentSizedChildTrieError(e))?;
+				let child_proof =
+					trie_db::encode_compact::<crate::LayoutParentSized<L::Hash>>(&trie)
 						.map_err(|e| Error::ParentSizedChildTrieError(e))?;
-				let child_proof = trie_db::encode_compact::<crate::LayoutParentSized<L::Hash>>(&trie)
-					.map_err(|e| Error::ParentSizedChildTrieError(e))?;
 
 				compact_proof.extend(child_proof);
 			},

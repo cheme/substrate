@@ -132,7 +132,8 @@ pub fn exists(child_info: &ChildInfo, key: &[u8]) -> bool {
 	match child_info.child_type() {
 		ChildType::ParentKeyId =>
 			sp_io::default_child_storage::exists(child_info.storage_key(), key),
-		ChildType::ParentSized => sp_io::parent_sized_child_storage::exists(child_info.storage_key(), key),
+		ChildType::ParentSized =>
+			sp_io::parent_sized_child_storage::exists(child_info.storage_key(), key),
 	}
 }
 
@@ -180,7 +181,8 @@ pub fn kill(child_info: &ChildInfo, key: &[u8]) {
 pub fn get_raw(child_info: &ChildInfo, key: &[u8]) -> Option<Vec<u8>> {
 	match child_info.child_type() {
 		ChildType::ParentKeyId => sp_io::default_child_storage::get(child_info.storage_key(), key),
-		ChildType::ParentSized => sp_io::parent_sized_child_storage::get(child_info.storage_key(), key),
+		ChildType::ParentSized =>
+			sp_io::parent_sized_child_storage::get(child_info.storage_key(), key),
 	}
 }
 
@@ -189,7 +191,8 @@ pub fn put_raw(child_info: &ChildInfo, key: &[u8], value: &[u8]) {
 	match child_info.child_type() {
 		ChildType::ParentKeyId =>
 			sp_io::default_child_storage::set(child_info.storage_key(), key, value),
-		ChildType::ParentSized => sp_io::parent_sized_child_storage::set(child_info.storage_key(), key, value),
+		ChildType::ParentSized =>
+			sp_io::parent_sized_child_storage::set(child_info.storage_key(), key, value),
 	}
 }
 
@@ -198,7 +201,8 @@ pub fn root(child_info: &ChildInfo, version: StateVersion) -> Vec<u8> {
 	match child_info.child_type() {
 		ChildType::ParentKeyId =>
 			sp_io::default_child_storage::root(child_info.storage_key(), version),
-		ChildType::ParentSized => sp_io::parent_sized_child_storage::root(child_info.storage_key(), version),
+		ChildType::ParentSized =>
+			sp_io::parent_sized_child_storage::root(child_info.storage_key(), version),
 	}
 }
 

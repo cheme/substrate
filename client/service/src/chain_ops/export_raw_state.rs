@@ -72,8 +72,9 @@ where
 	{
 		let (key, _) = top_storage.swap_remove(pos);
 
-		let key =
-			StorageKey(key.0[well_known_keys::SIZED_PARENT_CHILD_STORAGE_KEY_PREFIX.len()..].to_vec());
+		let key = StorageKey(
+			key.0[well_known_keys::SIZED_PARENT_CHILD_STORAGE_KEY_PREFIX.len()..].to_vec(),
+		);
 		let child_info = ChildInfo::new_parent_sized(&key.0);
 
 		let keys = client.child_storage_keys(&block, &child_info, &empty_key)?;

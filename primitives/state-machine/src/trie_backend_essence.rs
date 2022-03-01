@@ -273,9 +273,13 @@ where
 			ChildType::ParentKeyId =>
 				read_child_trie_value::<Layout<H>, _>(child_info.keyspace(), self, &root, key)
 					.map_err(map_e),
-			ChildType::ParentSized =>
-				read_child_trie_value::<LayoutParentSized<H>, _>(child_info.keyspace(), self, &root, key)
-					.map_err(map_e),
+			ChildType::ParentSized => read_child_trie_value::<LayoutParentSized<H>, _>(
+				child_info.keyspace(),
+				self,
+				&root,
+				key,
+			)
+			.map_err(map_e),
 		}
 	}
 
@@ -293,9 +297,13 @@ where
 			ChildType::ParentKeyId =>
 				contains_child_trie::<Layout<H>, _>(child_info.keyspace(), self, &root, key)
 					.map_err(map_e),
-			ChildType::ParentSized =>
-				contains_child_trie::<LayoutParentSized<H>, _>(child_info.keyspace(), self, &root, key)
-					.map_err(map_e),
+			ChildType::ParentSized => contains_child_trie::<LayoutParentSized<H>, _>(
+				child_info.keyspace(),
+				self,
+				&root,
+				key,
+			)
+			.map_err(map_e),
 		}
 	}
 
@@ -313,9 +321,13 @@ where
 			ChildType::ParentKeyId =>
 				value_size_child_trie::<Layout<H>, _>(child_info.keyspace(), self, &root, key)
 					.map_err(map_e),
-			ChildType::ParentSized =>
-				value_size_child_trie::<LayoutParentSized<H>, _>(child_info.keyspace(), self, &root, key)
-					.map_err(map_e),
+			ChildType::ParentSized => value_size_child_trie::<LayoutParentSized<H>, _>(
+				child_info.keyspace(),
+				self,
+				&root,
+				key,
+			)
+			.map_err(map_e),
 		}
 	}
 

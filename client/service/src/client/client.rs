@@ -598,7 +598,9 @@ where
 											.entry(storage_key.to_vec())
 											.or_insert_with(|| StorageChild {
 												data: Default::default(),
-												child_info: ChildInfo::new_parent_sized(storage_key),
+												child_info: ChildInfo::new_parent_sized(
+													storage_key,
+												),
 											}),
 										None =>
 											return Err(Error::Backend(
@@ -1188,8 +1190,8 @@ where
 		let (proof, count) = prove_range_read_with_child_with_size::<_, HashFor<Block>>(
 			state, size_limit, start_key,
 		)?;
-		// TODO here we have in proof nodes from different trie kind. So encode_compact won't be fine.
-		// This is read proof only, we can use either LayoutV0 or LayoutV1.
+		// TODO here we have in proof nodes from different trie kind. So encode_compact won't be
+		// fine. This is read proof only, we can use either LayoutV0 or LayoutV1.
 		let proof = sp_trie::encode_compact::<sp_trie::LayoutV0<HashFor<Block>>>(proof, root)
 			.map_err(|e| sp_blockchain::Error::from_state(Box::new(e)))?;
 		Ok((proof, count))
@@ -1210,7 +1212,8 @@ where
 			match ChildType::from_prefixed_key(&storage_key) {
 				Some((ChildType::ParentKeyId, storage_key)) =>
 					Ok(ChildInfo::new_default(storage_key)),
-				Some((ChildType::ParentSized, storage_key)) => Ok(ChildInfo::new_parent_sized(storage_key)),
+				Some((ChildType::ParentSized, storage_key)) =>
+					Ok(ChildInfo::new_parent_sized(storage_key)),
 				None => Err(Error::Backend("Invalid child storage key.".to_string())),
 			}
 		};
