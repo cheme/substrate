@@ -24,7 +24,7 @@ use crate::{
 	CompactProof, HashDBT, StorageProof, TrieConfiguration, TrieError, TrieHash, EMPTY_PREFIX,
 };
 use sp_core::storage::{well_known_keys, ChildType, PrefixedStorageKey};
-use sp_std::{boxed::Box, vec::Vec};
+use sp_std::{boxed::Box, vec, vec::Vec};
 #[cfg(feature = "std")]
 use std::error::Error as StdError;
 #[cfg(feature = "std")]
