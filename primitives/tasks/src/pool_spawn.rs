@@ -27,13 +27,13 @@ use crate::{
 	new_async_externalities,
 	wasm_runtime::{WasmInstance, WasmModule},
 };
-use log::trace;
 use parking_lot::{Mutex, MutexGuard};
 use sp_core::traits::{
 	AsyncExternalities, BoxFuture, Externalities, RuntimeSpawn, RuntimeSpawnExt, SpawnLimit,
 	TaskHandle,
 };
 use sp_externalities::{ExternalitiesExt as _, TaskId, WorkerDeclaration, WorkerResult, AccessLog};
+use sp_std::boxed::Box;
 use std::{
 	collections::HashMap,
 	panic::AssertUnwindSafe,
@@ -291,10 +291,10 @@ impl RuntimeInstanceSpawn {
 						let async_ext = match new_async_externalities(scheduler.clone(), ext) {
 							Ok(val) => val,
 							Err(e) => {
-								log::error!(
+								tracing::error!(
 									target: "executor",
-									"Failed to setup externalities for async context: {}",
-									e,
+									error = %e,
+									"Failed to setup externalities for async context.",
 								);
 
 								// This will drop sender and receiver end will panic
@@ -304,10 +304,10 @@ impl RuntimeInstanceSpawn {
 						let async_ext = match async_ext.with_runtime_spawn(runtime_spawn.clone()) {
 							Ok(val) => val,
 							Err(e) => {
-								log::error!(
+								tracing::error!(
 									target: "executor",
-									"Failed to setup runtime extension for async externalities: {}",
-									e,
+									error = %e,
+									"Failed to setup runtime extension for async externalities",
 								);
 
 								// This will drop sender and receiver end will panic
@@ -328,7 +328,7 @@ impl RuntimeInstanceSpawn {
 
 					let mut end = false;
 					if let &WorkerResult::RuntimePanic = &result {
-						log::error!("Panic error in spawned task, dropping instance");
+						tracing::error!("Panic error in spawned task, dropping instance");
 						// Here we don't just shut all because panic will only transmit to parent
 						// if 'join' is call, if 'dismiss' is call then it is fine to ignore a
 						// panic.
@@ -349,7 +349,7 @@ impl RuntimeInstanceSpawn {
 						return
 					}
 				}
-				log::error!("Sender dropped, closing all instance.");
+				tracing::error!("Sender dropped, closing all instance.");
 				infos.lock().finished();
 			}),
 		);
@@ -517,11 +517,11 @@ impl RuntimeInstanceSpawn {
 				RuntimeInstanceSpawn::with_externalities_and_module(Some(module), ext)
 			{
 				if let Err(e) = ext.register_extension(RuntimeSpawnExt(Box::new(runtime_spawn))) {
-					trace!(
+					tracing::error!(
 						target: "executor",
-						"Failed to register `RuntimeSpawnExt` instance on externalities: {:?}",
-						e,
-					)
+						error = ?e,
+						"Failed to setup runtime extension for async externalities",
+					);
 				}
 			}
 		});

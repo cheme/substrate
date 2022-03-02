@@ -446,7 +446,7 @@ mod tests {
 	use parking_lot::Mutex;
 	use sc_transaction_pool_api::TransactionStatus;
 	use substrate_test_runtime::{
-		AccountId, Block, Extrinsic, ExtrinsicCall, Hashing, Transfer, H256,
+		AccountId, Extrinsic, ExtrinsicCall, Transfer, H256,
 	};
 	use sp_runtime::transaction_validity::TransactionSource;
 	use std::{collections::HashMap, time::Instant};

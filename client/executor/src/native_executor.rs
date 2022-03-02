@@ -32,7 +32,6 @@ use std::{
 };
 
 use codec::{Decode, Encode};
-use log::trace;
 use sc_executor_common::{
 	runtime_blob::RuntimeBlob,
 	wasm_runtime::{WasmInstance, WasmModule},
@@ -274,6 +273,12 @@ where
 		_use_native: bool,
 		_native_call: Option<NC>,
 	) -> (Result<NativeOrEncoded<R>>, bool) {
+		tracing::trace!(
+			target: "executor",
+			%method,
+			"Executing function",
+		);
+
 		let result = self.with_instance(
 			runtime_code,
 			ext,
@@ -384,6 +389,12 @@ impl<D: NativeExecutionDispatch + 'static> CodeExecutor for NativeElseWasmExecut
 		use_native: bool,
 		native_call: Option<NC>,
 	) -> (Result<NativeOrEncoded<R>>, bool) {
+		tracing::trace!(
+			target: "executor",
+			function = %method,
+			"Executing function",
+		);
+
 		let mut used_native = false;
 		let result = self.wasm.with_instance(
 			runtime_code,
@@ -399,11 +410,11 @@ impl<D: NativeExecutionDispatch + 'static> CodeExecutor for NativeElseWasmExecut
 				match (use_native, can_call_with, native_call) {
 					(_, false, _) | (false, _, _) => {
 						if !can_call_with {
-							trace!(
+							tracing::trace!(
 								target: "executor",
-								"Request for native execution failed (native: {}, chain: {})",
-								self.native_version.runtime_version,
-								onchain_version,
+								native = %self.native_version.runtime_version,
+								chain = %onchain_version,
+								"Request for native execution failed",
 							);
 						}
 
@@ -413,12 +424,11 @@ impl<D: NativeExecutionDispatch + 'static> CodeExecutor for NativeElseWasmExecut
 						})
 					},
 					(true, true, Some(call)) => {
-						trace!(
+						tracing::trace!(
 							target: "executor",
-							"Request for native execution with native call succeeded \
-							(native: {}, chain: {}).",
-							self.native_version.runtime_version,
-							onchain_version,
+							native = %self.native_version.runtime_version,
+							chain = %onchain_version,
+							"Request for native execution with native call succeeded"
 						);
 
 						used_native = true;
@@ -428,11 +438,11 @@ impl<D: NativeExecutionDispatch + 'static> CodeExecutor for NativeElseWasmExecut
 						Ok(res)
 					},
 					_ => {
-						trace!(
+						tracing::trace!(
 							target: "executor",
-							"Request for native execution succeeded (native: {}, chain: {})",
-							self.native_version.runtime_version,
-							onchain_version
+							native = %self.native_version.runtime_version,
+							chain = %onchain_version,
+							"Request for native execution succeeded",
 						);
 
 						used_native = true;

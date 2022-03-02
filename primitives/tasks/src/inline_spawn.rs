@@ -28,8 +28,6 @@ use crate::{
 	common::{HostLocalFunction, NativeTask, PendingTask, Task, WasmTask},
 	new_inline_only_externalities, Crossing,
 };
-#[cfg(feature = "std")]
-pub use log::error as log_error;
 use sp_core::traits::RuntimeSpawn;
 use sp_externalities::{
 	AsyncExternalities, Externalities, TaskId, WorkerDeclaration, WorkerResult, AccessLog,
@@ -78,10 +76,10 @@ fn process_task_inline_inner<
 	let async_ext = match new_inline_only_externalities(ext) {
 		Ok(val) => val,
 		Err(e) => {
-			log_error!(
+			tracing::error!(
 				target: "executor",
-				"Failed to setup externalities for inline async context: {}",
-				e,
+				error = %e,
+				"Failed to setup externalities for inline async context",
 			);
 			return WorkerResult::HardPanic
 		},
@@ -89,10 +87,10 @@ fn process_task_inline_inner<
 	let async_ext = match async_ext.with_runtime_spawn(runtime_ext) {
 		Ok(val) => val,
 		Err(e) => {
-			log_error!(
+			tracing::error!(
 				target: "executor",
-				"Failed to setup runtime extension for async externalities: {}",
-				e,
+				error = %e,
+				"Failed to setup externalities for inline async externalities",
 			);
 			return WorkerResult::HardPanic
 		},

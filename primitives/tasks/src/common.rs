@@ -21,8 +21,6 @@
 use crate::error::Error;
 #[cfg(feature = "std")]
 use crate::wasm_runtime::{InvokeMethod, WasmInstance, WasmModule};
-#[cfg(feature = "std")]
-pub use log::error as log_error;
 use sp_externalities::{AsyncExternalities, Externalities, TaskId, WorkerResult, WorkerState};
 use sp_std::{boxed::Box, sync::Arc, vec::Vec};
 #[cfg(feature = "std")]
@@ -167,15 +165,18 @@ pub fn instantiate(module: Option<&dyn WasmModule>) -> Option<Box<dyn WasmInstan
 	Some(match module.map(|m| m.new_instance()) {
 		Some(Ok(val)) => val,
 		Some(Err(e)) => {
-			log_error!(
+			tracing::error!(
 				target: "executor",
-				"Failed to create new instance for module for async context: {}",
-				e,
+				error = ?e,
+				"Failed to create new instance for module for async context.",
 			);
 			return None
 		},
 		None => {
-			log_error!(target: "executor", "No module for a wasm task.");
+			tracing::error!(
+				target: "executor",
+				"No module for a wasm task.",
+			);
 			return None
 		},
 	})
@@ -230,13 +231,21 @@ pub(crate) fn process_task_inner<
 						.call(InvokeMethod::TableWithWrapper { dispatcher_ref, func }, &data[..])
 				}) {
 					Ok(Ok(result)) => result,
-					Ok(Err(Error::RuntimePanicked(error))) => {
+					Ok(Err(Error::RuntimePanicked(e))) => {
 						panic_h();
-						log_error!("Runtime panic error in wasm task: {:?}", error);
+						tracing::error!(
+							target: "executor",
+							error = %e,
+							"Runtime panic error in wasm task.",
+						);
 						return WorkerResult::RuntimePanic
 					},
-					Ok(Err(error)) | Err(error) => {
-						log_error!("Runtime panic error in wasm task: {:?}", error);
+					Ok(Err(e)) | Err(e) => {
+						tracing::error!(
+							target: "executor",
+							error = %e,
+							"Runtime panic error in wasm task.",
+						);
 						return WorkerResult::RuntimePanic
 					},
 				}
@@ -246,8 +255,12 @@ pub(crate) fn process_task_inner<
 				let f: fn(Vec<u8>) -> Vec<u8> = unsafe { sp_std::mem::transmute(func) };
 				match with_externalities_safe(&mut async_ext, || f(data)) {
 					Ok(result) => result,
-					Err(error) => {
-						log_error!("Runtime panic error in wasm task: {:?}", error);
+					Err(e) => {
+						tracing::error!(
+							target: "executor",
+							error = ?e,
+							"Runtime panic error in wasm task.",
+						);
 						return WorkerResult::RuntimePanic
 					},
 				}
@@ -259,18 +272,30 @@ pub(crate) fn process_task_inner<
 			match with_externalities_safe(&mut async_ext, || func(data)) {
 				Ok(result) => result,
 				#[cfg(not(feature = "std"))]
-				Err(error) => {
-					log_error!("Runtime panic error in wasm task: {:?}", error);
+				Err(e) => {
+					tracing::error!(
+						target: "executor",
+						error = ?e,
+						"Runtime panic error in wasm task.",
+					);
 					return WorkerResult::RuntimePanic
 				},
 				#[cfg(feature = "std")]
-				Err(Error::RuntimePanicked(error)) => {
-					log_error!("Runtime panic error in wasm task: {:?}", error);
+				Err(Error::RuntimePanicked(e)) => {
+					tracing::error!(
+						target: "executor",
+						error = %e,
+						"Runtime panic error in wasm task.",
+					);
 					return WorkerResult::RuntimePanic
 				},
 				#[cfg(feature = "std")]
-				Err(error) => {
-					log_error!("Wasm instance error in : {:?}", error);
+				Err(e) => {
+					tracing::error!(
+						target: "executor",
+						error = %e,
+						"Runtime panic error in wasm task.",
+					);
 					return WorkerResult::HardPanic
 				},
 			}

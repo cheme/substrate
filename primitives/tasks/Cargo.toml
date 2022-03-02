@@ -15,21 +15,21 @@ targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
 derive_more = { version = "0.99.2", optional = true }
-log = { version = "0.4.8", optional = true }
 parking_lot = { version = "0.11.2", optional = true }
 thiserror = { version = "1.0.30", optional = true }
 ambassador = "0.2.1"
 wasmi = { version = "0.9.1", optional = true }
-sp-core = { version = "5.0.0", default-features = false, path = "../core" }
-sp-externalities = { version = "0.11.0", default-features = false, path = "../externalities" }
-sp-io = { version = "5.0.0", default-features = false, path = "../io" }
+sp-core = { version = "6.0.0", default-features = false, path = "../core" }
+sp-externalities = { version = "0.12.0", default-features = false, path = "../externalities" }
+sp-io = { version = "6.0.0", default-features = false, path = "../io" }
 sp-std = { version = "4.0.0", default-features = false, path = "../std" }
 sp-panic-handler = { version = "4.0.0", optional = true, path = "../panic-handler" }
 sc-allocator = { version = "4.1.0-dev", optional = true, path = "../../client/allocator" } # TODO this would need moving back to sp-allocator (or part of crate)
-sp-wasm-interface = { version = "5.0.0", default-features = false, path = "../wasm-interface" }
-sp-runtime-interface = { version = "5.0.0", default-features = false, path = "../runtime-interface" }
+sp-wasm-interface = { version = "6.0.0", default-features = false, path = "../wasm-interface" }
+sp-runtime-interface = { version = "6.0.0", default-features = false, path = "../runtime-interface" }
 sp-serializer = { version = "4.0.0-dev", optional = true, path = "../serializer" }
-codec = { package = "parity-scale-codec", default-features = false, version = "2.0.0" }
+codec = { package = "parity-scale-codec", default-features = false, version = "3.0.0" }
+tracing = { version = "0.1.29", default-features = false }
 
 [dev-dependencies]
 
@@ -41,7 +41,6 @@ default = ["std", "abort-future"]
 abort-future = []
 std = [
 	"derive_more",
-	"log",
 	"parking_lot",
   "sc-allocator",
   "sp-serializer",
@@ -54,4 +53,5 @@ std = [
 	"sp-io/std",
 	"sp-std/std",
 	"sp-wasm-interface/std",
+	"tracing/std",
 ]
