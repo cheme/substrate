@@ -185,8 +185,7 @@ fn it_can_pending_enlist() {
 
 			let event_name = b"test";
 
-			Example::run_event(test_origin(1), event_name.to_vec())
-				.expect("Failed to enlist");
+			Example::run_event(test_origin(1), event_name.to_vec()).expect("Failed to enlist");
 
 			let participants: Vec<_> = pairs
 				.into_iter()

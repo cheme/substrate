@@ -719,7 +719,6 @@ where
 	fn async_storage(&self) -> Self::AsyncStorage {
 		self.clone()
 	}
-
 }
 
 impl<S: TrieBackendStorage<H>, H: Hasher> AsHashDB<H, DBValue> for TrieBackendEssence<S, H> {

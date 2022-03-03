@@ -140,8 +140,7 @@ where
 	}
 }
 
-impl<H> From<(BTreeMap<StorageKey, StorageValue>, StateVersion)>
-	for TrieBackend<MemoryDB<H>, H>
+impl<H> From<(BTreeMap<StorageKey, StorageValue>, StateVersion)> for TrieBackend<MemoryDB<H>, H>
 where
 	H: Hasher + 'static,
 	H::Out: Codec + Ord,

@@ -30,7 +30,7 @@
 //! from the worker, panic if trying to close or commit a transaction
 //! that is not from the worker).
 
-use sp_externalities::{TaskId, WorkerResult};
+use sp_externalities::{TaskId, WorkerResult, WorkerState};
 use sp_std::{collections::btree_map::BTreeMap, vec, vec::Vec};
 
 #[derive(Debug, Clone)]
@@ -136,18 +136,19 @@ impl Markers {
 	}
 
 	pub(super) fn on_worker_result(&mut self, result: &WorkerResult) -> bool {
-		match result {
-			WorkerResult::CallAt(_result, _delta, marker) => {
+		match result.state {
+			WorkerState::NeedResolve => unimplemented!("TODO"),
+			WorkerState::CallAt => {
 				// invalid when nothing
-				self.remove_worker(*marker)
+				self.remove_worker(result.id)
 			},
-			WorkerResult::Optimistic(_result, _delta, marker, _accesses) => {
+			WorkerState::Optimistic => {
 				// invalid when nothing
-				self.remove_worker(*marker)
+				self.remove_worker(result.id)
 			},
-			WorkerResult::Valid(_result, _delta) => true,
-			WorkerResult::Invalid => true,
-			WorkerResult::RuntimePanic | WorkerResult::HardPanic => true,
+			WorkerState::Valid => true,
+			WorkerState::Invalid => true,
+			WorkerState::RuntimePanic | WorkerState::HardPanic => true,
 		}
 	}
 }

@@ -224,7 +224,7 @@ pub(crate) fn process_task_inner<
 				let (mut instance, panic_h) = if let Some(instance) = instance_ref.instantiate() {
 					instance
 				} else {
-					return WorkerResult::HardPanic
+					return (WorkerState::HardPanic, handle).into()
 				};
 				match with_externalities_safe(&mut async_ext, move || {
 					instance
@@ -238,7 +238,7 @@ pub(crate) fn process_task_inner<
 							error = %e,
 							"Runtime panic error in wasm task.",
 						);
-						return WorkerResult::RuntimePanic
+						return (WorkerState::RuntimePanic, handle).into()
 					},
 					Ok(Err(e)) | Err(e) => {
 						tracing::error!(
@@ -246,7 +246,7 @@ pub(crate) fn process_task_inner<
 							error = %e,
 							"Runtime panic error in wasm task.",
 						);
-						return WorkerResult::RuntimePanic
+						return (WorkerState::RuntimePanic, handle).into()
 					},
 				}
 			}
@@ -261,7 +261,7 @@ pub(crate) fn process_task_inner<
 							error = ?e,
 							"Runtime panic error in wasm task.",
 						);
-						return WorkerResult::RuntimePanic
+						return (WorkerState::RuntimePanic, handle).into()
 					},
 				}
 			} else {
@@ -278,7 +278,7 @@ pub(crate) fn process_task_inner<
 						error = ?e,
 						"Runtime panic error in wasm task.",
 					);
-					return WorkerResult::RuntimePanic
+					return (WorkerState::RuntimePanic, handle).into()
 				},
 				#[cfg(feature = "std")]
 				Err(Error::RuntimePanicked(e)) => {
@@ -287,7 +287,7 @@ pub(crate) fn process_task_inner<
 						error = %e,
 						"Runtime panic error in wasm task.",
 					);
-					return WorkerResult::RuntimePanic
+					return (WorkerState::RuntimePanic, handle).into()
 				},
 				#[cfg(feature = "std")]
 				Err(e) => {
@@ -296,19 +296,15 @@ pub(crate) fn process_task_inner<
 						error = %e,
 						"Runtime panic error in wasm task.",
 					);
-					return WorkerResult::HardPanic
+					return (WorkerState::HardPanic, handle).into()
 				},
 			}
 		},
 	};
 
-	match async_ext.extract_state() {
-		WorkerState::Invalid => WorkerResult::Invalid,
-		WorkerState::NeedResolve => WorkerResult::CallAt(result, async_ext.extract_delta(), handle),
-		WorkerState::Valid => WorkerResult::Valid(result, async_ext.extract_delta()),
-		WorkerState::Optimistic(access) =>
-			WorkerResult::Optimistic(result, async_ext.extract_delta(), handle, access),
-	}
+	let (state, state_delta, log_accesses) = async_ext.extract_state();
+	// TODO fuse WorkerState and WorkerResultStatus or at least conversion method!!
+	WorkerResult { id: handle, state_delta, log_accesses, state, result: Some(result) }
 }
 
 /// Technical trait to use instead of boolean parameter.

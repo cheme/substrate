@@ -25,7 +25,7 @@ use sp_core::{
 	traits::Externalities,
 	Blake2Hasher,
 };
-use sp_externalities::{AsyncExternalities, TaskId, WorkerDeclaration, WorkerResult};
+use sp_externalities::{AsyncExternalities, TaskId, WorkerDeclaration, WorkerResult, WorkerState};
 use std::{
 	any::{Any, TypeId},
 	marker::PhantomData,
@@ -211,23 +211,24 @@ impl<'a, H: Hasher, B: 'a + Backend<H>> Externalities for ReadOnlyExternalities<
 	}
 
 	fn resolve_worker_result(&mut self, state_update: WorkerResult) -> Option<Vec<u8>> {
-		match state_update {
-			WorkerResult::CallAt(result, None, ..) |
-			WorkerResult::Optimistic(result, None, ..) |
-			WorkerResult::Valid(result, None, ..) => Some(result),
-			WorkerResult::CallAt(result, Some(delta), ..) |
-			WorkerResult::Optimistic(result, Some(delta), ..) |
-			WorkerResult::Valid(result, Some(delta), ..) =>
+		match (state_update.state, state_update.state_delta) {
+			(WorkerState::NeedResolve, _) => unimplemented!("TODO"),
+			(WorkerState::CallAt, None) |
+			(WorkerState::Optimistic, None) |
+			(WorkerState::Valid, None) => state_update.result,
+			(WorkerState::CallAt, Some(delta)) |
+			(WorkerState::Optimistic, Some(delta)) |
+			(WorkerState::Valid, Some(delta)) =>
 				if delta.is_empty() {
-					Some(result)
+					state_update.result
 				} else {
 					unimplemented!("Storing change is not supported in ReadOnlyExternalities");
 				},
-			WorkerResult::Invalid => None,
-			WorkerResult::RuntimePanic => {
+			(WorkerState::Invalid, _) => None,
+			(WorkerState::RuntimePanic, _) => {
 				panic!("Runtime panic from a worker.")
 			},
-			WorkerResult::HardPanic => {
+			(WorkerState::HardPanic, _) => {
 				panic!("Hard panic runing a worker.")
 			},
 		}

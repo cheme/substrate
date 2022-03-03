@@ -89,8 +89,8 @@ pub use crate::common::with_externalities_safe;
 pub use async_externalities::new_async_externalities;
 pub use async_externalities::{new_inline_only_externalities, AsyncExternalities};
 pub use sp_externalities::{
-	AccessDeclaration, AccessDeclarations, DeclarationFailureHandling, LocalAccessDeclaration,
-	WorkerDeclaration, WorkerDeclarationKind, WorkerResult, AccessLog,
+	AccessDeclaration, AccessDeclarations, AccessLog, DeclarationFailureHandling,
+	LocalAccessDeclaration, WorkerDeclaration, WorkerDeclarationKind, WorkerResult, WorkerState,
 };
 pub use sp_io::Crossing;
 use sp_std::vec::Vec;
@@ -119,8 +119,8 @@ impl DataJoinHandle {
 	/// Get state on join, this should only be
 	/// use to simulate (eg getting access logs
 	/// with declarative from block builder).
-	pub fn join_declarative_log(self) -> Option<AccessLog> {
-		sp_io::runtime_tasks::join_declarative_log(self.handle).into_inner()
+	pub fn join_log_accesses(self) -> (Option<Vec<u8>>, Option<AccessLog>) {
+		sp_io::runtime_tasks::join_log_accesses(self.handle).into_inner()
 	}
 }
 

@@ -42,8 +42,8 @@ pub use scope_limited::{
 };
 
 mod extensions;
-mod scope_limited;
 mod logger;
+mod scope_limited;
 
 pub use logger::*;
 
@@ -313,15 +313,13 @@ pub trait Externalities: ExtensionStore {
 
 /// Substrate externalities that can be use within a worker context.
 pub trait AsyncExternalities: Externalities + Send {
-	/// Extract changes made to state for this worker.
-	fn extract_delta(&mut self) -> Option<StateDelta>;
-
 	/// After execution, we call back async externalities to check
 	/// produce worker result.
-	fn extract_state(&mut self) -> WorkerState;
+	fn extract_state(&mut self) -> (WorkerState, Option<StateDelta>, Option<AccessLog>);
 }
 
-/// State of async externality of a child workre after 'join' is called.
+/// State of async externality of a child worker after 'join' is called.
+#[derive(codec::Encode, codec::Decode)]
 pub enum WorkerState {
 	/// Some condition fails and the state is invalid.
 	/// With an invalid state we consider that worker
@@ -334,6 +332,11 @@ pub enum WorkerState {
 	/// return the result to the parent worker on 'join'.
 	Valid,
 
+	/// Result that require to be checked against
+	/// its parent externality state.
+	/// TODO try remove
+	CallAt,
+
 	/// This requires to check the result against
 	/// parent worker externalities with `resolve_worker_result`.
 	NeedResolve,
@@ -342,7 +345,16 @@ pub enum WorkerState {
 	/// against other worker results.
 	/// This can result in 'join' returning an invalid
 	/// result.
-	Optimistic(AccessLog),
+	Optimistic,
+
+	/// Internal panic when runing the worker.
+	/// This propagate panic in caller.
+	RuntimePanic,
+
+	/// Technical panic when runing the worker.
+	/// This propagate panic in caller, and also
+	/// indicate the process should be stop.
+	HardPanic,
 }
 
 /// Result from worker execution.
@@ -350,29 +362,28 @@ pub enum WorkerState {
 /// Note that an error that is expected should
 /// be serialize in a `Valid` result payload.
 #[derive(codec::Encode, codec::Decode)]
-pub enum WorkerResult {
-	/// Payload resulting from a successfull
-	/// call that is guaranted to be valid
-	/// at this point.
-	/// eg. a stateless worker.
-	Valid(Vec<u8>, Option<StateDelta>),
-	/// Result that require to be checked against
-	/// its parent externality state.
-	CallAt(Vec<u8>, Option<StateDelta>, TaskId),
-	/// Optimistic strategy call reply, it contains
-	/// a log of accessed keys during child execution.
-	Optimistic(Vec<u8>, Option<StateDelta>, TaskId, AccessLog),
-	/// A worker execution that is not valid.
-	/// For instance when asumption on state
-	/// are required.
-	Invalid,
-	/// Internal panic when runing the worker.
-	/// This propagate panic in caller.
-	RuntimePanic,
-	/// Technical panic when runing the worker.
-	/// This propagate panic in caller, and also
-	/// indicate the process should be stop.
-	HardPanic,
+pub struct WorkerResult {
+	/// Child task id.
+	pub id: TaskId,
+
+	/// State.
+	pub state: WorkerState,
+
+	/// Changes to state done in child worker.
+	pub state_delta: Option<StateDelta>,
+
+	/// Accesses to state done in child worker.
+	pub log_accesses: Option<AccessLog>,
+
+	/// Serialize result if child precessed to completion.
+	pub result: Option<Vec<u8>>,
+}
+
+impl From<(WorkerState, TaskId)> for WorkerResult {
+	// TODO specific function as it is on ly for error
+	fn from((state, id): (WorkerState, TaskId)) -> Self {
+		WorkerResult { id, state, state_delta: None, log_accesses: None, result: None }
+	}
 }
 
 type StorageValue = Vec<u8>;
@@ -646,18 +657,27 @@ pub struct WorkerDeclaration {
 	/// Read access in local_scope stay subject to concurency
 	/// failure.
 	pub write_local_scope: Option<AccessDeclaration>,
+
+	/// Indicate if the worker should log its accesses.
+	/// When a worker log accesses, all its child worker
+	/// will log even if not declared to.
+	pub log_accesses: bool,
 }
 
 impl WorkerDeclaration {
 	/// Declaration for a stateless worker.
 	pub fn stateless() -> Self {
-		WorkerDeclaration { kind: WorkerDeclarationKind::Stateless, write_local_scope: None }
+		WorkerDeclaration {
+			kind: WorkerDeclarationKind::Stateless,
+			write_local_scope: None,
+			log_accesses: false,
+		}
 	}
 }
 
 impl From<WorkerDeclarationKind> for WorkerDeclaration {
 	fn from(kind: WorkerDeclarationKind) -> Self {
-		WorkerDeclaration { kind, write_local_scope: None }
+		WorkerDeclaration { kind, write_local_scope: None, log_accesses: false }
 	}
 }
 

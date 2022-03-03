@@ -26,8 +26,8 @@ use sp_core::{
 	storage::{ChildInfo, TrackedStorageKey},
 };
 use sp_externalities::{
-	AsyncExternalities, Externalities, TaskId, WorkerDeclaration, WorkerDeclarationKind,
-	WorkerResult, WorkerState, WorkerType,
+	AccessLog, AsyncExternalities, Externalities, StateDelta, TaskId, WorkerDeclaration,
+	WorkerDeclarationKind, WorkerResult, WorkerState, WorkerType,
 };
 use sp_std::{
 	any::{Any, TypeId},
@@ -312,7 +312,11 @@ impl Externalities for AsyncExt {
 		panic!("`storage_root`: should not be used in async externalities!")
 	}
 
-	fn child_storage_root(&mut self, _child_info: &ChildInfo, _: sp_core::storage::StateVersion) -> Vec<u8> {
+	fn child_storage_root(
+		&mut self,
+		_child_info: &ChildInfo,
+		_: sp_core::storage::StateVersion,
+	) -> Vec<u8> {
 		// TODO currently no storage_root function to avoid having to move the hasher trait
 		// in AsyncExternalities extension.
 		panic!("`child_storage_root`: should not be used in async externalities!")
@@ -413,24 +417,15 @@ impl sp_externalities::ExtensionStore for AsyncExt {
 }
 
 impl AsyncExternalities for AsyncExt {
-	fn extract_delta(&mut self) -> Option<sp_externalities::StateDelta> {
-		if self.write_access() {
-			Some(self.overlay.extract_delta())
-		} else {
-			None
-		}
-	}
-
-	fn extract_state(&mut self) -> WorkerState {
+	fn extract_state(&mut self) -> (WorkerState, Option<StateDelta>, Option<AccessLog>) {
+		let access_log = self.overlay.extract_access_log(); // TODO ensure it log as soon as workerdecl
+		let delta = self.overlay.extract_delta();
 		if !self.kind.need_resolve() {
-			return WorkerState::Valid
+			return (WorkerState::Valid, delta, access_log)
 		}
 		if self.overlay.did_fail() {
-			return WorkerState::Invalid
+			return (WorkerState::Invalid, delta, access_log)
 		}
-		if let Some(optimistic) = self.overlay.extract_access_log() {
-			return WorkerState::Optimistic(optimistic)
-		}
-		WorkerState::NeedResolve
+		(WorkerState::NeedResolve, delta, access_log)
 	}
 }

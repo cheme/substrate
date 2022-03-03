@@ -42,7 +42,6 @@ const EXTRINSIC_FORMAT_VERSION: u8 = 4;
 /// This assumes latest extrinsic version.
 const TEST_WORKERS_VERSION: u8 = 127;
 
-
 /// A extrinsic right from the external world. This is unchecked and so
 /// can contain a signature.
 #[derive(PartialEq, Eq, Clone)]
@@ -277,7 +276,6 @@ where
 			Default::default()
 		};
 
-
 		let signature = is_signed.then(|| Decode::decode(input)).transpose()?;
 		let function = Decode::decode(input)?;
 
@@ -316,14 +314,13 @@ where
 				}
 				s.encode_to(&mut tmp);
 			},
-			None => {
+			None =>
 				if self.worker_group == Default::default() {
 					tmp.push(EXTRINSIC_FORMAT_VERSION & 0b0111_1111);
 				} else {
 					tmp.push(TEST_WORKERS_VERSION & 0b0111_1111);
 					self.worker_group.encode_to(&mut tmp);
-				}
-			},
+				},
 		}
 		self.function.encode_to(&mut tmp);
 

@@ -23,7 +23,7 @@ use failure::{DeclFailureHandling, FailureHandlers};
 use sp_core::storage::{ChildInfo, ChildType, PrefixedStorageKey};
 use sp_externalities::{
 	AccessDeclaration, DeclarationFailureHandling, LocalAccessDeclaration, TaskId,
-	WorkerDeclarationKind, WorkerResult,
+	WorkerDeclarationKind, WorkerResult, WorkerState,
 };
 use sp_std::{
 	collections::{btree_map::BTreeMap, btree_set::BTreeSet},
@@ -471,21 +471,22 @@ impl Filters {
 
 	pub(super) fn on_worker_result(&mut self, result: &WorkerResult) -> bool {
 		let did_fail = self.failure_handlers.did_fail();
-		match result {
-			WorkerResult::CallAt(_result, _delta, marker) => {
-				self.remove_worker(*marker);
+		match result.state {
+			WorkerState::CallAt => {
+				self.remove_worker(result.id);
 			},
-			WorkerResult::Optimistic(_result, _delta, marker, ..) => {
+			WorkerState::Optimistic => {
 				// This is actually a noops since optimistic don't
 				// use filter.
-				self.remove_worker(*marker);
+				self.remove_worker(result.id);
 			},
 			// When using filter there is no directly valid case.
-			WorkerResult::Valid(..) => (),
+			WorkerState::Valid => (),
 			// When using filter there is no invalid case.
-			WorkerResult::Invalid => (),
+			WorkerState::Invalid => (),
+			WorkerState::NeedResolve => unimplemented!("TODO"),
 			// will panic on resolve so no need to clean filter
-			WorkerResult::RuntimePanic | WorkerResult::HardPanic => (),
+			WorkerState::RuntimePanic | WorkerState::HardPanic => (),
 		};
 		!did_fail
 	}
@@ -1675,7 +1676,9 @@ pub(super) mod interval_filters {
 			}
 			if to
 				.as_ref()
-				.map(|end| (inclusive && k.as_slice() > *end) || (!inclusive && k.as_slice() >= *end))
+				.map(|end| {
+					(inclusive && k.as_slice() > *end) || (!inclusive && k.as_slice() >= *end)
+				})
 				.unwrap_or(false)
 			{
 				return false
@@ -1699,7 +1702,9 @@ pub(super) mod interval_filters {
 			}
 			if to
 				.as_ref()
-				.map(|end| (inclusive && k.as_slice() > *end) || (!inclusive && k.as_slice() >= *end))
+				.map(|end| {
+					(inclusive && k.as_slice() > *end) || (!inclusive && k.as_slice() >= *end)
+				})
 				.unwrap_or(false)
 			{
 				return &value.end_of

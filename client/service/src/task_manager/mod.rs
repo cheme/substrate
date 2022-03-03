@@ -30,13 +30,15 @@ use prometheus_endpoint::{
 };
 use sc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver, TracingUnboundedSender};
 use std::{
+	panic,
+	pin::Pin,
+	result::Result,
 	sync::{
 		atomic::{AtomicUsize, Ordering},
 		Arc,
 	},
 };
 use tokio::{runtime::Handle, task::JoinHandle};
-use std::{panic, pin::Pin, result::Result};
 use tracing_futures::Instrument;
 
 mod prometheus_future;

@@ -22,7 +22,6 @@ use super::{
 	block_rules::{BlockRules, LookupResult as BlockLookupResult},
 	genesis,
 };
-use std::convert::TryInto;
 use codec::{Decode, Encode};
 use log::{info, trace, warn};
 use parking_lot::{Mutex, RwLock};
@@ -49,7 +48,6 @@ use sc_consensus::{
 };
 use sc_executor::{RuntimeVersion, RuntimeVersionOf};
 use sc_telemetry::{telemetry, TelemetryHandle, SUBSTRATE_INFO};
-use sp_externalities::BuildGroups;
 use sp_api::{
 	ApiExt, ApiRef, CallApiAt, CallApiAtParams, ConstructRuntimeApi, Core as CoreApi,
 	ProvideRuntimeApi,
@@ -59,6 +57,8 @@ use sp_blockchain::{
 	CachedHeaderMetadata, Error, HeaderBackend as ChainHeaderBackend, HeaderMetadata,
 };
 use sp_consensus::{BlockOrigin, BlockStatus, Error as ConsensusError};
+use sp_externalities::BuildGroups;
+use std::convert::TryInto;
 
 use sc_utils::mpsc::{tracing_unbounded, TracingUnboundedSender};
 use sp_core::{
@@ -410,7 +410,9 @@ where
 			execution_extensions,
 			config,
 			telemetry,
-			log_accesses: Mutex::new(std::fs::File::create(std::path::Path::new("./new_log_accesses")).unwrap()),
+			log_accesses: Mutex::new(
+				std::fs::File::create(std::path::Path::new("./new_log_accesses")).unwrap(),
+			),
 			build_group_5_block: RwLock::new(BuildGroups::new(CONFLICT_THRESH, 1)),
 			_phantom: Default::default(),
 		})
@@ -834,19 +836,20 @@ where
 					.into_storage_changes(&state, *parent_hash)
 					.map_err(sp_blockchain::Error::Storage)?;
 
-				let block_number: u32 = if let Ok(n) = import_block.header.number().clone().try_into() {
-					n
-				} else {
-					panic!("TODO");
-				};
-/* This log the whole block access
-				let mut file = self.log_accesses.lock();
-				use std::io::Write;
-				serde_json::to_writer(&mut *file, &format!("--- At block p {:?}", block_number)).expect("TODO");
-				file.write(b"\n").unwrap();
-				serde_json::to_writer(&mut *file, &logged_changes).expect("TODO");
-				file.write(b"\n").unwrap();
-*/
+				let block_number: u32 =
+					if let Ok(n) = import_block.header.number().clone().try_into() {
+						n
+					} else {
+						panic!("TODO");
+					};
+				/* This log the whole block access
+								let mut file = self.log_accesses.lock();
+								use std::io::Write;
+								serde_json::to_writer(&mut *file, &format!("--- At block p {:?}", block_number)).expect("TODO");
+								file.write(b"\n").unwrap();
+								serde_json::to_writer(&mut *file, &logged_changes).expect("TODO");
+								file.write(b"\n").unwrap();
+				*/
 				if import_block.header.state_root() != &gen_storage_changes.transaction_storage_root
 				{
 					return Err(Error::InvalidStateRoot)
@@ -1765,7 +1768,6 @@ where
 		let header = import_block.header.clone();
 		let body = import_block.body.clone();
 
-
 		let storage_changes =
 			match self.prepare_block_storage_changes(&mut import_block).map_err(|e| {
 				warn!("Block prepare storage changes error: {}", e);
@@ -1775,13 +1777,14 @@ where
 				PrepareStorageChangesResult::Import(storage_changes) => storage_changes,
 			};
 
-		let r = self.lock_import_and_run(|operation| {
-			self.apply_block(operation, import_block, new_cache, storage_changes)
-		})
-		.map_err(|e| {
-			warn!("Block import error: {}", e);
-			ConsensusError::ClientImport(e.to_string()).into()
-		});
+		let r = self
+			.lock_import_and_run(|operation| {
+				self.apply_block(operation, import_block, new_cache, storage_changes)
+			})
+			.map_err(|e| {
+				warn!("Block import error: {}", e);
+				ConsensusError::ClientImport(e.to_string()).into()
+			});
 
 		let block_number: u32 = if let Ok(n) = header.number().clone().try_into() {
 			n
@@ -1797,7 +1800,8 @@ where
 			if let Ok(mut block_builder) =
 				(*self).new_block_at(&parent, header.digest().clone(), false)
 			{
-				serde_json::to_writer(&mut *file, &format!("--- At block {:?}", block_number)).expect("TODO");
+				serde_json::to_writer(&mut *file, &format!("--- At block {:?}", block_number))
+					.expect("TODO");
 				file.write(b"\n").unwrap();
 
 				let mut build_group = BuildGroups::new(CONFLICT_THRESH, 1);
@@ -1805,9 +1809,9 @@ where
 				let mut build_group_5_block = self.build_group_5_block.write();
 				if let Some(accesses) = block_builder.into_st_change() {
 					build_group.add_next(accesses);
-//					serde_json::to_writer(&mut *file, "on_init").expect("TODO");
-//					serde_json::to_writer(&mut *file, &accesses).expect("TODO");
-//					file.write(b"\n").unwrap();
+					//					serde_json::to_writer(&mut *file, "on_init").expect("TODO");
+					//					serde_json::to_writer(&mut *file, &accesses).expect("TODO");
+					//					file.write(b"\n").unwrap();
 				}
 				for (i, extrinsic) in extrinsics.iter().enumerate() {
 					// TODO block initialize??
@@ -1818,12 +1822,13 @@ where
 							build_group_no_init.add_next(accesses.clone());
 							build_group.add_next(accesses);
 							// TODO log in report
-//							serde_json::to_writer(&mut *file, &accesses).expect("TODO");
-//							file.write(b"\n").unwrap();
+							//							serde_json::to_writer(&mut *file, &accesses).expect("TODO");
+							//							file.write(b"\n").unwrap();
 						},
 						None => {
 							// TODO log in report
-							serde_json::to_writer(&mut *file, &format!("err at {}", i)).expect("TODO");
+							serde_json::to_writer(&mut *file, &format!("err at {}", i))
+								.expect("TODO");
 							file.write(b"\n").unwrap();
 						},
 					}
@@ -1838,8 +1843,8 @@ where
 					file.write(b"\n").unwrap();
 					build_group_5_block.clear();
 				}
-//				serde_json::to_writer(&mut *file, &"whole block:").expect("TODO");
-//				file.write(b"\n").unwrap();
+				//				serde_json::to_writer(&mut *file, &"whole block:").expect("TODO");
+				//				file.write(b"\n").unwrap();
 			}
 		}
 		r
@@ -1946,7 +1951,8 @@ where
 			use std::io::Write;
 			// code similar to build block propose.
 			if let Some(extrinsics) = import_block.body.as_ref() {
-				serde_json::to_writer(&mut *file, &format!("--- At block {:?}", block_number)).expect("TODO");
+				serde_json::to_writer(&mut *file, &format!("--- At block {:?}", block_number))
+					.expect("TODO");
 				file.write(b"\n").unwrap();
 				for (i, extrinsic) in extrinsics.iter().enumerate() {
 					match block_builder.push_spawn(extrinsic.clone()) {
@@ -1957,14 +1963,16 @@ where
 						},
 						Err(e) => {
 							// TODO log in report
-							serde_json::to_writer(&mut *file, &format!("err at {}, {:?}", i, e)).expect("TODO");
+							serde_json::to_writer(&mut *file, &format!("err at {}, {:?}", i, e))
+								.expect("TODO");
 							file.write(b"\n").unwrap();
 						},
 					}
 				}
 			} else {
 				// TODO log in report
-				serde_json::to_writer(&mut *file, &format!("--- no body at {:?}", block_number)).expect("TODO");
+				serde_json::to_writer(&mut *file, &format!("--- no body at {:?}", block_number))
+					.expect("TODO");
 				file.write(b"\n").unwrap();
 			}
 		}

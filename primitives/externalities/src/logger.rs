@@ -18,9 +18,9 @@
 //! State access logs primitives.
 
 use sp_std::{
-	vec, vec::Vec,
-	collections::btree_set::BTreeSet,
-	collections::btree_map::BTreeMap,
+	collections::{btree_map::BTreeMap, btree_set::BTreeSet},
+	vec,
+	vec::Vec,
 };
 
 /// Log of a given worker call.
@@ -114,7 +114,9 @@ impl From<AccessLog> for AccumLogger {
 		AccumLogger {
 			read_all: log.read_all,
 			top_logger: log.top_logger.into(),
-			children_logger: log.children_logger.into_iter()
+			children_logger: log
+				.children_logger
+				.into_iter()
 				.map(|(storage_key, logger)| (storage_key, logger.into()))
 				.collect(),
 		}
@@ -133,7 +135,7 @@ impl AccumLogger {
 			}
 		}
 	}
-/*	/// TODO
+	/*	/// TODO
 	pub fn accumulate(&mut self, logger: Self) {
 		for (storage_key, logger) in logger.children_logger {
 			if let Some(child) = self.children_logger.get_mut(&storage_key) {
@@ -196,7 +198,7 @@ impl AccumStateLogger {
 		self.forbid_read.extend(logger.write_keys);
 		self.forbid_read_prefixes.extend(logger.write_prefix);
 	}
-/*	/// TODO
+	/*	/// TODO
 	pub fn accumulate(&mut self, mut logger: Self) {
 		self.forbid_read.append(&mut logger.forbid_read);
 		self.forbid_read_prefixes.append(&mut logger.forbid_read_prefixes);
@@ -205,7 +207,12 @@ impl AccumStateLogger {
 	/// TODO should optimize by runing all iterations concurrently.
 	/// Diff is against a following log: so check read capability allowed.
 	/// Write check is not needed here (parent allows all for extrinsic)
-	pub fn diff(&self, logger: &StateLog, child_trie: Option<&Vec<u8>>, read_all: bool) -> Conflicts {
+	pub fn diff(
+		&self,
+		logger: &StateLog,
+		child_trie: Option<&Vec<u8>>,
+		read_all: bool,
+	) -> Conflicts {
 		let mut conflicts = Vec::new();
 		if read_all {
 			for key in self.forbid_read.iter() {
@@ -271,7 +278,7 @@ impl AccumStateLogger {
 				let (write_end, write_start) = (end_prefix(prefix.as_slice()), prefix);
 				if write_end.as_ref().map(|write_end| start >= write_end).unwrap_or(false) {
 					let _ = iter_prefix.next();
-					continue;
+					continue
 				}
 				// read end > start
 				if end.as_ref().map(|end| write_start <= &end).unwrap_or(true) {
@@ -281,13 +288,13 @@ impl AccumStateLogger {
 						child: ConflictOrigin::ReadInterval((start.clone(), end.clone())),
 					});
 					if end.is_none() || (write_end.is_some() && &write_end <= end) {
-						// can have other prefix in interval 
+						// can have other prefix in interval
 						let _ = iter_prefix.next();
-						continue;
+						continue
 					}
-					break;
+					break
 				} else {
-					break;
+					break
 				}
 			}
 		}
@@ -351,22 +358,22 @@ pub enum ConflictOrigin {
 ///
 /// Then we apply rules (check is precondition, force means we can modify current rules):
 /// - spawn A:
-///		- check A write decl included in parent write access
-///		- check A read decl included in parent read 0 access
-///		- check/force A write decl disjoint with parent read 1 capability.
+/// 		- check A write decl included in parent write access
+/// 		- check A read decl included in parent read 0 access
+/// 		- check/force A write decl disjoint with parent read 1 capability.
 /// - spawn B:
-///		- check B write decl included in parent write access
-///		- check B read decl included in parent read 1 access
-///		- check/force B write decl disjoint with parent read 2 capability.
+/// 		- check B write decl included in parent write access
+/// 		- check B read decl included in parent read 1 access
+/// 		- check/force B write decl disjoint with parent read 2 capability.
 ///
 /// Write A disjoint with parent read 1.
 /// Read B included in parent read 1.
 /// So Write A disjoint with Read B.
 ///
 /// - spawn C:
-///		- check C write decl included in parent write access
-///		- check C read decl included in parent read 2 access
-///		- check/force C write decl disjoint with parent read 3 capability.
+/// 		- check C write decl included in parent write access
+/// 		- check C read decl included in parent read 2 access
+/// 		- check/force C write decl disjoint with parent read 3 capability.
 ///
 /// Write B disjoint with parent read 2.
 /// Read C included in parent read 2.
@@ -377,7 +384,7 @@ pub enum ConflictOrigin {
 /// So Write A disjoint with parent read 2.
 /// Read C included in parent read 2.
 /// So Write A disjoint with Read C.
-/// 
+///
 /// By recurrence, ok for more code part.
 ///
 ///
@@ -399,7 +406,7 @@ pub enum ConflictOrigin {
 /// A write disjoint with Read C.
 ///
 /// For this we just need to:
-///		- check/force B write decl disjoint with parent read 1 capability.
+/// 		- check/force B write decl disjoint with parent read 1 capability.
 ///
 ///	# grouping algo:
 ///
@@ -494,14 +501,11 @@ mod tests {
 		let parent: AccumStateLogger = StateLog {
 			read_keys: vec![],
 			write_keys: vec![],
-			write_prefix: vec![
-				b"b".to_vec(),
-				b"h".to_vec(),
-				b"o".to_vec(),
-			],
-			
+			write_prefix: vec![b"b".to_vec(), b"h".to_vec(), b"o".to_vec()],
+
 			read_intervals: vec![],
-		}.into();
+		}
+		.into();
 		let child = StateLog {
 			read_keys: vec![],
 			write_keys: vec![],
@@ -518,102 +522,96 @@ mod tests {
 		};
 
 		// TODO debug test broken, missing first only from diff
-		assert_eq!(parent.diff(&child, None, false), Conflicts(vec![
-			Conflict {
-				child_trie: None,
-				parent: ConflictOrigin::WritePrefix(b"b".to_vec()),
-				child: ConflictOrigin::ReadInterval((b"abc".to_vec(), b"de".to_vec().into())),
-			},
-			Conflict {
-				child_trie: None,
-				parent: ConflictOrigin::WritePrefix(b"h".to_vec()),
-				child: ConflictOrigin::ReadInterval((b"ha".to_vec(), b"hb".to_vec().into())),
-			},
-			Conflict {
-				child_trie: None,
-				parent: ConflictOrigin::WritePrefix(b"h".to_vec()),
-				child: ConflictOrigin::ReadInterval((b"hb".to_vec(), b"hc".to_vec().into())),
-			},
-			Conflict {
-				child_trie: None,
-				parent: ConflictOrigin::WritePrefix(b"h".to_vec()),
-				child: ConflictOrigin::ReadInterval((b"hz".to_vec(), b"i".to_vec().into())),
-			},
-			Conflict {
-				child_trie: None,
-				parent: ConflictOrigin::WritePrefix(b"o".to_vec()),
-				child: ConflictOrigin::ReadInterval((b"m".to_vec(), b"z".to_vec().into())),
-			},
-		]));
+		assert_eq!(
+			parent.diff(&child, None, false),
+			Conflicts(vec![
+				Conflict {
+					child_trie: None,
+					parent: ConflictOrigin::WritePrefix(b"b".to_vec()),
+					child: ConflictOrigin::ReadInterval((b"abc".to_vec(), b"de".to_vec().into())),
+				},
+				Conflict {
+					child_trie: None,
+					parent: ConflictOrigin::WritePrefix(b"h".to_vec()),
+					child: ConflictOrigin::ReadInterval((b"ha".to_vec(), b"hb".to_vec().into())),
+				},
+				Conflict {
+					child_trie: None,
+					parent: ConflictOrigin::WritePrefix(b"h".to_vec()),
+					child: ConflictOrigin::ReadInterval((b"hb".to_vec(), b"hc".to_vec().into())),
+				},
+				Conflict {
+					child_trie: None,
+					parent: ConflictOrigin::WritePrefix(b"h".to_vec()),
+					child: ConflictOrigin::ReadInterval((b"hz".to_vec(), b"i".to_vec().into())),
+				},
+				Conflict {
+					child_trie: None,
+					parent: ConflictOrigin::WritePrefix(b"o".to_vec()),
+					child: ConflictOrigin::ReadInterval((b"m".to_vec(), b"z".to_vec().into())),
+				},
+			])
+		);
 
 		let parent: AccumStateLogger = StateLog {
 			read_keys: vec![],
 			write_keys: vec![],
-			write_prefix: vec![
-				b"b".to_vec(),
-				b"m".to_vec(),
-				b"no".to_vec(),
-			],
+			write_prefix: vec![b"b".to_vec(), b"m".to_vec(), b"no".to_vec()],
 			read_intervals: vec![],
-		}.into();
+		}
+		.into();
 		let child = StateLog {
 			read_keys: vec![],
 			write_keys: vec![],
 			write_prefix: vec![],
-			read_intervals: vec![
-				(b"m".to_vec(), None),
-			],
+			read_intervals: vec![(b"m".to_vec(), None)],
 		};
 
-		assert_eq!(parent.diff(&child, None, false), Conflicts(vec![
-			Conflict {
-				child_trie: None,
-				parent: ConflictOrigin::WritePrefix(b"m".to_vec()),
-				child: ConflictOrigin::ReadInterval((b"m".to_vec(), None)),
-			},
-			Conflict {
-				child_trie: None,
-				parent: ConflictOrigin::WritePrefix(b"no".to_vec()),
-				child: ConflictOrigin::ReadInterval((b"m".to_vec(), None)),
-			},
-		]));
+		assert_eq!(
+			parent.diff(&child, None, false),
+			Conflicts(vec![
+				Conflict {
+					child_trie: None,
+					parent: ConflictOrigin::WritePrefix(b"m".to_vec()),
+					child: ConflictOrigin::ReadInterval((b"m".to_vec(), None)),
+				},
+				Conflict {
+					child_trie: None,
+					parent: ConflictOrigin::WritePrefix(b"no".to_vec()),
+					child: ConflictOrigin::ReadInterval((b"m".to_vec(), None)),
+				},
+			])
+		);
 
 		let parent: AccumStateLogger = StateLog {
 			read_keys: vec![],
-			write_keys: vec![
-				b"b".to_vec(),
-				b"h".to_vec(),
-				b"o".to_vec(),
-			],
-			write_prefix: vec![
-				b"i".to_vec(),
-			],
+			write_keys: vec![b"b".to_vec(), b"h".to_vec(), b"o".to_vec()],
+			write_prefix: vec![b"i".to_vec()],
 			read_intervals: vec![],
-		}.into();
+		}
+		.into();
 		let child = StateLog {
 			write_keys: vec![],
 			write_prefix: vec![],
 			read_intervals: vec![],
-			read_keys: vec![
-				b"".to_vec(),
-				b"b".to_vec(),
-				b"ba".to_vec(),
-				b"ia".to_vec(),
-			],
+			read_keys: vec![b"".to_vec(), b"b".to_vec(), b"ba".to_vec(), b"ia".to_vec()],
 		};
 
 		// TODO debug test broken, missing first only from diff
-		assert_eq!(parent.diff(&child, None, false), Conflicts(vec![
-			Conflict {
-				child_trie: None,
-				parent: ConflictOrigin::WriteKey(b"b".to_vec()),
-				child: ConflictOrigin::ReadKey(b"b".to_vec()),
-			},
-			Conflict {
-				child_trie: None,
-				parent: ConflictOrigin::WritePrefix(b"i".to_vec()),
-				child: ConflictOrigin::ReadKey(b"ia".to_vec()),
-			},
-		]));
+		assert_eq!(
+			parent.diff(&child, None, false),
+			Conflicts(vec![
+				Conflict {
+					child_trie: None,
+					parent: ConflictOrigin::WriteKey(b"b".to_vec()),
+					child: ConflictOrigin::ReadKey(b"b".to_vec()),
+				},
+				Conflict {
+					child_trie: None,
+					parent: ConflictOrigin::WritePrefix(b"i".to_vec()),
+					child: ConflictOrigin::ReadKey(b"ia".to_vec()),
+				},
+			])
+		);
 	}
 }

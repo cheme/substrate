@@ -603,7 +603,11 @@ mod tests {
 		};
 		let signature = pair.sign(&transfer.encode()).into();
 		Extrinsic {
-			call: ExtrinsicCall::Transfer { transfer, signature, exhaust_resources_when_not_first: true },
+			call: ExtrinsicCall::Transfer {
+				transfer,
+				signature,
+				exhaust_resources_when_not_first: true,
+			},
 			worker_group: Default::default(),
 		}
 	}
@@ -755,7 +759,8 @@ mod tests {
 
 		let state = backend.state_at(block_id).unwrap();
 
-		let (storage_changes, _logged_changes) = api.into_storage_changes(&state, genesis_hash).unwrap();
+		let (storage_changes, _logged_changes) =
+			api.into_storage_changes(&state, genesis_hash).unwrap();
 
 		assert_eq!(
 			proposal.storage_changes.transaction_storage_root,

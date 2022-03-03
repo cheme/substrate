@@ -26,7 +26,8 @@ use std::{
 };
 
 pub use sp_externalities::{
-	AsyncExternalities, Externalities, ExternalitiesExt, TaskId, WorkerDeclaration, WorkerResult, AccessLog,
+	AccessLog, AsyncExternalities, Externalities, ExternalitiesExt, TaskId, WorkerDeclaration,
+	WorkerResult, WorkerState,
 };
 
 /// Code execution engine.
@@ -213,6 +214,8 @@ pub trait RuntimeSpawn: Send {
 	) -> Option<TaskId>;
 
 	/// Join the result of previously created runtime instance invocation.
+	///
+	/// Call back is to operate on child access from child thread before joining it.
 	fn join(&self, handle: TaskId, calling_ext: &mut dyn Externalities) -> Option<Vec<u8>>;
 
 	/// Stop the previous created runtime instance invocation.
@@ -232,7 +235,11 @@ pub trait RuntimeSpawn: Send {
 	fn set_capacity(&self, capacity: u32);
 
 	/// TODO
-	fn join_declarative_log(&self, handle: TaskId) -> Option<AccessLog>;
+	fn join_log_accesses(
+		&self,
+		handle: TaskId,
+		calling_ext: &mut dyn Externalities,
+	) -> (Option<Vec<u8>>, Option<AccessLog>);
 }
 
 sp_externalities::decl_extension! {
@@ -252,20 +259,18 @@ pub trait SpawnNamed: SpawnLimit + DynClone + Send + Sync {
 	/// Spawn the given blocking future.
 	///
 	/// The given `group` and `name` is used to identify the future in tracing.
-	fn spawn_blocking(
-		&self,
-		name: &'static str,
-		group: Option<&'static str>,
-		future: BoxFuture,
-	);
+	fn spawn_blocking(&self, name: &'static str, group: Option<&'static str>, future: BoxFuture);
 
 	/// Spawn the given non-blocking future.
 	/// The handle optionally allows to signal that the task can be dismiss.
 	///
 	/// The given `group` and `name` is used to identify the future in tracing.
-	fn spawn(&self, name: &'static str,
+	fn spawn(
+		&self,
+		name: &'static str,
 		group: Option<&'static str>,
-		future: BoxFuture) -> Option<TaskHandle>;
+		future: BoxFuture,
+	) -> Option<TaskHandle>;
 }
 dyn_clone::clone_trait_object!(SpawnNamed);
 
@@ -288,15 +293,16 @@ pub trait TaskHandleTrait: Send {
 }
 
 impl SpawnNamed for Box<dyn SpawnNamed> {
-	fn spawn_blocking(&self, name: &'static str,
-		group: Option<&'static str>,
-		future: BoxFuture) {
+	fn spawn_blocking(&self, name: &'static str, group: Option<&'static str>, future: BoxFuture) {
 		(**self).spawn_blocking(name, group, future)
 	}
 
-	fn spawn(&self, name: &'static str,
+	fn spawn(
+		&self,
+		name: &'static str,
 		group: Option<&'static str>,
-		future: BoxFuture) -> Option<TaskHandle> {
+		future: BoxFuture,
+	) -> Option<TaskHandle> {
 		(**self).spawn(name, group, future)
 	}
 }

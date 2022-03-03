@@ -29,7 +29,7 @@
 use super::{retain_map, StorageKey};
 use crate::overlayed_changes::radix_trees::AccessTreeWrite;
 use sp_core::storage::ChildInfo;
-use sp_externalities::{StateLog, TaskId, WorkerResult};
+use sp_externalities::{StateLog, TaskId, WorkerResult, WorkerState};
 #[cfg(not(feature = "std"))]
 use sp_std::collections::btree_map::BTreeMap as Map;
 use sp_std::{collections::btree_set::BTreeSet, vec::Vec};
@@ -402,29 +402,33 @@ impl AccessLogger {
 	}
 
 	pub(super) fn on_worker_result(&mut self, result: &WorkerResult) -> bool {
-		match result {
-			WorkerResult::CallAt(_result, _delta, marker) => {
+		match result.state {
+			WorkerState::NeedResolve => unimplemented!("TODO"),
+			WorkerState::CallAt => {
 				// should not be usefull here
-				self.remove_worker(*marker);
+				self.remove_worker(result.id);
 				true
 			},
-			WorkerResult::Optimistic(_result, _delta, marker, accesses) => {
+			WorkerState::Optimistic => {
+				let accesses =
+					result.log_accesses.as_ref().expect("optimistic does force log access");
+				let id = result.id;
 				let result = || -> bool {
 					let has_read_child = accesses.has_read();
 					let has_write_child = accesses.has_write();
 
 					if has_read_child {
 						if accesses.read_all {
-							if !self.is_children_write_empty(*marker) {
+							if !self.is_children_write_empty(result.id) {
 								return false
 							}
 						} else {
-							if !self.top_logger.check_child_write(&accesses.top_logger, *marker) {
+							if !self.top_logger.check_child_write(&accesses.top_logger, result.id) {
 								return false
 							}
 							for (storage_key, child_logger) in accesses.children_logger.iter() {
 								if let Some(access_logger) = self.children_logger.get(storage_key) {
-									if !access_logger.check_child_write(child_logger, *marker) {
+									if !access_logger.check_child_write(child_logger, result.id) {
 										return false
 									}
 								}
@@ -435,12 +439,12 @@ impl AccessLogger {
 						if self.read_all.parent {
 							return false
 						}
-						if !self.top_logger.check_child_read(&accesses.top_logger, *marker) {
+						if !self.top_logger.check_child_read(&accesses.top_logger, result.id) {
 							return false
 						}
 						for (storage_key, child_logger) in accesses.children_logger.iter() {
 							if let Some(access_logger) = self.children_logger.get(storage_key) {
-								if !access_logger.check_child_read(child_logger, *marker) {
+								if !access_logger.check_child_read(child_logger, result.id) {
 									return false
 								}
 							}
@@ -507,15 +511,15 @@ impl AccessLogger {
 					true
 				}();
 
-				self.remove_worker(*marker);
+				self.remove_worker(id);
 				result
 			},
 			// When using filter there is no directly valid case.
-			WorkerResult::Valid(_result, _delta) => true,
+			WorkerState::Valid => true,
 			// When using filter there is no invalid case.
-			WorkerResult::Invalid => true,
+			WorkerState::Invalid => true,
 			// will panic on resolve so no need to clean filter
-			WorkerResult::RuntimePanic | WorkerResult::HardPanic => true,
+			WorkerState::RuntimePanic | WorkerState::HardPanic => true,
 		}
 	}
 

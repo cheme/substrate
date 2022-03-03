@@ -30,7 +30,8 @@ use crate::{
 };
 use sp_core::traits::RuntimeSpawn;
 use sp_externalities::{
-	AsyncExternalities, Externalities, TaskId, WorkerDeclaration, WorkerResult, AccessLog,
+	AccessLog, AsyncExternalities, Externalities, TaskId, WorkerDeclaration, WorkerResult,
+	WorkerState,
 };
 use sp_std::{boxed::Box, cell::RefCell, collections::btree_map::BTreeMap, rc::Rc, vec::Vec};
 
@@ -81,7 +82,7 @@ fn process_task_inline_inner<
 				error = %e,
 				"Failed to setup externalities for inline async context",
 			);
-			return WorkerResult::HardPanic
+			return (WorkerState::HardPanic, handle).into()
 		},
 	};
 	let async_ext = match async_ext.with_runtime_spawn(runtime_ext) {
@@ -92,7 +93,7 @@ fn process_task_inline_inner<
 				error = %e,
 				"Failed to setup externalities for inline async externalities",
 			);
-			return WorkerResult::HardPanic
+			return (WorkerState::HardPanic, handle).into()
 		},
 	};
 
@@ -217,16 +218,20 @@ pub mod hosted_runtime {
 				.spawn_call(dispatcher_ref, func, data, declaration, calling_ext)
 		}
 
-		fn join(&self, handle: TaskId, calling_ext: &mut dyn Externalities) -> Option<Vec<u8>>  {
+		fn join(&self, handle: TaskId, calling_ext: &mut dyn Externalities) -> Option<Vec<u8>> {
 			let worker_result = self.join_inner(handle);
 			calling_ext.resolve_worker_result(worker_result)
 		}
 
-		fn join_declarative_log(&self, handle: TaskId) -> Option<AccessLog> {
-			match self.join_inner(handle) {
-				WorkerResult::Optimistic(_result, _state_change, _id, log) => Some(log),
-				_ => None,
-			}
+		fn join_log_accesses(
+			&self,
+			handle: TaskId,
+			calling_ext: &mut dyn Externalities,
+		) -> (Option<Vec<u8>>, Option<AccessLog>) {
+			let result = self.join_inner(handle);
+			let log_accesses = result.log_accesses.clone();
+			let result = calling_ext.resolve_worker_result(result);
+			(result, log_accesses)
 		}
 
 		fn dismiss(&self, handle: TaskId, calling_ext: &mut dyn Externalities) {
@@ -266,7 +271,7 @@ pub mod hosted_runtime {
 				},
 				// handle has been removed due to dismiss or
 				// invalid externality condition.
-				None => WorkerResult::Invalid,
+				None => (WorkerState::Invalid, handle).into(),
 			}
 		}
 	}

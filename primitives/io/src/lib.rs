@@ -75,7 +75,7 @@ use secp256k1::{
 #[cfg(feature = "std")]
 use sp_externalities::{Externalities, ExternalitiesExt};
 
-use sp_externalities::{WorkerDeclaration, AccessLog};
+use sp_externalities::{AccessLog, WorkerDeclaration, WorkerState};
 
 #[cfg(feature = "std")]
 mod batch_verifier;
@@ -1659,11 +1659,12 @@ pub trait RuntimeTasks {
 		.expect("Cannot spawn without dynamic runtime dispatcher (RuntimeSpawnExt)")
 	}
 
-	/// TODO
-	fn join_declarative_log(&mut self, handle: u64) -> Crossing<Option<AccessLog>> {
+	/// Host function joining a task and getting access logs if recording.
+	/// TODO Why no result... TODO should be default (replace join)
+	fn join_log_accesses(&mut self, handle: u64) -> Crossing<(Option<Vec<u8>>, Option<AccessLog>)> {
 		sp_externalities::externalities_and_extension::<RuntimeSpawnExt, _, _>(
 			*self,
-			|_ext, spawn| Crossing(spawn.join_declarative_log(handle))
+			|ext, spawn| Crossing(spawn.join_log_accesses(handle, ext)),
 		)
 		.expect("Cannot spawn without dynamic runtime dispatcher (RuntimeSpawnExt)")
 	}

@@ -37,6 +37,7 @@ pub use sp_arithmetic::traits::{
 	UniqueSaturatedFrom, UniqueSaturatedInto, Zero,
 };
 use sp_core::{self, storage::StateVersion, Hasher, RuntimeDebug, TypeId};
+pub use sp_externalities::AccessLog;
 use sp_std::{
 	self,
 	convert::{TryFrom, TryInto},
@@ -44,7 +45,6 @@ use sp_std::{
 	marker::PhantomData,
 	prelude::*,
 };
-pub use sp_externalities::AccessLog;
 #[cfg(feature = "std")]
 use std::fmt::Display;
 #[cfg(feature = "std")]

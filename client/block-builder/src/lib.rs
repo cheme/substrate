@@ -42,7 +42,7 @@ use sp_runtime::{
 pub use sp_block_builder::BlockBuilder as BlockBuilderApi;
 
 use sc_client_api::backend;
-use sp_tasks::{DataJoinHandle, WorkerDeclaration, WorkerDeclarationKind, AccessLog};
+use sp_tasks::{AccessLog, DataJoinHandle, WorkerDeclaration, WorkerDeclarationKind};
 
 /// Used as parameter to [`BlockBuilderProvider`] to express if proof recording should be enabled.
 ///
@@ -252,10 +252,12 @@ where
 			ExecutionContext::BlockConstruction,
 			xt.clone(),
 		) {
-			Ok(accesses) => {
+			// any dispatch result is added.
+			Ok((Ok(_dispatch_result), accesses)) => {
 				pending_parallel.push((xt, accesses));
 				Ok(&pending_parallel.last().unwrap().1)
 			},
+			Ok((Err(e), _accesses)) => Err(Error::from(ApplyExtrinsicFailed::from(e))),
 			Err(e) => Err(Error::from(e)),
 		}
 	}

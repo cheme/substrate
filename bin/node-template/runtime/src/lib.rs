@@ -362,20 +362,24 @@ impl_runtime_apis! {
 
 		fn log_extrinsic(
 			extrinsic: <Block as BlockT>::Extrinsic,
-		) -> sp_tasks::AccessLog {
+		) -> (ApplyExtrinsicResult, sp_tasks::AccessLog) {
 			use codec::{Encode, Decode};
 			fn run(encoded_extrinsic: Vec<u8>) -> Vec<u8>  {
 				let extrinsic: <Block as BlockT>::Extrinsic = Decode::decode(&mut encoded_extrinsic.as_slice())
 					.expect("encoded in call");
 				Executive::apply_extrinsic(extrinsic).encode()
 			}
-			sp_tasks::set_capacity(0); // run inline (single thread really). 
+			sp_tasks::set_capacity(0); // run inline (single thread really).
 			let declaration = sp_tasks::WorkerDeclaration {
 				kind: sp_tasks::WorkerDeclarationKind::WriteOptimistic,
 				write_local_scope: None,
+				log_accesses: true,
 			};
 			let handle = sp_tasks::spawn(run, extrinsic.encode(), declaration).expect("TODO");
-			handle.join_declarative_log().expect("TODO")
+			match handle.join_log_accesses() {
+				(mut result, Some(accesses)) => (result.as_mut().map(|r| Decode::decode(&mut r.as_slice())).expect("TODO").expect("TODO"), accesses),
+				(_, None) => unreachable!("log accesses set to true in declaration."),
+			}
 		}
 
 		fn finalize_block() -> <Block as BlockT>::Header {

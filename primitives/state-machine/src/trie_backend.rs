@@ -24,8 +24,7 @@ use crate::{
 use codec::Codec;
 use hash_db::Hasher;
 use sp_core::storage::{ChildInfo, StateVersion};
-use sp_std::vec::Vec;
-use sp_std::boxed::Box;
+use sp_std::{boxed::Box, vec::Vec};
 
 /// Patricia trie-based backend. Transaction type is an overlay of changes to commit.
 pub struct TrieBackend<S: TrieBackendStorage<H>, H: Hasher> {

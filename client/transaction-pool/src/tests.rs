@@ -178,7 +178,11 @@ impl ChainApi for TestApi {
 pub(crate) fn uxt(transfer: Transfer) -> Extrinsic {
 	let signature = TryFrom::try_from(&[0; 64][..]).unwrap();
 	Extrinsic {
-		call: ExtrinsicCall::Transfer { transfer, signature, exhaust_resources_when_not_first: false },
+		call: ExtrinsicCall::Transfer {
+			transfer,
+			signature,
+			exhaust_resources_when_not_first: false,
+		},
 		worker_group: Default::default(),
 	}
 }

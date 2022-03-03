@@ -445,11 +445,9 @@ mod tests {
 	use futures::executor::block_on;
 	use parking_lot::Mutex;
 	use sc_transaction_pool_api::TransactionStatus;
-	use substrate_test_runtime::{
-		AccountId, Extrinsic, ExtrinsicCall, Transfer, H256,
-	};
 	use sp_runtime::transaction_validity::TransactionSource;
 	use std::{collections::HashMap, time::Instant};
+	use substrate_test_runtime::{AccountId, Extrinsic, ExtrinsicCall, Transfer, H256};
 
 	const SOURCE: TransactionSource = TransactionSource::External;
 
@@ -991,7 +989,7 @@ mod tests {
 				assert_eq!(pool.validated_pool().status().ready, 2);
 
 				// when
-				let xt = Extrinsic{
+				let xt = Extrinsic {
 					call: ExtrinsicCall::Store(Vec::new()),
 					worker_group: Default::default(),
 				};

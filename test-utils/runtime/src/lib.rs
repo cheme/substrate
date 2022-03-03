@@ -27,7 +27,6 @@ use codec::{Decode, Encode, Error, Input};
 use scale_info::TypeInfo;
 use sp_std::{marker::PhantomData, prelude::*};
 
-use trie_db::{Trie, TrieMut};
 use cfg_if::cfg_if;
 use frame_support::{
 	parameter_types,
@@ -55,13 +54,11 @@ use sp_runtime::{
 	ApplyExtrinsicResult, Perbill,
 };
 use sp_tasks::WorkerDeclarationKind;
-use sp_trie::{
-	trie_types::TrieDB,
-	PrefixedMemoryDB, StorageProof,
-};
+use sp_trie::{trie_types::TrieDB, PrefixedMemoryDB, StorageProof};
 #[cfg(any(feature = "std", test))]
 use sp_version::NativeVersion;
 use sp_version::RuntimeVersion;
+use trie_db::{Trie, TrieMut};
 // bench on latest state.
 use sp_trie::trie_types::TrieDBMutV1 as TrieDBMut;
 
@@ -760,20 +757,23 @@ cfg_if! {
 
 				fn log_extrinsic(
 					extrinsic: <Block as BlockT>::Extrinsic,
-				) -> sp_tasks::AccessLog {
+				) -> (ApplyExtrinsicResult, sp_tasks::AccessLog) {
 					fn run(encoded_extrinsic: Vec<u8>) -> Vec<u8> {
 						let extrinsic: <Block as BlockT>::Extrinsic = Decode::decode(&mut encoded_extrinsic.as_slice())
 							.expect("encoded in call");
 						system::execute_transaction(extrinsic).encode()
 					}
-					sp_tasks::set_capacity(0); // run inline (single thread really). 
+					sp_tasks::set_capacity(0); // run inline (single thread really).
 					let declaration = sp_tasks::WorkerDeclaration {
 						kind: WorkerDeclarationKind::WriteOptimistic,
 						write_local_scope: None,
+						log_accesses: true,
 					};
-					let handle = sp_tasks::spawn(run, extrinsic.encode(), declaration)
-						.expect("TODO");
-					handle.join_declarative_log().expect("TODO")
+					let handle = sp_tasks::spawn(run, extrinsic.encode(), declaration).expect("TODO");
+					match handle.join_log_accesses() {
+						(mut result, Some(accesses)) => (result.as_mut().map(|r| Decode::decode(&mut r.as_slice())).expect("TODO").expect("TODO"), accesses),
+						(_, None) => unreachable!("log accesses set to true in declaration."),
+					}
 				}
 
 				fn finalize_block() -> <Block as BlockT>::Header {
@@ -1039,20 +1039,23 @@ cfg_if! {
 
 				fn log_extrinsic(
 					extrinsic: <Block as BlockT>::Extrinsic,
-				) -> sp_tasks::AccessLog {
+				) -> (ApplyExtrinsicResult, sp_tasks::AccessLog) {
 					fn run(encoded_extrinsic: Vec<u8>) -> Vec<u8>  {
 						let extrinsic: <Block as BlockT>::Extrinsic = Decode::decode(&mut encoded_extrinsic.as_slice())
 							.expect("encoded in call");
 						system::execute_transaction(extrinsic).encode()
 					}
-					sp_tasks::set_capacity(0); // run inline (single thread really). 
+					sp_tasks::set_capacity(0); // run inline (single thread really).
 					let declaration = sp_tasks::WorkerDeclaration {
 						kind: WorkerDeclarationKind::WriteOptimistic,
 						write_local_scope: None,
+						log_accesses: true,
 					};
-					let handle = sp_tasks::spawn(run, extrinsic.encode(), declaration)
-						.expect("TODO");
-					handle.join_declarative_log().expect("TODO")
+					let handle = sp_tasks::spawn(run, extrinsic.encode(), declaration).expect("TODO");
+					match handle.join_log_accesses() {
+						(mut result, Some(accesses)) => (result.as_mut().map(|r| Decode::decode(&mut r.as_slice())).expect("TODO").expect("TODO"), accesses),
+						(_, None) => unreachable!("log accesses set to true in declaration."),
+					}
 				}
 
 				fn finalize_block() -> <Block as BlockT>::Header {
@@ -1333,12 +1336,8 @@ fn test_witness(proof: StorageProof, root: crate::Hash) {
 	let mut overlay = sp_state_machine::OverlayedChanges::default();
 	let mut cache = sp_state_machine::StorageTransactionCache::default();
 	let mut extensions = sp_externalities::Extensions::default();
-	let mut ext = sp_state_machine::Ext::new(
-		&mut overlay,
-		&mut cache,
-		&backend,
-		Some(&mut extensions),
-	);
+	let mut ext =
+		sp_state_machine::Ext::new(&mut overlay, &mut cache, &backend, Some(&mut extensions));
 	assert!(ext.storage(b"value3").is_some());
 	assert!(ext.storage(b"xyz").is_none());
 

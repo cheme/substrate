@@ -30,12 +30,12 @@ use sp_runtime::{
 	traits::{BlakeTwo256, Hash},
 };
 #[cfg(not(feature = "std"))]
+use sp_sandbox::{SandboxEnvironmentBuilder, SandboxInstance, SandboxMemory, Value};
+#[cfg(not(feature = "std"))]
 use sp_tasks::{
 	AccessDeclaration, AccessDeclarations, DeclarationFailureHandling, LocalAccessDeclaration,
 	WorkerDeclaration, WorkerDeclarationKind,
 };
-#[cfg(not(feature = "std"))]
-use sp_sandbox::{SandboxEnvironmentBuilder, SandboxInstance, SandboxMemory, Value};
 
 extern "C" {
 	#[allow(dead_code)]

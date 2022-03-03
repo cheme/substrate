@@ -26,7 +26,8 @@ use sp_std::collections::btree_set::BTreeSet as Set;
 use sp_std::{
 	collections::{btree_map::BTreeMap, btree_set::BTreeSet},
 	hash::Hash,
-	vec, vec::Vec,
+	vec,
+	vec::Vec,
 };
 #[cfg(feature = "std")]
 use std::collections::HashSet as Set;
@@ -461,7 +462,7 @@ impl OverlayedChangeSet {
 					appendable.append(value);
 					return
 				},
-				v@Change::Delete => {
+				v @ Change::Delete => {
 					// Append on delet is write.
 					let mut changes = Vec::new();
 					let mut appendable = crate::ext::StorageAppend::new(&mut changes);
@@ -759,13 +760,16 @@ mod test {
 	fn append_works() {
 		use codec::Encode;
 		let backend = crate::in_memory_backend::new_in_mem::<sp_runtime::traits::BlakeTwo256>();
-		let backend = backend.update(vec![(
-			None,
-			vec![
-				(b"key0".to_vec(), Some(vec![b"data".to_vec()].encode())),
-				(b"key1".to_vec(), Some(vec![5u8])),
-			],
-		)], Default::default());
+		let backend = backend.update(
+			vec![(
+				None,
+				vec![
+					(b"key0".to_vec(), Some(vec![b"data".to_vec()].encode())),
+					(b"key1".to_vec(), Some(vec![5u8])),
+				],
+			)],
+			Default::default(),
+		);
 		let backend = crate::backend::AsyncBackendAdapterRef::new(&backend);
 
 		let mut changeset = OverlayedChangeSet::default();

@@ -32,7 +32,9 @@ use sp_core::traits::{
 	AsyncExternalities, BoxFuture, Externalities, RuntimeSpawn, RuntimeSpawnExt, SpawnLimit,
 	TaskHandle,
 };
-use sp_externalities::{ExternalitiesExt as _, TaskId, WorkerDeclaration, WorkerResult, AccessLog};
+use sp_externalities::{
+	AccessLog, ExternalitiesExt as _, TaskId, WorkerDeclaration, WorkerResult, WorkerState,
+};
 use sp_std::boxed::Box;
 use std::{
 	collections::HashMap,
@@ -323,11 +325,11 @@ impl RuntimeInstanceSpawn {
 
 						crate::common::process_task(task, async_ext, handle, instance_ref)
 					} else {
-						WorkerResult::HardPanic
+						(WorkerState::HardPanic, handle).into()
 					};
 
 					let mut end = false;
-					if let &WorkerResult::RuntimePanic = &result {
+					if let &WorkerState::RuntimePanic = &result.state {
 						tracing::error!("Panic error in spawned task, dropping instance");
 						// Here we don't just shut all because panic will only transmit to parent
 						// if 'join' is call, if 'dismiss' is call then it is fine to ignore a
@@ -336,7 +338,7 @@ impl RuntimeInstanceSpawn {
 						 // TODO does it make handle panic of instantiate ref useless?? -> guess so
 						 // : TODO remove unsafe code if needed.
 					}
-					if let &WorkerResult::HardPanic = &result {
+					if let &WorkerState::HardPanic = &result.state {
 						end = true;
 					}
 					if let Err(_) = result_sender.send(Some(result)) {
@@ -363,12 +365,22 @@ impl RuntimeInstanceSpawn {
 	}
 
 	#[cfg(feature = "abort-future")]
-	fn spawn(&self, name: &'static str, group: Option<&'static str>, future: BoxFuture) -> Option<TaskHandle> {
+	fn spawn(
+		&self,
+		name: &'static str,
+		group: Option<&'static str>,
+		future: BoxFuture,
+	) -> Option<TaskHandle> {
 		self.scheduler.spawn(name, group, future)
 	}
 
 	#[cfg(not(feature = "abort-future"))]
-	fn spawn(&self, name: &'static str, group: Option<&'static str>, future: BoxFuture) -> Option<TaskHandle> {
+	fn spawn(
+		&self,
+		name: &'static str,
+		group: Option<&'static str>,
+		future: BoxFuture,
+	) -> Option<TaskHandle> {
 		self.scheduler.spawn(name, group, future);
 		None
 	}
@@ -420,13 +432,16 @@ impl RuntimeSpawn for RuntimeInstanceSpawn {
 		calling_ext.resolve_worker_result(worker_result)
 	}
 
-	fn join_declarative_log(&self, handle: TaskId) -> Option<AccessLog> {
-		match self.join_inner(handle) {
-			WorkerResult::Optimistic(_result, _state_change, _id, log) => Some(log),
-			_ => None,
-		}
+	fn join_log_accesses(
+		&self,
+		handle: TaskId,
+		calling_ext: &mut dyn Externalities,
+	) -> (Option<Vec<u8>>, Option<AccessLog>) {
+		let result = self.join_inner(handle);
+		let log_accesses = result.log_accesses.clone();
+		let result = calling_ext.resolve_worker_result(result);
+		(result, log_accesses)
 	}
-
 
 	fn dismiss(&self, handle: TaskId, calling_ext: &mut dyn Externalities) {
 		calling_ext.dismiss_worker(handle);
@@ -447,7 +462,7 @@ impl RuntimeInstanceSpawn {
 				Ok(Some(output)) => output,
 				Ok(None) | Err(_) => {
 					// spawned task did end with no result, so panic
-					WorkerResult::RuntimePanic
+					(WorkerState::RuntimePanic, handle).into()
 				},
 			},
 			Some(PendingTask::Inline(task)) => {
@@ -465,7 +480,7 @@ impl RuntimeInstanceSpawn {
 			},
 			// handle has been removed due to dismiss or
 			// invalid externality condition.
-			None => WorkerResult::Invalid,
+			None => (WorkerState::Invalid, handle).into(),
 		}
 	}
 

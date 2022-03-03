@@ -45,7 +45,8 @@ use sp_core::{
 	storage::{well_known_keys::EXTRINSIC_INDEX, ChildInfo, StateVersion},
 };
 use sp_externalities::{
-	Change, Extension, Extensions, TaskId, WorkerDeclaration, WorkerDeclarationKind, WorkerResult, AccessLog,
+	AccessLog, Change, Extension, Extensions, TaskId, WorkerDeclaration, WorkerDeclarationKind,
+	WorkerResult, WorkerState,
 };
 #[cfg(not(feature = "std"))]
 use sp_std::collections::btree_map::{BTreeMap as Map, Entry as MapEntry};
@@ -119,11 +120,18 @@ pub struct OverlayedChanges {
 	filters: filters::Filters,
 	/// Logger for optimistic workers.
 	optimistic_logger: loggers::AccessLogger,
+	/// Do we log accesses.
+	log_accesses: bool,
 	/// Local write scope.
 	write_local_scope: local_scope::WriteLocalScope,
 }
 
 impl OverlayedChanges {
+	/// Activate access logging
+	pub fn log_accesses(&mut self) {
+		self.log_accesses = true;
+	}
+
 	/// An overlay that can be use for child worker.
 	/// It contains the overlay changes and ensure
 	/// we do not commit or rollback them.
@@ -131,7 +139,7 @@ impl OverlayedChanges {
 	pub fn child_worker_overlay(
 		&mut self,
 		worker_id: TaskId,
-		declaration: WorkerDeclaration,
+		mut declaration: WorkerDeclaration,
 	) -> Option<Self> {
 		if !self.declare_child_worker(worker_id, declaration.kind.clone()) {
 			return None
@@ -144,6 +152,10 @@ impl OverlayedChanges {
 		let transaction_offset = result.top.transaction_depth();
 		result.markers = markers::Markers::from_start_depth(transaction_offset);
 
+		// Force log if it is in parent.
+		if self.log_accesses {
+			declaration.log_accesses = true;
+		}
 		result.set_worker_declaration(declaration);
 
 		Some(result)
@@ -563,6 +575,10 @@ impl OverlayedChanges {
 	/// Set access declaration in the child worker.
 	pub fn set_worker_declaration(&mut self, declaration: WorkerDeclaration) {
 		self.write_local_scope.set_write_local_scope(declaration.write_local_scope);
+		if declaration.log_accesses {
+			self.optimistic_logger.log_reads_against(None);
+			self.optimistic_logger.log_writes_against(None);
+		}
 		match declaration.kind {
 			WorkerDeclarationKind::Stateless |
 			WorkerDeclarationKind::ReadLastBlock |
@@ -600,22 +616,23 @@ impl OverlayedChanges {
 			return None
 		}
 
-		match result {
-			WorkerResult::Optimistic(result, state_delta, ..) |
-			WorkerResult::Valid(result, state_delta) |
-			WorkerResult::CallAt(result, state_delta, ..) => {
-				if let Some(delta) = state_delta {
+		match (result.state, result.result) {
+			(WorkerState::Optimistic, Some(res)) |
+			(WorkerState::Valid, Some(res)) |
+			(WorkerState::CallAt, Some(res)) => {
+				if let Some(delta) = result.state_delta {
 					self.inject_worker_delta(delta);
 				}
-				Some(result)
+				Some(res)
 			},
-			WorkerResult::Invalid => None,
-			WorkerResult::RuntimePanic => {
+			(WorkerState::Invalid, _) => None,
+			(WorkerState::RuntimePanic, _) => {
 				panic!("Runtime panic from a worker.")
 			},
-			WorkerResult::HardPanic => {
+			(WorkerState::HardPanic, _) => {
 				panic!("Panic running a worker.")
 			},
+			_ => unimplemented!("TODO wrong state and content"),
 		}
 	}
 
@@ -884,12 +901,9 @@ impl OverlayedChanges {
 	}
 
 	#[cfg(feature = "std")]
-	pub fn extract_logs(
-		&mut self,
-	) -> Option<AccessLog> {
+	pub fn extract_logs(&mut self) -> Option<AccessLog> {
 		self.optimistic_logger.extract_parent_log()
 	}
-
 
 	/// Drain all changes into a [`StorageChanges`] instance. Leave empty overlay in place.
 	pub fn drain_storage_changes<B: Backend<H>, H: Hasher + 'static>(
@@ -1035,8 +1049,7 @@ impl OverlayedChanges {
 		&self.offchain
 	}
 
-	/// For optimistic worker, we extract logs from the overlay.
-	/// When call on a non optimistic worker returns `None`.
+	/// Extract logs from the overlay.
 	pub fn extract_access_log(&mut self) -> Option<sp_externalities::AccessLog> {
 		self.optimistic_logger.extract_parent_log()
 	}
@@ -1048,7 +1061,10 @@ impl OverlayedChanges {
 
 	/// Extract changes from overlay.
 	/// TODO audit cost of this: probably very high when used against externalities.
-	pub fn extract_delta(&mut self) -> sp_externalities::StateDelta {
+	pub fn extract_delta(&mut self) -> Option<sp_externalities::StateDelta> {
+		if self.top.is_empty() && self.children.is_empty() {
+			return None
+		}
 		let (top_iter, children_iter) = self.drain_committed_for(self.markers.start_depth());
 		let mut children = Vec::new();
 		for (_, (iter, info)) in children_iter {
@@ -1092,7 +1108,7 @@ impl OverlayedChanges {
 				Change::IncrementCounter(increment) => incremented.push((key, increment)),
 			}
 		}
-		sp_externalities::StateDelta {
+		Some(sp_externalities::StateDelta {
 			top: sp_externalities::TrieDelta {
 				added,
 				deleted,
@@ -1101,7 +1117,7 @@ impl OverlayedChanges {
 				deleted_prefix: Vec::new(), // TODO
 			},
 			children,
-		}
+		})
 	}
 
 	/// Write a key value pair to the offchain storage overlay.

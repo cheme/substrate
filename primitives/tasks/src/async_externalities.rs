@@ -23,9 +23,9 @@ use sp_core::{
 	traits::{RuntimeSpawn, RuntimeSpawnExt, SpawnNamed, TaskExecutorExt},
 };
 use sp_externalities::{
-	ambassador_impl_Externalities_body_single_struct,
+	ambassador_impl_Externalities_body_single_struct, AccessLog,
 	AsyncExternalities as AsyncExternalitiesTrait, Extensions, Externalities,
-	ExternalitiesExt as _, TaskId, WorkerDeclaration, WorkerResult, WorkerState,
+	ExternalitiesExt as _, StateDelta, TaskId, WorkerDeclaration, WorkerResult, WorkerState,
 };
 use sp_std::{
 	any::{Any, TypeId},
@@ -115,11 +115,7 @@ impl sp_externalities::ExtensionStore for AsyncExternalities {
 }
 
 impl AsyncExternalitiesTrait for AsyncExternalities {
-	fn extract_delta(&mut self) -> Option<sp_externalities::StateDelta> {
-		self.state.extract_delta()
-	}
-
-	fn extract_state(&mut self) -> WorkerState {
+	fn extract_state(&mut self) -> (WorkerState, Option<StateDelta>, Option<AccessLog>) {
 		self.state.extract_state()
 	}
 }
