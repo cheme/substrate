@@ -42,7 +42,7 @@ use sp_runtime::{
 pub use sp_block_builder::BlockBuilder as BlockBuilderApi;
 
 use sc_client_api::backend;
-use sp_tasks::{AccessLog, DataJoinHandle, WorkerDeclaration, WorkerDeclarationKind};
+use sp_tasks::{AccessLog, DataJoinHandle, WorkerDeclaration, WorkerType};
 
 /// Used as parameter to [`BlockBuilderProvider`] to express if proof recording should be enabled.
 ///

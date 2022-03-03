@@ -45,8 +45,8 @@ use sp_core::{
 	storage::{well_known_keys::EXTRINSIC_INDEX, ChildInfo, StateVersion},
 };
 use sp_externalities::{
-	AccessLog, Change, Extension, Extensions, TaskId, WorkerDeclaration, WorkerDeclarationKind,
-	WorkerResult, WorkerState,
+	AccessLog, Change, Extension, Extensions, TaskId, WorkerDeclaration, WorkerType,
+	WorkerResult, WorkerState, AccessDeclarations, DeclarationFailureHandling,
 };
 #[cfg(not(feature = "std"))]
 use sp_std::collections::btree_map::{BTreeMap as Map, Entry as MapEntry};
@@ -141,8 +141,10 @@ impl OverlayedChanges {
 		worker_id: TaskId,
 		mut declaration: WorkerDeclaration,
 	) -> Option<Self> {
-		if !self.declare_child_worker(worker_id, declaration.kind.clone()) {
-			return None
+		if let Some(accesses) = declaration.accesses.clone() {
+			if !self.declare_child_worker(worker_id, accesses, declaration.failure_handling) {
+				return None
+			}
 		}
 		let mut result = OverlayedChanges::default();
 		result.top = self.top.clone();
@@ -519,55 +521,29 @@ impl OverlayedChanges {
 	pub fn declare_child_worker(
 		&mut self,
 		child_marker: TaskId,
-		declaration: WorkerDeclarationKind,
+		filters: AccessDeclarations,
+		failure: DeclarationFailureHandling,
 	) -> bool {
-		match declaration {
-			WorkerDeclarationKind::Stateless |
-			WorkerDeclarationKind::ReadLastBlock |
-			WorkerDeclarationKind::ReadAtSpawn |
-			WorkerDeclarationKind::WriteAtSpawn => (),
-			WorkerDeclarationKind::ReadOptimistic => {
-				self.optimistic_logger.log_writes_against(Some(child_marker));
-			},
-			WorkerDeclarationKind::WriteOptimistic => {
-				self.optimistic_logger.log_reads_against(Some(child_marker));
-				self.optimistic_logger.log_writes_against(Some(child_marker));
-			},
-			WorkerDeclarationKind::ReadDeclarative(filter, failure) => {
-				if !self.filters.guard_declare_child_filter_read(&filter) {
-					return false
-				}
-				self.filters.set_failure_handler(Some(child_marker), failure);
-				// TODO consider merging add_change and forbid_writes (or even the full block).
-				self.filters.add_change(
-					WorkerDeclarationKind::ReadDeclarative(filter.clone(), failure),
-					child_marker,
-				);
-				self.filters.forbid_writes(filter, child_marker);
-			},
-			WorkerDeclarationKind::WriteDeclarative(filters, failure) => {
-				if !self.filters.guard_declare_child_filter_read(&filters.read_only) {
-					return false
-				}
-				if !self.filters.guard_declare_child_filter_write(&filters.write_only) {
-					return false
-				}
-				if !self.filters.guard_declare_child_filter_read(&filters.read_write) {
-					return false
-				}
-				if !self.filters.guard_declare_child_filter_write(&filters.read_write) {
-					return false
-				}
-				self.filters.set_failure_handler(Some(child_marker), failure);
-				self.filters.add_change(
-					WorkerDeclarationKind::WriteDeclarative(filters.clone(), failure),
-					child_marker,
-				);
-				self.filters.forbid_all(filters.read_write, child_marker);
-				self.filters.forbid_writes(filters.read_only, child_marker);
-				self.filters.forbid_reads(filters.write_only, child_marker);
-			},
+		if !self.filters.guard_declare_child_filter_read(&filters.read_only) {
+			return false
 		}
+		if !self.filters.guard_declare_child_filter_write(&filters.write_only) {
+			return false
+		}
+		if !self.filters.guard_declare_child_filter_read(&filters.read_write) {
+			return false
+		}
+		if !self.filters.guard_declare_child_filter_write(&filters.read_write) {
+			return false
+		}
+		self.filters.set_failure_handler(Some(child_marker), failure);
+		self.filters.add_change(
+			filters.clone(),
+			child_marker,
+		);
+		self.filters.forbid_all(filters.read_write, child_marker);
+		self.filters.forbid_writes(filters.read_only, child_marker);
+		self.filters.forbid_reads(filters.write_only, child_marker);
 		self.markers.set_marker(child_marker);
 		true
 	}
@@ -579,28 +555,11 @@ impl OverlayedChanges {
 			self.optimistic_logger.log_reads_against(None);
 			self.optimistic_logger.log_writes_against(None);
 		}
-		match declaration.kind {
-			WorkerDeclarationKind::Stateless |
-			WorkerDeclarationKind::ReadLastBlock |
-			WorkerDeclarationKind::ReadAtSpawn |
-			WorkerDeclarationKind::WriteAtSpawn => (),
-			WorkerDeclarationKind::ReadOptimistic => {
-				self.optimistic_logger.log_reads_against(None);
-			},
-			WorkerDeclarationKind::WriteOptimistic => {
-				self.optimistic_logger.log_reads_against(None);
-				self.optimistic_logger.log_writes_against(None);
-			},
-			WorkerDeclarationKind::ReadDeclarative(filter, failure) => {
-				self.filters.set_failure_handler(None, failure);
-				self.filters.allow_reads(filter);
-			},
-			WorkerDeclarationKind::WriteDeclarative(filters, failure) => {
-				self.filters.set_failure_handler(None, failure);
-				self.filters.allow_reads(filters.read_only);
-				self.filters.allow_writes(filters.write_only);
-				self.filters.allow_all(filters.read_write);
-			},
+		if let Some(filters) = declaration.accesses {
+			self.filters.set_failure_handler(None, declaration.failure_handling);
+			self.filters.allow_reads(filters.read_only);
+			self.filters.allow_writes(filters.write_only);
+			self.filters.allow_all(filters.read_write);
 		}
 	}
 

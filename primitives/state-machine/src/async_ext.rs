@@ -27,7 +27,7 @@ use sp_core::{
 };
 use sp_externalities::{
 	AccessLog, AsyncExternalities, Externalities, StateDelta, TaskId, WorkerDeclaration,
-	WorkerDeclarationKind, WorkerResult, WorkerState, WorkerType,
+	WorkerType, WorkerResult, WorkerState,
 };
 use sp_std::{
 	any::{Any, TypeId},
@@ -61,22 +61,22 @@ pub fn new_child_worker_async_ext(
 	parent_overlay: &mut OverlayedChanges,
 ) -> Option<AsyncExt> {
 	let mut result = match &declaration.kind {
-		WorkerDeclarationKind::Stateless =>
+		WorkerType::Stateless =>
 			return Some(AsyncExt {
 				kind: WorkerType::Stateless,
 				overlay: Default::default(),
 				spawn_id: worker_id,
 				backend: Box::new(()),
 			}),
-		WorkerDeclarationKind::ReadLastBlock =>
+		WorkerType::ReadLastBlock =>
 			return Some(AsyncExt {
-				kind: declaration.get_type(),
+				kind: declaration.kind,
 				overlay: Default::default(),
 				spawn_id: worker_id,
 				backend,
 			}),
 		_ => AsyncExt {
-			kind: declaration.get_type(),
+			kind: declaration.kind,
 			overlay: Default::default(),
 			spawn_id: worker_id,
 			backend,
@@ -113,11 +113,8 @@ impl AsyncExt {
 		match self.kind {
 			WorkerType::Stateless |
 			WorkerType::ReadLastBlock |
-			WorkerType::ReadAtSpawn |
-			WorkerType::ReadOptimistic |
-			WorkerType::ReadDeclarative => false,
+			WorkerType::ReadAtSpawn => false,
 			WorkerType::WriteAtSpawn |
-			WorkerType::WriteOptimistic |
 			WorkerType::WriteDeclarative => true,
 		}
 	}
@@ -369,7 +366,7 @@ impl Externalities for AsyncExt {
 		declaration: WorkerDeclaration,
 	) -> Option<Box<dyn AsyncExternalities>> {
 		let backend = self.backend.async_backend();
-		if self.kind.guard_compatible_child_workers(declaration.get_type()) {
+		if self.kind.guard_compatible_child_workers(declaration.kind) {
 			if let Some(result) = crate::async_ext::new_child_worker_async_ext(
 				worker_id,
 				declaration,

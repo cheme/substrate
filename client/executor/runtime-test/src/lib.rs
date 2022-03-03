@@ -31,10 +31,9 @@ use sp_runtime::{
 };
 #[cfg(not(feature = "std"))]
 use sp_sandbox::{SandboxEnvironmentBuilder, SandboxInstance, SandboxMemory, Value};
-#[cfg(not(feature = "std"))]
 use sp_tasks::{
 	AccessDeclaration, AccessDeclarations, DeclarationFailureHandling, LocalAccessDeclaration,
-	WorkerDeclaration, WorkerDeclarationKind,
+	WorkerDeclaration, WorkerType,
 };
 
 extern "C" {
@@ -134,71 +133,28 @@ sp_core::wasm_export_functions! {
 		).unwrap().join();
 	}
 
-	fn test_optimistic_read_no_conflict() {
-		sp_tasks::set_capacity(1);
-		let handle = sp_tasks::spawn(
-			tasks::read_key,
-			vec![],
-			WorkerDeclarationKind::ReadOptimistic.into(),
-		);
-		sp_io::storage::set(b"key2", b"val");
-		if handle.unwrap().join().is_some() {
-			sp_io::storage::set(b"foo", b"bar");
-		}
-	}
-
-	fn test_optimistic_read_conflict() {
-		sp_tasks::set_capacity(1);
-		let handle = sp_tasks::spawn(
-			tasks::read_key,
-			vec![],
-			WorkerDeclarationKind::ReadOptimistic.into(),
-		);
-		sp_io::storage::set(b"key", b"val");
-		if handle.unwrap().join().is_none() {
-			sp_io::storage::set(b"foo", b"bar");
-		}
-	}
-
-	fn test_optimistic_read_conflict_2() {
-		sp_tasks::set_capacity(1);
-		let handle = sp_tasks::spawn(
-			tasks::write_key,
-			vec![],
-			WorkerDeclarationKind::WriteOptimistic.into(),
-		);
-		sp_io::storage::set(b"key", b"val");
-		if handle.unwrap().join().is_none() {
-			sp_io::storage::set(b"foo", b"bar");
-		}
-	}
-
-	fn test_optimistic_read_conflict_nested() {
-		sp_tasks::set_capacity(2);
-		let handle = sp_tasks::spawn(
-			tasks::read_key_nested,
-			vec![],
-			WorkerDeclarationKind::ReadOptimistic.into(),
-		);
-		sp_io::storage::set(b"key", b"val");
-		if handle.unwrap().join().is_none() {
-			sp_io::storage::set(b"foo", b"bar");
-		}
-	}
-
 	fn test_declarative_read_no_conflict() {
 		sp_tasks::set_capacity(1);
-		let handle = sp_tasks::spawn(tasks::read_key, vec![], WorkerDeclarationKind::ReadDeclarative(
-			AccessDeclaration {
-				top: LocalAccessDeclaration {
-					prefixes_lock: vec![b"key".to_vec()],
-					keys_lock: Default::default(),
-					intervals_lock: Default::default(),
+		let handle = sp_tasks::spawn(tasks::read_key, vec![], WorkerDeclaration {
+			kind: WorkerType::WriteDeclarative,
+			accesses: Some(AccessDeclarations {
+				read_only: AccessDeclaration {
+					top: LocalAccessDeclaration {
+						all: false,
+						prefixes_lock: vec![b"key".to_vec()],
+						keys_lock: Default::default(),
+						intervals_lock: Default::default(),
+					},
+					default_children: LocalAccessDeclaration::default(),
+					children: Default::default(),
 				},
-				children: Default::default(),
-			},
-			DeclarationFailureHandling::Panic,
-		).into());
+				write_only: AccessDeclaration::default(),
+				read_write: AccessDeclaration::default(),
+			}),
+			failure_handling: DeclarationFailureHandling::Panic,
+			write_local_scope: None,
+			log_accesses: false,
+		});
 		sp_io::storage::set(b"kfy", b"val");
 		if handle.and_then(|handle| handle.join()).is_some() {
 			sp_io::storage::set(b"key", b"bar");
@@ -211,17 +167,26 @@ sp_core::wasm_export_functions! {
 		let handle = sp_tasks::spawn(
 			tasks::read_key,
 			vec![],
-			WorkerDeclarationKind::ReadDeclarative(
-				AccessDeclaration {
-					top: LocalAccessDeclaration {
-						prefixes_lock: vec![b"key".to_vec()],
-						keys_lock: Default::default(),
-						intervals_lock: Default::default(),
+			WorkerDeclaration {
+				kind: WorkerType::WriteDeclarative,
+				accesses: Some(AccessDeclarations {
+					read_only: AccessDeclaration {
+						top: LocalAccessDeclaration {
+							all: false,
+							prefixes_lock: vec![b"key".to_vec()],
+							keys_lock: Default::default(),
+							intervals_lock: Default::default(),
+						},
+						default_children: Default::default(),
+						children: Default::default(),
 					},
-					children: Default::default(),
-				},
-				DeclarationFailureHandling::InvalidAtJoin,
-			).into(),
+					write_only: Default::default(),
+					read_write: Default::default(),
+				}),
+				failure_handling: DeclarationFailureHandling::InvalidAtJoin,
+				write_local_scope: None,
+				log_accesses: false,
+			},
 		);
 		sp_io::storage::set(b"key", b"val");
 		if handle.is_some() && handle.and_then(|handle| handle.join()).is_none() {
@@ -235,17 +200,26 @@ sp_core::wasm_export_functions! {
 		let handle = sp_tasks::spawn(
 			tasks::read_key,
 			vec![],
-			WorkerDeclarationKind::ReadDeclarative(
-				AccessDeclaration {
-					top: LocalAccessDeclaration {
-						prefixes_lock: vec![b"aey".to_vec()],
-						keys_lock: Default::default(),
-						intervals_lock: Default::default(),
+			WorkerDeclaration {
+				kind: WorkerType::WriteDeclarative,
+				accesses: Some(AccessDeclarations {
+					read_only: AccessDeclaration {
+						top: LocalAccessDeclaration {
+							all: false,
+							prefixes_lock: vec![b"aey".to_vec()],
+							keys_lock: Default::default(),
+							intervals_lock: Default::default(),
+						},
+						default_children: Default::default(),
+						children: Default::default(),
 					},
-					children: Default::default(),
-				},
-				DeclarationFailureHandling::InvalidAtJoin,
-			).into(),
+					write_only: Default::default(),
+					read_write: Default::default(),
+				}),
+				failure_handling: DeclarationFailureHandling::InvalidAtJoin,
+				write_local_scope: None,
+				log_accesses: false,
+			},
 		);
 		sp_io::storage::set(b"key", b"val");
 		if handle.is_some() && handle.and_then(|handle| handle.join()).is_none() {
@@ -258,17 +232,26 @@ sp_core::wasm_export_functions! {
 		let handle = sp_tasks::spawn(
 			tasks::read_key,
 			vec![],
-			WorkerDeclarationKind::ReadDeclarative(
-				AccessDeclaration {
-					top: LocalAccessDeclaration {
-						prefixes_lock: vec![b"key".to_vec()],
-						keys_lock: Default::default(),
-						intervals_lock: Default::default(),
+			WorkerDeclaration {
+				kind: WorkerType::WriteDeclarative,
+				accesses: Some(AccessDeclarations {
+					read_only: AccessDeclaration {
+						top: LocalAccessDeclaration {
+							all: false,
+							prefixes_lock: vec![b"key".to_vec()],
+							keys_lock: Default::default(),
+							intervals_lock: Default::default(),
+						},
+						default_children: Default::default(),
+						children: Default::default(),
 					},
-					children: Default::default(),
-				},
-				DeclarationFailureHandling::Panic,
-			).into(),
+					write_only: Default::default(),
+					read_write: Default::default(),
+				}),
+				failure_handling: DeclarationFailureHandling::Panic,
+				write_local_scope: None,
+				log_accesses: false,
+			},
 		);
 		sp_io::storage::set(b"key2", b"val");
 		if handle.and_then(|handle| handle.join()).is_some() {
@@ -281,59 +264,54 @@ sp_core::wasm_export_functions! {
 		let handle = sp_tasks::spawn(
 			tasks::read_key,
 			vec![],
-			WorkerDeclarationKind::WriteDeclarative(
-				AccessDeclarations {
+			WorkerDeclaration {
+				kind: WorkerType::WriteDeclarative,
+				accesses: Some(AccessDeclarations {
+					read_only: Default::default(),
 					write_only: AccessDeclaration {
 						top: LocalAccessDeclaration {
+							all: false,
 							prefixes_lock: vec![b"key".to_vec()],
 							keys_lock: Default::default(),
 							intervals_lock: Default::default(),
 						},
+						default_children: Default::default(),
 						children: Default::default(),
 					},
-					read_only: Default::default(),
 					read_write: Default::default(),
-				},
-				DeclarationFailureHandling::Panic,
-			).into(),
+				}),
+				failure_handling: DeclarationFailureHandling::Panic,
+				write_local_scope: None,
+				log_accesses: false,
+			},
 		);
 		let handle_2 = sp_tasks::spawn(
 			tasks::read_key,
 			vec![],
-			WorkerDeclarationKind::WriteDeclarative(
-				AccessDeclarations {
+			WorkerDeclaration {
+				kind: WorkerType::WriteDeclarative,
+				accesses: Some(AccessDeclarations {
+					read_only: Default::default(),
 					write_only: AccessDeclaration {
 						top: LocalAccessDeclaration {
+							all: false,
 							prefixes_lock: vec![b"key".to_vec()],
 							keys_lock: Default::default(),
 							intervals_lock: Default::default(),
 						},
+						default_children: Default::default(),
 						children: Default::default(),
 					},
-					read_only: Default::default(),
 					read_write: Default::default(),
-				},
-				DeclarationFailureHandling::InvalidAtJoin,
-			).into(),
+				}),
+				failure_handling: DeclarationFailureHandling::InvalidAtJoin,
+				write_local_scope: None,
+				log_accesses: false,
+			},
 		);
 		if handle.and_then(|handle| handle.join()).is_some()
 			&& handle_2.is_none() {
 			sp_io::storage::set(b"foo", b"bar");
-		}
-	}
-
-	fn test_optimistic_write_success() {
-		sp_tasks::set_capacity(1);
-		let handle = sp_tasks::spawn(
-			tasks::write_key,
-			vec![],
-			WorkerDeclarationKind::WriteOptimistic.into(),
-		);
-		assert!(sp_io::storage::get(b"key").is_none());
-		if handle.unwrap().join().is_some() {
-			if sp_io::storage::get(b"key") == Some(b"foo".to_vec()) {
-				sp_io::storage::set(b"foo", b"bar");
-			}
 		}
 	}
 
@@ -343,7 +321,7 @@ sp_core::wasm_export_functions! {
 		let handle = sp_tasks::spawn(
 			tasks::read_key,
 			vec![],
-			WorkerDeclarationKind::ReadOptimistic.into(),
+			all_access_declaration(),
 		);
 		sp_io::storage::commit_transaction();
 		// even if no conflict we do not validate a result when transaction context is lower.
@@ -358,7 +336,7 @@ sp_core::wasm_export_functions! {
 		let handle = sp_tasks::spawn(
 			tasks::read_key,
 			vec![],
-			WorkerDeclarationKind::ReadOptimistic.into(),
+			all_access_declaration(),
 		);
 		sp_io::storage::commit_transaction();
 		sp_io::storage::start_transaction();
@@ -375,12 +353,12 @@ sp_core::wasm_export_functions! {
 		let handle = sp_tasks::spawn(
 			tasks::write_key,
 			vec![],
-			WorkerDeclarationKind::WriteOptimistic.into(),
+			all_access_declaration(),
 		);
 		sp_io::storage::start_transaction();
 		assert!(sp_io::storage::get(b"key").is_none());
 		// we allow to get content in a different transaction if it is a child of the starting
-		// transaciton.
+		// transaction.
 		if handle.unwrap().join().is_some() {
 			if sp_io::storage::get(b"key") == Some(b"foo".to_vec()) {
 				sp_io::storage::set(b"foo", b"bar");
@@ -395,84 +373,11 @@ sp_core::wasm_export_functions! {
 		let handle = sp_tasks::spawn(
 			tasks::unclose_child_transaction,
 			vec![],
-			WorkerDeclarationKind::WriteOptimistic.into(),
+			all_access_declaration(),
 		);
 		// unclose tx in child is a panic case as unclose tx in result, so we expect panic, code
 		// is hear to make it explicit join is called.
 		if handle.unwrap().join().is_none() {
-			sp_io::storage::set(b"foo", b"bar");
-		}
-	}
-
-	fn test_read_write_conflict_1() {
-		sp_tasks::set_capacity(1);
-		let handle = sp_tasks::spawn(
-			tasks::write_key,
-			vec![],
-			WorkerDeclarationKind::WriteOptimistic.into(),
-		);
-		assert!(sp_io::storage::get(b"key").is_none());
-		if handle.unwrap().join().is_none() {
-			sp_io::storage::set(b"foo", b"bar");
-		}
-	}
-
-	fn test_read_write_conflict_2() {
-		sp_tasks::set_capacity(1);
-		sp_io::storage::set(b"aaaa", b"dummy");
-		sp_io::storage::set(b"z", b"dummy");
-		let handle = sp_tasks::spawn(
-			tasks::write_key,
-			vec![],
-			WorkerDeclarationKind::WriteOptimistic.into(),
-		);
-		assert_eq!(sp_io::storage::next_key(b"aaaaaaaa"), Some(b"z".to_vec()));
-		if handle.unwrap().join().is_none() {
-			sp_io::storage::set(b"foo", b"bar");
-		}
-	}
-
-	fn test_read_write_conflict_3() {
-		sp_tasks::set_capacity(1);
-		sp_io::storage::set(b"k", b"dummy");
-		sp_io::storage::set(b"z", b"dummy");
-		let handle = sp_tasks::spawn(
-			tasks::write_key,
-			vec![],
-			WorkerDeclarationKind::WriteOptimistic.into(),
-		);
-		assert_eq!(sp_io::storage::next_key(b"k"), Some(b"z".to_vec()));
-		if handle.unwrap().join().is_none() {
-			sp_io::storage::set(b"foo", b"bar");
-		}
-	}
-
-	fn test_read_write_conflict_4() {
-		sp_tasks::set_capacity(1);
-		sp_io::storage::set(b"k", b"dummy");
-		let handle = sp_tasks::spawn(
-			tasks::write_key,
-			vec![],
-			WorkerDeclarationKind::WriteOptimistic.into(),
-		);
-		assert_eq!(sp_io::storage::next_key(b"k"), None);
-		if handle.unwrap().join().is_none() {
-			sp_io::storage::set(b"foo", b"bar");
-		}
-	}
-
-	fn test_read_write_conflict_5() {
-		sp_tasks::set_capacity(1);
-		sp_io::storage::set(b"k", b"dummy");
-//		sp_io::storage::set(b"z", b"dummy");
-		let handle = sp_tasks::spawn(
-			tasks::write_key,
-			vec![],
-			WorkerDeclarationKind::WriteOptimistic.into(),
-		);
-		assert_eq!(sp_io::storage::next_key(b"key2"), None);
-//		assert_eq!(sp_io::storage::next_key(b"key2"), Some(b"z".to_vec()));
-		if handle.unwrap().join().is_some() {
 			sp_io::storage::set(b"foo", b"bar");
 		}
 	}
@@ -734,9 +639,37 @@ sp_core::wasm_export_functions! {
 	}
 }
 
+fn all_access_declaration() -> WorkerDeclaration {
+	WorkerDeclaration {
+		kind: WorkerType::WriteDeclarative,
+		accesses: Some(AccessDeclarations {
+			read_only: Default::default(),
+			write_only: Default::default(),
+			read_write: AccessDeclaration {
+				top: LocalAccessDeclaration {
+					all: true,
+					prefixes_lock: Default::default(),
+					keys_lock: Default::default(),
+					intervals_lock: Default::default(),
+				},
+				default_children: LocalAccessDeclaration {
+					all: true,
+					prefixes_lock: Default::default(),
+					keys_lock: Default::default(),
+					intervals_lock: Default::default(),
+				},
+				children: Default::default(),
+			},
+		}),
+		failure_handling: DeclarationFailureHandling::InvalidAtJoin,
+		write_local_scope: None,
+		log_accesses: false,
+	}
+}
+
 #[cfg(not(feature = "std"))]
 mod tasks {
-	use super::{WorkerDeclaration, WorkerDeclarationKind};
+	use super::{WorkerDeclaration, WorkerType};
 	use sp_std::prelude::*;
 
 	pub fn incrementer(data: Vec<u8>) -> Vec<u8> {
@@ -767,13 +700,6 @@ mod tasks {
 
 	pub fn unclose_child_transaction(_data: Vec<u8>) -> Vec<u8> {
 		sp_io::storage::start_transaction();
-		Default::default()
-	}
-
-	pub fn read_key_nested(_data: Vec<u8>) -> Vec<u8> {
-		let handle =
-			sp_tasks::spawn(read_key, vec![], WorkerDeclarationKind::ReadOptimistic.into());
-		handle.unwrap().join().unwrap();
 		Default::default()
 	}
 }

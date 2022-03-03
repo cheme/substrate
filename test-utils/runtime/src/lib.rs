@@ -53,7 +53,7 @@ use sp_runtime::{
 	},
 	ApplyExtrinsicResult, Perbill,
 };
-use sp_tasks::WorkerDeclarationKind;
+use sp_tasks::WorkerType;
 use sp_trie::{trie_types::TrieDB, PrefixedMemoryDB, StorageProof};
 #[cfg(any(feature = "std", test))]
 use sp_version::NativeVersion;
@@ -765,9 +765,11 @@ cfg_if! {
 					}
 					sp_tasks::set_capacity(0); // run inline (single thread really).
 					let declaration = sp_tasks::WorkerDeclaration {
-						kind: WorkerDeclarationKind::WriteOptimistic,
+						kind: WorkerType::WriteAtSpawn,
 						write_local_scope: None,
 						log_accesses: true,
+						accesses: None,
+						failure_handling: Default::default(),
 					};
 					let handle = sp_tasks::spawn(run, extrinsic.encode(), declaration).expect("TODO");
 					match handle.join_log_accesses() {
@@ -1047,9 +1049,11 @@ cfg_if! {
 					}
 					sp_tasks::set_capacity(0); // run inline (single thread really).
 					let declaration = sp_tasks::WorkerDeclaration {
-						kind: WorkerDeclarationKind::WriteOptimistic,
+						kind: WorkerType::WriteAtSpawn,
 						write_local_scope: None,
 						log_accesses: true,
+						accesses: None,
+						failure_handling: Default::default(),
 					};
 					let handle = sp_tasks::spawn(run, extrinsic.encode(), declaration).expect("TODO");
 					match handle.join_log_accesses() {
@@ -1411,7 +1415,7 @@ fn test_witness(proof: StorageProof, root: crate::Hash) {
 		assert!(sp_io::storage::get(b"xyz").is_none());
 		sp_tasks::set_capacity(4);
 		let handle =
-			sp_tasks::spawn(worker_test, Vec::new(), WorkerDeclarationKind::ReadAtSpawn.into());
+			sp_tasks::spawn(worker_test, Vec::new(), WorkerType::ReadAtSpawn.into());
 		sp_io::storage::set(b"xyz", b"test");
 		assert!(sp_io::storage::get(b"xyz").is_some());
 		let res = handle.unwrap().join().expect("expected result for task");
@@ -1428,29 +1432,29 @@ fn test_tasks() {
 		result.push(42);
 		result
 	}
-	let handle = sp_tasks::spawn(todo, Vec::new(), WorkerDeclarationKind::ReadAtSpawn.into());
+	let handle = sp_tasks::spawn(todo, Vec::new(), WorkerType::ReadAtSpawn.into());
 	let res = handle.unwrap().join().expect("expected result for task");
 	assert!(res.get(0) == Some(&42));
 
 	fn tokill(_inp: Vec<u8>) -> Vec<u8> {
 		loop {}
 	}
-	let handle = sp_tasks::spawn(tokill, Vec::new(), WorkerDeclarationKind::ReadAtSpawn.into());
+	let handle = sp_tasks::spawn(tokill, Vec::new(), WorkerType::ReadAtSpawn.into());
 	handle.unwrap().dismiss();
 	fn do_panic(_inp: Vec<u8>) -> Vec<u8> {
 		panic!("Expected test panic.");
 	}
-	let handle = sp_tasks::spawn(do_panic, Vec::new(), WorkerDeclarationKind::ReadAtSpawn.into());
+	let handle = sp_tasks::spawn(do_panic, Vec::new(), WorkerType::ReadAtSpawn.into());
 	// Dismiss don't panic
 	handle.unwrap().dismiss();
 
 	sp_io::storage::start_transaction();
-	let handle = sp_tasks::spawn(todo, Vec::new(), WorkerDeclarationKind::ReadAtSpawn.into());
+	let handle = sp_tasks::spawn(todo, Vec::new(), WorkerType::ReadAtSpawn.into());
 	// invalidate state for handle
 	sp_io::storage::rollback_transaction();
 	assert!(handle.unwrap().join().is_none());
 	sp_io::storage::start_transaction();
-	let handle = sp_tasks::spawn(todo, Vec::new(), WorkerDeclarationKind::ReadLastBlock.into());
+	let handle = sp_tasks::spawn(todo, Vec::new(), WorkerType::ReadLastBlock.into());
 	sp_io::storage::rollback_transaction();
 	// state stay correct for last block
 	assert!(handle.unwrap().join().is_some());

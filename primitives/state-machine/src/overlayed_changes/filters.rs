@@ -23,7 +23,7 @@ use failure::{DeclFailureHandling, FailureHandlers};
 use sp_core::storage::{ChildInfo, ChildType, PrefixedStorageKey};
 use sp_externalities::{
 	AccessDeclaration, DeclarationFailureHandling, LocalAccessDeclaration, TaskId,
-	WorkerDeclarationKind, WorkerResult, WorkerState,
+	WorkerType, WorkerResult, WorkerState, AccessDeclarations,
 };
 use sp_std::{
 	collections::{btree_map::BTreeMap, btree_set::BTreeSet},
@@ -78,7 +78,7 @@ pub(super) struct Filters {
 	/// accesses forbid due to child.
 	filters_interval_forbid_write: interval_filters::FilterTreesForbidInterval,
 	/// Keeping history to remove constraint on join or dismiss.
-	changes: BTreeMap<TaskId, Vec<WorkerDeclarationKind>>,
+	changes: BTreeMap<TaskId, Vec<AccessDeclarations>>,
 }
 
 impl Default for Filters {
@@ -312,7 +312,7 @@ impl Filters {
 		Self::set_filter_allow(&mut self.filters_allow, filter, true, false);
 	}
 
-	pub(super) fn add_change(&mut self, decl: WorkerDeclarationKind, from_child: TaskId) {
+	pub(super) fn add_change(&mut self, decl: AccessDeclarations, from_child: TaskId) {
 		self.changes.insert(from_child, vec![decl]);
 	}
 
@@ -1138,26 +1138,11 @@ impl Filters {
 
 	pub(super) fn remove_worker(&mut self, task_id: TaskId) {
 		if let Some(decl) = self.changes.remove(&task_id) {
-			for declaration in decl.into_iter() {
-				match declaration {
-					WorkerDeclarationKind::Stateless |
-					WorkerDeclarationKind::ReadLastBlock |
-					WorkerDeclarationKind::ReadAtSpawn |
-					WorkerDeclarationKind::WriteAtSpawn => (),
-					WorkerDeclarationKind::ReadOptimistic => (),
-					WorkerDeclarationKind::WriteOptimistic => (),
-					WorkerDeclarationKind::ReadDeclarative(filter, _failure) => {
-						// undo a `set_parent_declaration` call.
-						self.failure_handlers.remove(task_id);
-						self.remove_forbid_writes(filter, task_id);
-					},
-					WorkerDeclarationKind::WriteDeclarative(filters, _failure) => {
-						self.failure_handlers.remove(task_id);
-						self.remove_forbid_all(filters.read_write, task_id);
-						self.remove_forbid_writes(filters.read_only, task_id);
-						self.remove_forbid_reads(filters.write_only, task_id);
-					},
-				}
+			for filters in decl.into_iter() {
+				self.failure_handlers.remove(task_id);
+				self.remove_forbid_all(filters.read_write, task_id);
+				self.remove_forbid_writes(filters.read_only, task_id);
+				self.remove_forbid_reads(filters.write_only, task_id);
 			}
 		}
 	}
@@ -1764,6 +1749,7 @@ pub(super) mod interval_filters {
 					prefixes_lock: Default::default(),
 					keys_lock: Default::default(),
 					intervals_lock: vec![(b"ke".to_vec(), Some(b"l".to_vec()))],
+					all: false,
 				},
 				1,
 			);
@@ -1792,6 +1778,7 @@ pub(super) mod interval_filters {
 					prefixes_lock: Default::default(),
 					keys_lock: Default::default(),
 					intervals_lock: vec![(b"l".to_vec(), Some(b"op".to_vec()))],
+					all: false,
 				},
 				2,
 			);
@@ -1804,6 +1791,7 @@ pub(super) mod interval_filters {
 					prefixes_lock: Default::default(),
 					keys_lock: Default::default(),
 					intervals_lock: vec![(b"opa".to_vec(), Some(b"z".to_vec()))],
+					all: false,
 				},
 				3,
 			);
@@ -1812,6 +1800,7 @@ pub(super) mod interval_filters {
 				prefixes_lock: Default::default(),
 				keys_lock: Default::default(),
 				intervals_lock: vec![(b"o".to_vec(), Some(b"z".to_vec()))],
+				all: false,
 			};
 			set_filter_forbid_internal(&mut filter, &decl_4, 4);
 			assert!(check_inclusive_interval_into(&filter, b"o", b"p"));
@@ -1833,7 +1822,9 @@ mod test {
 				prefixes_lock: vec![b"key".to_vec()],
 				keys_lock: vec![],
 				intervals_lock: vec![],
+				all: false,
 			},
+			default_children: Default::default(),
 			children: Default::default(),
 		});
 		assert!(Filters::guard_allow_interval(
@@ -1869,7 +1860,9 @@ mod test {
 				prefixes_lock: vec![b"".to_vec()],
 				keys_lock: vec![],
 				intervals_lock: vec![],
+				all: false,
 			},
+			default_children: Default::default(),
 			children: Default::default(),
 		});
 		assert!(Filters::guard_allow_interval(
@@ -1906,7 +1899,9 @@ mod test {
 				prefixes_lock: vec![b"key".to_vec(), b"kez".to_vec()],
 				keys_lock: vec![],
 				intervals_lock: vec![],
+				all: false,
 			},
+			default_children: Default::default(),
 			children: Default::default(),
 		});
 		assert!(Filters::guard_allow_interval(
@@ -1925,7 +1920,9 @@ mod test {
 				prefixes_lock: vec![b"kex".to_vec(), b"kez".to_vec()],
 				keys_lock: vec![],
 				intervals_lock: vec![],
+				all: false,
 			},
+			default_children: Default::default(),
 			children: Default::default(),
 		});
 		assert!(!Filters::guard_allow_interval(
