@@ -605,6 +605,7 @@ pub struct WorkerDeclaration {
 	pub kind: WorkerType,
 
 	/// Limited access to state.
+	/// If `None`, stateless worker.
 	pub accesses: Option<AccessDeclarations>,
 
 	/// Failure handling behavior.
@@ -642,8 +643,19 @@ impl From<WorkerType> for WorkerDeclaration {
 	}
 }
 
+/// Read and writes on same key between child and parent are
+/// invalid (concurrent non deterministic accesses).
+///
+/// We declare allowed allowned write access for child worker and allowed read access
+///
+/// The following rules apply:
+/// - child allow read -> parent forbid Write
+/// - child allow write -> parent forbid read
+/// - when multiple write or append in child, the order of update in parent is join order.
+///
 /// Access filters on storage.
-/// Please define key only once and sort them.
+/// Access are only define once and sorted. Still some redundant declaration can be possible
+/// due to `read_write` declaration (this field is only here for compactness).
 #[derive(Debug, Clone, codec::Encode, codec::Decode, Default, Eq, PartialEq, TypeInfo)]
 pub struct AccessDeclarations {
 	/// Read access.
@@ -671,28 +683,37 @@ pub struct AccessDeclaration {
 }
 
 /// Access filter on a given local state (top trie or child trie).
+///
+/// Default is no access.
 #[derive(Debug, Clone, codec::Encode, codec::Decode, Default, Eq, PartialEq, TypeInfo)]
 pub struct LocalAccessDeclaration {
 	/// Allow access to all.
+	/// Other declaration are ignored in this case.
 	pub all: bool,
 
-	/// 
-	/// Lock over a full prefix.
+	/// Access over a full prefix.
 	///
 	/// Gives access to all key starting with any of the declared prefixes.
 	pub prefixes_lock: Vec<Vec<u8>>,
 
-	/// Lock only over a given key.
+	/// Access over a given key.
 	pub keys_lock: Vec<Vec<u8>>,
 
-	/// Lock over an interval (inclusive start and exclusive start).
+	/// Access over an interval (inclusive start and exclusive start).
 	pub intervals_lock: Vec<(Vec<u8>, Option<Vec<u8>>)>,
 }
 
 impl LocalAccessDeclaration {
 	/// Is there any declaration.
-	pub fn is_empty(&self) -> bool {
+	pub fn no_access(&self) -> bool {
 		self.prefixes_lock.is_empty() && self.keys_lock.is_empty() && self.intervals_lock.is_empty() && !self.all
+	}
+
+	/// All access allowed.
+	pub fn all_allowed() -> Self {
+		let mut empty = LocalAccessDeclaration::default();
+		empty.all = true;
+		empty
 	}
 }
 
@@ -709,6 +730,26 @@ impl AccessDeclaration {
 			},
 			default_children: LocalAccessDeclaration::default(),
 			children: Vec::new(),
+		}
+	}
+
+	/// All access allowed.
+	pub fn all_allowed() -> Self {
+		AccessDeclaration {
+			top: LocalAccessDeclaration::all_allowed(),
+			default_children: LocalAccessDeclaration::all_allowed(),
+			children: Default::default(),
+		}
+	}
+}
+
+impl AccessDeclarations {
+	/// All access allowed.
+	pub fn all_allowed() -> Self {
+		AccessDeclarations {
+			read_only: Default::default(),
+			write_only: Default::default(),
+			read_write: AccessDeclaration::all_allowed(),
 		}
 	}
 }
