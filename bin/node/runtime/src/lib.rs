@@ -1560,10 +1560,10 @@ impl_runtime_apis! {
 			}
 			sp_tasks::set_capacity(0); // run inline (single thread really).
 			let declaration = sp_tasks::WorkerDeclaration {
-				kind: sp_tasks::WorkerType::WriteAtSpawn,
+				kind: sp_tasks::WorkerType::AtSpawn,
 				write_local_scope: None,
 				log_accesses: true,
-				accesses: None,
+				accesses: Some(sp_tasks::AccessDeclarations::all_allowed()),
 				failure_handling: Default::default(),
 			};
 			let handle = sp_tasks::spawn(run, extrinsic.encode(), declaration).expect("TODO");

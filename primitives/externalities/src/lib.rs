@@ -504,38 +504,18 @@ impl Default for DeclarationFailureHandling {
 #[derive(Debug, Clone, Copy, codec::Encode, codec::Decode, Eq, PartialEq, TypeInfo)]
 #[repr(u8)]
 pub enum WorkerType {
-	/// Worker panic on state access from externalities.
+	/// No state handling, allways panic on call to storage externalities.
 	Stateless = 0,
 
-	/// Worker access state read only on the backend unmodified state,
+	/// Worker access state on the backend unmodified state,
 	/// it does not see change made during previous processing
 	/// (same state at the one resulting from last state transition:
 	/// last block state).
-	ReadLastBlock = 1,
+	LastBlock = 1,
 
-	/// Externalities access read only the backend unmodified state,
+	/// Externalities access he backend unmodified state,
 	/// and the change at the time of spawn.
-	/// In this case when joining we ensure the transaction at launch
-	/// is still valid.
-	ReadAtSpawn = 2,
-
-	/// `ReadAtSpawn` with allowed write.
-	/// Write from child workers always overwrite write from parent workers
-	/// at `join`.
-	WriteAtSpawn = 3,
-
-	/// Read and writes on same key between child and parent are
-	/// invalid (concurrent non deterministic accesses).
-	///
-	/// We declare allowed write access for child worker and allowed read only access
-	/// (no need to declare read access for already declared write access).
-	///
-	/// The following rules apply:
-	/// - child allow read -> parent forbid Write
-	/// - child allow write -> parent forbid read
-	/// - when multiple write, the child at join always overwrite the existing value
-	/// - when multiple append (this seen as a write), order of appending is the join child calls
-	WriteDeclarative = 5,
+	AtSpawn = 2,
 }
 
 impl Default for WorkerType {
@@ -549,52 +529,19 @@ impl WorkerType {
 	pub fn from_u8(kind: u8) -> Option<WorkerType> {
 		Some(match kind {
 			0 => WorkerType::Stateless,
-			1 => WorkerType::ReadLastBlock,
-			2 => WorkerType::ReadAtSpawn,
-			3 => WorkerType::WriteAtSpawn,
-			4 => WorkerType::WriteDeclarative,
+			1 => WorkerType::LastBlock,
+			2 => WorkerType::AtSpawn,
 			_ => return None,
 		})
 	}
 
-	/// Depending on concurrency management strategy
-	/// we may need to resolve the result against
-	/// parent externalities.
-	pub fn need_resolve(&self) -> bool {
-		match *self {
-			WorkerType::Stateless => false,
-			WorkerType::ReadLastBlock => false,
-			_ => true,
-		}
-	}
-
 	/// Return false if spawning a child worker of a given type is not possible.
-	/// TODO there is way to have more compatibility
-	/// eg : - declarative from a optimistic by logging declarative accesses
-	/// on join.
-	/// - optimistic from declarative by runing accesses on join.
 	pub fn guard_compatible_child_workers(&self, kind: WorkerType) -> bool {
-		match self {
-			WorkerType::Stateless => (),
-			WorkerType::ReadLastBlock => match kind {
-				WorkerType::ReadLastBlock => (),
-				_ => return false,
-			},
-			WorkerType::ReadAtSpawn => match kind {
-				WorkerType::Stateless => (),
-				WorkerType::ReadAtSpawn => (),
-				_ => return false,
-			},
-			WorkerType::WriteAtSpawn => match kind {
-				WorkerType::WriteAtSpawn => (),
-				_ => return false,
-			},
-			WorkerType::WriteDeclarative => match kind {
-				WorkerType::WriteDeclarative => (),
-				_ => return false,
-			},
+		match kind {
+			WorkerType::AtSpawn => matches!(self, WorkerType::AtSpawn),
+			WorkerType::Stateless => true,
+			WorkerType::LastBlock => true,
 		}
-		true
 	}
 }
 
@@ -635,11 +582,40 @@ impl WorkerDeclaration {
 			failure_handling: Default::default(),
 		}
 	}
-}
 
-impl From<WorkerType> for WorkerDeclaration {
-	fn from(kind: WorkerType) -> Self {
-		WorkerDeclaration { kind, write_local_scope: None, log_accesses: false, accesses: None, failure_handling: Default::default() }
+	/// Worker access last block state read_only.
+	pub fn read_last_block() -> Self {
+		WorkerDeclaration {
+			kind: WorkerType::LastBlock,
+			write_local_scope: None,
+			log_accesses: false,
+			accesses: Some(AccessDeclarations::read_only()),
+			failure_handling: Default::default(),
+		}
+	}
+
+	/// Worker access state at spawn in read only.
+	pub fn read_at_spawn() -> Self {
+		WorkerDeclaration {
+			kind: WorkerType::AtSpawn,
+			write_local_scope: None,
+			log_accesses: false,
+			accesses: Some(AccessDeclarations::read_only()),
+			failure_handling: Default::default(),
+		}
+	}
+
+	/// Worker access state at spawn in read,
+	/// and change are written at write without
+	/// any check of consistency.
+	pub fn write_at_spawn() -> Self {
+		WorkerDeclaration {
+			kind: WorkerType::AtSpawn,
+			write_local_scope: None,
+			log_accesses: false,
+			accesses: Some(AccessDeclarations::all_allowed()),
+			failure_handling: Default::default(),
+		}
 	}
 }
 
@@ -733,6 +709,11 @@ impl AccessDeclaration {
 		}
 	}
 
+	/// Does declaration blocks all.
+	pub fn no_access(&self) -> bool {
+		self.top.no_access() && self.default_children.no_access() && self.children.iter().all(|(_, access)| access.no_access()) 
+	}
+
 	/// All access allowed.
 	pub fn all_allowed() -> Self {
 		AccessDeclaration {
@@ -750,6 +731,15 @@ impl AccessDeclarations {
 			read_only: Default::default(),
 			write_only: Default::default(),
 			read_write: AccessDeclaration::all_allowed(),
+		}
+	}
+
+	/// All read allowed, not write.
+	pub fn read_only() -> Self {
+		AccessDeclarations {
+			read_only: AccessDeclaration::all_allowed(),
+			write_only: Default::default(),
+			read_write: Default::default(),
 		}
 	}
 }

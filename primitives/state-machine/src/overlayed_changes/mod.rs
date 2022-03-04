@@ -122,6 +122,8 @@ pub struct OverlayedChanges {
 	optimistic_logger: loggers::AccessLogger,
 	/// Do we log accesses.
 	log_accesses: bool,
+	/// If concurrent child worker write.
+	need_resolve: bool,
 	/// Local write scope.
 	write_local_scope: local_scope::WriteLocalScope,
 }
@@ -130,6 +132,11 @@ impl OverlayedChanges {
 	/// Activate access logging
 	pub fn log_accesses(&mut self) {
 		self.log_accesses = true;
+	}
+
+	/// Does delta need resolve.
+	pub fn need_resolve(&self) -> bool {
+		self.need_resolve
 	}
 
 	/// An overlay that can be use for child worker.
@@ -141,12 +148,17 @@ impl OverlayedChanges {
 		worker_id: TaskId,
 		mut declaration: WorkerDeclaration,
 	) -> Option<Self> {
+		let mut need_resolve = false;
 		if let Some(accesses) = declaration.accesses.clone() {
+			if accesses.write_only.no_access() && accesses.read_write.no_access() {
+				need_resolve = true;
+			}
 			if !self.declare_child_worker(worker_id, accesses, declaration.failure_handling) {
 				return None
 			}
 		}
 		let mut result = OverlayedChanges::default();
+		result.need_resolve = need_resolve;
 		result.top = self.top.clone();
 		result.children = self.children.clone();
 		result.stats = Default::default();
@@ -307,7 +319,7 @@ impl OverlayedChanges {
 		let stats = &mut self.stats;
 		self.top.get(key).map(|x| {
 			if x.need_resolve() {
-				// gard and log already call
+				// guard and log already call
 				if let Some(aggregate) =
 					change_to_change_set(None, key, &mut x.transactions[..], backend)
 				{

@@ -136,7 +136,7 @@ sp_core::wasm_export_functions! {
 	fn test_declarative_read_no_conflict() {
 		sp_tasks::set_capacity(1);
 		let handle = sp_tasks::spawn(tasks::read_key, vec![], WorkerDeclaration {
-			kind: WorkerType::WriteDeclarative,
+			kind: WorkerType::AtSpawn,
 			accesses: Some(AccessDeclarations {
 				read_only: AccessDeclaration {
 					top: LocalAccessDeclaration {
@@ -168,7 +168,7 @@ sp_core::wasm_export_functions! {
 			tasks::read_key,
 			vec![],
 			WorkerDeclaration {
-				kind: WorkerType::WriteDeclarative,
+				kind: WorkerType::AtSpawn,
 				accesses: Some(AccessDeclarations {
 					read_only: AccessDeclaration {
 						top: LocalAccessDeclaration {
@@ -201,7 +201,7 @@ sp_core::wasm_export_functions! {
 			tasks::read_key,
 			vec![],
 			WorkerDeclaration {
-				kind: WorkerType::WriteDeclarative,
+				kind: WorkerType::AtSpawn,
 				accesses: Some(AccessDeclarations {
 					read_only: AccessDeclaration {
 						top: LocalAccessDeclaration {
@@ -233,7 +233,7 @@ sp_core::wasm_export_functions! {
 			tasks::read_key,
 			vec![],
 			WorkerDeclaration {
-				kind: WorkerType::WriteDeclarative,
+				kind: WorkerType::AtSpawn,
 				accesses: Some(AccessDeclarations {
 					read_only: AccessDeclaration {
 						top: LocalAccessDeclaration {
@@ -265,7 +265,7 @@ sp_core::wasm_export_functions! {
 			tasks::read_key,
 			vec![],
 			WorkerDeclaration {
-				kind: WorkerType::WriteDeclarative,
+				kind: WorkerType::AtSpawn,
 				accesses: Some(AccessDeclarations {
 					read_only: Default::default(),
 					write_only: AccessDeclaration {
@@ -289,7 +289,7 @@ sp_core::wasm_export_functions! {
 			tasks::read_key,
 			vec![],
 			WorkerDeclaration {
-				kind: WorkerType::WriteDeclarative,
+				kind: WorkerType::AtSpawn,
 				accesses: Some(AccessDeclarations {
 					read_only: Default::default(),
 					write_only: AccessDeclaration {
@@ -321,7 +321,7 @@ sp_core::wasm_export_functions! {
 		let handle = sp_tasks::spawn(
 			tasks::read_key,
 			vec![],
-			all_access_declaration(),
+			WorkerDeclaration::read_at_spawn(),
 		);
 		sp_io::storage::commit_transaction();
 		// even if no conflict we do not validate a result when transaction context is lower.
@@ -336,7 +336,7 @@ sp_core::wasm_export_functions! {
 		let handle = sp_tasks::spawn(
 			tasks::read_key,
 			vec![],
-			all_access_declaration(),
+			WorkerDeclaration::read_at_spawn(),
 		);
 		sp_io::storage::commit_transaction();
 		sp_io::storage::start_transaction();
@@ -353,7 +353,7 @@ sp_core::wasm_export_functions! {
 		let handle = sp_tasks::spawn(
 			tasks::write_key,
 			vec![],
-			all_access_declaration(),
+			WorkerDeclaration::read_at_spawn(),
 		);
 		sp_io::storage::start_transaction();
 		assert!(sp_io::storage::get(b"key").is_none());
@@ -373,7 +373,7 @@ sp_core::wasm_export_functions! {
 		let handle = sp_tasks::spawn(
 			tasks::unclose_child_transaction,
 			vec![],
-			all_access_declaration(),
+			WorkerDeclaration::read_at_spawn(),
 		);
 		// unclose tx in child is a panic case as unclose tx in result, so we expect panic, code
 		// is hear to make it explicit join is called.
@@ -636,34 +636,6 @@ sp_core::wasm_export_functions! {
 
 	fn test_unreachable_intrinsic() {
 		core::arch::wasm32::unreachable()
-	}
-}
-
-fn all_access_declaration() -> WorkerDeclaration {
-	WorkerDeclaration {
-		kind: WorkerType::WriteDeclarative,
-		accesses: Some(AccessDeclarations {
-			read_only: Default::default(),
-			write_only: Default::default(),
-			read_write: AccessDeclaration {
-				top: LocalAccessDeclaration {
-					all: true,
-					prefixes_lock: Default::default(),
-					keys_lock: Default::default(),
-					intervals_lock: Default::default(),
-				},
-				default_children: LocalAccessDeclaration {
-					all: true,
-					prefixes_lock: Default::default(),
-					keys_lock: Default::default(),
-					intervals_lock: Default::default(),
-				},
-				children: Default::default(),
-			},
-		}),
-		failure_handling: DeclarationFailureHandling::InvalidAtJoin,
-		write_local_scope: None,
-		log_accesses: false,
 	}
 }
 

@@ -221,7 +221,7 @@ fn validate_pending_participants_parallel<T: Config>(number: usize) {
 	let handle = sp_tasks::spawn(
 		spawn_verify::<T>,
 		async_payload,
-		sp_tasks::WorkerType::ReadAtSpawn.into(),
+		sp_tasks::WorkerDeclaration::read_at_spawn(),
 	)
 	.expect("Declaration incompatible with other running workers.");
 

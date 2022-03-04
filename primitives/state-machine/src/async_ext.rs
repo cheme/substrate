@@ -60,32 +60,32 @@ pub fn new_child_worker_async_ext(
 	backend: Box<dyn AsyncBackend>,
 	parent_overlay: &mut OverlayedChanges,
 ) -> Option<AsyncExt> {
-	let mut result = match &declaration.kind {
-		WorkerType::Stateless =>
-			return Some(AsyncExt {
-				kind: WorkerType::Stateless,
+	match &declaration.kind {
+		WorkerType::Stateless => Some(AsyncExt {
+				kind: declaration.kind,
 				overlay: Default::default(),
 				spawn_id: worker_id,
 				backend: Box::new(()),
 			}),
-		WorkerType::ReadLastBlock =>
-			return Some(AsyncExt {
-				kind: declaration.kind,
-				overlay: Default::default(),
-				spawn_id: worker_id,
-				backend,
-			}),
-		_ => AsyncExt {
+		WorkerType::LastBlock => Some(AsyncExt {
 			kind: declaration.kind,
 			overlay: Default::default(),
 			spawn_id: worker_id,
 			backend,
+		}),
+		_ => {
+			let mut result = AsyncExt {
+				kind: declaration.kind,
+				overlay: Default::default(),
+				spawn_id: worker_id,
+				backend,
+			};
+			parent_overlay.child_worker_overlay(worker_id, declaration).map(move |overlay| {
+				result.overlay = overlay;
+				result
+			})
 		},
-	};
-	parent_overlay.child_worker_overlay(worker_id, declaration).map(move |overlay| {
-		result.overlay = overlay;
-		result
-	})
+	}
 }
 
 impl AsyncExt {
@@ -110,13 +110,7 @@ impl AsyncExt {
 	/// worker execution.
 	/// TODO check if used
 	pub fn write_access(&self) -> bool {
-		match self.kind {
-			WorkerType::Stateless |
-			WorkerType::ReadLastBlock |
-			WorkerType::ReadAtSpawn => false,
-			WorkerType::WriteAtSpawn |
-			WorkerType::WriteDeclarative => true,
-		}
+		!matches!(self.kind, WorkerType::Stateless)
 	}
 }
 
@@ -417,7 +411,7 @@ impl AsyncExternalities for AsyncExt {
 	fn extract_state(&mut self) -> (WorkerState, Option<StateDelta>, Option<AccessLog>) {
 		let access_log = self.overlay.extract_access_log(); // TODO ensure it log as soon as workerdecl
 		let delta = self.overlay.extract_delta();
-		if !self.kind.need_resolve() {
+		if !self.overlay.need_resolve() {
 			return (WorkerState::Valid, delta, access_log)
 		}
 		if self.overlay.did_fail() {

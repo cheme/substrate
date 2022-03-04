@@ -371,7 +371,7 @@ impl_runtime_apis! {
 			}
 			sp_tasks::set_capacity(0); // run inline (single thread really).
 			let declaration = sp_tasks::WorkerDeclaration {
-				kind: sp_tasks::WorkerType::WriteAtSpawn,
+				kind: sp_tasks::WorkerType::AtSpawn,
 				write_local_scope: None,
 				log_accesses: true,
 				accesses: None,
