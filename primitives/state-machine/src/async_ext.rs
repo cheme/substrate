@@ -27,7 +27,7 @@ use sp_core::{
 };
 use sp_externalities::{
 	AccessLog, AsyncExternalities, Externalities, StateDelta, TaskId, WorkerDeclaration,
-	WorkerType, WorkerResult, WorkerState,
+	WorkerResult, WorkerState, WorkerType,
 };
 use sp_std::{
 	any::{Any, TypeId},
@@ -62,11 +62,11 @@ pub fn new_child_worker_async_ext(
 ) -> Option<AsyncExt> {
 	match &declaration.kind {
 		WorkerType::Stateless => Some(AsyncExt {
-				kind: declaration.kind,
-				overlay: Default::default(),
-				spawn_id: worker_id,
-				backend: Box::new(()),
-			}),
+			kind: declaration.kind,
+			overlay: Default::default(),
+			spawn_id: worker_id,
+			backend: Box::new(()),
+		}),
 		WorkerType::LastBlock => Some(AsyncExt {
 			kind: declaration.kind,
 			overlay: Default::default(),

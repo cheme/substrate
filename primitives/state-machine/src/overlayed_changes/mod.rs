@@ -45,8 +45,8 @@ use sp_core::{
 	storage::{well_known_keys::EXTRINSIC_INDEX, ChildInfo, StateVersion},
 };
 use sp_externalities::{
-	AccessLog, Change, Extension, Extensions, TaskId, WorkerDeclaration, WorkerType,
-	WorkerResult, WorkerState, AccessDeclarations, DeclarationFailureHandling,
+	AccessDeclarations, AccessLog, Change, DeclarationFailureHandling, Extension, Extensions,
+	TaskId, WorkerDeclaration, WorkerResult, WorkerState, WorkerType,
 };
 #[cfg(not(feature = "std"))]
 use sp_std::collections::btree_map::{BTreeMap as Map, Entry as MapEntry};
@@ -549,10 +549,7 @@ impl OverlayedChanges {
 			return false
 		}
 		self.filters.set_failure_handler(Some(child_marker), failure);
-		self.filters.add_change(
-			filters.clone(),
-			child_marker,
-		);
+		self.filters.add_change(filters.clone(), child_marker);
 		self.filters.forbid_all(filters.read_write, child_marker);
 		self.filters.forbid_writes(filters.read_only, child_marker);
 		self.filters.forbid_reads(filters.write_only, child_marker);

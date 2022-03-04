@@ -647,7 +647,6 @@ pub struct AccessDeclarations {
 /// Access filter on storage.
 #[derive(Debug, Clone, codec::Encode, codec::Decode, Default, Eq, PartialEq, TypeInfo)]
 pub struct AccessDeclaration {
-
 	/// Top state accesses.
 	pub top: LocalAccessDeclaration,
 
@@ -682,7 +681,10 @@ pub struct LocalAccessDeclaration {
 impl LocalAccessDeclaration {
 	/// Is there any declaration.
 	pub fn no_access(&self) -> bool {
-		self.prefixes_lock.is_empty() && self.keys_lock.is_empty() && self.intervals_lock.is_empty() && !self.all
+		self.prefixes_lock.is_empty() &&
+			self.keys_lock.is_empty() &&
+			self.intervals_lock.is_empty() &&
+			!self.all
 	}
 
 	/// All access allowed.
@@ -711,7 +713,9 @@ impl AccessDeclaration {
 
 	/// Does declaration blocks all.
 	pub fn no_access(&self) -> bool {
-		self.top.no_access() && self.default_children.no_access() && self.children.iter().all(|(_, access)| access.no_access()) 
+		self.top.no_access() &&
+			self.default_children.no_access() &&
+			self.children.iter().all(|(_, access)| access.no_access())
 	}
 
 	/// All access allowed.

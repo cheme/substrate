@@ -53,7 +53,7 @@ use sp_runtime::{
 	},
 	ApplyExtrinsicResult, Perbill,
 };
-use sp_tasks::{WorkerType, WorkerDeclaration, AccessDeclarations};
+use sp_tasks::{AccessDeclarations, WorkerDeclaration, WorkerType};
 use sp_trie::{trie_types::TrieDB, PrefixedMemoryDB, StorageProof};
 #[cfg(any(feature = "std", test))]
 use sp_version::NativeVersion;
@@ -1414,8 +1414,7 @@ fn test_witness(proof: StorageProof, root: crate::Hash) {
 		assert!(sp_io::storage::get(b"value3").is_some());
 		assert!(sp_io::storage::get(b"xyz").is_none());
 		sp_tasks::set_capacity(4);
-		let handle =
-			sp_tasks::spawn(worker_test, Vec::new(), WorkerDeclaration::read_at_spawn());
+		let handle = sp_tasks::spawn(worker_test, Vec::new(), WorkerDeclaration::read_at_spawn());
 		sp_io::storage::set(b"xyz", b"test");
 		assert!(sp_io::storage::get(b"xyz").is_some());
 		let res = handle.unwrap().join().expect("expected result for task");

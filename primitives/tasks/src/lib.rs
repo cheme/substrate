@@ -89,8 +89,8 @@ pub use crate::common::with_externalities_safe;
 pub use async_externalities::new_async_externalities;
 pub use async_externalities::{new_inline_only_externalities, AsyncExternalities};
 pub use sp_externalities::{
-	AccessDeclaration, AccessDeclarations, AccessLog, DeclarationFailureHandling, WorkerType,
-	LocalAccessDeclaration, WorkerDeclaration, WorkerResult, WorkerState,
+	AccessDeclaration, AccessDeclarations, AccessLog, DeclarationFailureHandling,
+	LocalAccessDeclaration, WorkerDeclaration, WorkerResult, WorkerState, WorkerType,
 };
 pub use sp_io::Crossing;
 use sp_std::vec::Vec;

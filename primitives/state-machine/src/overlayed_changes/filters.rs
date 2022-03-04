@@ -22,8 +22,8 @@
 use failure::{DeclFailureHandling, FailureHandlers};
 use sp_core::storage::{ChildInfo, ChildType, PrefixedStorageKey};
 use sp_externalities::{
-	AccessDeclaration, DeclarationFailureHandling, LocalAccessDeclaration, TaskId,
-	WorkerType, WorkerResult, WorkerState, AccessDeclarations,
+	AccessDeclaration, AccessDeclarations, DeclarationFailureHandling, LocalAccessDeclaration,
+	TaskId, WorkerResult, WorkerState, WorkerType,
 };
 use sp_std::{
 	collections::{btree_map::BTreeMap, btree_set::BTreeSet},
