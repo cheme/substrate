@@ -214,10 +214,8 @@ impl<'a, H: Hasher, B: 'a + Backend<H>> Externalities for ReadOnlyExternalities<
 		match (state_update.state, state_update.state_delta) {
 			(WorkerState::NeedResolve, _) => unimplemented!("TODO"),
 			(WorkerState::CallAt, None) |
-			(WorkerState::Optimistic, None) |
 			(WorkerState::Valid, None) => state_update.result,
 			(WorkerState::CallAt, Some(delta)) |
-			(WorkerState::Optimistic, Some(delta)) |
 			(WorkerState::Valid, Some(delta)) =>
 				if delta.is_empty() {
 					state_update.result

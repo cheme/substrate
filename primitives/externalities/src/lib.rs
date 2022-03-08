@@ -341,12 +341,6 @@ pub enum WorkerState {
 	/// parent worker externalities with `resolve_worker_result`.
 	NeedResolve,
 
-	/// Optimistic worker state accesses to be checked
-	/// against other worker results.
-	/// This can result in 'join' returning an invalid
-	/// result.
-	Optimistic,
-
 	/// Internal panic when runing the worker.
 	/// This propagate panic in caller.
 	RuntimePanic,

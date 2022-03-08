@@ -475,11 +475,6 @@ impl Filters {
 			WorkerState::CallAt => {
 				self.remove_worker(result.id);
 			},
-			WorkerState::Optimistic => {
-				// This is actually a noops since optimistic don't
-				// use filter.
-				self.remove_worker(result.id);
-			},
 			// When using filter there is no directly valid case.
 			WorkerState::Valid => (),
 			// When using filter there is no invalid case.

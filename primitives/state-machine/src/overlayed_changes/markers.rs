@@ -142,10 +142,6 @@ impl Markers {
 				// invalid when nothing
 				self.remove_worker(result.id)
 			},
-			WorkerState::Optimistic => {
-				// invalid when nothing
-				self.remove_worker(result.id)
-			},
 			WorkerState::Valid => true,
 			WorkerState::Invalid => true,
 			WorkerState::RuntimePanic | WorkerState::HardPanic => true,

@@ -585,7 +585,6 @@ impl OverlayedChanges {
 		}
 
 		match (result.state, result.result) {
-			(WorkerState::Optimistic, Some(res)) |
 			(WorkerState::Valid, Some(res)) |
 			(WorkerState::CallAt, Some(res)) => {
 				if let Some(delta) = result.state_delta {
