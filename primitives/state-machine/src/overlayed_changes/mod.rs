@@ -561,8 +561,8 @@ impl OverlayedChanges {
 	pub fn set_worker_declaration(&mut self, declaration: WorkerDeclaration) {
 		self.write_local_scope.set_write_local_scope(declaration.write_local_scope);
 		if declaration.log_accesses {
-			self.optimistic_logger.log_reads_against(None);
-			self.optimistic_logger.log_writes_against(None);
+			self.optimistic_logger.log_reads_against();
+			self.optimistic_logger.log_writes_against();
 		}
 		if let Some(filters) = declaration.accesses {
 			self.filters.set_failure_handler(None, declaration.failure_handling);
@@ -585,8 +585,7 @@ impl OverlayedChanges {
 		}
 
 		match (result.state, result.result) {
-			(WorkerState::Valid, Some(res)) |
-			(WorkerState::CallAt, Some(res)) => {
+			(WorkerState::Valid, Some(res)) | (WorkerState::CallAt, Some(res)) => {
 				if let Some(delta) = result.state_delta {
 					self.inject_worker_delta(delta);
 				}
@@ -607,7 +606,6 @@ impl OverlayedChanges {
 	///
 	/// Update internal state relative to this worker.
 	pub fn dismiss_worker(&mut self, id: TaskId) {
-		self.optimistic_logger.remove_worker(id);
 		self.filters.remove_worker(id);
 		self.markers.remove_worker(id);
 	}
@@ -1250,8 +1248,7 @@ pub mod radix_trees {
 	/// Radix tree internally use for filtering key accesses.
 	pub type FilterTreeEnd<F> = (radix_tree::Tree<Node256NoBackendART<F>>, F);
 	/// Write access logs with children origin.
-	pub(crate) type AccessTreeWrite =
-		radix_tree::Tree<Node256NoBackendART<super::loggers::OriginLog>>;
+	pub(crate) type AccessTreeWrite = radix_tree::Tree<Node256NoBackendART<()>>;
 
 	/// A tree of filter rules.
 	#[derive(Debug, Clone, Default)]

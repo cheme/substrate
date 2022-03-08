@@ -213,10 +213,8 @@ impl<'a, H: Hasher, B: 'a + Backend<H>> Externalities for ReadOnlyExternalities<
 	fn resolve_worker_result(&mut self, state_update: WorkerResult) -> Option<Vec<u8>> {
 		match (state_update.state, state_update.state_delta) {
 			(WorkerState::NeedResolve, _) => unimplemented!("TODO"),
-			(WorkerState::CallAt, None) |
-			(WorkerState::Valid, None) => state_update.result,
-			(WorkerState::CallAt, Some(delta)) |
-			(WorkerState::Valid, Some(delta)) =>
+			(WorkerState::CallAt, None) | (WorkerState::Valid, None) => state_update.result,
+			(WorkerState::CallAt, Some(delta)) | (WorkerState::Valid, Some(delta)) =>
 				if delta.is_empty() {
 					state_update.result
 				} else {
