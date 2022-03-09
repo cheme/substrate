@@ -27,7 +27,6 @@
 //! this would also require a 'jump_to' instruction on tree iterator.
 
 use super::{retain_map, StorageKey};
-use crate::overlayed_changes::radix_trees::AccessTreeWrite;
 use sp_core::storage::ChildInfo;
 use sp_externalities::{StateLog, TaskId, WorkerResult, WorkerState};
 #[cfg(not(feature = "std"))]
@@ -81,7 +80,7 @@ struct StateLogger {
 	// Intervals are inclusive for start and end.
 	read_intervals: Set<(Vec<u8>, Option<Vec<u8>>)>,
 	// this is roughly clear prefix.
-	write_prefixes: AccessTreeWrite,
+	write_prefixes: Set<Vec<u8>>,
 }
 
 impl StateLogger {
@@ -204,7 +203,7 @@ impl AccessLogger {
 			// TODO replace by interval usage (remove radix trie dep).
 			let logger =
 				Self::logger_mut(&mut self.top_logger, &mut self.children_logger, storage_key);
-			logger.write_prefixes.insert(key, ());
+			logger.write_prefixes.insert(key.to_vec());
 		}
 	}
 
@@ -237,7 +236,7 @@ impl AccessLogger {
 		}
 		if write {
 			result.top_logger.write_prefix =
-				self.top_logger.write_prefixes.iter().value_iter().map(|(key, _)| key).collect();
+				sp_std::mem::take(&mut self.top_logger.write_prefixes).into_iter().collect();
 			self.top_logger.write_prefixes.clear();
 		}
 		result.children_logger = sp_std::mem::take(&mut self.children_logger)
@@ -259,7 +258,7 @@ impl AccessLogger {
 				}
 				if write {
 					log.write_prefix =
-						logger.write_prefixes.iter().value_iter().map(|(key, _)| key).collect();
+						sp_std::mem::take(&mut logger.write_prefixes).into_iter().collect();
 					logger.write_prefixes.clear();
 				}
 

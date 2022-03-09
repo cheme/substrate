@@ -31,7 +31,6 @@ smallvec = "1.8.0"
 sp-std = { version = "4.0.0", default-features = false, path = "../std" }
 tracing = { version = "0.1.29", optional = true }
 delegate = "0.5.1"
-radix-tree = { version = "0.8.0", git = "https://github.com/cheme/substrate", branch = "historied-db-backend2", default-features = false }
 
 [dev-dependencies]
 hex-literal = "0.3.4"

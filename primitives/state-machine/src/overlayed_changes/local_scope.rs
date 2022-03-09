@@ -27,14 +27,13 @@
 //! Read access in write local scope are still checked for concurrency
 //! conflict (we do not run on a copy of the state).
 
-use super::radix_trees::FilterTrees;
 use sp_externalities::AccessDeclaration;
 
 /// Storage of scope and related operation.
 #[derive(Debug, Clone, Default)]
 pub(super) struct WriteLocalScope {
-	// bool to allow multiple definition (prefix or key).
-	write_local_scope: Option<FilterTrees<Filter>>,
+	// TODO
+//	write_local_scope: Option<FilterTrees<Filter>>,
 }
 
 #[derive(Debug, Clone)]

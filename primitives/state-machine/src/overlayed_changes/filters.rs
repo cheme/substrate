@@ -36,13 +36,32 @@ use sp_std::{
 /// Worker declaration assertion failure.
 const BROKEN_DECLARATION_ACCESS: &str = "Key access impossible due to worker access declaration";
 
+type FilterTree<F> = BTreeMap<Vec<u8>, F>; // TODO hashmap in std
+/// A tree of filter rules.
+#[derive(Debug, Clone, Default)]
+pub(super) struct FilterTrees<F: Debug + Clone + Default> {
+	pub(super) top: FilterTree<F>,
+	pub(super) children: BTreeMap<super::StorageKey, FilterTree<F>>,
+}
+
+
+impl<F: Debug + Clone + Default> FilterTrees<F> {
+	pub(super) fn filter(&self, child_info: Option<&ChildInfo>) -> Option<&FilterTree<F>> {
+		if let Some(child_info) = child_info {
+			self.children.get(child_info.storage_key())
+		} else {
+			Some(&self.top)
+		}
+	}
+}
+
 // Allow for child worker.
-type FilterTreesAllow = super::radix_trees::FilterTrees<bool>;
-type FilterTreeAllow = super::radix_trees::FilterTree<bool>;
+type FilterTreesAllow = FilterTrees<bool>;
+type FilterTreeAllow = FilterTree<bool>;
 
 // Forbid for parent worker. Forbid always override allow.
-type FilterTreesForbid = super::radix_trees::FilterTrees<FilterOrigin>;
-type FilterTreeForbid = super::radix_trees::FilterTree<FilterOrigin>;
+type FilterTreesForbid = FilterTrees<FilterOrigin>;
+type FilterTreeForbid = FilterTree<FilterOrigin>;
 
 // TODO same consuming function?
 fn prefixed_storage_key_to_child_info(prefixed_storage_key: &Vec<u8>) -> ChildInfo {
@@ -136,7 +155,7 @@ impl Filters {
 			if let Some(filter) = tree.get_mut(key.as_slice()) {
 				filter.remove(from_child);
 				if filter.is_empty() {
-					tree.remove(key.as_slice(), false);
+					tree.remove(key.as_slice());
 				}
 			}
 		}
@@ -172,7 +191,7 @@ impl Filters {
 				// new entry
 				let mut filter = FilterOrigin::default();
 				filter.set(from_child);
-				tree.insert(key.as_slice(), filter);
+				tree.insert(key.clone(), filter);
 			}
 		}
 		true
@@ -201,7 +220,7 @@ impl Filters {
 				*filter = true;
 			} else {
 				// new entry
-				tree.insert(key.as_slice(), true);
+				tree.insert(key.clone(), true);
 			}
 		}
 		true
@@ -589,13 +608,16 @@ impl Filters {
 		let filters =
 			if let Some(filter) = filters.filter(child_info) { filter } else { return blocked };
 		let len = key.len();
-		let mut iter = filters.seek_iter(key).value_iter();
-		while let Some((key, value)) = iter.next() {
-			if value.is_defined() {
-				blocked.push(value);
+		let start = key;
+		let mut iter = filters.range::<Vec<u8>, _>(start.to_vec()..);
+		for (key, value) in iter {
+			// TODO probably incorrect
+			if key == start {
+				if value.is_defined() {
+					blocked.push(value);
+				}
+				continue;
 			}
-		}
-		for (key, value) in iter.node_iter().iter().value_iter() {
 			if key_end.map(|end| key.as_slice() <= end).unwrap_or(true) {
 				if value.is_defined() {
 					blocked.push(value);
@@ -646,46 +668,9 @@ impl Filters {
 
 		let filters =
 			if let Some(filter) = filters.filter(child_info) { filter } else { return false };
-		let mut iter = filters.seek_iter(key).value_iter();
-		let mut start_interval = None;
-		// TODO replace by btree seek: don't forget to range it.
-		// also this does not work: it ignore first value.
-		while let Some((key, value)) = iter.next() {
-			if *value {
-				start_interval = Some(key);
-				break
-			}
-		}
-		let mut previous_prefix = if let Some(key) = start_interval {
-			if key_end.map(|end| end.starts_with(key)).unwrap_or(key.is_empty()) {
-				return true
-			}
-			key.to_vec()
-		} else {
-			return false
-		};
-		for (key, value) in iter.node_iter().iter().value_iter() {
-			if *value {
-				if !key.starts_with(previous_prefix.as_slice()) {
-					// only allow contigous prefix
-					while previous_prefix.last() == Some(&255u8) {
-						previous_prefix.pop();
-					}
-					previous_prefix.last_mut().map(|b| *b += 1);
-					if previous_prefix != key {
-						return false
-					}
-				}
-				if key_end.map(|end| end.starts_with(&key)).unwrap_or(false) {
-					return true
-				}
-			}
-			// TODO can it be removed?
-			if key_end.map(|end| key.as_slice() > end).unwrap_or(true) {
-				break
-			}
-		}
-		false
+
+		let start = key;
+		unimplemented!("TODO rewrite/refactor range");
 	}
 
 	//TODO factor with guard_read_alow
@@ -980,10 +965,6 @@ pub(super) mod failure {
 
 pub(super) mod interval_filters {
 	use super::*;
-	use crate::overlayed_changes::radix_trees::{
-		FilterTreeEnd as FilterTree, FilterTreesEnd as FilterTrees,
-	};
-
 	/// TODO bad def, need a quick check algo.
 	#[derive(Debug, Clone, Default)]
 	pub struct FilterInterval<F: Debug + Clone + Default> {
@@ -999,9 +980,28 @@ pub(super) mod interval_filters {
 		}
 	}
 
-	pub(super) type FilterTreesAllowInterval = FilterTrees<FilterInterval<bool>>;
+	#[derive(Debug, Clone, Default)]
+	pub(super) struct FilterTrees<F: Debug + Clone + Default> {
+		pub(super) top: FilterTreeInterval<F>,
+		pub(super) children: BTreeMap<crate::overlayed_changes::StorageKey, FilterTreeInterval<F>>,
+	}
 
-	pub(super) type FilterTreesForbidInterval = FilterTrees<FilterInterval<FilterOrigin>>;
+	impl<F: Debug + Clone + Default> FilterTrees<F> {
+		pub(super) fn filter(&self, child_info: Option<&ChildInfo>) -> Option<&FilterTreeInterval<F>> {
+			if let Some(child_info) = child_info {
+				self.children.get(child_info.storage_key())
+			} else {
+				Some(&self.top)
+			}
+		}
+	}
+
+	pub(super) type FilterTreesAllowInterval = FilterTrees<bool>;
+	pub(super) type FilterTreeInterval<F> = (BTreeMap<Vec<u8>, FilterInterval<F>>, FilterInterval<F>);
+	pub(super) type FilterTreeAllowInterval = FilterTreeInterval<bool>;
+
+	pub(super) type FilterTreesForbidInterval = FilterTrees<FilterOrigin>;
+	pub(super) type FilterTreeForbidInterval = FilterTreeInterval<FilterOrigin>;
 
 	pub(super) trait FilterBound: Default + Debug + Clone {
 		fn is_empty(&self) -> bool;
@@ -1027,7 +1027,7 @@ pub(super) mod interval_filters {
 	}
 
 	pub(super) fn set_filter_allow(
-		filter: &mut FilterTrees<FilterInterval<bool>>,
+		filter: &mut FilterTreesAllowInterval,
 		decl: &AccessDeclaration,
 	) -> bool {
 		if !set_filter_allow_internal(&mut filter.top, &decl.top) {
@@ -1044,7 +1044,7 @@ pub(super) mod interval_filters {
 
 	// TODO factor allow and forbid (make a trait for bool and child set).
 	fn set_filter_allow_internal(
-		filter: &mut FilterTree<FilterInterval<bool>>,
+		filter: &mut FilterTreeAllowInterval,
 		decl: &LocalAccessDeclaration,
 	) -> bool {
 		let mut insert_start;
@@ -1058,26 +1058,22 @@ pub(super) mod interval_filters {
 			) {
 			// TODO return false if overlapping or unordered
 			insert_start = None;
-			let mut iter = filter.0.seek_iter_mut(start).value_iter();
 			let mut do_insert_start = true;
-			if let Some((k, value)) = (&mut iter).last() {
-				if k == start {
-					do_insert_start = false;
-					value.start_of = true;
-				}
-			}
-
 			let mut end_has_parent_origin = false;
-			let mut iter = iter.node_iter().iter().value_iter();
+			let mut iter = filter.0.range_mut::<Vec<u8>, _>(start..);
 			// set origin to all end into interval
 			for (k, value) in &mut iter {
 				if do_insert_start {
-					insert_start = Some(value.end_of.clone());
 					do_insert_start = false;
+					if k == start {
+						value.start_of = true;
+						continue;
+					}
+					insert_start = Some(true);
 				}
-				if end.as_ref().map(|end| &k < end).unwrap_or(true) {
+				if end.as_ref().map(|end| k < end).unwrap_or(true) {
 					value.end_of = true;
-				} else if Some(k) == end {
+				} else if Some(k) == end.as_ref() {
 					end_has_parent_origin = true;
 					value.end_of = true;
 					break
@@ -1087,31 +1083,22 @@ pub(super) mod interval_filters {
 			}
 			if do_insert_start {
 				// corner case of empty range
-				insert_start = Some(filter.1.end_of.clone());
+				insert_start = Some(filter.1.end_of);
 			}
-			// find end parent intervals.
-			let mut end_origin = if end_has_parent_origin {
-				Default::default()
-			} else if let Some((_k, value)) = iter.next() {
-				value.end_of.clone()
-			} else {
-				filter.1.end_of.clone()
-			};
-			if let Some(mut start_origin) = insert_start.take() {
+			if let Some(mut start_origin) = insert_start {
 				start_origin = true;
 				filter.0.insert(
-					start.as_slice(),
+					start.clone(),
 					FilterInterval { start_of: start_origin, end_of: false },
 				);
 			}
 			if end_has_parent_origin {
-				break
+				break;
 			}
-			if let Some(end) = end.as_ref() {
-				end_origin = true;
+			if let Some(end) = end {
 				filter.0.insert(
-					end.as_slice(),
-					FilterInterval { start_of: false, end_of: end_origin },
+					end,
+					FilterInterval { start_of: false, end_of: true },
 				);
 			} else {
 				filter.1.end_of = true;
@@ -1121,7 +1108,7 @@ pub(super) mod interval_filters {
 	}
 
 	pub(super) fn set_filter_forbid(
-		filter: &mut FilterTrees<FilterInterval<FilterOrigin>>,
+		filter: &mut FilterTrees<FilterOrigin>,
 		decl: &AccessDeclaration,
 		from_child: TaskId,
 	) -> bool {
@@ -1138,7 +1125,7 @@ pub(super) mod interval_filters {
 	}
 
 	fn set_filter_forbid_internal(
-		filter: &mut FilterTree<FilterInterval<FilterOrigin>>,
+		filter: &mut FilterTreeForbidInterval,
 		decl: &LocalAccessDeclaration,
 		from_child: TaskId,
 	) -> bool {
@@ -1153,26 +1140,26 @@ pub(super) mod interval_filters {
 			) {
 			// TODO return false if overlapping or unordered
 			insert_start = None;
-			let mut iter = filter.0.seek_iter_mut(start).value_iter();
 			let mut do_insert_start = true;
-			if let Some((k, value)) = (&mut iter).last() {
-				if k == start {
-					do_insert_start = false;
-					value.start_of.set(from_child);
-				}
-			}
-
 			let mut end_has_parent_origin = false;
-			let mut iter = iter.node_iter().iter().value_iter();
+			let mut iter = filter.0.range_mut::<Vec<u8>, _>(start..);
 			// set origin to all end into interval
 			for (k, value) in &mut iter {
+				if do_insert_start {
+					do_insert_start = false;
+					if k == start {
+						value.start_of.set(from_child);
+						continue;
+					}
+					insert_start = Some(value.end_of.clone());
+				}
 				if do_insert_start {
 					insert_start = Some(value.end_of.clone());
 					do_insert_start = false;
 				}
-				if end.as_ref().map(|end| &k < end).unwrap_or(true) {
+				if end.as_ref().map(|end| k < end).unwrap_or(true) {
 					value.end_of.set(from_child);
-				} else if Some(k) == end {
+				} else if Some(k) == end.as_ref() {
 					end_has_parent_origin = true;
 					value.end_of.set(from_child);
 					break
@@ -1192,20 +1179,20 @@ pub(super) mod interval_filters {
 			} else {
 				filter.1.end_of.clone()
 			};
-			if let Some(mut start_origin) = insert_start.take() {
+			if let Some(mut start_origin) = insert_start {
 				start_origin.set(from_child);
 				filter.0.insert(
-					start.as_slice(),
+					start.clone(),
 					FilterInterval { start_of: start_origin, end_of: FilterOrigin::default() },
 				);
 			}
 			if end_has_parent_origin {
 				break
 			}
-			if let Some(end) = end.as_ref() {
+			if let Some(end) = end {
 				end_origin.set(from_child);
 				filter.0.insert(
-					end.as_slice(),
+					end,
 					FilterInterval { start_of: FilterOrigin::default(), end_of: end_origin },
 				);
 			} else {
@@ -1216,7 +1203,7 @@ pub(super) mod interval_filters {
 	}
 
 	pub(super) fn remove_filter_forbid(
-		filter: &mut FilterTrees<FilterInterval<FilterOrigin>>,
+		filter: &mut FilterTrees<FilterOrigin>,
 		decl: &AccessDeclaration,
 		from_child: TaskId,
 	) {
@@ -1229,7 +1216,7 @@ pub(super) mod interval_filters {
 	}
 
 	fn remove_filter_forbid_internal(
-		filter: &mut FilterTree<FilterInterval<FilterOrigin>>,
+		filter: &mut FilterTreeForbidInterval,
 		decl: &LocalAccessDeclaration,
 		from_child: TaskId,
 	) {
@@ -1243,64 +1230,71 @@ pub(super) mod interval_filters {
 					(prefix, end)
 				}),
 			) {
-			let mut iter = filter.0.seek_iter_mut(start).value_iter();
-			if let Some((k, value)) = (&mut iter).last() {
-				value.start_of.remove(from_child);
-				if value.is_empty() {
-					to_remove.push(k.to_vec());
+				let mut iter = filter.0.range_mut::<Vec<u8>, _>(start..);
+				let mut touched = false;
+				for (k, value) in &mut iter {
+					if k == start {
+						value.start_of.remove(from_child);
+						if value.is_empty() {
+							to_remove.push(k.to_vec());
+						}
+					}
+					if end.as_ref().map(|end| k > end).unwrap_or(false) {
+						touched = true;
+						break
+					}
+					let at = Some(k) == end.as_ref();
+					value.end_of.remove(from_child);
+					if value.is_empty() {
+						to_remove.push(k.clone());
+					}
+					if at {
+						touched = true;
+						break
+					}
+				}
+				if !touched {
+					filter.1.end_of.remove(from_child);
 				}
 			}
-			let mut touched = false;
-			for (k, value) in iter.node_iter().iter().value_iter() {
-				if end.as_ref().map(|end| &k > end).unwrap_or(false) {
-					touched = true;
-					break
-				}
-				let at = Some(&k) == end.as_ref();
-				value.end_of.remove(from_child);
-				if value.is_empty() {
-					to_remove.push(k);
-				}
-				if at {
-					touched = true;
-					break
-				}
-			}
-			if !touched {
-				filter.1.end_of.remove(from_child);
-			}
-		}
 		for key in to_remove {
-			filter.0.remove(key.as_slice(), false);
+			filter.0.remove(key.as_slice());
 		}
 	}
 
 	pub(super) fn check_key_inclusion_origin<'a, D: FilterBound>(
-		filter: &'a FilterTree<FilterInterval<D>>,
+		filter: &'a FilterTreeInterval<D>,
 		key: &'a [u8],
 	) -> &'a D {
-		let mut iter = filter.0.seek_iter(key).value_iter();
-		let _ = (&mut iter).last();
-		if let Some((_k, value)) = iter.node_iter().iter().value_iter().next() {
-			return &value.end_of
+		let mut iter = filter.0.range::<Vec<u8>, _>(key.to_vec()..);
+		if let Some((k, value)) = iter.next() {
+			if k.as_slice() == key {
+				if let Some((k, value)) = iter.next() {
+					return &value.end_of
+				}
+			} else {
+				return &value.end_of
+			}
 		}
 		&filter.1.end_of
 	}
 
 	pub(super) fn check_key_inclusion<D: FilterBound>(
-		filter: &FilterTree<FilterInterval<D>>,
+		filter: &FilterTreeInterval<D>,
 		key: &[u8],
 	) -> bool {
-		let mut iter = filter.0.seek_iter(key).value_iter();
-		if let Some((k, value)) = (&mut iter).last() {
-			if k == key {
+		let mut iter = filter.0.range::<Vec<u8>, _>(key.to_vec()..);
+		if let Some((k, value)) = (&mut iter).next() {
+			if k.as_slice() == key {
 				if !value.start_of.is_empty() {
 					return true
 				}
+				if let Some((_k, value)) = iter.next() {
+					return !value.end_of.is_empty()
+				}
+			} else {
+				return !value.end_of.is_empty()
 			}
-		}
-		if let Some((_k, value)) = iter.node_iter().iter().value_iter().next() {
-			return !value.end_of.is_empty()
 		}
 		!filter.1.end_of.is_empty()
 	}
@@ -1309,14 +1303,16 @@ pub(super) mod interval_filters {
 	// (prefix could complet interval).
 	pub(super) fn check_interval_into<D: FilterBound>(
 		// TODO use prefix only?
-		filter: &FilterTree<FilterInterval<D>>,
+		filter: &FilterTreeInterval<D>,
 		from: &[u8],
 		to: Option<&[u8]>,
 		inclusive: bool,
 	) -> bool {
-		let mut iter = filter.0.seek_iter(from).value_iter();
-		let _ = (&mut iter).last(); // seek, put k after start
-		for (k, value) in iter.node_iter().iter().value_iter() {
+		let mut iter = filter.0.range::<Vec<u8>, _>(from.to_vec()..);
+		for (k, value) in iter {
+			if k.as_slice() == from {
+				continue;
+			}
 			if to
 				.as_ref()
 				.map(|to| (inclusive && k.as_slice() <= *to) || (!inclusive && k.as_slice() < *to))
@@ -1338,7 +1334,7 @@ pub(super) mod interval_filters {
 	}
 
 	pub(super) fn check_inclusive_interval_into<D: FilterBound>(
-		filter: &FilterTree<FilterInterval<D>>,
+		filter: &FilterTreeInterval<D>,
 		from: &[u8],
 		to: &[u8],
 	) -> bool {
@@ -1346,7 +1342,7 @@ pub(super) mod interval_filters {
 	}
 
 	pub(super) fn check_inclusive_interval_overlap<D: FilterBound>(
-		filter: &FilterTree<FilterInterval<D>>,
+		filter: &FilterTreeInterval<D>,
 		from: &[u8],
 		to: &[u8],
 	) -> bool {
@@ -1355,7 +1351,7 @@ pub(super) mod interval_filters {
 
 	fn check_exclusive_interval_overlap<D: FilterBound>(
 		// TODO use prefix only?
-		filter: &FilterTree<FilterInterval<D>>,
+		filter: &FilterTreeInterval<D>,
 		from: &[u8],
 		to: Option<&[u8]>,
 	) -> bool {
@@ -1364,7 +1360,7 @@ pub(super) mod interval_filters {
 
 	fn check_exclusive_interval_overlap_origins<'a, D: FilterBound>(
 		// TODO use prefix only?
-		filter: &'a FilterTree<FilterInterval<D>>,
+		filter: &'a FilterTreeInterval<D>,
 		from: &'a [u8],
 		to: Option<&[u8]>,
 	) -> &'a D {
@@ -1373,20 +1369,21 @@ pub(super) mod interval_filters {
 
 	fn check_interval_overlap<D: FilterBound>(
 		// TODO use prefix only?
-		filter: &FilterTree<FilterInterval<D>>,
+		filter: &FilterTreeInterval<D>,
 		from: &[u8],
 		to: Option<&[u8]>,
 		inclusive: bool,
 	) -> bool {
-		let mut iter = filter.0.seek_iter(from).value_iter();
-		if let Some((k, value)) = (&mut iter).last() {
+		let mut iter = filter.0.range::<Vec<u8>, _>(from.to_vec()..);
+		for (k, value) in iter {
 			if k == from {
 				if !value.start_of.is_empty() {
 					return true
+				} else {
+					continue;
 				}
 			}
-		}
-		for (k, value) in iter.node_iter().iter().value_iter() {
+
 			if !value.end_of.is_empty() {
 				return true
 			}
@@ -1405,14 +1402,16 @@ pub(super) mod interval_filters {
 
 	pub(super) fn check_interval_overlap_origins<'a, D: FilterBound>(
 		// TODO use prefix only?
-		filter: &'a FilterTree<FilterInterval<D>>,
+		filter: &'a FilterTreeInterval<D>,
 		from: &'a [u8],
 		to: Option<&[u8]>,
 		inclusive: bool,
 	) -> &'a D {
-		let mut iter = filter.0.seek_iter(from).value_iter();
-		let _ = (&mut iter).last();
-		for (k, value) in iter.node_iter().iter().value_iter() {
+		let iter = filter.0.range::<Vec<u8>, _>(from.to_vec()..);
+		for (k, value) in iter {
+			if k.as_slice() == from {
+				continue;
+			}
 			if !value.end_of.is_empty() {
 				return &value.end_of
 			}
@@ -1430,7 +1429,7 @@ pub(super) mod interval_filters {
 	}
 
 	pub(super) fn check_prefix_overlap<D: FilterBound>(
-		filter: &FilterTree<FilterInterval<D>>,
+		filter: &FilterTreeInterval<D>,
 		prefix: &[u8],
 	) -> bool {
 		let end_prefix = crate::overlayed_changes::end_prefix(prefix);
@@ -1441,16 +1440,8 @@ pub(super) mod interval_filters {
 		)
 	}
 
-	pub(super) fn check_prefix_into<D: FilterBound>(
-		filter: &FilterTree<FilterInterval<D>>,
-		prefix: &[u8],
-	) -> bool {
-		let end_prefix = crate::overlayed_changes::end_prefix(prefix);
-		check_interval_into::<D>(filter, prefix, end_prefix.as_ref().map(|e| e.as_slice()), false)
-	}
-
 	pub(super) fn check_prefix_overlap_origins<'a, D: FilterBound>(
-		filter: &'a FilterTree<FilterInterval<D>>,
+		filter: &'a FilterTreeInterval<D>,
 		// TODO this 'a is needed due to radix iter needing 'a, but if iter would manage two
 		// lifetime one for the iterator and one for the actual iterated value.
 		// Then we would not need it this is a bit everywhere.
@@ -1470,7 +1461,7 @@ pub(super) mod interval_filters {
 		// TODO fuzzing against list of defined interval could be good.
 		#[test]
 		fn test_1() {
-			let mut filter = FilterTree::<FilterInterval<FilterOrigin>>::default();
+			let mut filter = FilterTreeInterval::<FilterOrigin>::default();
 			assert!(!check_prefix_overlap(&filter, &[]));
 			assert!(!check_prefix_overlap(&filter, b"test"));
 			assert!(!check_key_inclusion(&filter, b"test"));
