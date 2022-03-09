@@ -649,6 +649,7 @@ impl Filters {
 		let mut iter = filters.seek_iter(key).value_iter();
 		let mut start_interval = None;
 		// TODO replace by btree seek: don't forget to range it.
+		// also this does not work: it ignore first value.
 		while let Some((key, value)) = iter.next() {
 			if *value {
 				start_interval = Some(key);
@@ -1041,10 +1042,12 @@ pub(super) mod interval_filters {
 		true
 	}
 
+	// TODO factor allow and forbid (make a trait for bool and child set).
 	fn set_filter_allow_internal(
 		filter: &mut FilterTree<FilterInterval<bool>>,
 		decl: &LocalAccessDeclaration,
 	) -> bool {
+		let mut insert_start;
 		// TODO avoid a clone.
 		for (start, end) in
 			decl.intervals_lock.iter().map(|(start, end)| (start, end.clone())).chain(
@@ -1054,22 +1057,62 @@ pub(super) mod interval_filters {
 				}),
 			) {
 			// TODO return false if overlapping or unordered
-			// TODO implement entry api
-			if let Some(bound) = filter.0.get_mut(start.as_slice()) {
-				bound.start_of = true;
+			insert_start = None;
+			let mut iter = filter.0.seek_iter_mut(start).value_iter();
+			let mut do_insert_start = true;
+			if let Some((k, value)) = (&mut iter).last() {
+				if k == start {
+					do_insert_start = false;
+					value.start_of = true;
+				}
+			}
+
+			let mut end_has_parent_origin = false;
+			let mut iter = iter.node_iter().iter().value_iter();
+			// set origin to all end into interval
+			for (k, value) in &mut iter {
+				if do_insert_start {
+					insert_start = Some(value.end_of.clone());
+					do_insert_start = false;
+				}
+				if end.as_ref().map(|end| &k < end).unwrap_or(true) {
+					value.end_of = true;
+				} else if Some(k) == end {
+					end_has_parent_origin = true;
+					value.end_of = true;
+					break
+				} else {
+					break
+				}
+			}
+			if do_insert_start {
+				// corner case of empty range
+				insert_start = Some(filter.1.end_of.clone());
+			}
+			// find end parent intervals.
+			let mut end_origin = if end_has_parent_origin {
+				Default::default()
+			} else if let Some((_k, value)) = iter.next() {
+				value.end_of.clone()
 			} else {
-				filter
-					.0
-					.insert(start.as_slice(), FilterInterval { start_of: true, end_of: false });
+				filter.1.end_of.clone()
+			};
+			if let Some(mut start_origin) = insert_start.take() {
+				start_origin = true;
+				filter.0.insert(
+					start.as_slice(),
+					FilterInterval { start_of: start_origin, end_of: false },
+				);
+			}
+			if end_has_parent_origin {
+				break
 			}
 			if let Some(end) = end.as_ref() {
-				if let Some(bound) = filter.0.get_mut(end.as_slice()) {
-					bound.end_of = true;
-				} else {
-					filter
-						.0
-						.insert(end.as_slice(), FilterInterval { start_of: false, end_of: true });
-				}
+				end_origin = true;
+				filter.0.insert(
+					end.as_slice(),
+					FilterInterval { start_of: false, end_of: end_origin },
+				);
 			} else {
 				filter.1.end_of = true;
 			}
@@ -1522,12 +1565,19 @@ mod test {
 			&b"key"[..],
 			Some(&b"key8"[..]),
 		));
-		assert!(!Filters::guard_allow_interval(
+		assert!(Filters::guard_allow_interval(
 			&filters1.filters_allow_read,
 			&filters1.filters_interval_allow_read,
 			None,
 			&b"key"[..],
 			Some(&b"kez"[..]),
+		));
+		assert!(!Filters::guard_allow_interval(
+			&filters1.filters_allow_read,
+			&filters1.filters_interval_allow_read,
+			None,
+			&b"key"[..],
+			Some(&b"keza"[..]),
 		));
 		assert!(!Filters::guard_allow_interval(
 			&filters1.filters_allow_read,
