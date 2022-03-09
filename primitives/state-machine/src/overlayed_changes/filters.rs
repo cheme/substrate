@@ -19,6 +19,7 @@
 //! These are used to ensure declarative workers accesses are correct.
 //! It is plugged in the overlay by commodity, but could be at a higher level.
 
+use crate::overlayed_changes::end_prefix;
 use failure::{DeclFailureHandling, FailureHandlers};
 use sp_core::storage::{ChildInfo, ChildType, PrefixedStorageKey};
 use sp_externalities::{
@@ -36,12 +37,12 @@ use sp_std::{
 const BROKEN_DECLARATION_ACCESS: &str = "Key access impossible due to worker access declaration";
 
 // Allow for child worker.
-type FilterTreesAllow = super::radix_trees::FilterTrees<Filter<bool>>;
-type FilterTreeAllow = super::radix_trees::FilterTree<Filter<bool>>;
+type FilterTreesAllow = super::radix_trees::FilterTrees<bool>;
+type FilterTreeAllow = super::radix_trees::FilterTree<bool>;
 
 // Forbid for parent worker. Forbid always override allow.
-type FilterTreesForbid = super::radix_trees::FilterTrees<Filter<FilterOrigin>>;
-type FilterTreeForbid = super::radix_trees::FilterTree<Filter<FilterOrigin>>;
+type FilterTreesForbid = super::radix_trees::FilterTrees<FilterOrigin>;
+type FilterTreeForbid = super::radix_trees::FilterTree<FilterOrigin>;
 
 // TODO same consuming function?
 fn prefixed_storage_key_to_child_info(prefixed_storage_key: &Vec<u8>) -> ChildInfo {
@@ -53,6 +54,7 @@ fn prefixed_storage_key_to_child_info(prefixed_storage_key: &Vec<u8>) -> ChildIn
 }
 
 /// Main filter state.
+/// TODO default child access
 #[derive(Debug, Clone)]
 pub(super) struct Filters {
 	failure_handlers: FailureHandlers,
@@ -66,9 +68,13 @@ pub(super) struct Filters {
 	allow_write_child_active: bool,
 	*/
 	/// accesses allowed by parent.
-	filters_allow: FilterTreesAllow,
+	filters_allow_read: FilterTreesAllow,
+	/// accesses allowed by parent.
+	filters_allow_write: FilterTreesAllow,
 	/// accesses forbid due to child.
-	filters_forbid: FilterTreesForbid,
+	filters_forbid_read: FilterTreesForbid,
+	/// accesses forbid due to child.
+	filters_forbid_write: FilterTreesForbid,
 	/// accesses allowed by parent.
 	filters_interval_allow_read: interval_filters::FilterTreesAllowInterval,
 	/// accesses allowed by parent.
@@ -90,8 +96,10 @@ impl Default for Filters {
 			},
 			allow_read_active: Default::default(),
 			allow_write_active: Default::default(),
-			filters_allow: Default::default(),
-			filters_forbid: Default::default(),
+			filters_allow_read: Default::default(),
+			filters_allow_write: Default::default(),
+			filters_forbid_read: Default::default(),
+			filters_forbid_write: Default::default(),
 			filters_interval_allow_read: Default::default(),
 			filters_interval_allow_write: Default::default(),
 			filters_interval_forbid_read: Default::default(),
@@ -110,49 +118,23 @@ impl Filters {
 		self.failure_handlers.set_failure_handler(from_child, failure);
 	}
 
-	fn remove_filter(
-		tree: &mut FilterTreesForbid,
-		filter: AccessDeclaration,
-		from_child: TaskId,
-		read: bool,
-		write: bool,
-	) {
-		Self::remove_filter_internal(&mut tree.top, filter.top, from_child, read, write);
-		for (prefixed_storage_key, filter_child) in filter.children {
-			if let Some(child) = tree.children.get_mut(&prefixed_storage_key) {
-				Self::remove_filter_internal(child, filter_child, from_child, read, write);
+	fn remove_filter(tree: &mut FilterTreesForbid, filter: &AccessDeclaration, from_child: TaskId) {
+		Self::remove_filter_internal(&mut tree.top, &filter.top, from_child);
+		for (prefixed_storage_key, filter_child) in filter.children.iter() {
+			if let Some(child) = tree.children.get_mut(prefixed_storage_key) {
+				Self::remove_filter_internal(child, &filter_child, from_child);
 			}
 		}
 	}
 
 	fn remove_filter_internal(
 		tree: &mut FilterTreeForbid,
-		filter: LocalAccessDeclaration,
+		filter: &LocalAccessDeclaration,
 		from_child: TaskId,
-		read: bool,
-		write: bool,
 	) {
-		for prefix in filter.prefixes_lock {
-			if let Some(filter) = tree.get_mut(prefix.as_slice()) {
-				if read {
-					filter.read_prefix.remove(from_child);
-				}
-				if write {
-					filter.write_prefix.remove(from_child);
-				}
-				if filter.is_empty() {
-					tree.remove(prefix.as_slice(), false);
-				}
-			}
-		}
-		for key in filter.keys_lock {
+		for key in filter.keys_lock.iter() {
 			if let Some(filter) = tree.get_mut(key.as_slice()) {
-				if read {
-					filter.read_key.remove(from_child);
-				}
-				if write {
-					filter.write_key.remove(from_child);
-				}
+				filter.remove(from_child);
 				if filter.is_empty() {
 					tree.remove(key.as_slice(), false);
 				}
@@ -162,18 +144,15 @@ impl Filters {
 
 	fn set_filter_forbid(
 		tree: &mut FilterTreesForbid,
-		filter: AccessDeclaration,
+		filter: &AccessDeclaration,
 		from_child: TaskId,
-		read: bool,
-		write: bool,
 	) -> bool {
-		if !Self::set_filter_forbid_internal(&mut tree.top, filter.top, from_child, read, write) {
+		if !Self::set_filter_forbid_internal(&mut tree.top, &filter.top, from_child) {
 			return false
 		}
-		for (prefixed_storage_key, filter_child) in filter.children {
-			let mut child = tree.children.entry(prefixed_storage_key).or_default();
-			if !Self::set_filter_forbid_internal(&mut child, filter_child, from_child, read, write)
-			{
+		for (prefixed_storage_key, filter_child) in filter.children.iter() {
+			let mut child = tree.children.entry(prefixed_storage_key.clone()).or_default();
+			if !Self::set_filter_forbid_internal(&mut child, &filter_child, from_child) {
 				return false
 			}
 		}
@@ -182,64 +161,30 @@ impl Filters {
 
 	fn set_filter_forbid_internal(
 		tree: &mut FilterTreeForbid,
-		filter: LocalAccessDeclaration,
+		filter: &LocalAccessDeclaration,
 		from_child: TaskId,
-		read: bool,
-		write: bool,
 	) -> bool {
-		let set = |filter: &mut Filter<FilterOrigin>| {
-			if read {
-				filter.read_prefix.set(from_child);
-			}
-			if write {
-				filter.write_prefix.set(from_child);
-			}
-		};
-		for prefix in filter.prefixes_lock {
-			// TODO return false if unordered
-			if let Some(filter) = tree.get_mut(prefix.as_slice()) {
-				set(filter);
-			} else {
-				// new entry
-				let mut filter = Filter::<FilterOrigin>::default();
-				set(&mut filter);
-				tree.insert(prefix.as_slice(), filter);
-			}
-		}
-		let set = |filter: &mut Filter<FilterOrigin>| {
-			if read {
-				filter.read_key.set(from_child);
-			}
-			if write {
-				filter.write_key.set(from_child);
-			}
-		};
-		for key in filter.keys_lock {
+		for key in filter.keys_lock.iter() {
 			// TODO return false if unordered
 			if let Some(filter) = tree.get_mut(key.as_slice()) {
-				set(filter);
+				filter.set(from_child);
 			} else {
 				// new entry
-				let mut filter = Filter::<FilterOrigin>::default();
-				set(&mut filter);
+				let mut filter = FilterOrigin::default();
+				filter.set(from_child);
 				tree.insert(key.as_slice(), filter);
 			}
 		}
 		true
 	}
 
-	fn set_filter_allow(
-		tree: &mut FilterTreesAllow,
-		filter: AccessDeclaration,
-		read: bool,
-		write: bool,
-	) -> bool {
-		if !Self::set_filter_allow_internal(&mut tree.top, filter.top, read, write) {
+	fn set_filter_allow(tree: &mut FilterTreesAllow, filter: &AccessDeclaration) -> bool {
+		if !Self::set_filter_allow_internal(&mut tree.top, &filter.top) {
 			return false
 		}
-		for (prefixed_storage_key, filter_child) in filter.children {
-			let mut child = tree.children.entry(prefixed_storage_key).or_default();
-			if !Self::set_filter_allow_internal(&mut child, filter_child, read, write) {
+		for (prefixed_storage_key, filter_child) in filter.children.iter() {
+			let mut child = tree.children.entry(prefixed_storage_key.clone()).or_default();
+			if !Self::set_filter_allow_internal(&mut child, filter_child) {
 				return false
 			}
 		}
@@ -248,46 +193,15 @@ impl Filters {
 
 	fn set_filter_allow_internal(
 		tree: &mut FilterTreeAllow,
-		filter: LocalAccessDeclaration,
-		read: bool,
-		write: bool,
+		filter: &LocalAccessDeclaration,
 	) -> bool {
-		let set = |filter: &mut Filter<bool>| {
-			if read {
-				filter.read_prefix = read;
-			}
-			if write {
-				filter.write_prefix = write;
-			}
-		};
-		for prefix in filter.prefixes_lock {
-			// TODO return false if unordered
-			if let Some(filter) = tree.get_mut(prefix.as_slice()) {
-				set(filter);
-			} else {
-				// new entry
-				let mut filter = Filter::<bool>::default();
-				set(&mut filter);
-				tree.insert(prefix.as_slice(), filter);
-			}
-		}
-		let set = |filter: &mut Filter<bool>| {
-			if read {
-				filter.read_key = read;
-			}
-			if write {
-				filter.write_key = write;
-			}
-		};
-		for key in filter.keys_lock {
+		for key in filter.keys_lock.iter() {
 			// TODO return false if unordered
 			if let Some(filter) = tree.get_mut(key.as_slice()) {
-				set(filter);
+				*filter = true;
 			} else {
 				// new entry
-				let mut filter = Filter::<bool>::default();
-				set(&mut filter);
-				tree.insert(key.as_slice(), filter);
+				tree.insert(key.as_slice(), true);
 			}
 		}
 		true
@@ -297,19 +211,20 @@ impl Filters {
 		self.allow_write_active = true;
 		interval_filters::set_filter_allow(&mut self.filters_interval_allow_read, &filter); // TODO return false if wrong declaration same for others allow
 		interval_filters::set_filter_allow(&mut self.filters_interval_allow_write, &filter);
-		Self::set_filter_allow(&mut self.filters_allow, filter, true, true);
+		Self::set_filter_allow(&mut self.filters_allow_read, &filter);
+		Self::set_filter_allow(&mut self.filters_allow_write, &filter);
 	}
 
 	pub(super) fn allow_writes(&mut self, filter: AccessDeclaration) {
 		self.allow_write_active = true;
 		interval_filters::set_filter_allow(&mut self.filters_interval_allow_write, &filter);
-		Self::set_filter_allow(&mut self.filters_allow, filter, false, true);
+		Self::set_filter_allow(&mut self.filters_allow_write, &filter);
 	}
 
 	pub(super) fn allow_reads(&mut self, filter: AccessDeclaration) {
 		self.allow_read_active = true;
 		interval_filters::set_filter_allow(&mut self.filters_interval_allow_read, &filter);
-		Self::set_filter_allow(&mut self.filters_allow, filter, true, false);
+		Self::set_filter_allow(&mut self.filters_allow_read, &filter);
 	}
 
 	pub(super) fn add_change(&mut self, decl: AccessDeclarations, from_child: TaskId) {
@@ -327,7 +242,8 @@ impl Filters {
 			&filter,
 			from_child,
 		);
-		Self::set_filter_forbid(&mut self.filters_forbid, filter, from_child, true, true);
+		Self::set_filter_forbid(&mut self.filters_forbid_read, &filter, from_child);
+		Self::set_filter_forbid(&mut self.filters_forbid_write, &filter, from_child);
 	}
 
 	fn remove_forbid_all(&mut self, filter: AccessDeclaration, from_child: TaskId) {
@@ -341,7 +257,8 @@ impl Filters {
 			&filter,
 			from_child,
 		);
-		Self::remove_filter(&mut self.filters_forbid, filter, from_child, true, true);
+		Self::remove_filter(&mut self.filters_forbid_read, &filter, from_child);
+		Self::remove_filter(&mut self.filters_forbid_write, &filter, from_child);
 	}
 
 	pub(super) fn forbid_reads(&mut self, filter: AccessDeclaration, from_child: TaskId) {
@@ -350,7 +267,7 @@ impl Filters {
 			&filter,
 			from_child,
 		);
-		Self::set_filter_forbid(&mut self.filters_forbid, filter, from_child, true, false);
+		Self::set_filter_forbid(&mut self.filters_forbid_read, &filter, from_child);
 	}
 
 	fn remove_forbid_reads(&mut self, filter: AccessDeclaration, from_child: TaskId) {
@@ -359,7 +276,7 @@ impl Filters {
 			&filter,
 			from_child,
 		);
-		Self::remove_filter(&mut self.filters_forbid, filter, from_child, true, false);
+		Self::remove_filter(&mut self.filters_forbid_read, &filter, from_child);
 	}
 
 	pub(super) fn forbid_writes(&mut self, filter: AccessDeclaration, from_child: TaskId) {
@@ -368,7 +285,7 @@ impl Filters {
 			&filter,
 			from_child,
 		);
-		Self::set_filter_forbid(&mut self.filters_forbid, filter, from_child, false, true);
+		Self::set_filter_forbid(&mut self.filters_forbid_write, &filter, from_child);
 	}
 
 	pub(super) fn remove_forbid_writes(&mut self, filter: AccessDeclaration, from_child: TaskId) {
@@ -377,7 +294,7 @@ impl Filters {
 			&filter,
 			from_child,
 		);
-		Self::remove_filter(&mut self.filters_forbid, filter, from_child, false, true);
+		Self::remove_filter(&mut self.filters_forbid_write, &filter, from_child);
 	}
 
 	// Declaring a child read access, we ensure access is allowed in the first place.
@@ -399,19 +316,18 @@ impl Filters {
 		child_info: Option<&ChildInfo>,
 		filter: &LocalAccessDeclaration,
 	) -> bool {
-		// This assumes small declaration (otherwhise first loading in a tree could save
-		// a few tree node access.
-		for prefix in filter.prefixes_lock.iter() {
-			if !self.guard_read_prefix_inner(child_info, prefix, true) {
-				return false
-			}
-		}
 		for key in filter.keys_lock.iter() {
 			if !self.guard_read_inner(child_info, key, true) {
 				return false
 			}
 		}
-		for interval in filter.intervals_lock.iter() {
+
+		for interval in filter.intervals_lock.iter().map(|(start, end)| (start, end.clone())).chain(
+			filter.prefixes_lock.iter().map(|prefix| {
+				let end = end_prefix(prefix.as_slice());
+				(prefix, end)
+			}),
+		) {
 			if !self.guard_interval_inner(
 				child_info,
 				interval.0.as_slice(),
@@ -444,17 +360,17 @@ impl Filters {
 		child_info: Option<&ChildInfo>,
 		filter: &LocalAccessDeclaration,
 	) -> bool {
-		for prefix in filter.prefixes_lock.iter() {
-			if !self.guard_write_prefix_inner(child_info, prefix, true) {
-				return false
-			}
-		}
 		for key in filter.keys_lock.iter() {
 			if !self.guard_write_inner(child_info, key, true) {
 				return false
 			}
 		}
-		for interval in filter.intervals_lock.iter() {
+		for interval in filter.intervals_lock.iter().map(|(start, end)| (start, end.clone())).chain(
+			filter.prefixes_lock.iter().map(|prefix| {
+				let end = end_prefix(prefix.as_slice());
+				(prefix, end)
+			}),
+		) {
 			if !self.guard_interval_inner(
 				child_info,
 				interval.0.as_slice(),
@@ -486,18 +402,34 @@ impl Filters {
 		!did_fail
 	}
 
-	pub(super) fn guard_read_all(&mut self) {
-		self.guard_read_prefix(None, &[]);
-		// costy alloc for mutable reference question, could be optimize.
-		let children: Vec<_> = self
-			.filters_forbid
-			.children
-			.iter()
-			.map(|(storage_key, _child)| prefixed_storage_key_to_child_info(storage_key))
-			.collect();
+	fn children(&self) -> BTreeSet<ChildInfo> {
+		// TODO memoize it.!!!! or not usefull (some code is ok without)
+		let mut children: BTreeSet<ChildInfo> = Default::default();
+		self.filters_forbid_read.children.iter().for_each(|(storage_key, _child)| {
+			children.insert(prefixed_storage_key_to_child_info(storage_key));
+		});
+		self.filters_forbid_write.children.iter().for_each(|(storage_key, _child)| {
+			children.insert(prefixed_storage_key_to_child_info(storage_key));
+		});
+		if self.allow_read_active {
+			self.filters_allow_read.children.iter().for_each(|(storage_key, _child)| {
+				children.insert(prefixed_storage_key_to_child_info(storage_key));
+			});
+		}
+		if self.allow_write_active {
+			self.filters_allow_write.children.iter().for_each(|(storage_key, _child)| {
+				children.insert(prefixed_storage_key_to_child_info(storage_key));
+			});
+		}
+		children
+	}
 
-		for child_info in children.into_iter() {
-			self.guard_read_prefix(Some(&child_info), &[]);
+	pub(super) fn guard_read_all(&mut self) {
+		self.guard_read_interval(None, &[], None);
+
+		// costy alloc for mutable reference question, could be optimize.
+		for child_info in self.children().into_iter() {
+			self.guard_read_interval(Some(&child_info), &[], None);
 		}
 	}
 
@@ -513,7 +445,7 @@ impl Filters {
 		ret_result: bool,
 	) -> bool {
 		let blocked = Self::key_read_forbid(
-			&self.filters_forbid,
+			&self.filters_forbid_read,
 			&self.filters_interval_forbid_read,
 			child_info,
 			key,
@@ -526,7 +458,7 @@ impl Filters {
 		}
 		if self.allow_read_active {
 			if !Self::guard_read_allow(
-				&self.filters_allow,
+				&self.filters_allow_read,
 				&self.filters_interval_allow_read,
 				child_info,
 				key,
@@ -552,7 +484,7 @@ impl Filters {
 		ret_result: bool,
 	) -> bool {
 		let blocked = Self::key_write_forbid(
-			&self.filters_forbid,
+			&self.filters_forbid_write,
 			&self.filters_interval_forbid_write,
 			child_info,
 			key,
@@ -565,7 +497,7 @@ impl Filters {
 		}
 		if self.allow_write_active {
 			if !Self::guard_write_allow(
-				&self.filters_allow,
+				&self.filters_allow_write,
 				&self.filters_interval_allow_write,
 				child_info,
 				key,
@@ -596,15 +528,9 @@ impl Filters {
 
 		let filters =
 			if let Some(filter) = filters.filter(child_info) { filter } else { return blocked };
-		let len = key.len();
-		for (key, value) in filters.seek_iter(key).value_iter() {
-			if value.write_prefix.is_defined() {
-				blocked.push(&value.write_prefix);
-			}
-			if len == key.len() {
-				if value.write_key.is_defined() {
-					blocked.push(&value.write_key);
-				}
+		if let Some(value) = filters.get(key) {
+			if value.is_defined() {
+				blocked.push(value);
 			}
 		}
 		blocked
@@ -628,106 +554,15 @@ impl Filters {
 
 		let filters =
 			if let Some(filter) = filters.filter(child_info) { filter } else { return blocked };
-		let len = key.len();
-		for (key, value) in filters.seek_iter(key).value_iter() {
-			if value.read_prefix.is_defined() {
-				blocked.push(&value.read_prefix);
-			}
-			if len == key.len() {
-				if value.read_key.is_defined() {
-					blocked.push(&value.read_key);
-				}
+		if let Some(value) = filters.get(key) {
+			if value.is_defined() {
+				blocked.push(value);
 			}
 		}
 		if let Some(filter) = filters_interval.filter(child_info) {
 			let origins = interval_filters::check_key_inclusion_origin(filter, key);
 			if origins.is_defined() {
 				blocked.push(origins);
-			}
-		}
-		blocked
-	}
-
-	// TODO can factor most of method with key only variant (need to return iterator).
-	// TODO for those forbid allow a variant that only return bool is
-	// fastest if panic handler, not sure it is woth it, pretty sure it is not actually.
-	// (getting all origin is costy and only for failure handler)
-	// But first factorize code.
-	fn key_write_forbid_prefix<'a>(
-		filters: &'a FilterTreesForbid,
-		filters_interval: &'a interval_filters::FilterTreesForbidInterval,
-		child_info: Option<&ChildInfo>,
-		key: &'a [u8],
-	) -> Vec<&'a FilterOrigin> {
-		let mut blocked = Vec::new();
-
-		if let Some(filter) = filters_interval.filter(child_info) {
-			let origins = interval_filters::check_prefix_overlap_origins(filter, key);
-			if origins.is_defined() {
-				blocked.push(origins);
-			}
-		}
-
-		let filters =
-			if let Some(filter) = filters.filter(child_info) { filter } else { return blocked };
-		let len = key.len();
-		let mut iter = filters.seek_iter(key).value_iter();
-		while let Some((key, value)) = iter.next() {
-			if value.write_prefix.is_defined() {
-				blocked.push(&value.write_prefix);
-			}
-			if len == key.len() {
-				if value.write_key.is_defined() {
-					blocked.push(&value.write_key);
-				}
-			}
-		}
-		for (_key, value) in iter.node_iter().iter_prefix().value_iter() {
-			if value.write_prefix.is_defined() {
-				blocked.push(&value.write_prefix);
-			}
-			if value.write_key.is_defined() {
-				blocked.push(&value.write_key);
-			}
-		}
-		blocked
-	}
-
-	fn key_read_forbid_prefix<'a>(
-		filters: &'a FilterTreesForbid,
-		filters_interval: &'a interval_filters::FilterTreesForbidInterval,
-		child_info: Option<&ChildInfo>,
-		key: &'a [u8],
-	) -> Vec<&'a FilterOrigin> {
-		let mut blocked = Vec::new();
-
-		if let Some(filter) = filters_interval.filter(child_info) {
-			let origins = interval_filters::check_prefix_overlap_origins(filter, key);
-			if origins.is_defined() {
-				blocked.push(origins);
-			}
-		}
-
-		let filters =
-			if let Some(filter) = filters.filter(child_info) { filter } else { return blocked };
-		let len = key.len();
-		let mut iter = filters.seek_iter(key).value_iter();
-		while let Some((key, value)) = iter.next() {
-			if value.read_prefix.is_defined() {
-				blocked.push(&value.read_prefix);
-			}
-			if len == key.len() {
-				if value.read_key.is_defined() {
-					blocked.push(&value.read_key);
-				}
-			}
-		}
-		for (_key, value) in iter.node_iter().iter_prefix().value_iter() {
-			if value.read_prefix.is_defined() {
-				blocked.push(&value.read_prefix);
-			}
-			if value.read_key.is_defined() {
-				blocked.push(&value.read_key);
 			}
 		}
 		blocked
@@ -740,8 +575,6 @@ impl Filters {
 		child_info: Option<&ChildInfo>,
 		key: &'a [u8],
 		key_end: Option<&'a [u8]>,
-		read: bool,
-		write: bool,
 	) -> Vec<&'a FilterOrigin> {
 		let mut blocked = Vec::new();
 
@@ -758,34 +591,14 @@ impl Filters {
 		let len = key.len();
 		let mut iter = filters.seek_iter(key).value_iter();
 		while let Some((key, value)) = iter.next() {
-			if read && value.read_prefix.is_defined() {
-				blocked.push(&value.read_prefix);
-			}
-			if write && value.write_prefix.is_defined() {
-				blocked.push(&value.write_prefix);
-			}
-			if len == key.len() {
-				if read && value.read_key.is_defined() {
-					blocked.push(&value.read_key);
-				}
-				if write && value.write_key.is_defined() {
-					blocked.push(&value.write_key);
-				}
+			if value.is_defined() {
+				blocked.push(value);
 			}
 		}
 		for (key, value) in iter.node_iter().iter().value_iter() {
 			if key_end.map(|end| key.as_slice() <= end).unwrap_or(true) {
-				if read && value.read_prefix.is_defined() {
-					blocked.push(&value.read_prefix);
-				}
-				if write && value.write_prefix.is_defined() {
-					blocked.push(&value.write_prefix);
-				}
-				if read && value.read_key.is_defined() {
-					blocked.push(&value.read_key);
-				}
-				if write && value.write_key.is_defined() {
-					blocked.push(&value.write_key);
+				if value.is_defined() {
+					blocked.push(value);
 				}
 			} else {
 				break
@@ -809,16 +622,9 @@ impl Filters {
 
 		let filters =
 			if let Some(filter) = filters.filter(child_info) { filter } else { return false };
-		let len = key.len();
-		for (key, value) in filters.seek_iter(key).value_iter() {
-			// forbid write implies forbid read.
-			if value.read_prefix {
+		if let Some(value) = filters.get(key) {
+			if *value {
 				return true
-			}
-			if len == key.len() {
-				if value.read_key {
-					return true
-				}
 			}
 		}
 		false
@@ -831,11 +637,7 @@ impl Filters {
 		child_info: Option<&ChildInfo>,
 		key: &[u8],
 		key_end: Option<&[u8]>,
-		read: bool,
-		write: bool,
 	) -> bool {
-		debug_assert!(!(read && write)); // TODO enum instead of both bool.
-
 		if let Some(filter) = filters_interval.filter(child_info) {
 			if interval_filters::check_interval_into(filter, key, key_end, false) {
 				return true
@@ -846,8 +648,9 @@ impl Filters {
 			if let Some(filter) = filters.filter(child_info) { filter } else { return false };
 		let mut iter = filters.seek_iter(key).value_iter();
 		let mut start_interval = None;
+		// TODO replace by btree seek: don't forget to range it.
 		while let Some((key, value)) = iter.next() {
-			if (read && value.read_prefix) || (write && value.write_prefix) {
+			if *value {
 				start_interval = Some(key);
 				break
 			}
@@ -861,7 +664,7 @@ impl Filters {
 			return false
 		};
 		for (key, value) in iter.node_iter().iter().value_iter() {
-			if (read && value.read_prefix) || (write && value.write_prefix) {
+			if *value {
 				if !key.starts_with(previous_prefix.as_slice()) {
 					// only allow contigous prefix
 					while previous_prefix.last() == Some(&255u8) {
@@ -899,140 +702,12 @@ impl Filters {
 		}
 		let filters =
 			if let Some(filter) = filters.filter(child_info) { filter } else { return false };
-		let len = key.len();
-		for (key, value) in filters.seek_iter(key).value_iter() {
-			// forbid write implies forbid read.
-			if value.write_prefix {
-				return true
-			}
-			if len == key.len() {
-				if value.write_key {
-					return true
-				}
-			}
-		}
-		false
-	}
-
-	fn guard_read_allow_prefix(
-		filters: &FilterTreesAllow,
-		filters_interval: &interval_filters::FilterTreesAllowInterval,
-		child_info: Option<&ChildInfo>,
-		key: &[u8],
-	) -> bool {
-		if let Some(filter) = filters_interval.filter(child_info) {
-			if interval_filters::check_prefix_into(filter, key) {
-				return true
-			}
-		}
-
-		let filters =
-			if let Some(filter) = filters.filter(child_info) { filter } else { return false };
-		// parent or self allowed for prefix.
-		for (_key, value) in filters.seek_iter(key).value_iter() {
-			if value.read_prefix {
+		if let Some(value) = filters.get(key) {
+			if *value {
 				return true
 			}
 		}
 		false
-	}
-
-	fn guard_write_allow_prefix(
-		filters: &FilterTreesAllow,
-		filters_interval: &interval_filters::FilterTreesAllowInterval,
-		child_info: Option<&ChildInfo>,
-		key: &[u8],
-	) -> bool {
-		if let Some(filter) = filters_interval.filter(child_info) {
-			if interval_filters::check_prefix_into(filter, key) {
-				return true
-			}
-		}
-
-		let filters =
-			if let Some(filter) = filters.filter(child_info) { filter } else { return false };
-		for (_key, value) in filters.seek_iter(key).value_iter() {
-			if value.write_prefix {
-				return true
-			}
-		}
-		false
-	}
-
-	fn guard_read_prefix(&mut self, child_info: Option<&ChildInfo>, key: &[u8]) {
-		let _ = self.guard_read_prefix_inner(child_info, key, false);
-	}
-
-	fn guard_read_prefix_inner(
-		&mut self,
-		child_info: Option<&ChildInfo>,
-		key: &[u8],
-		ret_result: bool,
-	) -> bool {
-		let blocked = Self::key_read_forbid_prefix(
-			&self.filters_forbid,
-			&self.filters_interval_forbid_read,
-			child_info,
-			key,
-		);
-		for origin in blocked {
-			if ret_result {
-				return false
-			}
-			self.failure_handlers.invalid_accesses(origin);
-		}
-		if self.allow_write_active {
-			if !Self::guard_read_allow_prefix(
-				&self.filters_allow,
-				&self.filters_interval_allow_read,
-				child_info,
-				key,
-			) {
-				if ret_result {
-					return false
-				}
-				self.failure_handlers.invalid_allowed_access();
-			}
-		}
-		true
-	}
-
-	pub(super) fn guard_write_prefix(&mut self, child_info: Option<&ChildInfo>, key: &[u8]) {
-		let _ = self.guard_write_prefix_inner(child_info, key, false);
-	}
-
-	fn guard_write_prefix_inner(
-		&mut self,
-		child_info: Option<&ChildInfo>,
-		key: &[u8],
-		ret_result: bool,
-	) -> bool {
-		let blocked = Self::key_write_forbid_prefix(
-			&self.filters_forbid,
-			&self.filters_interval_forbid_write,
-			child_info,
-			key,
-		);
-		for origin in blocked {
-			if ret_result {
-				return false
-			}
-			self.failure_handlers.invalid_accesses(origin);
-		}
-		if self.allow_write_active {
-			if !Self::guard_write_allow_prefix(
-				&self.filters_allow,
-				&self.filters_interval_allow_write,
-				child_info,
-				key,
-			) {
-				if ret_result {
-					return false
-				}
-				self.failure_handlers.invalid_allowed_access();
-			}
-		}
-		true
 	}
 
 	pub(super) fn guard_read_interval(
@@ -1064,6 +739,7 @@ impl Filters {
 		self.guard_interval_inner(child_info, key, key_end, false, read, write);
 	}
 
+	// TODO split read / write
 	pub(super) fn guard_interval_inner(
 		&mut self,
 		child_info: Option<&ChildInfo>,
@@ -1081,31 +757,45 @@ impl Filters {
 		} else {
 			unreachable!(); // TODO refact api to be at least one.
 		};
-		let blocked = Self::key_forbid_interval(
-			&self.filters_forbid,
-			forbid_intervals,
-			child_info,
-			key,
-			key_end,
-			read,
-			write,
-		);
-		for origin in blocked {
-			if ret_result {
-				return false
+		if read {
+			let blocked = Self::key_forbid_interval(
+				&self.filters_forbid_read,
+				forbid_intervals,
+				child_info,
+				key,
+				key_end,
+			);
+			for origin in blocked {
+				if ret_result {
+					return false
+				}
+				self.failure_handlers.invalid_accesses(origin);
 			}
-			self.failure_handlers.invalid_accesses(origin);
 		}
+		if write {
+			let blocked = Self::key_forbid_interval(
+				&self.filters_forbid_write,
+				forbid_intervals,
+				child_info,
+				key,
+				key_end,
+			);
+			for origin in blocked {
+				if ret_result {
+					return false
+				}
+				self.failure_handlers.invalid_accesses(origin);
+			}
+		}
+
 		if self.allow_read_active {
 			if read &&
 				!Self::guard_allow_interval(
-					&self.filters_allow,
+					&self.filters_allow_read,
 					&self.filters_interval_allow_read,
 					child_info,
 					key,
 					key_end,
-					read,
-					false,
 				) {
 				if ret_result {
 					return false
@@ -1114,13 +804,11 @@ impl Filters {
 			}
 			if write &&
 				!Self::guard_allow_interval(
-					&self.filters_allow,
+					&self.filters_allow_write,
 					&self.filters_interval_allow_write,
 					child_info,
 					key,
 					key_end,
-					false,
-					write,
 				) {
 				if ret_result {
 					return false
@@ -1144,23 +832,6 @@ impl Filters {
 
 	pub(super) fn is_result_for_parent_invalid(&self) -> bool {
 		self.failure_handlers.parent_failure_handler.did_fail()
-	}
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct Filter<F: Debug + Clone + Default> {
-	read_prefix: F,
-	read_key: F,
-	write_prefix: F,
-	write_key: F,
-}
-
-impl Filter<FilterOrigin> {
-	fn is_empty(&self) -> bool {
-		self.read_prefix.is_empty() &&
-			self.read_key.is_empty() &&
-			self.write_prefix.is_empty() &&
-			self.write_key.is_empty()
 	}
 }
 
@@ -1374,7 +1045,14 @@ pub(super) mod interval_filters {
 		filter: &mut FilterTree<FilterInterval<bool>>,
 		decl: &LocalAccessDeclaration,
 	) -> bool {
-		for (start, end) in decl.intervals_lock.iter() {
+		// TODO avoid a clone.
+		for (start, end) in
+			decl.intervals_lock.iter().map(|(start, end)| (start, end.clone())).chain(
+				decl.prefixes_lock.iter().map(|prefix| {
+					let end = end_prefix(prefix.as_slice());
+					(prefix, end)
+				}),
+			) {
 			// TODO return false if overlapping or unordered
 			// TODO implement entry api
 			if let Some(bound) = filter.0.get_mut(start.as_slice()) {
@@ -1422,7 +1100,14 @@ pub(super) mod interval_filters {
 		from_child: TaskId,
 	) -> bool {
 		let mut insert_start;
-		for (start, end) in decl.intervals_lock.iter() {
+		// TODO avoid a clone.
+		for (start, end) in
+			decl.intervals_lock.iter().map(|(start, end)| (start, end.clone())).chain(
+				decl.prefixes_lock.iter().map(|prefix| {
+					let end = end_prefix(prefix.as_slice());
+					(prefix, end)
+				}),
+			) {
 			// TODO return false if overlapping or unordered
 			insert_start = None;
 			let mut iter = filter.0.seek_iter_mut(start).value_iter();
@@ -1444,7 +1129,7 @@ pub(super) mod interval_filters {
 				}
 				if end.as_ref().map(|end| &k < end).unwrap_or(true) {
 					value.end_of.set(from_child);
-				} else if &Some(k) == end {
+				} else if Some(k) == end {
 					end_has_parent_origin = true;
 					value.end_of.set(from_child);
 					break
@@ -1506,7 +1191,15 @@ pub(super) mod interval_filters {
 		from_child: TaskId,
 	) {
 		let mut to_remove = Vec::new();
-		for (start, end) in decl.intervals_lock.iter() {
+
+		// TODO avoid a clone.
+		for (start, end) in
+			decl.intervals_lock.iter().map(|(start, end)| (start, end.clone())).chain(
+				decl.prefixes_lock.iter().map(|prefix| {
+					let end = end_prefix(prefix.as_slice());
+					(prefix, end)
+				}),
+			) {
 			let mut iter = filter.0.seek_iter_mut(start).value_iter();
 			if let Some((k, value)) = (&mut iter).last() {
 				value.start_of.remove(from_child);
@@ -1823,31 +1516,25 @@ mod test {
 			children: Default::default(),
 		});
 		assert!(Filters::guard_allow_interval(
-			&filters1.filters_allow,
+			&filters1.filters_allow_read,
 			&filters1.filters_interval_allow_read,
 			None,
 			&b"key"[..],
 			Some(&b"key8"[..]),
-			true,
-			false,
 		));
 		assert!(!Filters::guard_allow_interval(
-			&filters1.filters_allow,
+			&filters1.filters_allow_read,
 			&filters1.filters_interval_allow_read,
 			None,
 			&b"key"[..],
 			Some(&b"kez"[..]),
-			true,
-			false,
 		));
 		assert!(!Filters::guard_allow_interval(
-			&filters1.filters_allow,
+			&filters1.filters_allow_read,
 			&filters1.filters_interval_allow_read,
 			None,
 			&b"key"[..],
 			None,
-			true,
-			false,
 		));
 		//let mut filters1 = Filters::default();
 		filters1.allow_reads(AccessDeclaration {
@@ -1861,31 +1548,25 @@ mod test {
 			children: Default::default(),
 		});
 		assert!(Filters::guard_allow_interval(
-			&filters1.filters_allow,
+			&filters1.filters_allow_read,
 			&filters1.filters_interval_allow_read,
 			None,
 			&b"a"[..],
 			Some(&b"kez"[..]),
-			true,
-			false,
 		));
 		assert!(Filters::guard_allow_interval(
-			&filters1.filters_allow,
+			&filters1.filters_allow_read,
 			&filters1.filters_interval_allow_read,
 			None,
 			&b""[..],
 			None,
-			true,
-			false,
 		));
 		assert!(Filters::guard_allow_interval(
-			&filters1.filters_allow,
+			&filters1.filters_allow_read,
 			&filters1.filters_interval_allow_read,
 			None,
 			&b"key"[..],
 			None,
-			true,
-			false,
 		));
 
 		let mut filters1 = Filters::default();
@@ -1900,13 +1581,11 @@ mod test {
 			children: Default::default(),
 		});
 		assert!(Filters::guard_allow_interval(
-			&filters1.filters_allow,
+			&filters1.filters_allow_read,
 			&filters1.filters_interval_allow_read,
 			None,
 			&b"key"[..],
 			Some(&b"kez"[..]),
-			true,
-			false,
 		));
 
 		let mut filters1 = Filters::default();
@@ -1921,13 +1600,11 @@ mod test {
 			children: Default::default(),
 		});
 		assert!(!Filters::guard_allow_interval(
-			&filters1.filters_allow,
+			&filters1.filters_allow_read,
 			&filters1.filters_interval_allow_read,
 			None,
 			&b"kex"[..],
 			Some(&b"kez"[..]),
-			true,
-			false,
 		));
 	}
 }
