@@ -208,11 +208,12 @@ impl<N> ArtEncoded<N>
 	pub fn with_capacity(
 		capacity: usize,
 	) -> ArtEncoded<N> {
+		let aligned = <N::Radix as RadixConf>::Alignment::ALIGNED;
 		match capacity {
-			c if c < 5 => ArtEncoded::Art4(Art4::empty(), PhantomData),
-			c if c < 17 => ArtEncoded::Art16(Art16::empty()),
-			c if c < 49 => ArtEncoded::Art48(Art48::empty()),
-			c if c < 257 => ArtEncoded::Art256(Art256::empty()),
+			c if c < 5 => ArtEncoded::Art4(Art4::empty(aligned), PhantomData),
+			c if c < 17 => ArtEncoded::Art16(Art16::empty(aligned)),
+			c if c < 49 => ArtEncoded::Art48(Art48::empty(aligned)),
+			c if c < 257 => ArtEncoded::Art256(Art256::empty(aligned)),
 			_ => panic!("Invalid capacity for node"),
 		}
 	}
@@ -225,26 +226,26 @@ impl<N> ArtEncoded<N>
 		// a 0 size.
 		match (encoded[0] & 0b1100_0000) >> 6 {
 			0 => {
-				let (art, offset) = Art4::read(encoded);
-				let offset = offset - prefix_limit_len(N::LimitPartial::LIMIT_SIZE);
+				let (art, offset) = Art4::read(encoded, AlignmentFor::<N>::ALIGNED);
+				let offset = offset - prefix_limit_len(N::LimitPartial::LIMIT_SIZE, AlignmentFor::<N>::ALIGNED);
 				let prefix = Self::read_prefix(&art.as_ref()[offset..]);
 				(ArtEncoded::Art4(art, PhantomData), prefix)
 			},
 			1 => { 
-				let (art, offset) = Art16::read(encoded);
-				let offset = offset - prefix_limit_len(N::LimitPartial::LIMIT_SIZE);
+				let (art, offset) = Art16::read(encoded, AlignmentFor::<N>::ALIGNED);
+				let offset = offset - prefix_limit_len(N::LimitPartial::LIMIT_SIZE, AlignmentFor::<N>::ALIGNED);
 				let prefix = Self::read_prefix(&art.as_ref()[offset..]);
 				(ArtEncoded::Art16(art), prefix)
 			},
 			2 => { 
-				let (art, offset) = Art48::read(encoded);
-				let offset = offset - prefix_limit_len(N::LimitPartial::LIMIT_SIZE);
+				let (art, offset) = Art48::read(encoded, AlignmentFor::<N>::ALIGNED);
+				let offset = offset - prefix_limit_len(N::LimitPartial::LIMIT_SIZE, AlignmentFor::<N>::ALIGNED);
 				let prefix = Self::read_prefix(&art.as_ref()[offset..]);
 				(ArtEncoded::Art48(art), prefix)
 			},
 			3 => {
-				let (art, offset) = Art256::read(encoded);
-				let offset = offset - prefix_limit_len(N::LimitPartial::LIMIT_SIZE);
+				let (art, offset) = Art256::read(encoded, AlignmentFor::<N>::ALIGNED);
+				let offset = offset - prefix_limit_len(N::LimitPartial::LIMIT_SIZE, AlignmentFor::<N>::ALIGNED);
 				let prefix = Self::read_prefix(&art.as_ref()[offset..]);
 				(ArtEncoded::Art256(art), prefix)
 			},
@@ -262,8 +263,8 @@ impl<N> ArtEncoded<N>
 				partial: N::LimitPartial::new(None), 
 			}
 		}
-		let start_mask = if let Some(mask) = <N::Radix as RadixConf>::Alignment::DEFAULT {
-			mask
+		let start_mask = if <N::Radix as RadixConf>::Alignment::ALIGNED || N::LimitPartial::LIMIT_SIZE == Some(0) {
+			MaskFor::<N::Radix>::FIRST
 		} else {
 			let b = encoded[0];
 			encoded = &encoded[1..];
@@ -273,8 +274,8 @@ impl<N> ArtEncoded<N>
 			index: 0,
 			mask: start_mask,
 		};
-		let end_mask = if let Some(mask) = <N::Radix as RadixConf>::Alignment::DEFAULT {
-			mask
+		let end_mask = if <N::Radix as RadixConf>::Alignment::ALIGNED || N::LimitPartial::LIMIT_SIZE == Some(0) {
+			MaskFor::<N::Radix>::FIRST
 		} else {
 			let b = encoded[0];
 			encoded = &encoded[1..];
@@ -318,7 +319,7 @@ impl<N> ArtEncoded<N>
 
 	// TODO use in node_test
 	pub fn write_prefix(key: &PrefixKey<Vec<u8>, AlignmentFor<N>, N::LimitPartial>) -> Vec<u8> {
-		let mask_size = if <N::Radix as RadixConf>::Alignment::DEFAULT.is_some() {
+		let mask_size = if <N::Radix as RadixConf>::Alignment::ALIGNED || N::LimitPartial::LIMIT_SIZE == Some(0) {
 			0
 		} else {
 			2
@@ -333,25 +334,20 @@ impl<N> ArtEncoded<N>
 	}
 
 	pub fn write_prefix_limited(encoded: &mut [u8], key: &PrefixKey<Vec<u8>, AlignmentFor<N>, N::LimitPartial>) {
-		let mask_size = if <N::Radix as RadixConf>::Alignment::DEFAULT.is_some() {
-			0
-		} else {
-			2
-		};
-
 		let limit = N::LimitPartial::LIMIT_SIZE.unwrap();
 		let data_len = std::cmp::min(key.data.len(), limit);
-		let start = encoded.len() - prefix_limit_len(N::LimitPartial::LIMIT_SIZE);
+		let start = encoded.len() - prefix_limit_len(N::LimitPartial::LIMIT_SIZE, AlignmentFor::<N>::ALIGNED);
 		Self::write_prefix_buf(&mut encoded[start..], key, LIMITED_ENCODED_LEN, data_len);
 	}
 
 	fn write_prefix_buf(result: &mut[u8], key: &PrefixKey<Vec<u8>, AlignmentFor<N>, N::LimitPartial>, nb: usize, data_len: usize) {
-		let mut offset = if <N::Radix as RadixConf>::Alignment::DEFAULT.is_some() {
-			0
-		} else {
+		let mut offset = 0;
+		if !<N::Radix as RadixConf>::Alignment::ALIGNED && N::LimitPartial::LIMIT_SIZE != Some(0) {
 			result[0] = <N::Radix as RadixConf>::Alignment::encode_mask(key.start);
-			1
+			result[1] = <N::Radix as RadixConf>::Alignment::encode_mask(key.end);
+			offset += 2;
 		};
+
 		if N::LimitPartial::LIMIT_SIZE.is_some() {
 			limit_encode_len(key.data.len() as u64, &mut result[offset..]);
 		} else {
@@ -359,10 +355,6 @@ impl<N> ArtEncoded<N>
 		};
 		offset += nb;
 		result[offset..offset + data_len].copy_from_slice(&key.data[..data_len]);
-		if <N::Radix as RadixConf>::Alignment::DEFAULT.is_some() {
-		} else {
-			result[offset + data_len] = <N::Radix as RadixConf>::Alignment::encode_mask(key.end);
-		};
 	}
 
 	fn nb_children(&self) -> usize {
@@ -485,8 +477,8 @@ impl<I: Index, VI: Index, L: LimitPartial> $art<I, VI, L> {
 		I::read_index(&self.0[i .. i + I::SIZE])
 	}
 
-	fn read(encoded: Vec<u8>) -> ($art<I, VI, L>, usize) {
-		let to_read = $art_fix_len(I::SIZE, VI::SIZE) + prefix_limit_len(L::LIMIT_SIZE);
+	fn read(encoded: Vec<u8>, aligned: bool) -> ($art<I, VI, L>, usize) {
+		let to_read = $art_fix_len(I::SIZE, VI::SIZE) + prefix_limit_len(L::LIMIT_SIZE, aligned);
 		debug_assert!(encoded.len() >= to_read);
 		($art(encoded, PhantomData), to_read)
 	}
@@ -670,9 +662,17 @@ const ART16_NB: usize = 16;
 const ART48_NB: usize = 48;
 const ART256_NB: usize = 256;
 
-const fn prefix_limit_len(limit: Option<usize>) -> usize {
+const fn prefix_limit_len(limit: Option<usize>, aligned: bool) -> usize {
 	if let Some(limit) = limit {
-		limit + LIMITED_ENCODED_LEN // No need for mask, art is aligned.
+		if limit == 0 {
+			0
+		} else {
+			if aligned {
+				limit + LIMITED_ENCODED_LEN
+			} else {
+				limit + LIMITED_ENCODED_LEN + 2
+			}
+		}
 	} else {
 		0
 	}
@@ -702,22 +702,22 @@ art_impl_2!(Art4, ART4_NB, art4_fix_len, test_art4);
 art_impl_2!(Art16, ART16_NB, art16_fix_len, test_art16);
 
 impl<I: Index, VI: Index, L: LimitPartial> Art4<I, VI, L> {
-	fn empty() -> Self {
-		Art4(vec![0; art4_fix_len(I::SIZE, VI::SIZE) + prefix_limit_len(L::LIMIT_SIZE)], PhantomData)
+	fn empty(aligned: bool) -> Self {
+		Art4(vec![0; art4_fix_len(I::SIZE, VI::SIZE) + prefix_limit_len(L::LIMIT_SIZE, aligned)], PhantomData)
 	}
 }
 
 impl<I: Index, VI: Index, L: LimitPartial> Art16<I, VI, L> {
-	fn empty() -> Self {
-		let mut result = Art16(vec![0; art16_fix_len(I::SIZE, VI::SIZE) + prefix_limit_len(L::LIMIT_SIZE)], PhantomData);
+	fn empty(aligned: bool) -> Self {
+		let mut result = Art16(vec![0; art16_fix_len(I::SIZE, VI::SIZE) + prefix_limit_len(L::LIMIT_SIZE, aligned)], PhantomData);
 		result.0[0] |= 1 << 6;
 		result
 	}
 }
 
 impl<I: Index, VI: Index, L: LimitPartial> Art48<I, VI, L> {
-	fn empty() -> Self {
-		let mut result = Art48(vec![0; art48_fix_len(I::SIZE, VI::SIZE) + prefix_limit_len(L::LIMIT_SIZE)], PhantomData);
+	fn empty(aligned: bool) -> Self {
+		let mut result = Art48(vec![0; art48_fix_len(I::SIZE, VI::SIZE) + prefix_limit_len(L::LIMIT_SIZE, aligned)], PhantomData);
 		result.0[0] |= 2 << 6;
 		result
 	}
@@ -789,8 +789,8 @@ impl<I: Index, VI: Index, L: LimitPartial> Art48<I, VI, L> {
 }
 
 impl<I: Index, VI: Index, L: LimitPartial> Art256<I, VI, L> {
-	fn empty() -> Self {
-		let mut result = Art256(vec![0; art256_fix_len(I::SIZE, VI::SIZE) + prefix_limit_len(L::LIMIT_SIZE)], PhantomData);
+	fn empty(aligned: bool) -> Self {
+		let mut result = Art256(vec![0; art256_fix_len(I::SIZE, VI::SIZE) + prefix_limit_len(L::LIMIT_SIZE, aligned)], PhantomData);
 		result.0[0] |= 3 << 6;
 		result
 	}
