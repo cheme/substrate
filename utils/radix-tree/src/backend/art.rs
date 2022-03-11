@@ -1137,7 +1137,12 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 				// TODO Api is bad, this update should not be implemented for each trait impl
 				node.backend.index = Some(index.clone());
 			});
-			result
+			if node.backend.force_index {
+				node.backend.force_index = false;
+				node.backend.index.clone()
+			} else {
+				result
+			}
 		} else {
 			if node.backend.force_index {
 				node.backend.force_index = false;
