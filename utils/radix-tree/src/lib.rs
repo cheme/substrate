@@ -1105,6 +1105,7 @@ impl<N: TreeConf> Node<N> {
 				child.new_end(&mut node.key.data, position_cat, false);
 				node.key.end = child.key.end;
 				child.key = replace(&mut node.key, child.key);
+//				child.backend = replace(&mut node.backend, child.backend);
 				child.backend.set_prefix_change();
 				let mut parent = replace(node, child);
 				if N::Backend::ACTIVE {

@@ -508,7 +508,8 @@ impl<I: Index, VI: Index, L: LimitPartial> $art<I, VI, L> {
 fn $art_test() {
 	macro_rules! inner {
 		($i: ty, $vi: ty, $li: ty) => {
-		let mut art = $art::<$i, $vi, $li>::empty();
+			let aligned = true; // TODO can test with false too.
+		let mut art = $art::<$i, $vi, $li>::empty(aligned);
 		assert_eq!(art.nb_children(), 0);
 		assert_eq!(art.fetch_children_index(0), None);
 		assert_eq!(art.fetch_children_index(255), None);
@@ -533,7 +534,7 @@ fn $art_test() {
 		assert_eq!(art.fetch_children_index(1), Some(15));
 		assert_eq!(art.fetch_children_index(8), Some(30));
 		assert_eq!(art.fetch_value_index(), Some(83747));
-		let mut art = $art::<$i, $vi, $li>::empty();
+		let mut art = $art::<$i, $vi, $li>::empty(aligned);
 		assert!(art.set_children_index(255, &2450));
 		assert_eq!(art.fetch_children_index(255), Some(2450));
 		}
