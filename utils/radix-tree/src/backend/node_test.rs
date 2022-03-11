@@ -50,6 +50,7 @@ pub struct NodeTestBackend<N: TreeConf>
 	fullkey_state: FullKeyState, // fullkey stored before value
 	children_changed: bool,
 	prefix_changed: bool,
+	force_index: bool,
 	_ph: core::marker::PhantomData<N>,
 }
 
@@ -139,6 +140,7 @@ fn decode<N>(
 		nb_children,
 		children_changed: false,
 		prefix_changed: false,
+		force_index: false,
 		_ph: Default::default(),
 	}, prefix)
 }
@@ -333,6 +335,7 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 			pending_nb_children: 0,
 			children_changed: false,
 			prefix_changed: true, // new node need update
+			force_index: false,
 			value_state: ValueState::Resolved,
 			fullkey_state: ValueState::Resolved,
 			_ph: Default::default(),
@@ -476,7 +479,12 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 			});
 			result
 		} else {
-			None
+			if node.backend.force_index {
+				node.backend.force_index = false;
+				node.backend.index.clone()
+			} else {
+				None
+			}
 		}
 	}
 
@@ -522,6 +530,6 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 	}
 
 	fn force_new_index_on_commit(&mut self) {
-		self.index = None;
+		self.force_index = true;
 	}
 }

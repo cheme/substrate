@@ -120,6 +120,8 @@ pub struct ArtLocalBackend<N>
 	children_changed: bool,
 	// True when stored prefix or encoded node is modified.
 	prefix_changed: bool,
+	// Force parent index update.
+	force_index: bool,
 }
 
 impl<N> ArtLocalBackend<N>
@@ -145,6 +147,7 @@ impl<N> ArtLocalBackend<N>
 			original_nb_children,
 			children_changed: false,
 			prefix_changed: false,
+			force_index: false,
 		}, prefix)
 	}
 
@@ -159,6 +162,7 @@ impl<N> ArtLocalBackend<N>
 			pending_nb_children: 0,
 			children_changed: false,
 			prefix_changed: true, // new node need update
+			force_index: false,
 			value_state: ValueState::Resolved,
 			fullkey_state: ValueState::Resolved,
 		}
@@ -1135,7 +1139,12 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 			});
 			result
 		} else {
-			None
+			if node.backend.force_index {
+				node.backend.force_index = false;
+				node.backend.index.clone()
+			} else {
+				None
+			}
 		}
 	}
 
@@ -1181,7 +1190,7 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 	}
 
 	fn force_new_index_on_commit(&mut self) {
-		self.index = None;
+		self.force_index = true;
 	}
 }
 
