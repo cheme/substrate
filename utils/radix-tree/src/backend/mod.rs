@@ -155,6 +155,10 @@ pub trait NodeBackend<N: TreeConf>: Clone {
 
 	fn set_prefix_change(&mut self);
 	
+	/// Currently use on fuse so on update we always register
+	/// a new child (the parent is replaced by child).
+	fn force_new_index_on_commit(&mut self);
+
 	/// Delete a node.
 	/// Does flush change immediatly.
 	fn delete(self, backend: &N::Backend);
@@ -329,4 +333,6 @@ impl<N: TreeConf> NodeBackend<N> for () {
 	fn increase_number_of_children(&mut self) { }
 
 	fn decrease_number_of_children(&mut self) { }
+
+	fn force_new_index_on_commit(&mut self) { }
 }

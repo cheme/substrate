@@ -1179,6 +1179,10 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 	fn decrease_number_of_children(&mut self) {
 		self.pending_nb_children -= 1;
 	}
+
+	fn force_new_index_on_commit(&mut self) {
+		self.index = None;
+	}
 }
 
 fn varint_encode(mut size: u64, buf: &mut [u8], encoded_len: usize) -> &[u8] {

@@ -520,4 +520,8 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 	fn decrease_number_of_children(&mut self) {
 		self.pending_nb_children -= 1;
 	}
+
+	fn force_new_index_on_commit(&mut self) {
+		self.index = None;
+	}
 }
