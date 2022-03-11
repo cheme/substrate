@@ -1458,13 +1458,13 @@ impl<N: TreeConf> Tree<N> {
 					Descent::Match(_position) => {
 						if let Some((value, full_key)) = current.value_no_cache(&self.backend) {
 							if N::LimitPartial::LIMIT_SIZE.is_some() {
-								if full_key.as_slice() == key {
-									return Some(value);
+								if full_key.as_slice() != key {
+									return None;
 								}
-							} else {
-								return Some(value);
 							}
+							return Some(value);
 						}
+						return None;
 					},
 				}
 			}
