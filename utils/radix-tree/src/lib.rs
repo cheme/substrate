@@ -1095,12 +1095,11 @@ impl<N: TreeConf> Node<N> {
 			// even with backend we do a removal in this case (cannot keep deleted).
 			if let Some(child) = node.children.remove_child(index) {
 				node.backend.decrease_number_of_children();
-				let position_start = value_position;
-/*				let position = PositionFor::<N> {
+				let position = PositionFor::<N> {
 					index: 0,
 					mask: node.key.start,
 				};
-				let position_start = position.next_by::<N::Radix>(node.depth());*/
+				let position_start = position.next_by::<N::Radix>(node.depth());
 				position_start.set_index::<N::Radix>(&mut node.key.data, index);
 				let position_cat = position_start.next::<N::Radix>();
 				let mut child = child.extract_node().expect("resolved on remove child");

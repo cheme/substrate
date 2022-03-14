@@ -971,7 +971,7 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 			use crate::children::Children;
 			use crate::WithChildState;
 			let position_child = position.next_by::<N::Radix>(node.depth());
-			let position_child = position.next::<N::Radix>();
+			let position_child = position_child.next::<N::Radix>();
 			if let Some(mut new) = node.backend.need_resize() {
 				encoded_change = true;
 				let mut next_change = node.children.get_next_child_index(None);
@@ -1093,9 +1093,11 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 				// TODO not why added to remove value vec
 				backend.remove_value(previous);
 				encoded_change = true;
-			} else {
+			}/*
+			 can happen
+					else {
 				unreachable!("deleted should be some");
-			};
+			};*/
 			node.backend.encoded.set_value_index(&ValueIndexFor::<N>::UNDEFINED);
 			node.backend.value_state = ValueState::Resolved;
 		}
