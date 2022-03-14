@@ -347,6 +347,8 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 		remove_node: &mut Vec<N::NodeBackend>,
 		remove_value: &mut Vec<ValueIndexFor<N>>,
 		backend: &N::Backend,
+		position: PositionFor<N>,
+		fullkeys: &mut Vec<(PositionFor<N>, *mut Node<N>)>,
 	) -> bool {
 		let mut encoded_change = false;
 		if node.backend.children_changed {
@@ -358,7 +360,7 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 				use crate::WithChildState;
 				match node.children.get_child_mut(i).map(|c| c.node_mut()) {
 					Some(Some(mut child)) => {
-						if let Some(ix) = Self::commit_change_fuse(&mut child, remove_node, remove_value, backend) {
+						if let Some(ix) = Self::commit_change_fuse(&mut child, remove_node, remove_value, backend, position, fullkeys) {
 							encoded_change = true;
 							node.backend.child_index[backend_ix] = Some(ix);
 						} else {
@@ -443,6 +445,8 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 		remove_node: &mut Vec<N::NodeBackend>,
 		remove_value: &mut Vec<ValueIndexFor<N>>,
 		backend: &N::Backend,
+		position: PositionFor<N>,
+		fullkeys: &mut Vec<(PositionFor<N>, *mut Node<N>)>,
 	) -> Option<IndexFor<N>> {
 		let mut encoded_change = false;
 		let changed = node.backend.children_changed
@@ -453,7 +457,7 @@ impl<N> NodeBackend<N> for NodeTestBackend<N>
 		if !changed {
 			return None;
 		}
-		encoded_change |= Self::commit_change_children_part(node, remove_node, remove_value, backend);
+		encoded_change |= Self::commit_change_children_part(node, remove_node, remove_value, backend, position, fullkeys);
 		encoded_change |= Self::commit_change_value_part(node, remove_node, remove_value, backend);
 
 

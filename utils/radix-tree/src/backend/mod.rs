@@ -173,6 +173,8 @@ pub trait NodeBackend<N: TreeConf>: Clone {
 		remove_node: &mut Vec<N::NodeBackend>,
 		remove_value: &mut Vec<ValueIndexFor<N>>,
 		backend: &N::Backend,
+		position: PositionFor<N>,
+		fullkeys: &mut Vec<(PositionFor<N>, *mut Node<N>)>,
 	) -> Option<IndexFor<N>>;
 
 	fn commit_change_children_part(
@@ -180,6 +182,8 @@ pub trait NodeBackend<N: TreeConf>: Clone {
 		remove_node: &mut Vec<N::NodeBackend>,
 		remove_value: &mut Vec<ValueIndexFor<N>>,
 		backend: &N::Backend,
+		position: PositionFor<N>,
+		fullkeys: &mut Vec<(PositionFor<N>, *mut Node<N>)>,
 	) -> bool;
 
 	// TODO not really needed, we need the chilren part for fuse,
@@ -196,19 +200,20 @@ pub trait NodeBackend<N: TreeConf>: Clone {
 		remove_node: &mut Vec<N::NodeBackend>,
 		remove_value: &mut Vec<ValueIndexFor<N>>,
 		backend: &N::Backend,
+		position: PositionFor<N>,
+		fullkeys: &mut Vec<(PositionFor<N>, *mut Node<N>)>,
 	) -> Option<IndexFor<N>> {
 		if Self::FUSE_ON_COMMIT
 			&& node.number_child() == 1
 			&& !node.has_value()
 		{
-			let position = unimplemented!("TODO pass node position and fullkeys in commit function"); // warn it is position + current.depth()
-			let mut fullkeys: Vec<(PositionFor<N>, *mut Node<N>)> = vec![];
 			if node.key.partial.partial_full_depth().is_some() {
 				fullkeys.push((position, node.as_mut() as *mut _));
 			}
-			Node::<N>::fuse_child(node, remove_node, remove_value, backend, position, &mut fullkeys);
+			let value_position = position.next_by::<N::Radix>(node.depth());
+			Node::<N>::fuse_child(node, remove_node, remove_value, backend, value_position, fullkeys);
 		}
-		Self::commit_change(node, remove_node, remove_value, backend)
+		Self::commit_change(node, remove_node, remove_value, backend, position, fullkeys)
 	}
 
 	/// Value state is stored in backend.
@@ -287,6 +292,8 @@ impl<N: TreeConf> NodeBackend<N> for () {
 		_remove_node: &mut Vec<N::NodeBackend>,
 		_remove_value: &mut Vec<ValueIndexFor<N>>,
 		_: &N::Backend,
+		_position: PositionFor<N>,
+		_fullkeys: &mut Vec<(PositionFor<N>, *mut Node<N>)>,
 	) -> bool {
 		false
 	}
@@ -305,6 +312,8 @@ impl<N: TreeConf> NodeBackend<N> for () {
 		_remove_node: &mut Vec<N::NodeBackend>,
 		_remove_value: &mut Vec<ValueIndexFor<N>>,
 		_: &N::Backend,
+		_position: PositionFor<N>,
+		_fullkeys: &mut Vec<(PositionFor<N>, *mut Node<N>)>,
 	) -> Option<IndexFor<N>> {
 		None
 	}

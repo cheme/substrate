@@ -1067,8 +1067,9 @@ impl<N: TreeConf> Node<N> {
 		fullkeys: &mut Vec<(PositionFor<N>, *mut Node<N>)>,
 	) {
 		if N::Backend::ACTIVE {
+			let child_position = value_position.next::<N::Radix>();
 			// TODO should only commit removed nodes!! (not remaining child)
-			N::NodeBackend::commit_change_children_part(node, removed_node, removed_value, backend);
+			N::NodeBackend::commit_change_children_part(node, removed_node, removed_value, backend, child_position, fullkeys);
 			// TODO incorrect when FUSE not in commit, should use a removed value buffer until commit.
 			N::NodeBackend::commit_change_value_part(node, removed_node, removed_value, backend);
 		}
@@ -1094,11 +1095,12 @@ impl<N: TreeConf> Node<N> {
 			// even with backend we do a removal in this case (cannot keep deleted).
 			if let Some(child) = node.children.remove_child(index) {
 				node.backend.decrease_number_of_children();
-				let position = PositionFor::<N> {
+				let position_start = value_position;
+/*				let position = PositionFor::<N> {
 					index: 0,
 					mask: node.key.start,
 				};
-				let position_start = position.next_by::<N::Radix>(node.depth());
+				let position_start = position.next_by::<N::Radix>(node.depth());*/
 				position_start.set_index::<N::Radix>(&mut node.key.data, index);
 				let position_cat = position_start.next::<N::Radix>();
 				let mut child = child.extract_node().expect("resolved on remove child");
@@ -1280,7 +1282,9 @@ impl<N> Tree<N>
 	/// Commit tree changes to its underlying serializing backend.
 	pub fn commit(&mut self) {
 		if let Some(mut node) = self.tree.as_mut() {
-			if let Some(result) = N::NodeBackend::commit_change_fuse(&mut node, &mut self.removed_node, &mut self.removed_value, &self.backend) {
+			let position = PositionFor::<N>::zero();
+			let mut fullkeys: Vec<(PositionFor<N>, *mut Node<N>)> = Vec::new();
+			if let Some(result) = N::NodeBackend::commit_change_fuse(&mut node, &mut self.removed_node, &mut self.removed_value, &self.backend, position, &mut fullkeys) {
 				self.backend.set_root(result);
 			}
 			for node in self.removed_node.drain(..) {

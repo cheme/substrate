@@ -858,7 +858,7 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 		IndexFor<N>: Index,
 		ValueIndexFor<N>: Index,
 {
-	// TODO restore when fixed const FUSE_ON_COMMIT: bool = true;
+	const FUSE_ON_COMMIT: bool = true;
 	const DELETE_CHILD_FIRST: bool = true;
 
 	type ChildState = crate::Child<Node<N>>;
@@ -963,11 +963,15 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 		remove_node: &mut Vec<N::NodeBackend>,
 		remove_value: &mut Vec<ValueIndexFor<N>>,
 		backend: &N::Backend,
+		position: PositionFor<N>,
+		fullkeys: &mut Vec<(PositionFor<N>, *mut Node<N>)>,
 	) -> bool {
 		let mut encoded_change = false;
 		if node.backend.children_changed  {
 			use crate::children::Children;
 			use crate::WithChildState;
+			let position_child = position.next_by::<N::Radix>(node.depth());
+			let position_child = position.next::<N::Radix>();
 			if let Some(mut new) = node.backend.need_resize() {
 				encoded_change = true;
 				let mut next_change = node.children.get_next_child_index(None);
@@ -988,7 +992,7 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 						next_change = node.children.get_next_child_index(Some(change_ix));
 						match node.children.get_child_mut(change_ix).map(|c| c.node_mut()) {
 							Some(Some(mut child)) => {
-								if let Some(ix) = Self::commit_change_fuse(&mut child, remove_node, remove_value, backend) {
+								if let Some(ix) = Self::commit_change_fuse(&mut child, remove_node, remove_value, backend, position_child, fullkeys) {
 									new.set_children_index(change_ix, &ix);
 								} else {
 									if let Some(ix) = child.backend.index.clone() {
@@ -1021,7 +1025,7 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 						match node.children.get_child_mut(next).map(|c| c.node_mut()) {
 							Some(Some(mut child)) => {
 								if !two_pass {
-									if let Some(ix) = Self::commit_change_fuse(&mut child, remove_node, remove_value, backend) {
+									if let Some(ix) = Self::commit_change_fuse(&mut child, remove_node, remove_value, backend, position_child, fullkeys) {
 										encoded_change = true;
 										node.backend.encoded.set_children_index(next, &ix);
 									} else {
@@ -1103,6 +1107,8 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 		remove_node: &mut Vec<N::NodeBackend>,
 		remove_value: &mut Vec<ValueIndexFor<N>>,
 		backend: &N::Backend,
+		position: PositionFor<N>,
+		fullkeys: &mut Vec<(PositionFor<N>, *mut Node<N>)>,
 	) -> Option<IndexFor<N>> {
 		let mut encoded_change = false;
 		let changed = node.backend.children_changed
@@ -1113,7 +1119,7 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 		if !changed {
 			return None;
 		}
-		encoded_change |= Self::commit_change_children_part(node, remove_node, remove_value, backend);
+		encoded_change |= Self::commit_change_children_part(node, remove_node, remove_value, backend, position, fullkeys);
 		encoded_change |= Self::commit_change_value_part(node, remove_node, remove_value, backend);
 
 		node.backend.children_changed = false;
