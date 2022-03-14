@@ -281,14 +281,18 @@ impl<D, P, L> PrefixKey<D, P, L>
 				return depth;
 			}
 		}
+		Self::depth_inner(self.data.borrow().len(), self.start, self.end)
+	}
+
+	pub(crate) fn depth_inner(data_len: usize, start: P::Mask, end: P::Mask) -> usize {
 		if P::ALIGNED {
-			self.data.borrow().len()
+			data_len
 		} else {
 			let nb_mask = P::Mask::LAST.to_index() + 1;
-			let mut len = self.data.borrow().len() * nb_mask as usize;
-			len -= self.start.to_index() as usize;
-			if P::Mask::FIRST != self.end {
-				len -= (nb_mask - self.end.to_index()) as usize;
+			let mut len = data_len * nb_mask as usize;
+			len -= start.to_index() as usize;
+			if P::Mask::FIRST != end {
+				len -= (nb_mask - end.to_index()) as usize;
 			}
 			len
 		}

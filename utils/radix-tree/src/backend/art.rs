@@ -315,7 +315,8 @@ impl<N> ArtEncoded<N>
 			}
 		};
 		if is_partial {
-			PrefixKey::new_offset_limitted(prefix, start, N::LimitPartial::LIMIT_SIZE.unwrap(), size as usize)
+			let depth = PrefixKey::<Vec<u8>, AlignmentFor<N>, N::LimitPartial>::depth_inner(size as usize, start_mask, end_mask);
+			PrefixKey::new_offset_limitted(prefix, start, N::LimitPartial::LIMIT_SIZE.unwrap(), depth)
 		} else {
 			PrefixKey::new_offset(prefix, start, end)
 		}

@@ -107,7 +107,7 @@ fn decode<N>(
 	};
 
 	let prefix = if let Some((limit, real_size)) = is_limitted {
-		PrefixKey::new_offset_limitted(prefix, start, limit, real_size)
+		PrefixKey::new_offset_limitted(prefix, start, limit, real_size) // TODO incorrect for unaligned should not be real_size but depth
 	} else {
 		let end_mask = if let Some(mask) = <N::Radix as RadixConf>::Alignment::DEFAULT {
 			mask
