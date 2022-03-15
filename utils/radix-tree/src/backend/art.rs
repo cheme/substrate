@@ -974,6 +974,9 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 			let position_child = position.next_by::<N::Radix>(node.depth());
 			let position_child = position_child.next::<N::Radix>();
 			if let Some(mut new) = node.backend.need_resize() {
+				if let Some(previous) = node.backend.encoded.fetch_value_index() {
+					new.set_value_index(&previous);
+				}
 				encoded_change = true;
 				let mut next_change = node.children.get_next_child_index(None);
 				let mut next_backend = node.backend.encoded.get_next_child_index(None);
@@ -1016,6 +1019,7 @@ impl<N> NodeBackend<N> for ArtLocalBackend<N>
 					}
 				}
 				node.backend.encoded = new;
+				node.backend.set_prefix_change(); // force prefix rewrite (prefix are always loaded)
 			} else {
 				let mut two_pass = N::NodeBackend::DELETE_CHILD_FIRST;
 				loop {
