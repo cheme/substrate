@@ -1079,10 +1079,11 @@ impl<N: TreeConf> Node<N> {
 		if let Some(index) = node.get_next_child_index(None) {
 			if N::LimitPartial::LIMIT_SIZE.is_some() {
 				let mut do_resolve = node.key.partial.partial_full_depth().is_some();
+				let depth = node.depth();
 				if let Some(child) = node.get_child_mut_deref(index, backend) {
 					if child.key.partial.partial_full_depth().is_some() {
 						do_resolve = true;
-						let child_position = position.next_by::<N::Radix>(node.depth());
+						let child_position = position.next_by::<N::Radix>(depth);
 						let child_position = child_position.next::<N::Radix>();
 						fullkeys.push((child_position, child as *mut _));
 					}
