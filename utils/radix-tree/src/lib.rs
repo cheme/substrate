@@ -1067,13 +1067,12 @@ impl<N: TreeConf> Node<N> {
 		removed_node: &mut Vec<N::NodeBackend>,
 		removed_value: &mut Vec<ValueIndexFor<N>>,
 		backend: &N::Backend,
-		value_position: PositionFor<N>,
+		position: PositionFor<N>,
 		fullkeys: &mut Vec<(PositionFor<N>, *mut Node<N>)>,
 	) {
 		if N::Backend::ACTIVE {
-			let child_position = value_position.next::<N::Radix>();
 			// TODO should only commit removed nodes!! (not remaining child)
-			N::NodeBackend::commit_change_children_part(node, removed_node, removed_value, backend, child_position, fullkeys);
+			N::NodeBackend::commit_change_children_part(node, removed_node, removed_value, backend, position, fullkeys);
 			// TODO incorrect when FUSE not in commit, should use a removed value buffer until commit.
 			N::NodeBackend::commit_change_value_part(node, removed_node, removed_value, backend);
 		}
@@ -1083,7 +1082,9 @@ impl<N: TreeConf> Node<N> {
 				if let Some(child) = node.get_child_mut_deref(index, backend) {
 					if child.key.partial.partial_full_depth().is_some() {
 						do_resolve = true;
-						fullkeys.push((value_position.next::<N::Radix>(), child as *mut _));
+						let child_position = position.next_by::<N::Radix>(node.depth());
+						let child_position = child_position.next::<N::Radix>();
+						fullkeys.push((child_position, child as *mut _));
 					}
 				}
 				if do_resolve {
@@ -1522,7 +1523,6 @@ impl<N: TreeConf> Tree<N> {
 		for (start, node) in fullkeys.iter_mut() {
 			let node: &mut Node<_> = unsafe { node.as_mut().unwrap() };
 			let end = start.next_by::<N::Radix>(node.depth());
-			node.key.partial = N::LimitPartial::new(None);
 			let end_ix = /*if end == *start {
 				end.index + 1 // TODO on decode with 0 len just put [0] or [] if first and mark as resolved.
 			} else */if end.mask == MaskFor::<N::Radix>::FIRST {
@@ -1533,6 +1533,7 @@ impl<N: TreeConf> Tree<N> {
 			node.key.data.resize(end_ix - start.index, 0);
 			node.key.data[..].copy_from_slice(&fullkey[start.index..end_ix]);
 			node.key.end = end.mask;
+			node.key.partial = N::LimitPartial::new(None);
 		}
 	}
 
