@@ -729,7 +729,7 @@ impl<N: TreeConf> Node<N> {
 			Ordering::Equal => {
 				let node_end_index = node_position.next_by::<N::Radix>(self.depth());
 				if common == node_end_index {
-					Descent::Match(common)
+					Descent::Match(node_position)
 				} else {
 					let ix = common.index::<N::Radix>(key);
 					Descent::Middle(common, ix)
@@ -1653,7 +1653,6 @@ impl<N: TreeConf> Tree<N> {
 				} else {
 					if !N::NodeBackend::FUSE_ON_COMMIT {
 						if current.number_child() == 1 {
-							let position = position.next_by::<N::Radix>(current.depth());
 							Node::<N>::fuse_child(current, &mut self.removed_node, &mut self.removed_value, &self.backend, position, &mut fullkeys);
 						}
 						return result;
@@ -1730,7 +1729,7 @@ impl<N: TreeConf> Tree<N> {
 								}
 								if !N::NodeBackend::FUSE_ON_COMMIT { // TODO this could ignore fuse on commit (do not query additional nodes).
 									if !parent.has_value() && parent.number_child() == 1 {
-										Node::<N>::fuse_child(parent, &mut self.removed_node, &mut self.removed_value, &self.backend, parent_position, &mut fullkeys);
+										Node::<N>::fuse_child(parent, &mut self.removed_node, &mut self.removed_value, &self.backend, position, &mut fullkeys);
 									}
 								}
 							} else {

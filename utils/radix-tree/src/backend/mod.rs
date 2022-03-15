@@ -210,8 +210,7 @@ pub trait NodeBackend<N: TreeConf>: Clone {
 			if node.key.partial.partial_full_depth().is_some() {
 				fullkeys.push((position, node.as_mut() as *mut _));
 			}
-			let value_position = position.next_by::<N::Radix>(node.depth());
-			Node::<N>::fuse_child(node, remove_node, remove_value, backend, value_position, fullkeys);
+			Node::<N>::fuse_child(node, remove_node, remove_value, backend, position, fullkeys);
 		}
 		Self::commit_change(node, remove_node, remove_value, backend, position, fullkeys)
 	}
