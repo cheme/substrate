@@ -16,6 +16,7 @@ codec = { package = "parity-scale-codec", version = "2.0.0", default-features = 
 parking_lot = { version = "0.10.2", optional = true }
 blake2-rfc = { version = "0.2.18", optional = true }
 primitive-types = { version = "0.10.0", default-features = false } # TODO impl in primitive type, or no impl at all
+sp-core = { version = "6.0.0" }
 
 [dev-dependencies]
 criterion = "0.3"
