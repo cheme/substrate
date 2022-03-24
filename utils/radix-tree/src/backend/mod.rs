@@ -18,11 +18,10 @@
 //! Node backends for storing tree nodes.
 
 use crate::{
-    IndexFor, Key, KeyIndexFor, LimitPartial, Node, NodeBox, PositionFor, TreeConf, ValueIndexFor,
-    ValueState,
+	IndexFor, Key, KeyIndexFor, LimitPartial, Node, NodeBox, PositionFor, TreeConf, ValueIndexFor,
+	ValueState,
 };
-use alloc::boxed::Box;
-use alloc::vec::Vec;
+use alloc::{boxed::Box, vec::Vec};
 
 pub mod art;
 pub mod node_test;
@@ -30,327 +29,327 @@ pub mod test_backend;
 
 /// Node backend management.
 pub trait Backend {
-    const ACTIVE: bool = true;
+	const ACTIVE: bool = true;
 
-    type Index: Eq;
+	type Index: Eq;
 
-    type ValueIndex: Clone + Eq;
+	type ValueIndex: Clone + Eq;
 
-    /// Get a root node from the backend.
-    fn get_root(&self) -> Option<(Vec<u8>, Self::Index)>;
+	/// Get a root node from the backend.
+	fn get_root(&self) -> Option<(Vec<u8>, Self::Index)>;
 
-    fn get_node(&self, index: Self::Index) -> Option<Vec<u8>>;
+	fn get_node(&self, index: Self::Index) -> Option<Vec<u8>>;
 
-    fn get_value(&self, index: Self::ValueIndex) -> Option<Vec<u8>>;
+	fn get_value(&self, index: Self::ValueIndex) -> Option<Vec<u8>>;
 
-    fn update_node(&self, index: Self::Index, node: Vec<u8>) -> Option<Self::Index>;
+	fn update_node(&self, index: Self::Index, node: Vec<u8>) -> Option<Self::Index>;
 
-    fn update_value(&self, index: Self::ValueIndex, value: Vec<u8>) -> Option<Self::ValueIndex>;
+	fn update_value(&self, index: Self::ValueIndex, value: Vec<u8>) -> Option<Self::ValueIndex>;
 
-    fn remove_node(&self, index: Self::Index);
+	fn remove_node(&self, index: Self::Index);
 
-    fn remove_value(&self, index: Self::ValueIndex);
+	fn remove_value(&self, index: Self::ValueIndex);
 
-    fn set_new_node(&self, node: Vec<u8>) -> Self::Index;
+	fn set_new_node(&self, node: Vec<u8>) -> Self::Index;
 
-    fn set_new_value(&self, value: Vec<u8>) -> Self::ValueIndex;
+	fn set_new_value(&self, value: Vec<u8>) -> Self::ValueIndex;
 
-    /// Root call back.
-    fn set_root(&self, root: Self::Index);
+	/// Root call back.
+	fn set_root(&self, root: Self::Index);
 
-    fn commit(&self);
+	fn commit(&self);
 }
 
 impl Backend for () {
-    const ACTIVE: bool = false;
-    type Index = ();
-    type ValueIndex = ();
-    fn get_root(&self) -> Option<(Vec<u8>, Self::Index)> {
-        None
-    }
+	const ACTIVE: bool = false;
+	type Index = ();
+	type ValueIndex = ();
+	fn get_root(&self) -> Option<(Vec<u8>, Self::Index)> {
+		None
+	}
 
-    fn get_node(&self, _index: Self::Index) -> Option<Vec<u8>> {
-        None
-    }
+	fn get_node(&self, _index: Self::Index) -> Option<Vec<u8>> {
+		None
+	}
 
-    fn get_value(&self, _index: Self::ValueIndex) -> Option<Vec<u8>> {
-        None
-    }
+	fn get_value(&self, _index: Self::ValueIndex) -> Option<Vec<u8>> {
+		None
+	}
 
-    fn update_node(&self, _index: Self::Index, _node: Vec<u8>) -> Option<Self::Index> {
-        None
-    }
+	fn update_node(&self, _index: Self::Index, _node: Vec<u8>) -> Option<Self::Index> {
+		None
+	}
 
-    fn update_value(&self, _index: Self::ValueIndex, _value: Vec<u8>) -> Option<Self::ValueIndex> {
-        None
-    }
+	fn update_value(&self, _index: Self::ValueIndex, _value: Vec<u8>) -> Option<Self::ValueIndex> {
+		None
+	}
 
-    fn remove_node(&self, _index: Self::Index) {}
+	fn remove_node(&self, _index: Self::Index) {}
 
-    fn remove_value(&self, _index: Self::ValueIndex) {}
+	fn remove_value(&self, _index: Self::ValueIndex) {}
 
-    fn set_new_node(&self, _node: Vec<u8>) -> Self::Index {
-        ()
-    }
+	fn set_new_node(&self, _node: Vec<u8>) -> Self::Index {
+		()
+	}
 
-    fn set_new_value(&self, _value: Vec<u8>) -> Self::ValueIndex {
-        ()
-    }
+	fn set_new_value(&self, _value: Vec<u8>) -> Self::ValueIndex {
+		()
+	}
 
-    fn set_root(&self, _root: Self::Index) {}
+	fn set_root(&self, _root: Self::Index) {}
 
-    fn commit(&self) {}
+	fn commit(&self) {}
 }
 
 /// Information stored at node level for backend management.
 pub trait NodeBackend<N: TreeConf>: Clone {
-    // fuse node only on commit allows making change
-    // without querying additional nodes, but also
-    // creates empty node until commit.
-    const FUSE_ON_COMMIT: bool = false;
+	// fuse node only on commit allows making change
+	// without querying additional nodes, but also
+	// creates empty node until commit.
+	const FUSE_ON_COMMIT: bool = false;
 
-    // for some backend we want to delete child
-    // in a first separate iteration to avoid going
-    // over some size thresholds.
-    // TODO same for art children
-    const DELETE_CHILD_FIRST: bool = false;
+	// for some backend we want to delete child
+	// in a first separate iteration to avoid going
+	// over some size thresholds.
+	// TODO same for art children
+	const DELETE_CHILD_FIRST: bool = false;
 
-    /// Just use `Box<Node<N>>` if inactive or `Child<Node<N>>` if active.
-    type ChildState: crate::WithChildState<crate::Node<N>>;
+	/// Just use `Box<Node<N>>` if inactive or `Child<Node<N>>` if active.
+	type ChildState: crate::WithChildState<crate::Node<N>>;
 
-    /// Get a root node from the backend.
-    fn init_root(encoded_root: Vec<u8>, root_index: IndexFor<N>) -> Option<Node<N>>;
+	/// Get a root node from the backend.
+	fn init_root(encoded_root: Vec<u8>, root_index: IndexFor<N>) -> Option<Node<N>>;
 
-    fn new_node_backend() -> Self;
+	fn new_node_backend() -> Self;
 
-    /// Get next defined node.
-    fn get_next_child_index(&self, from: Option<KeyIndexFor<N>>) -> Option<KeyIndexFor<N>>;
+	/// Get next defined node.
+	fn get_next_child_index(&self, from: Option<KeyIndexFor<N>>) -> Option<KeyIndexFor<N>>;
 
-    fn get_node(&self, index: IndexFor<N>, backend: &N::Backend) -> Option<Node<N>>;
+	fn get_node(&self, index: IndexFor<N>, backend: &N::Backend) -> Option<Node<N>>;
 
-    // TODO replace by backend_hash_index -> bool ?
-    fn fetch_children_index(&self, at: KeyIndexFor<N>) -> Option<IndexFor<N>>;
+	// TODO replace by backend_hash_index -> bool ?
+	fn fetch_children_index(&self, at: KeyIndexFor<N>) -> Option<IndexFor<N>>;
 
-    /// Get a child node from the backend.
-    fn fetch_children(&self, at: KeyIndexFor<N>, backend: &N::Backend) -> Option<Node<N>>;
+	/// Get a child node from the backend.
+	fn fetch_children(&self, at: KeyIndexFor<N>, backend: &N::Backend) -> Option<Node<N>>;
 
-    /// Original number of children stored in backend.
-    fn fetch_nb_children(&mut self) -> Option<usize>;
+	/// Original number of children stored in backend.
+	fn fetch_nb_children(&mut self) -> Option<usize>;
 
-    /// Current number of children for the node.
-    /// If backend is inactive it can be simply read from node children
-    /// and the function should never be call by code.
-    fn current_nb_children(&self) -> usize;
+	/// Current number of children for the node.
+	/// If backend is inactive it can be simply read from node children
+	/// and the function should never be call by code.
+	fn current_nb_children(&self) -> usize;
 
-    fn increase_number_of_children(&mut self);
+	fn increase_number_of_children(&mut self);
 
-    fn decrease_number_of_children(&mut self);
+	fn decrease_number_of_children(&mut self);
 
-    // TODO replace by backend_hash_value -> bool ?
-    fn fetch_value_index(&self) -> Option<ValueIndexFor<N>>;
+	// TODO replace by backend_hash_value -> bool ?
+	fn fetch_value_index(&self) -> Option<ValueIndexFor<N>>;
 
-    // TODO make little sense with parity-db
-    fn fetch_value(&self, backend: &N::Backend) -> Option<N::Value>;
+	// TODO make little sense with parity-db
+	fn fetch_value(&self, backend: &N::Backend) -> Option<N::Value>;
 
-    // TODO make no sense as long as the actual backend do not use api to fetch
-    // key only.
-    fn fetch_value_and_full_key(&self, backend: &N::Backend) -> Option<(N::Value, Key)>;
+	// TODO make no sense as long as the actual backend do not use api to fetch
+	// key only.
+	fn fetch_value_and_full_key(&self, backend: &N::Backend) -> Option<(N::Value, Key)>;
 
-    fn fetch_full_key(&self, backend: &N::Backend) -> Option<Key>;
+	fn fetch_full_key(&self, backend: &N::Backend) -> Option<Key>;
 
-    /// Indicate a child node was change.
-    /// TODO could consider adding position to avoid iterating on all child
-    /// TODO remove
-    fn set_change(&mut self);
+	/// Indicate a child node was change.
+	/// TODO could consider adding position to avoid iterating on all child
+	/// TODO remove
+	fn set_change(&mut self);
 
-    fn set_children_change(&mut self) {
-        self.set_change()
-    }
+	fn set_children_change(&mut self) {
+		self.set_change()
+	}
 
-    fn set_prefix_change(&mut self);
+	fn set_prefix_change(&mut self);
 
-    /// Currently use on fuse so on update we always register
-    /// a new child (the parent is replaced by child).
-    fn force_new_index_on_commit(&mut self);
+	/// Currently use on fuse so on update we always register
+	/// a new child (the parent is replaced by child).
+	fn force_new_index_on_commit(&mut self);
 
-    /// Delete a node.
-    /// Does flush change immediatly.
-    fn delete(self, backend: &N::Backend);
+	/// Delete a node.
+	/// Does flush change immediatly.
+	fn delete(self, backend: &N::Backend);
 
-    /// Flush changes that happens to a node.
-    /// return new backend index if changed.
-    /// TODO remove commit change and have a single struct
-    /// implementation for it: just implement read/writes/set as
-    /// codec/accessor kind.
-    fn commit_change(
-        node: &mut NodeBox<N>,
-        remove_node: &mut Vec<N::NodeBackend>,
-        remove_value: &mut Vec<ValueIndexFor<N>>,
-        backend: &N::Backend,
-        position: PositionFor<N>,
-        fullkeys: &mut Vec<(PositionFor<N>, *mut Node<N>)>,
-    ) -> Option<IndexFor<N>>;
+	/// Flush changes that happens to a node.
+	/// return new backend index if changed.
+	/// TODO remove commit change and have a single struct
+	/// implementation for it: just implement read/writes/set as
+	/// codec/accessor kind.
+	fn commit_change(
+		node: &mut NodeBox<N>,
+		remove_node: &mut Vec<N::NodeBackend>,
+		remove_value: &mut Vec<ValueIndexFor<N>>,
+		backend: &N::Backend,
+		position: PositionFor<N>,
+		fullkeys: &mut Vec<(PositionFor<N>, *mut Node<N>)>,
+	) -> Option<IndexFor<N>>;
 
-    fn commit_change_children_part(
-        node: &mut NodeBox<N>,
-        remove_node: &mut Vec<N::NodeBackend>,
-        remove_value: &mut Vec<ValueIndexFor<N>>,
-        backend: &N::Backend,
-        position: PositionFor<N>,
-        fullkeys: &mut Vec<(PositionFor<N>, *mut Node<N>)>,
-    ) -> bool;
+	fn commit_change_children_part(
+		node: &mut NodeBox<N>,
+		remove_node: &mut Vec<N::NodeBackend>,
+		remove_value: &mut Vec<ValueIndexFor<N>>,
+		backend: &N::Backend,
+		position: PositionFor<N>,
+		fullkeys: &mut Vec<(PositionFor<N>, *mut Node<N>)>,
+	) -> bool;
 
-    // TODO not really needed, we need the chilren part for fuse,
-    // but this can be deduced from clear content.
-    fn commit_change_value_part(
-        node: &mut NodeBox<N>,
-        remove_node: &mut Vec<N::NodeBackend>,
-        remove_value: &mut Vec<ValueIndexFor<N>>,
-        backend: &N::Backend,
-    ) -> bool;
+	// TODO not really needed, we need the chilren part for fuse,
+	// but this can be deduced from clear content.
+	fn commit_change_value_part(
+		node: &mut NodeBox<N>,
+		remove_node: &mut Vec<N::NodeBackend>,
+		remove_value: &mut Vec<ValueIndexFor<N>>,
+		backend: &N::Backend,
+	) -> bool;
 
-    fn commit_change_fuse(
-        node: &mut NodeBox<N>,
-        remove_node: &mut Vec<N::NodeBackend>,
-        remove_value: &mut Vec<ValueIndexFor<N>>,
-        backend: &N::Backend,
-        position: PositionFor<N>,
-        fullkeys: &mut Vec<(PositionFor<N>, *mut Node<N>)>,
-    ) -> Option<IndexFor<N>> {
-        if Self::FUSE_ON_COMMIT && node.number_child() == 1 && !node.has_value() {
-            if node.key.partial.partial_full_depth().is_some() {
-                fullkeys.push((position, node.as_mut() as *mut _));
-            }
-            Node::<N>::fuse_child(node, remove_node, remove_value, backend, position, fullkeys);
-        }
-        Self::commit_change(node, remove_node, remove_value, backend, position, fullkeys)
-    }
+	fn commit_change_fuse(
+		node: &mut NodeBox<N>,
+		remove_node: &mut Vec<N::NodeBackend>,
+		remove_value: &mut Vec<ValueIndexFor<N>>,
+		backend: &N::Backend,
+		position: PositionFor<N>,
+		fullkeys: &mut Vec<(PositionFor<N>, *mut Node<N>)>,
+	) -> Option<IndexFor<N>> {
+		if Self::FUSE_ON_COMMIT && node.number_child() == 1 && !node.has_value() {
+			if node.key.partial.partial_full_depth().is_some() {
+				fullkeys.push((position, node.as_mut() as *mut _));
+			}
+			Node::<N>::fuse_child(node, remove_node, remove_value, backend, position, fullkeys);
+		}
+		Self::commit_change(node, remove_node, remove_value, backend, position, fullkeys)
+	}
 
-    /// Value state is stored in backend.
-    fn value_state(&self) -> ValueState;
+	/// Value state is stored in backend.
+	fn value_state(&self) -> ValueState;
 
-    /// Fullkey state is stored in backend.
-    /// TODO consider merge with value, it only differs
-    /// for fetching fullkey only (big value optimization).
-    fn fullkey_state(&self) -> ValueState;
+	/// Fullkey state is stored in backend.
+	/// TODO consider merge with value, it only differs
+	/// for fetching fullkey only (big value optimization).
+	fn fullkey_state(&self) -> ValueState;
 
-    /// Value state is stored in backend.
-    fn set_value_state(&mut self, state: ValueState);
+	/// Value state is stored in backend.
+	fn set_value_state(&mut self, state: ValueState);
 
-    /// Fullkey state is stored in backend, usually same as
-    /// value state exept for fetch.
-    fn set_fullkey_state(&mut self, state: ValueState);
+	/// Fullkey state is stored in backend, usually same as
+	/// value state exept for fetch.
+	fn set_fullkey_state(&mut self, state: ValueState);
 
-    /// Clear content to allow rewriting a different node instead.
-    /// Return value index to remove if there was a value.
-    fn clear_content(&mut self) -> Option<ValueIndexFor<N>>;
+	/// Clear content to allow rewriting a different node instead.
+	/// Return value index to remove if there was a value.
+	fn clear_content(&mut self) -> Option<ValueIndexFor<N>>;
 }
 
 impl<N: TreeConf> NodeBackend<N> for () {
-    type ChildState = Box<Node<N>>;
+	type ChildState = Box<Node<N>>;
 
-    fn init_root(_encoded_root: Vec<u8>, _root_index: IndexFor<N>) -> Option<Node<N>> {
-        None
-    }
+	fn init_root(_encoded_root: Vec<u8>, _root_index: IndexFor<N>) -> Option<Node<N>> {
+		None
+	}
 
-    fn get_node(&self, _index: IndexFor<N>, _backend: &N::Backend) -> Option<Node<N>> {
-        None
-    }
+	fn get_node(&self, _index: IndexFor<N>, _backend: &N::Backend) -> Option<Node<N>> {
+		None
+	}
 
-    fn get_next_child_index(&self, _index: Option<KeyIndexFor<N>>) -> Option<KeyIndexFor<N>> {
-        None
-    }
-    fn fetch_children(&self, _at: KeyIndexFor<N>, _backend: &N::Backend) -> Option<Node<N>> {
-        None
-    }
+	fn get_next_child_index(&self, _index: Option<KeyIndexFor<N>>) -> Option<KeyIndexFor<N>> {
+		None
+	}
+	fn fetch_children(&self, _at: KeyIndexFor<N>, _backend: &N::Backend) -> Option<Node<N>> {
+		None
+	}
 
-    fn fetch_children_index(&self, _at: KeyIndexFor<N>) -> Option<IndexFor<N>> {
-        None
-    }
+	fn fetch_children_index(&self, _at: KeyIndexFor<N>) -> Option<IndexFor<N>> {
+		None
+	}
 
-    fn fetch_nb_children(&mut self) -> Option<usize> {
-        None
-    }
+	fn fetch_nb_children(&mut self) -> Option<usize> {
+		None
+	}
 
-    fn fetch_value_index(&self) -> Option<ValueIndexFor<N>> {
-        None
-    }
+	fn fetch_value_index(&self) -> Option<ValueIndexFor<N>> {
+		None
+	}
 
-    fn fetch_value(&self, _backend: &N::Backend) -> Option<N::Value> {
-        None
-    }
+	fn fetch_value(&self, _backend: &N::Backend) -> Option<N::Value> {
+		None
+	}
 
-    fn fetch_value_and_full_key(&self, _backend: &N::Backend) -> Option<(N::Value, Key)> {
-        None
-    }
+	fn fetch_value_and_full_key(&self, _backend: &N::Backend) -> Option<(N::Value, Key)> {
+		None
+	}
 
-    fn fetch_full_key(&self, _backend: &N::Backend) -> Option<Key> {
-        None
-    }
+	fn fetch_full_key(&self, _backend: &N::Backend) -> Option<Key> {
+		None
+	}
 
-    fn set_change(&mut self) {}
+	fn set_change(&mut self) {}
 
-    fn set_prefix_change(&mut self) {}
+	fn set_prefix_change(&mut self) {}
 
-    fn delete(self, _: &N::Backend) {}
+	fn delete(self, _: &N::Backend) {}
 
-    fn commit_change_children_part(
-        _node: &mut NodeBox<N>,
-        _remove_node: &mut Vec<N::NodeBackend>,
-        _remove_value: &mut Vec<ValueIndexFor<N>>,
-        _: &N::Backend,
-        _position: PositionFor<N>,
-        _fullkeys: &mut Vec<(PositionFor<N>, *mut Node<N>)>,
-    ) -> bool {
-        false
-    }
+	fn commit_change_children_part(
+		_node: &mut NodeBox<N>,
+		_remove_node: &mut Vec<N::NodeBackend>,
+		_remove_value: &mut Vec<ValueIndexFor<N>>,
+		_: &N::Backend,
+		_position: PositionFor<N>,
+		_fullkeys: &mut Vec<(PositionFor<N>, *mut Node<N>)>,
+	) -> bool {
+		false
+	}
 
-    fn commit_change_value_part(
-        _node: &mut NodeBox<N>,
-        _remove_node: &mut Vec<N::NodeBackend>,
-        _remove_value: &mut Vec<ValueIndexFor<N>>,
-        _: &N::Backend,
-    ) -> bool {
-        false
-    }
+	fn commit_change_value_part(
+		_node: &mut NodeBox<N>,
+		_remove_node: &mut Vec<N::NodeBackend>,
+		_remove_value: &mut Vec<ValueIndexFor<N>>,
+		_: &N::Backend,
+	) -> bool {
+		false
+	}
 
-    fn commit_change(
-        _node: &mut NodeBox<N>,
-        _remove_node: &mut Vec<N::NodeBackend>,
-        _remove_value: &mut Vec<ValueIndexFor<N>>,
-        _: &N::Backend,
-        _position: PositionFor<N>,
-        _fullkeys: &mut Vec<(PositionFor<N>, *mut Node<N>)>,
-    ) -> Option<IndexFor<N>> {
-        None
-    }
+	fn commit_change(
+		_node: &mut NodeBox<N>,
+		_remove_node: &mut Vec<N::NodeBackend>,
+		_remove_value: &mut Vec<ValueIndexFor<N>>,
+		_: &N::Backend,
+		_position: PositionFor<N>,
+		_fullkeys: &mut Vec<(PositionFor<N>, *mut Node<N>)>,
+	) -> Option<IndexFor<N>> {
+		None
+	}
 
-    fn new_node_backend() -> Self {
-        ()
-    }
-    fn value_state(&self) -> ValueState {
-        ValueState::Resolved
-    }
-    fn fullkey_state(&self) -> ValueState {
-        ValueState::Resolved
-    }
-    fn set_value_state(&mut self, _state: ValueState) {
-        ()
-    }
-    fn set_fullkey_state(&mut self, _state: ValueState) {
-        ()
-    }
-    fn clear_content(&mut self) -> Option<ValueIndexFor<N>> {
-        None
-    }
+	fn new_node_backend() -> Self {
+		()
+	}
+	fn value_state(&self) -> ValueState {
+		ValueState::Resolved
+	}
+	fn fullkey_state(&self) -> ValueState {
+		ValueState::Resolved
+	}
+	fn set_value_state(&mut self, _state: ValueState) {
+		()
+	}
+	fn set_fullkey_state(&mut self, _state: ValueState) {
+		()
+	}
+	fn clear_content(&mut self) -> Option<ValueIndexFor<N>> {
+		None
+	}
 
-    fn current_nb_children(&self) -> usize {
-        panic!("Inactive backend, no counting of children");
-    }
+	fn current_nb_children(&self) -> usize {
+		panic!("Inactive backend, no counting of children");
+	}
 
-    fn increase_number_of_children(&mut self) {}
+	fn increase_number_of_children(&mut self) {}
 
-    fn decrease_number_of_children(&mut self) {}
+	fn decrease_number_of_children(&mut self) {}
 
-    fn force_new_index_on_commit(&mut self) {}
+	fn force_new_index_on_commit(&mut self) {}
 }
