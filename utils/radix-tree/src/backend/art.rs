@@ -351,7 +351,7 @@ where
 		};
 		let nb = varint_encoded_len(key.data.len() as u64);
 		let data_len = key.data.len();
-		let capacity = data_len + 1 + mask_size;
+		let capacity = data_len + nb + mask_size;
 
 		let mut result = vec![0; capacity];
 		Self::write_prefix_buf(&mut result[..], key, nb, data_len);
