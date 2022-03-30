@@ -304,7 +304,7 @@ where
 			limit_decode(encoded, limit)
 		} else {
 			let r = varint_decode(encoded);
-			debug_assert!(r.0 as usize == encoded.len() - r.1); // TODO assert?
+			//debug_assert!(r.0 as usize == encoded.len() - r.1); // TODO assert?
 			r
 		};
 		encoded = &encoded[r..];
