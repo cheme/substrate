@@ -143,7 +143,7 @@ impl substrate_test_client::GenesisInit for GenesisParameters {
 			let prefixed_storage_key = child_content.child_info.prefixed_storage_key();
 			(prefixed_storage_key.into_inner(), state_root.encode())
 		});
-		let child_roots_dummy = storage.children_sized.iter().map(|(_sk, child_content)| {
+		let child_roots_dummy = storage.children_sized.iter().map(|(_sk, _child_content)| {
 			unimplemented!(
 				"TODO add fn trie_root_dummy to runtime/src/traits, would mean
 		another two host function"

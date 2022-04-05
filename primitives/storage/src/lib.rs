@@ -133,8 +133,7 @@ impl DerefMut for PrefixedStorageKey {
 }
 
 impl PrefixedStorageKey {
-	/// Create a prefixed storage key from its byte array
-	/// representation.
+	/// Create a prefixed storage key from its byte array representation.
 	pub fn new(inner: Vec<u8>) -> Self {
 		PrefixedStorageKey(inner)
 	}
@@ -144,9 +143,7 @@ impl PrefixedStorageKey {
 		PrefixedStorageKey::ref_cast(inner)
 	}
 
-	/// Get inner key, this should
-	/// only be needed when writing
-	/// into parent trie to avoid an
+	/// Get inner key, this should only be needed when writing into parent trie to avoid an
 	/// allocation.
 	pub fn into_inner(self) -> Vec<u8> {
 		self.0
@@ -185,10 +182,8 @@ pub struct StorageChild {
 pub struct Storage {
 	/// Top trie storage data.
 	pub top: StorageMap,
-	/// Children trie storage data.
-	/// The key does not including prefix, for the `default`
-	/// trie kind, so this is exclusively for the `ChildType::ParentKeyId`
-	/// tries.
+	/// Children trie storage data. Key does not include prefix, only for the `default` trie kind,
+	/// of `ChildType::ParentKeyId` type.
 	pub children_default: std::collections::HashMap<Vec<u8>, StorageChild>,
 	/// Changes for child trie with size.
 	pub children_sized: std::collections::HashMap<Vec<u8>, StorageChild>,
@@ -480,7 +475,7 @@ impl From<StateVersion> for u8 {
 	}
 }
 
-impl sp_std::convert::TryFrom<u8> for StateVersion {
+impl TryFrom<u8> for StateVersion {
 	type Error = ();
 	fn try_from(val: u8) -> sp_std::result::Result<StateVersion, ()> {
 		match val {
