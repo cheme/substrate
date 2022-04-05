@@ -105,7 +105,7 @@ pub fn insert_genesis_block(storage: &mut Storage) -> sp_core::hash::H256 {
 	});
 	// add child roots to storage
 	storage.top.extend(child_roots);
-	let child_roots = storage.children_dummy.iter().map(|(_sk, child_content)| {
+	let child_roots = storage.children_dummy.iter().map(|(_sk, _child_content)| {
 		unimplemented!(
 			"TODO add fn trie_root_dummy to runtime/src/traits, would mean
 		another two host function"

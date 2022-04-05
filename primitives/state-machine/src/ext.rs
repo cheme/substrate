@@ -661,7 +661,6 @@ where
 		self.overlay
 			.drain_storage_changes(
 				self.backend,
-				Default::default(),
 				self.storage_transaction_cache,
 				Default::default(), // using any state
 			)
@@ -681,12 +680,7 @@ where
 		}
 		let changes = self
 			.overlay
-			.drain_storage_changes(
-				self.backend,
-				Default::default(),
-				self.storage_transaction_cache,
-				state_version,
-			)
+			.drain_storage_changes(self.backend, self.storage_transaction_cache, state_version)
 			.expect(EXT_NOT_ALLOWED_TO_FAIL);
 		self.backend
 			.commit(
