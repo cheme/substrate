@@ -374,7 +374,7 @@ where
 			let mut op = backend.begin_operation()?;
 			let state_root =
 				op.set_genesis_state(genesis_storage, !config.no_genesis, genesis_state_version)?;
-			let genesis_block = genesis::construct_genesis_block::<Block>(state_root.into());
+			let genesis_block = genesis::construct_genesis_block::<Block>(state_root);
 			info!(
 				"🔨 Initializing Genesis block/state (state: {}, header-hash: {})",
 				genesis_block.header().state_root(),
@@ -562,7 +562,7 @@ where
 		<Self as ProvideRuntimeApi<Block>>::Api:
 			CoreApi<Block> + ApiExt<Block, StateBackend = B::State>,
 	{
-		let parent_hash = import_headers.post().parent_hash().clone();
+		let parent_hash = *import_headers.post().parent_hash();
 		let status = self.backend.blockchain().status(BlockId::Hash(hash))?;
 		let parent_exists = self.backend.blockchain().status(BlockId::Hash(parent_hash))? ==
 			blockchain::BlockStatus::InChain;
@@ -620,7 +620,7 @@ where
 					sc_consensus::StorageChanges::Import(changes) => {
 						let mut storage = sp_storage::Storage::default();
 						for state in changes.state.0.into_iter() {
-							if state.parent_storage_keys.len() == 0 && state.state_root.len() == 0 {
+							if state.parent_storage_keys.is_empty() && state.state_root.is_empty() {
 								for (key, value) in state.key_values.into_iter() {
 									storage.top.insert(key, value);
 								}
@@ -628,7 +628,7 @@ where
 								for parent_storage in state.parent_storage_keys {
 									let storage_key = PrefixedStorageKey::new_ref(&parent_storage);
 									let storage_key =
-										match ChildType::from_prefixed_key(&storage_key) {
+										match ChildType::from_prefixed_key(storage_key) {
 											Some((ChildType::ParentKeyId, storage_key)) =>
 												storage_key,
 											None =>
@@ -925,36 +925,25 @@ where
 			let finalized =
 				route_from_finalized.enacted().iter().map(|elem| elem.hash).collect::<Vec<_>>();
 
-			let last_finalized_number = self
-				.backend
-				.blockchain()
-				.number(last_finalized)?
-				.expect("Previous finalized block expected to be onchain; qed");
-			let mut stale_heads = Vec::new();
-			for head in self.backend.blockchain().leaves()? {
-				let route_from_finalized =
-					sp_blockchain::tree_route(self.backend.blockchain(), block, head)?;
-				let retracted = route_from_finalized.retracted();
-				let pivot = route_from_finalized.common_block();
-				// It is not guaranteed that `backend.blockchain().leaves()` doesn't return
-				// heads that were in a stale state before this finalization and thus already
-				// included in previous notifications. We want to skip such heads.
-				// Given the "route" from the currently finalized block to the head under
-				// analysis, the condition for it to be added to the new stale heads list is:
-				// `!retracted.is_empty() && last_finalized_number <= pivot.number`
-				// 1. "route" has some "retractions".
-				// 2. previously finalized block number is not greater than the "route" pivot:
-				//    - if `last_finalized_number <= pivot.number` then this is a new stale head;
-				//    - else the stale head was already included by some previous finalization.
-				if !retracted.is_empty() && last_finalized_number <= pivot.number {
-					stale_heads.push(head);
-				}
-			}
+			let block_number = route_from_finalized
+				.last()
+				.expect(
+					"The block to finalize is always the latest \
+						block in the route to the finalized block; qed",
+				)
+				.number;
+
+			// The stale heads are the leaves that will be displaced after the
+			// block is finalized.
+			let stale_heads =
+				self.backend.blockchain().displaced_leaves_after_finalizing(block_number)?;
+
 			let header = self
 				.backend
 				.blockchain()
 				.header(BlockId::Hash(block))?
-				.expect("Finalized block expected to be onchain; qed");
+				.expect("Block to finalize expected to be onchain; qed");
+
 			operation.notify_finalized = Some(FinalizeSummary { header, finalized, stale_heads });
 		}
 
@@ -1070,7 +1059,7 @@ where
 				return Ok(BlockStatus::Queued)
 			}
 		}
-		let hash_and_number = match id.clone() {
+		let hash_and_number = match *id {
 			BlockId::Hash(hash) => self.backend.blockchain().number(hash)?.map(|n| (hash, n)),
 			BlockId::Number(n) => self.backend.blockchain().hash(n)?.map(|hash| (hash, n)),
 		};
@@ -1249,8 +1238,8 @@ where
 		}
 		let state = self.state_at(id)?;
 		let child_info = |storage_key: &Vec<u8>| -> sp_blockchain::Result<ChildInfo> {
-			let storage_key = PrefixedStorageKey::new_ref(&storage_key);
-			match ChildType::from_prefixed_key(&storage_key) {
+			let storage_key = PrefixedStorageKey::new_ref(storage_key);
+			match ChildType::from_prefixed_key(storage_key) {
 				Some((ChildType::ParentKeyId, storage_key)) =>
 					Ok(ChildInfo::new_default(storage_key)),
 				None => Err(Error::Backend("Invalid child storage key.".to_string())),
@@ -1259,7 +1248,7 @@ where
 		let mut current_child = if start_key.len() == 2 {
 			let start_key = start_key.get(0).expect("checked len");
 			if let Some(child_root) = state
-				.storage(&start_key)
+				.storage(start_key)
 				.map_err(|e| sp_blockchain::Error::from_state(Box::new(e)))?
 			{
 				Some((child_info(start_key)?, child_root))
@@ -1269,7 +1258,7 @@ where
 		} else {
 			None
 		};
-		let mut current_key = start_key.last().map(Clone::clone).unwrap_or(Vec::new());
+		let mut current_key = start_key.last().map(Clone::clone).unwrap_or_default();
 		let mut total_size = 0;
 		let mut result = vec![(
 			KeyValueStorageLevel {
@@ -1313,14 +1302,13 @@ where
 				total_size += size;
 
 				if current_child.is_none() &&
-					sp_core::storage::well_known_keys::is_child_storage_key(next_key.as_slice())
+					sp_core::storage::well_known_keys::is_child_storage_key(next_key.as_slice()) &&
+					!child_roots.contains(value.as_slice())
 				{
-					if !child_roots.contains(value.as_slice()) {
-						child_roots.insert(value.clone());
-						switch_child_key = Some((next_key.clone(), value.clone()));
-						entries.push((next_key.clone(), value));
-						break
-					}
+					child_roots.insert(value.clone());
+					switch_child_key = Some((next_key.clone(), value.clone()));
+					entries.push((next_key.clone(), value));
+					break
 				}
 				entries.push((next_key.clone(), value));
 				current_key = next_key;
@@ -1684,7 +1672,7 @@ where
 {
 	type Api = <RA as ConstructRuntimeApi<Block, Self>>::RuntimeApi;
 
-	fn runtime_api<'a>(&'a self) -> ApiRef<'a, Self::Api> {
+	fn runtime_api(&self) -> ApiRef<Self::Api> {
 		RA::construct_runtime_api(self)
 	}
 }
@@ -1698,12 +1686,11 @@ where
 	type StateBackend = B::State;
 
 	fn call_api_at<
-		'a,
 		R: Encode + Decode + PartialEq,
 		NC: FnOnce() -> result::Result<R, sp_api::ApiError> + UnwindSafe,
 	>(
 		&self,
-		params: CallApiAtParams<'a, Block, NC, B::State>,
+		params: CallApiAtParams<Block, NC, B::State>,
 	) -> Result<NativeOrEncoded<R>, sp_api::ApiError> {
 		let at = params.at;
 
@@ -1777,6 +1764,7 @@ where
 				PrepareStorageChangesResult::Import(storage_changes) => storage_changes,
 			};
 
+<<<<<<< HEAD
 		let r = self
 			.lock_import_and_run(|operation| {
 				self.apply_block(operation, import_block, new_cache, storage_changes)
@@ -1848,6 +1836,15 @@ where
 			}
 		}
 		r
+=======
+		self.lock_import_and_run(|operation| {
+			self.apply_block(operation, import_block, new_cache, storage_changes)
+		})
+		.map_err(|e| {
+			warn!("Block import error: {}", e);
+			ConsensusError::ClientImport(e.to_string())
+		})
+>>>>>>> master
 	}
 
 	/// Check block preconditions.
@@ -2138,6 +2135,10 @@ where
 		id: &BlockId<Block>,
 	) -> sp_blockchain::Result<Option<Vec<Vec<u8>>>> {
 		self.backend.blockchain().block_indexed_body(*id)
+	}
+
+	fn requires_full_sync(&self) -> bool {
+		self.backend.requires_full_sync()
 	}
 }
 

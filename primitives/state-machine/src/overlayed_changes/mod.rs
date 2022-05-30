@@ -467,6 +467,7 @@ impl OverlayedChanges {
 	/// Clear child storage of given storage key.
 	///
 	/// Can be rolled back or committed when called inside a transaction.
+<<<<<<< HEAD
 	pub(crate) fn clear_child_storage(&mut self, child_info: &ChildInfo) {
 		// clear is reading value, this is not idealy, still guarding
 		// read_write (would not be needed with special clear prefix
@@ -474,6 +475,9 @@ impl OverlayedChanges {
 		// This apply to all clear.
 		self.filters.guard_write_interval(Some(child_info), &[], None);
 		self.optimistic_logger.log_write_prefix(Some(child_info), &[]);
+=======
+	pub(crate) fn clear_child_storage(&mut self, child_info: &ChildInfo) -> u32 {
+>>>>>>> master
 		let extrinsic_index = self.extrinsic_index();
 		let storage_key = child_info.storage_key().to_vec();
 		let top = &self.top;
@@ -483,12 +487,13 @@ impl OverlayedChanges {
 			.or_insert_with(|| (top.spawn_child(), child_info.clone()));
 		let updatable = info.try_update(child_info);
 		debug_assert!(updatable);
-		changeset.clear_where(|_, _| true, extrinsic_index);
+		changeset.clear_where(|_, _| true, extrinsic_index)
 	}
 
 	/// Removes all key-value pairs which keys share the given prefix.
 	///
 	/// Can be rolled back or committed when called inside a transaction.
+<<<<<<< HEAD
 	pub(crate) fn clear_prefix(&mut self, prefix: &[u8]) {
 		self.filters.guard_write_interval(
 			None,
@@ -498,11 +503,16 @@ impl OverlayedChanges {
 		self.optimistic_logger.log_write_prefix(None, prefix);
 		let extrinsic_index = self.extrinsic_index();
 		self.top.clear_where(|key, _| key.starts_with(prefix), extrinsic_index);
+=======
+	pub(crate) fn clear_prefix(&mut self, prefix: &[u8]) -> u32 {
+		self.top.clear_where(|key, _| key.starts_with(prefix), self.extrinsic_index())
+>>>>>>> master
 	}
 
 	/// Removes all key-value pairs which keys share the given prefix.
 	///
 	/// Can be rolled back or committed when called inside a transaction
+<<<<<<< HEAD
 	pub(crate) fn clear_child_prefix(&mut self, child_info: &ChildInfo, prefix: &[u8]) {
 		self.filters.guard_write_interval(
 			Some(child_info),
@@ -510,6 +520,9 @@ impl OverlayedChanges {
 			end_prefix(prefix).as_ref().map(Vec::as_slice),
 		);
 		self.optimistic_logger.log_write_prefix(Some(child_info), prefix);
+=======
+	pub(crate) fn clear_child_prefix(&mut self, child_info: &ChildInfo, prefix: &[u8]) -> u32 {
+>>>>>>> master
 		let extrinsic_index = self.extrinsic_index();
 		let storage_key = child_info.storage_key().to_vec();
 		let top = &self.top;
@@ -519,7 +532,7 @@ impl OverlayedChanges {
 			.or_insert_with(|| (top.spawn_child(), child_info.clone()));
 		let updatable = info.try_update(child_info);
 		debug_assert!(updatable);
-		changeset.clear_where(|key, _| key.starts_with(prefix), extrinsic_index);
+		changeset.clear_where(|key, _| key.starts_with(prefix), extrinsic_index)
 	}
 
 	/// Returns the current nesting depth of the transaction stack.
@@ -860,13 +873,13 @@ impl OverlayedChanges {
 	pub fn into_storage_changes<B: Backend<H>, H: Hasher + 'static>(
 		mut self,
 		backend: &B,
-		parent_hash: H::Out,
 		mut cache: StorageTransactionCache<B::Transaction, H>,
 		state_version: StateVersion,
 	) -> Result<(StorageChanges<B::Transaction, H>, Option<AccessLog>), DefaultError>
 	where
 		H::Out: Ord + Encode + 'static,
 	{
+<<<<<<< HEAD
 		let logs = self.optimistic_logger.extract_parent_log();
 		let r = self.drain_storage_changes(backend, parent_hash, &mut cache, state_version)?;
 		let _ = self.optimistic_logger.extract_parent_log();
@@ -876,14 +889,16 @@ impl OverlayedChanges {
 	#[cfg(feature = "std")]
 	pub fn extract_logs(&mut self) -> Option<AccessLog> {
 		self.optimistic_logger.extract_parent_log()
+=======
+		self.drain_storage_changes(backend, &mut cache, state_version)
+>>>>>>> master
 	}
 
 	/// Drain all changes into a [`StorageChanges`] instance. Leave empty overlay in place.
 	pub fn drain_storage_changes<B: Backend<H>, H: Hasher + 'static>(
 		&mut self,
 		backend: &B,
-		_parent_hash: H::Out,
-		mut cache: &mut StorageTransactionCache<B::Transaction, H>,
+		cache: &mut StorageTransactionCache<B::Transaction, H>,
 		state_version: StateVersion,
 	) -> Result<StorageChanges<B::Transaction, H>, DefaultError>
 	where
@@ -891,7 +906,7 @@ impl OverlayedChanges {
 	{
 		// If the transaction does not exist, we generate it.
 		if cache.transaction.is_none() {
-			self.storage_root(backend, &mut cache, state_version);
+			self.storage_root(backend, cache, state_version);
 		}
 
 		let (transaction, transaction_storage_root) = cache

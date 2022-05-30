@@ -29,10 +29,15 @@ use sp_core::{
 	traits::Externalities,
 	Blake2Hasher,
 };
+<<<<<<< HEAD
 use sp_externalities::{
 	AsyncExternalities, Extension, Extensions, TaskId, WorkerDeclaration, WorkerResult,
 };
 use sp_trie::{empty_child_trie_root, LayoutV0, LayoutV1, TrieConfiguration};
+=======
+use sp_externalities::{Extension, Extensions, MultiRemovalResults};
+use sp_trie::{empty_child_trie_root, HashKey, LayoutV0, LayoutV1, TrieConfiguration};
+>>>>>>> master
 use std::{
 	any::{Any, TypeId},
 	collections::BTreeMap,
@@ -211,23 +216,34 @@ impl Externalities for BasicExternalities {
 		}
 	}
 
-	fn kill_child_storage(&mut self, child_info: &ChildInfo, _limit: Option<u32>) -> (bool, u32) {
-		let num_removed = self
+	fn kill_child_storage(
+		&mut self,
+		child_info: &ChildInfo,
+		_maybe_limit: Option<u32>,
+		_maybe_cursor: Option<&[u8]>,
+	) -> MultiRemovalResults {
+		let count = self
 			.inner
 			.children_default
 			.remove(child_info.storage_key())
 			.map(|c| c.data.len())
-			.unwrap_or(0);
-		(true, num_removed as u32)
+			.unwrap_or(0) as u32;
+		MultiRemovalResults { maybe_cursor: None, backend: count, unique: count, loops: count }
 	}
 
-	fn clear_prefix(&mut self, prefix: &[u8], _limit: Option<u32>) -> (bool, u32) {
+	fn clear_prefix(
+		&mut self,
+		prefix: &[u8],
+		_maybe_limit: Option<u32>,
+		_maybe_cursor: Option<&[u8]>,
+	) -> MultiRemovalResults {
 		if is_child_storage_key(prefix) {
 			warn!(
 				target: "trie",
 				"Refuse to clear prefix that is part of child storage key via main storage"
 			);
-			return (false, 0)
+			let maybe_cursor = Some(prefix.to_vec());
+			return MultiRemovalResults { maybe_cursor, backend: 0, unique: 0, loops: 0 }
 		}
 
 		let to_remove = self
@@ -239,19 +255,20 @@ impl Externalities for BasicExternalities {
 			.cloned()
 			.collect::<Vec<_>>();
 
-		let num_removed = to_remove.len();
+		let count = to_remove.len() as u32;
 		for key in to_remove {
 			self.inner.top.remove(&key);
 		}
-		(true, num_removed as u32)
+		MultiRemovalResults { maybe_cursor: None, backend: count, unique: count, loops: count }
 	}
 
 	fn clear_child_prefix(
 		&mut self,
 		child_info: &ChildInfo,
 		prefix: &[u8],
-		_limit: Option<u32>,
-	) -> (bool, u32) {
+		_maybe_limit: Option<u32>,
+		_maybe_cursor: Option<&[u8]>,
+	) -> MultiRemovalResults {
 		if let Some(child) = self.inner.children_default.get_mut(child_info.storage_key()) {
 			let to_remove = child
 				.data
@@ -261,13 +278,13 @@ impl Externalities for BasicExternalities {
 				.cloned()
 				.collect::<Vec<_>>();
 
-			let num_removed = to_remove.len();
+			let count = to_remove.len() as u32;
 			for key in to_remove {
 				child.data.remove(&key);
 			}
-			(true, num_removed as u32)
+			MultiRemovalResults { maybe_cursor: None, backend: count, unique: count, loops: count }
 		} else {
-			(true, 0)
+			MultiRemovalResults { maybe_cursor: None, backend: 0, unique: 0, loops: 0 }
 		}
 	}
 
@@ -290,7 +307,7 @@ impl Externalities for BasicExternalities {
 		let empty_hash = empty_child_trie_root::<LayoutV1<Blake2Hasher>>();
 		for (prefixed_storage_key, child_info) in prefixed_keys {
 			let child_root = self.child_storage_root(&child_info, state_version);
-			if &empty_hash[..] == &child_root[..] {
+			if empty_hash[..] == child_root[..] {
 				top.remove(prefixed_storage_key.as_slice());
 			} else {
 				top.insert(prefixed_storage_key.into_inner(), child_root);
@@ -312,7 +329,7 @@ impl Externalities for BasicExternalities {
 	) -> Vec<u8> {
 		if let Some(child) = self.inner.children_default.get(child_info.storage_key()) {
 			let delta = child.data.iter().map(|(k, v)| (k.as_ref(), Some(v.as_ref())));
-			crate::in_memory_backend::new_in_mem::<Blake2Hasher>()
+			crate::in_memory_backend::new_in_mem::<Blake2Hasher, HashKey<_>>()
 				.child_storage_root(&child.child_info, delta, state_version)
 				.0
 		} else {
@@ -452,7 +469,7 @@ mod tests {
 		ext.clear_child_storage(child_info, b"dog");
 		assert_eq!(ext.child_storage(child_info, b"dog"), None);
 
-		ext.kill_child_storage(child_info, None);
+		let _ = ext.kill_child_storage(child_info, None, None);
 		assert_eq!(ext.child_storage(child_info, b"doe"), None);
 	}
 
@@ -474,8 +491,8 @@ mod tests {
 			],
 		});
 
-		let res = ext.kill_child_storage(child_info, None);
-		assert_eq!(res, (true, 3));
+		let res = ext.kill_child_storage(child_info, None, None);
+		assert_eq!(res.deconstruct(), (None, 3, 3, 3));
 	}
 
 	#[test]
