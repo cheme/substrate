@@ -528,14 +528,11 @@ impl OverlayedChangeSet {
 	) -> u32 {
 		let mut count = 0;
 		for (key, val) in self.changes.iter_mut().filter(|(k, v)| predicate(k, v)) {
-<<<<<<< HEAD
-			val.set(Change::Delete, insert_dirty(&mut self.dirty_keys, key.clone()), at_extrinsic);
-=======
-			if val.value_ref().is_some() {
+			if !matches!(val.value_ref(), &Change::Delete) {
 				count += 1;
 			}
-			val.set(None, insert_dirty(&mut self.dirty_keys, key.clone()), at_extrinsic);
->>>>>>> master
+			// TODO only when not match?
+			val.set(Change::Delete, insert_dirty(&mut self.dirty_keys, key.clone()), at_extrinsic);
 		}
 		count
 	}
@@ -768,7 +765,10 @@ mod test {
 	#[test]
 	fn append_works() {
 		use codec::Encode;
-		let backend = crate::in_memory_backend::new_in_mem::<sp_runtime::traits::BlakeTwo256>();
+		let backend = crate::in_memory_backend::new_in_mem::<
+			sp_runtime::traits::BlakeTwo256,
+			sp_trie::HashKey<_>,
+		>();
 		let backend = backend.update(
 			vec![(
 				None,

@@ -26,8 +26,8 @@ use sp_core::{
 	storage::{ChildInfo, TrackedStorageKey},
 };
 use sp_externalities::{
-	AccessLog, AsyncExternalities, Externalities, StateDelta, TaskId, WorkerDeclaration,
-	WorkerResult, WorkerState, WorkerType,
+	AccessLog, AsyncExternalities, Externalities, MultiRemovalResults, StateDelta, TaskId,
+	WorkerDeclaration, WorkerResult, WorkerState, WorkerType,
 };
 use sp_std::{
 	any::{Any, TypeId},
@@ -273,11 +273,21 @@ impl Externalities for AsyncExt {
 		self.overlay.set_child_storage(child_info, key, value);
 	}
 
-	fn kill_child_storage(&mut self, _child_info: &ChildInfo, _limit: Option<u32>) -> (bool, u32) {
+	fn kill_child_storage(
+		&mut self,
+		_child_info: &ChildInfo,
+		_maybe_limit: Option<u32>,
+		_maybe_cursor: Option<&[u8]>,
+	) -> MultiRemovalResults {
 		panic!("`kill_child_storage`: should not be used in read only worker externalities!");
 	}
 
-	fn clear_prefix(&mut self, _prefix: &[u8], _limit: Option<u32>) -> (bool, u32) {
+	fn clear_prefix(
+		&mut self,
+		_prefix: &[u8],
+		_maybe_limit: Option<u32>,
+		_maybe_cursor: Option<&[u8]>,
+	) -> MultiRemovalResults {
 		panic!("`clear_prefix`: should not be used in read only worker externalities!");
 	}
 
@@ -285,8 +295,9 @@ impl Externalities for AsyncExt {
 		&mut self,
 		_child_info: &ChildInfo,
 		_prefix: &[u8],
-		_limit: Option<u32>,
-	) -> (bool, u32) {
+		_maybe_limit: Option<u32>,
+		_maybe_cursor: Option<&[u8]>,
+	) -> MultiRemovalResults {
 		panic!("`clear_child_prefix`: should not be used in read only worker externalities!");
 	}
 

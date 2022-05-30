@@ -27,17 +27,11 @@ use sp_trie::{empty_trie_root, GenericMemoryDB, HashKey, KeyFunction, LayoutV1, 
 use std::collections::{BTreeMap, HashMap};
 
 /// Create a new empty instance of in-memory backend.
-<<<<<<< HEAD
-pub fn new_in_mem<H>() -> TrieBackend<MemoryDB<H>, H>
-where
-	H: Hasher + 'static,
-=======
 ///
 /// It will use [`HashKey`] to store the keys internally.
 pub fn new_in_mem_hash_key<H>() -> TrieBackend<MemoryDB<H>, H>
 where
-	H: Hasher,
->>>>>>> master
+	H: Hasher + 'static,
 	H::Out: Codec + Ord,
 {
 	new_in_mem::<H, HashKey<H>>()
@@ -46,24 +40,20 @@ where
 /// Create a new empty instance of in-memory backend.
 pub fn new_in_mem<H, KF>() -> TrieBackend<GenericMemoryDB<H, KF>, H>
 where
-	H: Hasher,
+	H: Hasher + 'static,
 	H::Out: Codec + Ord,
-	KF: KeyFunction<H> + Send + Sync,
+	KF: KeyFunction<H> + Send + Sync + 'static,
 {
 	let db = GenericMemoryDB::default();
 	// V1 is same as V0 for an empty trie.
 	TrieBackend::new(db, empty_trie_root::<LayoutV1<H>>())
 }
 
-<<<<<<< HEAD
-impl<H> TrieBackend<MemoryDB<H>, H>
-=======
-impl<H: Hasher, KF> TrieBackend<GenericMemoryDB<H, KF>, H>
->>>>>>> master
+impl<H, KF> TrieBackend<GenericMemoryDB<H, KF>, H>
 where
 	H: Hasher + 'static,
 	H::Out: Codec + Ord,
-	KF: KeyFunction<H> + Send + Sync,
+	KF: KeyFunction<H> + Send + Sync + 'static,
 {
 	/// Copy the state, with applied updates
 	pub fn update<T: IntoIterator<Item = (Option<ChildInfo>, StorageCollection)>>(
@@ -114,45 +104,35 @@ where
 	}
 }
 
-<<<<<<< HEAD
-impl<H> Default for TrieBackend<MemoryDB<H>, H>
+/*
+impl<H, KF> Clone for TrieBackend<GenericMemoryDB<H, KF>, H>
 where
 	H: Hasher + 'static,
-=======
-impl<H: Hasher, KF> Clone for TrieBackend<GenericMemoryDB<H, KF>, H>
-where
 	H::Out: Codec + Ord,
-	KF: KeyFunction<H> + Send + Sync,
+	KF: KeyFunction<H> + Send + Sync + 'static,
 {
 	fn clone(&self) -> Self {
 		TrieBackend::new(self.backend_storage().clone(), *self.root())
 	}
-}
+}*/
 
 impl<H, KF> Default for TrieBackend<GenericMemoryDB<H, KF>, H>
 where
-	H: Hasher,
->>>>>>> master
+	H: Hasher + 'static,
 	H::Out: Codec + Ord,
-	KF: KeyFunction<H> + Send + Sync,
+	KF: KeyFunction<H> + Send + Sync + 'static,
 {
 	fn default() -> Self {
 		new_in_mem()
 	}
 }
 
-<<<<<<< HEAD
-impl<H> From<(HashMap<Option<ChildInfo>, BTreeMap<StorageKey, StorageValue>>, StateVersion)>
-	for TrieBackend<MemoryDB<H>, H>
-=======
-impl<H: Hasher, KF>
-	From<(HashMap<Option<ChildInfo>, BTreeMap<StorageKey, StorageValue>>, StateVersion)>
+impl<H, KF> From<(HashMap<Option<ChildInfo>, BTreeMap<StorageKey, StorageValue>>, StateVersion)>
 	for TrieBackend<GenericMemoryDB<H, KF>, H>
->>>>>>> master
 where
 	H: Hasher + 'static,
 	H::Out: Codec + Ord,
-	KF: KeyFunction<H> + Send + Sync,
+	KF: KeyFunction<H> + Send + Sync + 'static,
 {
 	fn from(
 		(inner, state_version): (
@@ -171,15 +151,11 @@ where
 	}
 }
 
-<<<<<<< HEAD
-impl<H> From<(Storage, StateVersion)> for TrieBackend<MemoryDB<H>, H>
-=======
-impl<H: Hasher, KF> From<(Storage, StateVersion)> for TrieBackend<GenericMemoryDB<H, KF>, H>
->>>>>>> master
+impl<H, KF> From<(Storage, StateVersion)> for TrieBackend<GenericMemoryDB<H, KF>, H>
 where
 	H: Hasher + 'static,
 	H::Out: Codec + Ord,
-	KF: KeyFunction<H> + Send + Sync,
+	KF: KeyFunction<H> + Send + Sync + 'static,
 {
 	fn from((inners, state_version): (Storage, StateVersion)) -> Self {
 		let mut inner: HashMap<Option<ChildInfo>, BTreeMap<StorageKey, StorageValue>> = inners
@@ -192,16 +168,12 @@ where
 	}
 }
 
-<<<<<<< HEAD
-impl<H> From<(BTreeMap<StorageKey, StorageValue>, StateVersion)> for TrieBackend<MemoryDB<H>, H>
-=======
-impl<H: Hasher, KF> From<(BTreeMap<StorageKey, StorageValue>, StateVersion)>
+impl<H, KF> From<(BTreeMap<StorageKey, StorageValue>, StateVersion)>
 	for TrieBackend<GenericMemoryDB<H, KF>, H>
->>>>>>> master
 where
 	H: Hasher + 'static,
 	H::Out: Codec + Ord,
-	KF: KeyFunction<H> + Send + Sync,
+	KF: KeyFunction<H> + Send + Sync + 'static,
 {
 	fn from((inner, state_version): (BTreeMap<StorageKey, StorageValue>, StateVersion)) -> Self {
 		let mut expanded = HashMap::new();
@@ -210,17 +182,12 @@ where
 	}
 }
 
-<<<<<<< HEAD
-impl<H> From<(Vec<(Option<ChildInfo>, StorageCollection)>, StateVersion)>
-	for TrieBackend<MemoryDB<H>, H>
-=======
-impl<H: Hasher, KF> From<(Vec<(Option<ChildInfo>, StorageCollection)>, StateVersion)>
+impl<H, KF> From<(Vec<(Option<ChildInfo>, StorageCollection)>, StateVersion)>
 	for TrieBackend<GenericMemoryDB<H, KF>, H>
->>>>>>> master
 where
 	H: Hasher + 'static,
 	H::Out: Codec + Ord,
-	KF: KeyFunction<H> + Send + Sync,
+	KF: KeyFunction<H> + Send + Sync + 'static,
 {
 	fn from(
 		(inner, state_version): (Vec<(Option<ChildInfo>, StorageCollection)>, StateVersion),

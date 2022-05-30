@@ -37,7 +37,6 @@ pub use sp_arithmetic::traits::{
 	UniqueSaturatedFrom, UniqueSaturatedInto, Zero,
 };
 use sp_core::{self, storage::StateVersion, Hasher, RuntimeDebug, TypeId};
-<<<<<<< HEAD
 pub use sp_externalities::AccessLog;
 use sp_std::{
 	self,
@@ -46,9 +45,6 @@ use sp_std::{
 	marker::PhantomData,
 	prelude::*,
 };
-=======
-use sp_std::{self, fmt::Debug, marker::PhantomData, prelude::*};
->>>>>>> master
 #[cfg(feature = "std")]
 use std::fmt::Display;
 #[cfg(feature = "std")]

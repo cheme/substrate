@@ -285,11 +285,7 @@ fn generate_runtime_api_base_structures() -> Result<TokenStream> {
 				&self,
 				backend: &Self::StateBackend,
 				parent_hash: Block::Hash,
-<<<<<<< HEAD
-			) -> std::result::Result<(
-=======
-			) -> core::result::Result<
->>>>>>> master
+			) -> core::result::Result<(
 				#crate_::StorageChanges<C::StateBackend, Block>,
 				Option<#crate_::AccessLog>,
 			),

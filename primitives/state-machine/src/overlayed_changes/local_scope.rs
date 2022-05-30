@@ -33,7 +33,7 @@ use sp_externalities::AccessDeclaration;
 #[derive(Debug, Clone, Default)]
 pub(super) struct WriteLocalScope {
 	// TODO
-//	write_local_scope: Option<FilterTrees<Filter>>,
+	//	write_local_scope: Option<FilterTrees<Filter>>,
 }
 
 #[derive(Debug, Clone)]

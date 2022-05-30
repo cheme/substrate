@@ -29,13 +29,9 @@ use sp_core::{
 	storage::{well_known_keys::is_child_storage_key, ChildInfo, StateVersion, TrackedStorageKey},
 };
 use sp_externalities::{
-	AsyncExternalities, Extension, ExtensionStore, Extensions, Externalities, TaskId,
-	WorkerDeclaration, WorkerResult,
+	AsyncExternalities, Extension, ExtensionStore, Extensions, Externalities, MultiRemovalResults,
+	TaskId, WorkerDeclaration, WorkerResult,
 };
-<<<<<<< HEAD
-=======
-use sp_externalities::{Extension, ExtensionStore, Externalities, MultiRemovalResults};
->>>>>>> master
 use sp_trie::{empty_child_trie_root, LayoutV1};
 
 use super::EXT_NOT_ALLOWED_TO_FAIL;
@@ -341,12 +337,11 @@ where
 		let result = || -> Option<StorageKey> {
 			let mut overlay_changes = overlay.iter_after(key).peekable();
 
-<<<<<<< HEAD
 			match (&next_backend_key, overlay_changes.peek()) {
 				(_, None) => next_backend_key.clone(),
 				(Some(_), Some(_)) => {
-					while let Some(overlay_key) = overlay_changes.next() {
-						let cmp = next_backend_key.as_deref().map(|v| v.cmp(&overlay_key.0));
+					for overlay_key in overlay_changes {
+						let cmp = next_backend_key.as_deref().map(|v| v.cmp(overlay_key.0));
 
 						// If `backend_key` is less than the `overlay_key`, we found out next key.
 						if cmp == Some(Ordering::Less) {
@@ -363,29 +358,6 @@ where
 								.next_storage_key(&overlay_key.0)
 								.expect(EXT_NOT_ALLOWED_TO_FAIL);
 						}
-=======
-		match (&next_backend_key, overlay_changes.peek()) {
-			(_, None) => next_backend_key,
-			(Some(_), Some(_)) => {
-				for overlay_key in overlay_changes {
-					let cmp = next_backend_key.as_deref().map(|v| v.cmp(overlay_key.0));
-
-					// If `backend_key` is less than the `overlay_key`, we found out next key.
-					if cmp == Some(Ordering::Less) {
-						return next_backend_key
-					} else if overlay_key.1.value().is_some() {
-						// If there exists a value for the `overlay_key` in the overlay
-						// (aka the key is still valid), it means we have found our next key.
-						return Some(overlay_key.0.to_vec())
-					} else if cmp == Some(Ordering::Equal) {
-						// If the `backend_key` and `overlay_key` are equal, it means that we need
-						// to search for the next backend key, because the overlay has overwritten
-						// this key.
-						next_backend_key = self
-							.backend
-							.next_storage_key(overlay_key.0)
-							.expect(EXT_NOT_ALLOWED_TO_FAIL);
->>>>>>> master
 					}
 
 					next_backend_key.clone()
@@ -412,11 +384,10 @@ where
 			let mut overlay_changes =
 				overlay.child_iter_after(child_info.storage_key(), key).peekable();
 
-<<<<<<< HEAD
 			match (&next_backend_key, overlay_changes.peek()) {
 				(_, None) => next_backend_key.clone(),
 				(Some(_), Some(_)) => {
-					while let Some(overlay_key) = overlay_changes.next() {
+					for overlay_key in overlay_changes {
 						let cmp = next_backend_key.as_deref().map(|v| v.cmp(&overlay_key.0));
 
 						// If `backend_key` is less than the `overlay_key`, we found out next key.
@@ -434,29 +405,6 @@ where
 								.next_child_storage_key(child_info, &overlay_key.0)
 								.expect(EXT_NOT_ALLOWED_TO_FAIL);
 						}
-=======
-		match (&next_backend_key, overlay_changes.peek()) {
-			(_, None) => next_backend_key,
-			(Some(_), Some(_)) => {
-				for overlay_key in overlay_changes {
-					let cmp = next_backend_key.as_deref().map(|v| v.cmp(overlay_key.0));
-
-					// If `backend_key` is less than the `overlay_key`, we found out next key.
-					if cmp == Some(Ordering::Less) {
-						return next_backend_key
-					} else if overlay_key.1.value().is_some() {
-						// If there exists a value for the `overlay_key` in the overlay
-						// (aka the key is still valid), it means we have found our next key.
-						return Some(overlay_key.0.to_vec())
-					} else if cmp == Some(Ordering::Equal) {
-						// If the `backend_key` and `overlay_key` are equal, it means that we need
-						// to search for the next backend key, because the overlay has overwritten
-						// this key.
-						next_backend_key = self
-							.backend
-							.next_child_storage_key(child_info, overlay_key.0)
-							.expect(EXT_NOT_ALLOWED_TO_FAIL);
->>>>>>> master
 					}
 
 					next_backend_key.clone()
@@ -875,8 +823,12 @@ where
 					return false
 				}
 				let overlay = match maybe_child {
-					Some(child_info) => self.overlay.child_storage(child_info, key),
-					None => self.overlay.storage(key),
+					Some(child_info) => self.overlay.child_storage(
+						child_info,
+						key,
+						&AsyncBackendAdapterRef::new(self.backend),
+					),
+					None => self.overlay.storage(key, &AsyncBackendAdapterRef::new(self.backend)),
 				};
 				if !matches!(overlay, Some(None)) {
 					// not pending deletion from the backend - delete it.

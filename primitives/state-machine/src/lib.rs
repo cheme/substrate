@@ -1350,12 +1350,11 @@ mod execution {
 #[cfg(test)]
 mod tests {
 	use super::{ext::Ext, *};
-<<<<<<< HEAD
-	use crate::{backend::AsyncBackendAdapterRef, execution::CallResult};
-=======
-	use crate::{execution::CallResult, in_memory_backend::new_in_mem_hash_key};
+	use crate::{
+		backend::AsyncBackendAdapterRef, execution::CallResult,
+		in_memory_backend::new_in_mem_hash_key,
+	};
 	use assert_matches::assert_matches;
->>>>>>> master
 	use codec::{Decode, Encode};
 	use sp_core::{
 		map,
@@ -1657,11 +1656,7 @@ mod tests {
 			overlay
 				.children_resolved(&AsyncBackendAdapterRef::new(&backend))
 				.flat_map(|(iter, _child_info)| iter)
-<<<<<<< HEAD
 				.map(|(k, v)| (k.clone(), v.value_from_resolved().clone()))
-=======
-				.map(|(k, v)| (k.clone(), v.value()))
->>>>>>> master
 				.collect::<BTreeMap<_, _>>(),
 			map![
 				b"1".to_vec() => None,

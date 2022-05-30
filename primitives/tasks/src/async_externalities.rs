@@ -25,18 +25,14 @@ use sp_core::{
 use sp_externalities::{
 	ambassador_impl_Externalities_body_single_struct, AccessLog,
 	AsyncExternalities as AsyncExternalitiesTrait, Extensions, Externalities,
-	ExternalitiesExt as _, StateDelta, TaskId, WorkerDeclaration, WorkerResult, WorkerState,
+	ExternalitiesExt as _, MultiRemovalResults, StateDelta, TaskId, WorkerDeclaration,
+	WorkerResult, WorkerState,
 };
 use sp_std::{
 	any::{Any, TypeId},
 	boxed::Box,
 	vec::Vec,
 };
-<<<<<<< HEAD
-=======
-use sp_externalities::{Extensions, ExternalitiesExt as _, MultiRemovalResults};
-use std::any::{Any, TypeId};
->>>>>>> master
 
 // Module to expose AsyncExternalities without alias to delegate macro.
 mod async_ext_def {
@@ -94,136 +90,6 @@ impl AsyncExternalities {
 	}
 }
 
-<<<<<<< HEAD
-=======
-type StorageKey = Vec<u8>;
-
-type StorageValue = Vec<u8>;
-
-impl Externalities for AsyncExternalities {
-	fn set_offchain_storage(&mut self, _key: &[u8], _value: Option<&[u8]>) {
-		panic!("`set_offchain_storage`: should not be used in async externalities!")
-	}
-
-	fn storage(&self, _key: &[u8]) -> Option<StorageValue> {
-		panic!("`storage`: should not be used in async externalities!")
-	}
-
-	fn storage_hash(&self, _key: &[u8]) -> Option<Vec<u8>> {
-		panic!("`storage_hash`: should not be used in async externalities!")
-	}
-
-	fn child_storage(&self, _child_info: &ChildInfo, _key: &[u8]) -> Option<StorageValue> {
-		panic!("`child_storage`: should not be used in async externalities!")
-	}
-
-	fn child_storage_hash(&self, _child_info: &ChildInfo, _key: &[u8]) -> Option<Vec<u8>> {
-		panic!("`child_storage_hash`: should not be used in async externalities!")
-	}
-
-	fn next_storage_key(&self, _key: &[u8]) -> Option<StorageKey> {
-		panic!("`next_storage_key`: should not be used in async externalities!")
-	}
-
-	fn next_child_storage_key(&self, _child_info: &ChildInfo, _key: &[u8]) -> Option<StorageKey> {
-		panic!("`next_child_storage_key`: should not be used in async externalities!")
-	}
-
-	fn place_storage(&mut self, _key: StorageKey, _maybe_value: Option<StorageValue>) {
-		panic!("`place_storage`: should not be used in async externalities!")
-	}
-
-	fn place_child_storage(
-		&mut self,
-		_child_info: &ChildInfo,
-		_key: StorageKey,
-		_value: Option<StorageValue>,
-	) {
-		panic!("`place_child_storage`: should not be used in async externalities!")
-	}
-
-	fn kill_child_storage(
-		&mut self,
-		_child_info: &ChildInfo,
-		_maybe_limit: Option<u32>,
-		_maybe_cursor: Option<&[u8]>,
-	) -> MultiRemovalResults {
-		panic!("`kill_child_storage`: should not be used in async externalities!")
-	}
-
-	fn clear_prefix(
-		&mut self,
-		_prefix: &[u8],
-		_maybe_limit: Option<u32>,
-		_maybe_cursor: Option<&[u8]>,
-	) -> MultiRemovalResults {
-		panic!("`clear_prefix`: should not be used in async externalities!")
-	}
-
-	fn clear_child_prefix(
-		&mut self,
-		_child_info: &ChildInfo,
-		_prefix: &[u8],
-		_maybe_limit: Option<u32>,
-		_maybe_cursor: Option<&[u8]>,
-	) -> MultiRemovalResults {
-		panic!("`clear_child_prefix`: should not be used in async externalities!")
-	}
-
-	fn storage_append(&mut self, _key: Vec<u8>, _value: Vec<u8>) {
-		panic!("`storage_append`: should not be used in async externalities!")
-	}
-
-	fn storage_root(&mut self, _state_version: StateVersion) -> Vec<u8> {
-		panic!("`storage_root`: should not be used in async externalities!")
-	}
-
-	fn child_storage_root(
-		&mut self,
-		_child_info: &ChildInfo,
-		_state_version: StateVersion,
-	) -> Vec<u8> {
-		panic!("`child_storage_root`: should not be used in async externalities!")
-	}
-
-	fn storage_start_transaction(&mut self) {
-		unimplemented!("Transactions are not supported by AsyncExternalities");
-	}
-
-	fn storage_rollback_transaction(&mut self) -> Result<(), ()> {
-		unimplemented!("Transactions are not supported by AsyncExternalities");
-	}
-
-	fn storage_commit_transaction(&mut self) -> Result<(), ()> {
-		unimplemented!("Transactions are not supported by AsyncExternalities");
-	}
-
-	fn wipe(&mut self) {}
-
-	fn commit(&mut self) {}
-
-	fn read_write_count(&self) -> (u32, u32, u32, u32) {
-		unimplemented!("read_write_count is not supported in AsyncExternalities")
-	}
-
-	fn reset_read_write_count(&mut self) {
-		unimplemented!("reset_read_write_count is not supported in AsyncExternalities")
-	}
-
-	fn get_whitelist(&self) -> Vec<TrackedStorageKey> {
-		unimplemented!("get_whitelist is not supported in AsyncExternalities")
-	}
-
-	fn set_whitelist(&mut self, _: Vec<TrackedStorageKey>) {
-		unimplemented!("set_whitelist is not supported in AsyncExternalities")
-	}
-
-	fn get_read_and_written_keys(&self) -> Vec<(Vec<u8>, u32, u32, bool)> {
-		unimplemented!("get_read_and_written_keys is not supported in AsyncExternalities")
-	}
-}
-
->>>>>>> master
 impl sp_externalities::ExtensionStore for AsyncExternalities {
 	fn extension_by_type_id(&mut self, type_id: TypeId) -> Option<&mut dyn Any> {
 		self.extensions.get_mut(type_id)

@@ -25,11 +25,7 @@ sp-state-machine = { version = "0.12.0", optional = true, path = "../state-machi
 sp-wasm-interface = { version = "6.0.0", path = "../wasm-interface", default-features = false }
 sp-runtime-interface = { version = "6.0.0", default-features = false, path = "../runtime-interface" }
 sp-trie = { version = "6.0.0", optional = true, path = "../trie" }
-<<<<<<< HEAD
-sp-externalities = { version = "0.12.0", default_features = false, path = "../externalities" }
-=======
 sp-externalities = { version = "0.12.0", default-features = false, path = "../externalities" }
->>>>>>> master
 sp-tracing = { version = "5.0.0", default-features = false, path = "../tracing" }
 log = { version = "0.4.17", optional = true }
 futures = { version = "0.3.21", features = ["thread-pool"], optional = true }
@@ -52,10 +48,7 @@ std = [
 	"libsecp256k1",
 	"secp256k1",
 	"sp-runtime-interface/std",
-<<<<<<< HEAD
 	"sp-externalities/std",
-=======
->>>>>>> master
 	"sp-wasm-interface/std",
 	"sp-tracing/std",
 	"tracing/std",

@@ -29,15 +29,11 @@ use sp_core::{
 	traits::Externalities,
 	Blake2Hasher,
 };
-<<<<<<< HEAD
 use sp_externalities::{
-	AsyncExternalities, Extension, Extensions, TaskId, WorkerDeclaration, WorkerResult,
+	AsyncExternalities, Extension, Extensions, MultiRemovalResults, TaskId, WorkerDeclaration,
+	WorkerResult,
 };
-use sp_trie::{empty_child_trie_root, LayoutV0, LayoutV1, TrieConfiguration};
-=======
-use sp_externalities::{Extension, Extensions, MultiRemovalResults};
 use sp_trie::{empty_child_trie_root, HashKey, LayoutV0, LayoutV1, TrieConfiguration};
->>>>>>> master
 use std::{
 	any::{Any, TypeId},
 	collections::BTreeMap,

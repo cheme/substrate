@@ -20,15 +20,11 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 use sp_inherents::{CheckInherentsResult, InherentData};
-<<<<<<< HEAD
-use sp_runtime::{traits::Block as BlockT, ApplyExtrinsicResult};
-use sp_tasks::{AccessLog, DataJoinHandle, WorkerDeclaration};
-=======
 use sp_runtime::{
 	legacy::byte_sized_error::ApplyExtrinsicResult as ApplyExtrinsicResultBeforeV6,
 	traits::Block as BlockT, ApplyExtrinsicResult,
 };
->>>>>>> master
+use sp_tasks::{AccessLog, DataJoinHandle, WorkerDeclaration};
 
 sp_api::decl_runtime_apis! {
 	/// The `BlockBuilder` api trait that provides the required functionality for building a block.
@@ -40,13 +36,11 @@ sp_api::decl_runtime_apis! {
 		/// this block or not.
 		fn apply_extrinsic(extrinsic: <Block as BlockT>::Extrinsic) -> ApplyExtrinsicResult;
 
-<<<<<<< HEAD
-		/// Spawn extrinsic, returning declarative logged accesses.
-		fn log_extrinsic(extrinsic: <Block as BlockT>::Extrinsic) -> (ApplyExtrinsicResult, AccessLog);
-=======
 		#[changed_in(6)]
 		fn apply_extrinsic(extrinsic: <Block as BlockT>::Extrinsic) -> ApplyExtrinsicResultBeforeV6;
->>>>>>> master
+
+		/// Spawn extrinsic, returning declarative logged accesses.
+		fn log_extrinsic(extrinsic: <Block as BlockT>::Extrinsic) -> (ApplyExtrinsicResult, AccessLog);
 
 		/// Finish the current block.
 		#[renamed("finalise_block", 3)]

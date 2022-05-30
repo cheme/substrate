@@ -75,7 +75,7 @@ use secp256k1::{
 #[cfg(feature = "std")]
 use sp_externalities::{Externalities, ExternalitiesExt};
 
-use sp_externalities::{AccessLog, WorkerDeclaration, WorkerState};
+use sp_externalities::{AccessLog, WorkerDeclaration};
 
 #[cfg(feature = "std")]
 mod batch_verifier;

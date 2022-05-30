@@ -481,6 +481,7 @@ where
 				&self,
 				child_info: Option<&ChildInfo>,
 				prefix: Option<&[u8]>,
+				start_at: Option<&[u8]>,
 				f: F,
 			);
 			fn next_storage_key(&self, key: &[u8]) -> Result<Option<Vec<u8>>, Self::Error>;

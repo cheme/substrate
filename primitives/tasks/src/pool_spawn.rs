@@ -532,7 +532,7 @@ impl RuntimeInstanceSpawn {
 				RuntimeInstanceSpawn::with_externalities_and_module(Some(module), ext)
 			{
 				if let Err(e) = ext.register_extension(RuntimeSpawnExt(Box::new(runtime_spawn))) {
-					tracing::error!(
+					tracing::trace!(
 						target: "executor",
 						error = ?e,
 						"Failed to setup runtime extension for async externalities",

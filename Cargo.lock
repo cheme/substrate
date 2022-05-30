@@ -1081,6 +1081,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "245097e9a4535ee1e3e3931fcfcd55a796a44c643e8596ff6566d68f09b87bbc"
 
 [[package]]
+name = "convert_case"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6245d59a3e82a7fc217c5828a6692dbc6dfb63a0c8c90495621f7b9d79704a0e"
+
+[[package]]
 name = "core-foundation"
 version = "0.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1605,8 +1611,10 @@ version = "0.99.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4fb810d30a7c1953f91334de7244731fc3f3c10d7fe163338a35b9f640960321"
 dependencies = [
+ "convert_case",
  "proc-macro2",
  "quote",
+ "rustc_version 0.4.0",
  "syn",
 ]
 
@@ -8246,16 +8254,9 @@ version = "0.10.0-dev"
 dependencies = [
  "environmental",
  "parity-scale-codec",
-<<<<<<< HEAD
- "sp-core",
- "sp-maybe-compressed-blob",
- "sp-tasks",
-=======
- "sc-allocator",
  "sp-maybe-compressed-blob",
  "sp-sandbox",
- "sp-serializer",
->>>>>>> master
+ "sp-tasks",
  "sp-wasm-interface",
  "wasm-instrument",
  "wasmer",
@@ -10086,11 +10087,8 @@ dependencies = [
 name = "sp-state-machine"
 version = "0.12.0"
 dependencies = [
-<<<<<<< HEAD
- "delegate",
-=======
  "assert_matches",
->>>>>>> master
+ "delegate",
  "hash-db",
  "hex-literal",
  "log",
@@ -10131,14 +10129,11 @@ dependencies = [
 name = "sp-tasks"
 version = "4.0.0-dev"
 dependencies = [
-<<<<<<< HEAD
  "ambassador",
  "derive_more",
-=======
  "log",
->>>>>>> master
  "parity-scale-codec",
- "parking_lot 0.11.2",
+ "parking_lot 0.12.0",
  "sc-allocator",
  "sp-core",
  "sp-externalities",

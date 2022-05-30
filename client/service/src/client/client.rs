@@ -1764,14 +1764,13 @@ where
 				PrepareStorageChangesResult::Import(storage_changes) => storage_changes,
 			};
 
-<<<<<<< HEAD
 		let r = self
 			.lock_import_and_run(|operation| {
 				self.apply_block(operation, import_block, new_cache, storage_changes)
 			})
 			.map_err(|e| {
 				warn!("Block import error: {}", e);
-				ConsensusError::ClientImport(e.to_string()).into()
+				ConsensusError::ClientImport(e.to_string())
 			});
 
 		let block_number: u32 = if let Ok(n) = header.number().clone().try_into() {
@@ -1836,15 +1835,6 @@ where
 			}
 		}
 		r
-=======
-		self.lock_import_and_run(|operation| {
-			self.apply_block(operation, import_block, new_cache, storage_changes)
-		})
-		.map_err(|e| {
-			warn!("Block import error: {}", e);
-			ConsensusError::ClientImport(e.to_string())
-		})
->>>>>>> master
 	}
 
 	/// Check block preconditions.

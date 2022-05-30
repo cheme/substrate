@@ -236,8 +236,7 @@ pub mod well_known_keys {
 pub const TRIE_VALUE_NODE_THRESHOLD: u32 = 33;
 
 /// Information related to a child state.
-#[derive(Debug, Clone, Encode, Decode)]
-#[cfg_attr(feature = "std", derive(PartialEq, Eq, Hash, PartialOrd, Ord))]
+#[derive(Debug, Clone, Encode, Decode, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ChildInfo {
 	/// This is the one used by default.
 	ParentKeyId(ChildTrieParentKeyId),
@@ -382,8 +381,7 @@ impl ChildType {
 /// It shares its trie nodes backend storage with every other child trie, so its storage key needs
 /// to be a unique id that will be use only once. Those unique id also required to be long enough to
 /// avoid any unique id to be prefixed by an other unique id.
-#[derive(Debug, Clone, Encode, Decode)]
-#[cfg_attr(feature = "std", derive(PartialEq, Eq, Hash, PartialOrd, Ord))]
+#[derive(Debug, Clone, Encode, Decode, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ChildTrieParentKeyId {
 	/// Data is the storage key without prefix.
 	data: Vec<u8>,

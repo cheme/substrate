@@ -467,17 +467,14 @@ impl OverlayedChanges {
 	/// Clear child storage of given storage key.
 	///
 	/// Can be rolled back or committed when called inside a transaction.
-<<<<<<< HEAD
-	pub(crate) fn clear_child_storage(&mut self, child_info: &ChildInfo) {
+	pub(crate) fn clear_child_storage(&mut self, child_info: &ChildInfo) -> u32 {
 		// clear is reading value, this is not idealy, still guarding
 		// read_write (would not be needed with special clear prefix
 		// optimization).
 		// This apply to all clear.
 		self.filters.guard_write_interval(Some(child_info), &[], None);
 		self.optimistic_logger.log_write_prefix(Some(child_info), &[]);
-=======
-	pub(crate) fn clear_child_storage(&mut self, child_info: &ChildInfo) -> u32 {
->>>>>>> master
+
 		let extrinsic_index = self.extrinsic_index();
 		let storage_key = child_info.storage_key().to_vec();
 		let top = &self.top;
@@ -493,8 +490,7 @@ impl OverlayedChanges {
 	/// Removes all key-value pairs which keys share the given prefix.
 	///
 	/// Can be rolled back or committed when called inside a transaction.
-<<<<<<< HEAD
-	pub(crate) fn clear_prefix(&mut self, prefix: &[u8]) {
+	pub(crate) fn clear_prefix(&mut self, prefix: &[u8]) -> u32 {
 		self.filters.guard_write_interval(
 			None,
 			prefix,
@@ -502,27 +498,19 @@ impl OverlayedChanges {
 		);
 		self.optimistic_logger.log_write_prefix(None, prefix);
 		let extrinsic_index = self.extrinsic_index();
-		self.top.clear_where(|key, _| key.starts_with(prefix), extrinsic_index);
-=======
-	pub(crate) fn clear_prefix(&mut self, prefix: &[u8]) -> u32 {
-		self.top.clear_where(|key, _| key.starts_with(prefix), self.extrinsic_index())
->>>>>>> master
+		self.top.clear_where(|key, _| key.starts_with(prefix), extrinsic_index)
 	}
 
 	/// Removes all key-value pairs which keys share the given prefix.
 	///
 	/// Can be rolled back or committed when called inside a transaction
-<<<<<<< HEAD
-	pub(crate) fn clear_child_prefix(&mut self, child_info: &ChildInfo, prefix: &[u8]) {
+	pub(crate) fn clear_child_prefix(&mut self, child_info: &ChildInfo, prefix: &[u8]) -> u32 {
 		self.filters.guard_write_interval(
 			Some(child_info),
 			prefix,
 			end_prefix(prefix).as_ref().map(Vec::as_slice),
 		);
 		self.optimistic_logger.log_write_prefix(Some(child_info), prefix);
-=======
-	pub(crate) fn clear_child_prefix(&mut self, child_info: &ChildInfo, prefix: &[u8]) -> u32 {
->>>>>>> master
 		let extrinsic_index = self.extrinsic_index();
 		let storage_key = child_info.storage_key().to_vec();
 		let top = &self.top;
@@ -879,9 +867,8 @@ impl OverlayedChanges {
 	where
 		H::Out: Ord + Encode + 'static,
 	{
-<<<<<<< HEAD
 		let logs = self.optimistic_logger.extract_parent_log();
-		let r = self.drain_storage_changes(backend, parent_hash, &mut cache, state_version)?;
+		let r = self.drain_storage_changes(backend, &mut cache, state_version)?;
 		let _ = self.optimistic_logger.extract_parent_log();
 		Ok((r, logs))
 	}
@@ -889,9 +876,6 @@ impl OverlayedChanges {
 	#[cfg(feature = "std")]
 	pub fn extract_logs(&mut self) -> Option<AccessLog> {
 		self.optimistic_logger.extract_parent_log()
-=======
-		self.drain_storage_changes(backend, &mut cache, state_version)
->>>>>>> master
 	}
 
 	/// Drain all changes into a [`StorageChanges`] instance. Leave empty overlay in place.

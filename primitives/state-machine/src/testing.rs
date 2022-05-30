@@ -23,15 +23,10 @@ use std::{
 };
 
 use crate::{
-<<<<<<< HEAD
 	backend::{AsyncBackendAdapterRef, Backend},
 	ext::Ext,
 	InMemoryBackend, InMemoryProvingBackend, OverlayedChanges, StorageKey, StorageTransactionCache,
 	StorageValue,
-=======
-	backend::Backend, ext::Ext, InMemoryBackend, OverlayedChanges, StorageKey,
-	StorageTransactionCache, StorageValue,
->>>>>>> master
 };
 
 use hash_db::Hasher;

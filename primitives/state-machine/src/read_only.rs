@@ -25,11 +25,9 @@ use sp_core::{
 	traits::Externalities,
 	Blake2Hasher,
 };
-<<<<<<< HEAD
-use sp_externalities::{AsyncExternalities, TaskId, WorkerDeclaration, WorkerResult, WorkerState};
-=======
-use sp_externalities::MultiRemovalResults;
->>>>>>> master
+use sp_externalities::{
+	AsyncExternalities, MultiRemovalResults, TaskId, WorkerDeclaration, WorkerResult, WorkerState,
+};
 use std::{
 	any::{Any, TypeId},
 	marker::PhantomData,
