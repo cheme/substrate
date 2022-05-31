@@ -571,6 +571,7 @@ pub fn new_full_base(
 			inner_channels,
 			&local_id,
 			client.clone(),
+			network.clone(),
 			authority_set,
 			keystore_container.sync_keystore(),
 		) {

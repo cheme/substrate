@@ -32,6 +32,7 @@ use codec::Encode;
 use futures::{future, FutureExt, StreamExt};
 use futures_timer::Delay;
 use log::{debug, error, trace, warn};
+use sc_authority_discovery::{ExpIncInterval, NetworkProvider};
 use sc_client_api::{BlockchainEvents, FinalityNotification, UsageProvider};
 use sc_network::{MixnetCommand, PeerId};
 use sc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver, TracingUnboundedSender};
@@ -57,8 +58,11 @@ const UNSYNCH_FINALIZED_MARGIN: u32 = 10;
 /// we switch back to synching state.
 const DELAY_NO_FINALISATION_S: u64 = 60;
 
+/// Maximum number of in-flight DHT lookups at any given point in time.
+const MAX_IN_FLIGHT_LOOKUPS: usize = 8;
+
 /// Mixnet running worker.
-pub struct MixnetWorker<B: BlockT, C> {
+pub struct MixnetWorker<B: BlockT, C, N> {
 	// current node authority_id if validating.
 	authority_id: Option<AuthorityId>,
 	worker: mixnet::MixnetWorker<AuthorityStar>,
@@ -75,6 +79,19 @@ pub struct MixnetWorker<B: BlockT, C> {
 	command_stream: TracingUnboundedReceiver<MixnetCommand>,
 	key_store: Arc<dyn SyncCryptoStore>,
 	default_limit_config: Option<usize>,
+
+
+	// DHT related fields. TODO rename dht_...
+
+	network: Arc<N>,
+	publish_interval: ExpIncInterval,
+	publish_if_changed_interval: ExpIncInterval,
+	// if None don't publish at all (eg not in topology).
+	latest_published_payload: Option<Vec<u8>>,
+	publish_non_global_ips: bool,
+	query_interval: ExpIncInterval, // TODO exp interval is questionable here, at least need to reset on session id change
+	pending_lookups: Vec<AuthorityId>,
+	in_flight_lookups: HashMap<sc_network::KademliaKey, AuthorityId>,
 }
 
 type WorkerChannels = (mixnet::WorkerChannels, TracingUnboundedReceiver<MixnetCommand>);
@@ -98,11 +115,12 @@ pub fn new_channels(
 	)
 }
 
-impl<B, C> MixnetWorker<B, C>
+impl<B, C, N> MixnetWorker<B, C, N>
 where
 	B: BlockT,
 	C: UsageProvider<B> + BlockchainEvents<B> + ProvideRuntimeApi<B>,
 	C::Api: SessionKeys<B>,
+	N: NetworkProvider,
 {
 	/// Instantiate worker. Should be call after imonline and
 	/// grandpa as it reads their keystore.
@@ -110,6 +128,7 @@ where
 		inner_channels: WorkerChannels,
 		network_identity: &libp2p::core::identity::Keypair,
 		client: Arc<C>,
+		network: Arc<N>,
 		shared_authority_set: sc_finality_grandpa::SharedAuthoritySet<
 			<B as BlockT>::Hash,
 			NumberFor<B>,
@@ -159,6 +178,11 @@ where
 
 		let worker = mixnet::MixnetWorker::new(mixnet_config, topology, inner_channels.0);
 		let state = State::Synching;
+		let query_interval_secs = 1; // TODO from conf
+		let max_query_interval_secs = 5; // TODO from conf
+		let publish_interval_secs = 2; // TODO from conf
+		let max_publish_interval_secs = 60; // TODO from conf
+		let publish_if_changed_interval_msecs = 100; // TODO from conf
 		Some(MixnetWorker {
 			authority_id: None,
 			worker,
@@ -170,6 +194,23 @@ where
 			command_stream: inner_channels.1,
 			key_store,
 			default_limit_config,
+			network,
+			in_flight_lookups: HashMap::new(),
+			latest_published_payload: None,
+			pending_lookups: Vec::new(),
+			publish_interval: ExpIncInterval::new(
+				Duration::from_secs(publish_interval_secs),
+				Duration::from_secs(max_publish_interval_secs),
+			),
+			publish_if_changed_interval: ExpIncInterval::new(
+				Duration::from_millis(publish_interval_secs),
+				Duration::from_secs(max_publish_interval_secs),
+			),
+			publish_non_global_ips: false, // TODO from conf
+			query_interval: ExpIncInterval::new(
+				Duration::from_secs(query_interval_secs),
+				Duration::from_secs(max_query_interval_secs),
+			),
 		})
 	}
 
@@ -208,6 +249,26 @@ where
 		}
 	}
 
+	fn start_new_lookups(&mut self) {
+		while self.in_flight_lookups.len() < MAX_IN_FLIGHT_LOOKUPS {
+			let authority_id = match self.pending_lookups.pop() {
+				Some(authority) => authority,
+				None => return,
+			};
+			let hash = hash_authority_id(authority_id.as_ref());
+			self.network.get_value(&hash);
+			self.in_flight_lookups.insert(hash, authority_id);
+
+/*			if let Some(metrics) = &self.metrics {
+				metrics.requests.inc();
+				metrics
+					.requests_pending
+					.set(self.pending_lookups.len().try_into().unwrap_or(std::u64::MAX));
+			}*/
+		}
+	}
+
+
 	pub async fn run(mut self) {
 		let info = self.client.usage_info().chain;
 		if info.finalized_number == 0u32.into() {
@@ -218,6 +279,7 @@ where
 		let mut delay_finalized = Delay::new(Duration::from_secs(DELAY_NO_FINALISATION_S));
 		let delay_finalized = &mut delay_finalized;
 		loop {
+			self.start_new_lookups();
 			futures::select! {
 				notif = self.finality_stream.next() => {
 					// TODO try accessing last of finality stream (possibly skipping some block)
@@ -827,4 +889,12 @@ impl Topology for AuthorityStar {
 		log::error!(target: "mixnet", "Missing imonline key for handshake.");
 		None
 	}
+}
+
+fn hash_authority_id(auth_id: &[u8]) -> sc_network::KademliaKey {
+	use libp2p::multihash::MultihashDigest;
+	let mut id = b"MixnetTopologyV0".to_vec();
+	id.extend_from_slice(auth_id);
+
+	sc_network::KademliaKey::new(&libp2p::multihash::Code::Sha2_256.digest(id.as_slice()).digest())
 }

@@ -28,6 +28,7 @@
 //! See [`Worker`] and [`Service`] for more documentation.
 
 pub use crate::{
+	interval::ExpIncInterval,
 	service::Service,
 	worker::{NetworkProvider, Role, Worker},
 };
