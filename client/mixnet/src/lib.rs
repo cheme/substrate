@@ -34,7 +34,7 @@ use futures_timer::Delay;
 use log::{debug, error, trace, warn};
 use sc_authority_discovery::{ExpIncInterval, NetworkProvider};
 use sc_client_api::{BlockchainEvents, FinalityNotification, UsageProvider};
-use sc_network::{MixnetCommand, PeerId};
+use sc_network::{MixnetCommand, PeerId, DhtEvent};
 use sc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver, TracingUnboundedSender};
 use sp_api::ProvideRuntimeApi;
 use sp_core::crypto::CryptoTypePublicPair;
@@ -47,7 +47,7 @@ use std::{
 	time::Duration,
 };
 
-// Minimal number of node for accepting to add new message.
+/// Minimal number of node for accepting to add new message.
 const LOW_MIXNET_THRESHOLD: usize = 5;
 
 /// Number of blocks before seen as synched
@@ -84,6 +84,7 @@ pub struct MixnetWorker<B: BlockT, C, N> {
 	// DHT related fields. TODO rename dht_...
 
 	network: Arc<N>,
+	dht_event_rx: Box<dyn futures::Stream<Item = Arc<DhtEvent>> + Unpin + Send>,
 	publish_interval: ExpIncInterval,
 	publish_if_changed_interval: ExpIncInterval,
 	// if None don't publish at all (eg not in topology).
@@ -129,6 +130,7 @@ where
 		network_identity: &libp2p::core::identity::Keypair,
 		client: Arc<C>,
 		network: Arc<N>,
+		dht_event_rx: Box<dyn futures::Stream<Item = Arc<DhtEvent>> + Unpin + Send>,
 		shared_authority_set: sc_finality_grandpa::SharedAuthoritySet<
 			<B as BlockT>::Hash,
 			NumberFor<B>,
@@ -195,6 +197,7 @@ where
 			key_store,
 			default_limit_config,
 			network,
+			dht_event_rx,
 			in_flight_lookups: HashMap::new(),
 			latest_published_payload: None,
 			pending_lookups: Vec::new(),
@@ -268,6 +271,39 @@ where
 		}
 	}
 
+	/// Handle incoming Dht events.
+	async fn handle_dht_event(&mut self, event: Arc<DhtEvent>) {
+		match &*event {
+			DhtEvent::ValueFound(v) => {
+
+				debug!(target: "mixnet", "Dht value found: {:?}", v);
+				for (hash, _value) in v.into_iter() {
+					if self.in_flight_lookups.remove(hash).is_some() {
+						debug!(target: "mixnet", "Dht value found for key: {:?}", hash);
+					} else {
+						warn!(target: "mixnet", "Dht unexpected value found for key: {:?}", hash);
+					}
+				}
+			},
+			DhtEvent::ValueNotFound(hash) => {
+				if self.in_flight_lookups.remove(hash).is_some() {
+					debug!(target: "mixnet", "Dht value for hash not found: {:?}", hash);
+				} else {
+					debug!(target: "mixnet", "Dht value for unexepected hash not found: {:?}", hash);
+				}
+			},
+			DhtEvent::ValuePut(hash) => {
+				// Fast forward the exponentially increasing interval to the configured maximum. In
+				// case this was the first successful address publishing there is no need for a
+				// timely retry.
+				self.publish_interval.set_to_max();
+				debug!(target: "mixnet", "Successfully put hash '{:?}' on Dht.", hash)
+			},
+			DhtEvent::ValuePutFailed(hash) => {
+				debug!(target: "mixnet", "Failed to put hash '{:?}' on Dht.", hash)
+			},
+		}
+	}
 
 	pub async fn run(mut self) {
 		let info = self.client.usage_info().chain;
@@ -281,6 +317,15 @@ where
 		loop {
 			self.start_new_lookups();
 			futures::select! {
+				event = self.dht_event_rx.next().fuse() => {
+					if let Some(event) = event {
+						self.handle_dht_event(event).await;
+					} else {
+						// This point is reached if the network has shut down, at which point there is not
+						// much else to do than to shut down the authority discovery as well.
+						return;
+					}
+				},
 				notif = self.finality_stream.next() => {
 					// TODO try accessing last of finality stream (possibly skipping some block)
 					if let Some(notif) = notif {

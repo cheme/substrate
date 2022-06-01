@@ -496,7 +496,7 @@ pub fn new_full_base(
 			sc_authority_discovery::Role::Discover
 		};
 		let dht_event_stream =
-			network.event_stream("authority-discovery", None).filter_map(|e| async move {
+			network.event_stream("authority-discovery", Some(|e| matches!(e, Event::Dht(e)))).filter_map(|e| async move {
 				match e {
 					Event::Dht(e) => Some(e),
 					_ => None,
@@ -567,11 +567,20 @@ pub fn new_full_base(
 
 	// warn need to start after grandpa or imonline to access key.
 	if let Some((authority_set, inner_channels, local_id)) = mixnet_worker {
+		let dht_event_stream = Box::new(Box::pin(
+			network.event_stream("mixnet", Some(|e| matches!(e, Event::Dht(e)))).filter_map(|e| async move {
+				match e {
+					Event::Dht(e) => Some(e),
+					_ => None,
+				}
+			})));
+
 		if let Some(mixnet_worker) = sc_mixnet::MixnetWorker::new(
 			inner_channels,
 			&local_id,
 			client.clone(),
 			network.clone(),
+			dht_event_stream,
 			authority_set,
 			keystore_container.sync_keystore(),
 		) {

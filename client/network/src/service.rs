@@ -1912,7 +1912,7 @@ where
 				},
 				Poll::Ready(SwarmEvent::Behaviour(BehaviourOut::Dht(event, duration))) => {
 					if let Some(metrics) = this.metrics.as_ref() {
-						let query_type = match event {
+						let query_type = match *event {
 							DhtEvent::ValueFound(_) => "value-found",
 							DhtEvent::ValueNotFound(_) => "value-not-found",
 							DhtEvent::ValuePut(_) => "value-put",

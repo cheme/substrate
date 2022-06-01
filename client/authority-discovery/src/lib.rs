@@ -124,7 +124,7 @@ where
 	Network: NetworkProvider,
 	Client: ProvideRuntimeApi<Block> + Send + Sync + 'static + HeaderBackend<Block>,
 	<Client as ProvideRuntimeApi<Block>>::Api: AuthorityDiscoveryApi<Block>,
-	DhtEventStream: Stream<Item = DhtEvent> + Unpin,
+	DhtEventStream: Stream<Item = Arc<DhtEvent>> + Unpin,
 {
 	new_worker_and_service_with_config(
 		Default::default(),
@@ -152,7 +152,7 @@ where
 	Network: NetworkProvider,
 	Client: ProvideRuntimeApi<Block> + Send + Sync + 'static + HeaderBackend<Block>,
 	<Client as ProvideRuntimeApi<Block>>::Api: AuthorityDiscoveryApi<Block>,
-	DhtEventStream: Stream<Item = DhtEvent> + Unpin,
+	DhtEventStream: Stream<Item = Arc<DhtEvent>> + Unpin,
 {
 	let (to_worker, from_service) = mpsc::channel(0);
 

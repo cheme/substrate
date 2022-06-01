@@ -153,7 +153,7 @@ where
 	Network: NetworkProvider,
 	Client: ProvideRuntimeApi<Block> + Send + Sync + 'static + HeaderBackend<Block>,
 	<Client as ProvideRuntimeApi<Block>>::Api: AuthorityDiscoveryApi<Block>,
-	DhtEventStream: Stream<Item = DhtEvent> + Unpin,
+	DhtEventStream: Stream<Item = Arc<DhtEvent>> + Unpin,
 {
 	/// Construct a [`Worker`].
 	pub(crate) fn new(
@@ -408,8 +408,8 @@ where
 	}
 
 	/// Handle incoming Dht events.
-	async fn handle_dht_event(&mut self, event: DhtEvent) {
-		match event {
+	async fn handle_dht_event(&mut self, event: Arc<DhtEvent>) {
+		match &*event {
 			DhtEvent::ValueFound(v) => {
 				if let Some(metrics) = &self.metrics {
 					metrics.dht_event_received.with_label_values(&["value_found"]).inc();
@@ -433,7 +433,7 @@ where
 					metrics.dht_event_received.with_label_values(&["value_not_found"]).inc();
 				}
 
-				if self.in_flight_lookups.remove(&hash).is_some() {
+				if self.in_flight_lookups.remove(hash).is_some() {
 					debug!(target: LOG_TARGET, "Value for hash '{:?}' not found on Dht.", hash)
 				} else {
 					debug!(
@@ -466,7 +466,7 @@ where
 
 	fn handle_dht_value_found_event(
 		&mut self,
-		values: Vec<(sc_network::KademliaKey, Vec<u8>)>,
+		values: &Vec<(sc_network::KademliaKey, Vec<u8>)>,
 	) -> Result<()> {
 		// Ensure `values` is not empty and all its keys equal.
 		let remote_key = single(values.iter().map(|(key, _)| key.clone()))
