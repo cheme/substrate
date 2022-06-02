@@ -89,7 +89,6 @@ pub struct MixnetWorker<B: BlockT, C, N> {
 	publish_if_changed_interval: ExpIncInterval,
 	// if None don't publish at all (eg not in topology).
 	latest_published_payload: Option<Vec<u8>>,
-	publish_non_global_ips: bool,
 	query_interval: ExpIncInterval, // TODO exp interval is questionable here, at least need to reset on session id change
 	pending_lookups: Vec<AuthorityId>,
 	in_flight_lookups: HashMap<sc_network::KademliaKey, AuthorityId>,
@@ -180,7 +179,7 @@ where
 
 		let worker = mixnet::MixnetWorker::new(mixnet_config, topology, inner_channels.0);
 		let state = State::Synching;
-		let query_interval_secs = 1; // TODO from conf
+		let query_interval_secs = 2; // TODO from conf
 		let max_query_interval_secs = 5; // TODO from conf
 		let publish_interval_secs = 2; // TODO from conf
 		let max_publish_interval_secs = 60; // TODO from conf
@@ -206,10 +205,9 @@ where
 				Duration::from_secs(max_publish_interval_secs),
 			),
 			publish_if_changed_interval: ExpIncInterval::new(
-				Duration::from_millis(publish_interval_secs),
+				Duration::from_millis(publish_if_changed_interval_msecs),
 				Duration::from_secs(max_publish_interval_secs),
 			),
-			publish_non_global_ips: false, // TODO from conf
 			query_interval: ExpIncInterval::new(
 				Duration::from_secs(query_interval_secs),
 				Duration::from_secs(max_query_interval_secs),
@@ -305,6 +303,38 @@ where
 		}
 	}
 
+	// TODO need async ??
+	async fn publish_topology(&mut self, only_if_changed: bool) {
+		let payload = vec![1u8; 128];
+		if only_if_changed && Some(&payload) == self.latest_published_payload.as_ref() {
+			return
+		}
+
+// TODO sign like in handshake	let peer_signature = sign_record_with_peer_id(&serialized_record, self.network.as_ref())?;
+
+		if let Some(authority_id) = self.authority_id.as_ref() {
+			let key = hash_authority_id(authority_id.as_ref());
+			debug!(target: "mixnet", "Publishing topology at {:?} on Dht.", key);
+			self.network.put_value(key, payload.clone());
+			self.latest_published_payload = Some(payload);
+		}
+	}
+
+	async fn refill_pending_lookups_queue(&mut self) {
+		let topology = &mut self.worker.mixnet_mut().topology;
+		// TODO filter recently fetched?
+		let mut authorities: Vec<AuthorityId> = topology.authorities.values().map(|(_, id)| {
+			id.clone()
+		}).collect();
+
+		use rand::seq::SliceRandom;
+		authorities.shuffle(&mut rand::thread_rng());
+		self.pending_lookups = authorities;
+		// Ignore all still in-flight lookups. Those that are still in-flight are likely stalled as
+		// query interval ticks are far enough apart for all lookups to succeed.
+		self.in_flight_lookups.clear();
+	}
+
 	pub async fn run(mut self) {
 		let info = self.client.usage_info().chain;
 		if info.finalized_number == 0u32.into() {
@@ -325,6 +355,25 @@ where
 						// much else to do than to shut down the authority discovery as well.
 						return;
 					}
+				},
+				only_if_changed = future::select(
+					self.publish_interval.next().map(|_| false),
+					self.publish_if_changed_interval.next().map(|_| true)
+				).map(|e| e.factor_first().0).fuse() => {
+					self.publish_topology(only_if_changed).await;
+/*					if let Err(e) = self.publish_topology(only_if_changed).await {
+						error!(target: "mixnet", "Failed to publish topology: {}", e);
+					}*/
+				},
+				_ = self.query_interval.next().fuse() => {
+					self.refill_pending_lookups_queue().await;
+/*					if let Err(e) = self.refill_pending_lookups_queue().await {
+						error!(
+							target: "mixnet",
+							"Failed to request addresses of authorities: {}", e,
+						);
+					}
+*/
 				},
 				notif = self.finality_stream.next() => {
 					// TODO try accessing last of finality stream (possibly skipping some block)
@@ -420,6 +469,24 @@ where
 	}
 
 	fn handle_new_authority(&mut self, set: AuthorityList, session: SetId, at: NumberFor<B>) {
+		let publish_interval_secs = 2; // TODO from conf
+		let max_publish_interval_secs = 60; // TODO from conf
+		let publish_if_changed_interval_msecs = 100; // TODO from conf
+		let query_interval_secs = 2; // TODO from conf
+		let max_query_interval_secs = 5; // TODO from conf
+		self.query_interval = ExpIncInterval::new(
+			Duration::from_secs(query_interval_secs),
+			Duration::from_secs(max_query_interval_secs),
+		);
+		self.publish_interval = ExpIncInterval::new(
+				Duration::from_secs(publish_interval_secs),
+				Duration::from_secs(max_publish_interval_secs),
+			);
+			self.publish_if_changed_interval = ExpIncInterval::new(
+				Duration::from_millis(publish_if_changed_interval_msecs),
+				Duration::from_secs(max_publish_interval_secs),
+			);
+
 		self.session = Some(session);
 		self.fetch_new_session_keys(at, session);
 		self.update_own_public_key_within_authority_set(&set);
@@ -472,13 +539,14 @@ where
 					}
 				} else {
 					debug!(target: "mixnet", "Insert auth {:?}", peer_id);
-					topology.authorities.insert(peer_id, public_key);
+					topology.authorities.insert(peer_id, (public_key, auth));
 				}
 			} else {
 				error!(target: "mixnet", "Missing imonline key for authority {:?}, not adding it to topology.", auth);
 			}
 		}
 		if let Some((id, key)) = restart {
+			debug!(target: "mixnet", "Restarting");
 			self.worker.restart(id, key);
 		}
 		self.update_state(false);
@@ -616,7 +684,7 @@ pub struct AuthorityStar {
 	// true when we are in authorities set.
 	routing: bool,
 	// All authorities are considered connected (when building message except first hop).
-	authorities: BTreeMap<MixPeerId, MixPublicKey>,
+	authorities: BTreeMap<MixPeerId, (MixPublicKey, AuthorityId)>,
 	// The connected nodes (for first hop use `authorities` joined `connected_nodes`).
 	connected_nodes: HashMap<MixPeerId, MixPublicKey>,
 	// Current session mapping of Grandpa key to IMonline key.
@@ -688,13 +756,13 @@ impl AuthorityStar {
 		for key in self.authorities.range(ix..) {
 			if !skip(&key.0) {
 				debug!(target: "mixnet", "Random route node");
-				return Some((key.0.clone(), key.1.clone()))
+				return Some((key.0.clone(), (key.1).0.clone()))
 			}
 		}
 		for key in self.authorities.range(..ix).rev() {
 			if !skip(&key.0) {
 				debug!(target: "mixnet", "Random route node");
-				return Some((key.0.clone(), key.1.clone()))
+				return Some((key.0.clone(), (key.1).0.clone()))
 			}
 		}
 		None
@@ -703,7 +771,7 @@ impl AuthorityStar {
 
 impl Topology for AuthorityStar {
 	fn first_hop_nodes(&self) -> Vec<(MixPeerId, MixPublicKey)> {
-		self.authorities.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+		self.authorities.iter().map(|(k, v)| (k.clone(), v.0.clone())).collect()
 	}
 	fn first_hop_nodes_external(&self, _from: &MixPeerId) -> Vec<(MixPeerId, MixPublicKey)> {
 		// allow for all
@@ -732,7 +800,7 @@ impl Topology for AuthorityStar {
 						if id.0 == from {
 							None
 						} else {
-							Some((id.0.clone(), id.1.clone()))
+							Some((id.0.clone(), (id.1).0.clone()))
 						}
 					})
 					.collect(),
@@ -822,7 +890,7 @@ impl Topology for AuthorityStar {
 			ids.remove(&recipient);
 			for peer_id in ids.into_iter() {
 				if let Some(public_key) = self.authorities.get(&peer_id) {
-					path.push((peer_id, public_key.clone()));
+					path.push((peer_id, public_key.0.clone()));
 				} else {
 					error!(target: "mixnet", "node in routing_nodes must also be in connected_nodes");
 					unreachable!("node in routing_nodes must also be in connected_nodes");
