@@ -28,13 +28,13 @@ pub use mixnet::{Config, SinkToWorker, StreamFromWorker};
 use sp_application_crypto::key_types;
 use sp_keystore::SyncCryptoStore;
 
-use codec::Encode;
+use codec::{Decode, Encode, Input, Output};
 use futures::{future, FutureExt, StreamExt};
 use futures_timer::Delay;
 use log::{debug, error, trace, warn};
 use sc_authority_discovery::{ExpIncInterval, NetworkProvider};
 use sc_client_api::{BlockchainEvents, FinalityNotification, UsageProvider};
-use sc_network::{MixnetCommand, PeerId, DhtEvent};
+use sc_network::{DhtEvent, MixnetCommand, PeerId};
 use sc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver, TracingUnboundedSender};
 use sp_api::ProvideRuntimeApi;
 use sp_core::crypto::CryptoTypePublicPair;
@@ -80,16 +80,15 @@ pub struct MixnetWorker<B: BlockT, C, N> {
 	key_store: Arc<dyn SyncCryptoStore>,
 	default_limit_config: Option<usize>,
 
-
 	// DHT related fields. TODO rename dht_...
-
 	network: Arc<N>,
 	dht_event_rx: Box<dyn futures::Stream<Item = Arc<DhtEvent>> + Unpin + Send>,
 	publish_interval: ExpIncInterval,
 	publish_if_changed_interval: ExpIncInterval,
 	// if None don't publish at all (eg not in topology).
 	latest_published_payload: Option<Vec<u8>>,
-	query_interval: ExpIncInterval, // TODO exp interval is questionable here, at least need to reset on session id change
+	query_interval: ExpIncInterval, /* TODO exp interval is questionable here, at least need to
+	                                 * reset on session id change */
 	pending_lookups: Vec<AuthorityId>,
 	in_flight_lookups: HashMap<sc_network::KademliaKey, AuthorityId>,
 }
@@ -162,7 +161,7 @@ where
 
 		// TODO switch to config with generated key only.
 		let config_tmp = mixnet::Config::new(local_public_key);
-	
+
 		let mixnet_config = if let Some((pub_key, priv_key)) = Self::get_mixnet_keys(&*key_store) {
 			mixnet::Config::new_with_keys(local_public_key, pub_key, priv_key)
 		} else {
@@ -264,7 +263,7 @@ where
 			self.network.get_value(&hash);
 			self.in_flight_lookups.insert(hash, authority_id);
 
-/*			if let Some(metrics) = &self.metrics {
+			/*			if let Some(metrics) = &self.metrics {
 				metrics.requests.inc();
 				metrics
 					.requests_pending
@@ -277,23 +276,23 @@ where
 	async fn handle_dht_event(&mut self, event: Arc<DhtEvent>) {
 		match &*event {
 			DhtEvent::ValueFound(v) => {
-
 				debug!(target: "mixnet", "Dht value found: {:?}", v);
-				for (hash, _value) in v.into_iter() {
+				for (hash, value) in v.into_iter() {
 					if self.in_flight_lookups.remove(hash).is_some() {
 						debug!(target: "mixnet", "Dht value found for key: {:?}", hash);
+						let topology = &mut self.worker.mixnet_mut().topology;
+						topology.import_table(&value[..]);
 					} else {
 						warn!(target: "mixnet", "Dht unexpected value found for key: {:?}", hash);
 					}
 				}
 			},
-			DhtEvent::ValueNotFound(hash) => {
+			DhtEvent::ValueNotFound(hash) =>
 				if self.in_flight_lookups.remove(hash).is_some() {
 					debug!(target: "mixnet", "Dht value for hash not found: {:?}", hash);
 				} else {
 					debug!(target: "mixnet", "Dht value for unexepected hash not found: {:?}", hash);
-				}
-			},
+				},
 			DhtEvent::ValuePut(hash) => {
 				// Fast forward the exponentially increasing interval to the configured maximum. In
 				// case this was the first successful address publishing there is no need for a
@@ -309,27 +308,28 @@ where
 
 	// TODO need async ??
 	async fn publish_topology(&mut self, only_if_changed: bool) {
-		let payload = vec![1u8; 128];
-		if only_if_changed && Some(&payload) == self.latest_published_payload.as_ref() {
+		let topology = &mut self.worker.mixnet_mut().topology;
+		if !topology.routing {
 			return
 		}
-
-// TODO sign like in handshake	let peer_signature = sign_record_with_peer_id(&serialized_record, self.network.as_ref())?;
+		let (payload, has_changed) = topology.published_table();
+		if only_if_changed && !has_changed {
+			return
+		}
 
 		if let Some(authority_id) = self.authority_id.as_ref() {
 			let key = hash_authority_id(authority_id.as_ref());
 			debug!(target: "mixnet", "Publishing topology at {:?} on Dht.", key);
 			self.network.put_value(key, payload.clone());
-			self.latest_published_payload = Some(payload);
+			self.latest_published_payload = Some(payload.clone());
 		}
 	}
 
 	async fn refill_pending_lookups_queue(&mut self) {
 		let topology = &mut self.worker.mixnet_mut().topology;
 		// TODO filter recently fetched?
-		let mut authorities: Vec<AuthorityId> = topology.authorities.values().map(|(_, id)| {
-			id.clone()
-		}).collect();
+		let mut authorities: Vec<AuthorityId> =
+			topology.authorities.values().map(|(_, id)| id.clone()).collect();
 
 		use rand::seq::SliceRandom;
 		authorities.shuffle(&mut rand::thread_rng());
@@ -351,66 +351,66 @@ where
 		loop {
 			self.start_new_lookups();
 			futures::select! {
-				event = self.dht_event_rx.next().fuse() => {
-					if let Some(event) = event {
-						self.handle_dht_event(event).await;
-					} else {
-						// This point is reached if the network has shut down, at which point there is not
-						// much else to do than to shut down the authority discovery as well.
-						return;
-					}
-				},
-				only_if_changed = future::select(
-					self.publish_interval.next().map(|_| false),
-					self.publish_if_changed_interval.next().map(|_| true)
-				).map(|e| e.factor_first().0).fuse() => {
-					self.publish_topology(only_if_changed).await;
-/*					if let Err(e) = self.publish_topology(only_if_changed).await {
-						error!(target: "mixnet", "Failed to publish topology: {}", e);
-					}*/
-				},
-				_ = self.query_interval.next().fuse() => {
-					self.refill_pending_lookups_queue().await;
-/*					if let Err(e) = self.refill_pending_lookups_queue().await {
-						error!(
-							target: "mixnet",
-							"Failed to request addresses of authorities: {}", e,
-						);
-					}
-*/
-				},
-				notif = self.finality_stream.next() => {
-					// TODO try accessing last of finality stream (possibly skipping some block)
-					if let Some(notif) = notif {
-						delay_finalized.reset(Duration::from_secs(DELAY_NO_FINALISATION_S));
-						self.handle_new_finalize_block(notif);
-					} else {
-						// This point is reached if the other component did shutdown.
-						debug!(target: "mixnet", "Mixnet, shutdown.");
-						return;
-					}
-				},
-				command = self.command_stream.next() => {
-					if let Some(command) = command {
-						self.handle_command(command);
-					} else {
-						// This point is reached if the other component did shutdown.
-						// Shutdown as well.
-						debug!(target: "mixnet", "Mixnet, shutdown.");
-						return;
-					}
-				},
-				success = future::poll_fn(|cx| self.worker.poll(cx)).fuse() => {
-					if !success {
-						debug!(target: "mixnet", "Mixnet, shutdown.");
-						return;
-					}
-				},
-				_ = delay_finalized.fuse() => {
-					self.state = State::Synching;
-					delay_finalized.reset(Duration::from_secs(DELAY_NO_FINALISATION_S));
-				},
-			}
+							event = self.dht_event_rx.next().fuse() => {
+								if let Some(event) = event {
+									self.handle_dht_event(event).await;
+								} else {
+									// This point is reached if the network has shut down, at which point there is not
+									// much else to do than to shut down the authority discovery as well.
+									return;
+								}
+							},
+							only_if_changed = future::select(
+								self.publish_interval.next().map(|_| false),
+								self.publish_if_changed_interval.next().map(|_| true)
+							).map(|e| e.factor_first().0).fuse() => {
+								self.publish_topology(only_if_changed).await;
+			/*					if let Err(e) = self.publish_topology(only_if_changed).await {
+									error!(target: "mixnet", "Failed to publish topology: {}", e);
+								}*/
+							},
+							_ = self.query_interval.next().fuse() => {
+								self.refill_pending_lookups_queue().await;
+			/*					if let Err(e) = self.refill_pending_lookups_queue().await {
+									error!(
+										target: "mixnet",
+										"Failed to request addresses of authorities: {}", e,
+									);
+								}
+			*/
+							},
+							notif = self.finality_stream.next() => {
+								// TODO try accessing last of finality stream (possibly skipping some block)
+								if let Some(notif) = notif {
+									delay_finalized.reset(Duration::from_secs(DELAY_NO_FINALISATION_S));
+									self.handle_new_finalize_block(notif);
+								} else {
+									// This point is reached if the other component did shutdown.
+									debug!(target: "mixnet", "Mixnet, shutdown.");
+									return;
+								}
+							},
+							command = self.command_stream.next() => {
+								if let Some(command) = command {
+									self.handle_command(command);
+								} else {
+									// This point is reached if the other component did shutdown.
+									// Shutdown as well.
+									debug!(target: "mixnet", "Mixnet, shutdown.");
+									return;
+								}
+							},
+							success = future::poll_fn(|cx| self.worker.poll(cx)).fuse() => {
+								if !success {
+									debug!(target: "mixnet", "Mixnet, shutdown.");
+									return;
+								}
+							},
+							_ = delay_finalized.fuse() => {
+								self.state = State::Synching;
+								delay_finalized.reset(Duration::from_secs(DELAY_NO_FINALISATION_S));
+							},
+						}
 		}
 	}
 
@@ -483,13 +483,13 @@ where
 			Duration::from_secs(max_query_interval_secs),
 		);
 		self.publish_interval = ExpIncInterval::new(
-				Duration::from_secs(publish_interval_secs),
-				Duration::from_secs(max_publish_interval_secs),
-			);
-			self.publish_if_changed_interval = ExpIncInterval::new(
-				Duration::from_millis(publish_if_changed_interval_msecs),
-				Duration::from_secs(max_publish_interval_secs),
-			);
+			Duration::from_secs(publish_interval_secs),
+			Duration::from_secs(max_publish_interval_secs),
+		);
+		self.publish_if_changed_interval = ExpIncInterval::new(
+			Duration::from_millis(publish_if_changed_interval_msecs),
+			Duration::from_secs(max_publish_interval_secs),
+		);
 
 		self.session = Some(session);
 		self.fetch_new_session_keys(at, session);
@@ -498,6 +498,10 @@ where
 		let current_local_id = self.worker.local_id().clone();
 		let current_public_key = self.worker.public_key().clone();
 		let topology = &mut self.worker.mixnet_mut().topology;
+		topology.current_session = session;
+		topology.routing_table.session = session;
+		topology.routing_table.revision = 1; // TODO load from persistence in case it is first call here (may be ongoing session
+									 // of a restarted node).
 		debug!(target: "mixnet", "Change authorities {:?}", set);
 		let mut old_authority = std::mem::take(&mut topology.authorities);
 
@@ -549,6 +553,12 @@ where
 				error!(target: "mixnet", "Missing imonline key for authority {:?}, not adding it to topology.", auth);
 			}
 		}
+		topology.should_connect_to = topology.routing_table.should_connect_to(
+			&topology.node_id,
+			&topology.authorities,
+			usize::MAX,
+		);
+		debug!(target: "mixnet", "should connect to {:?}", topology.should_connect_to);
 		if let Some((id, key)) = restart {
 			debug!(target: "mixnet", "Restarting");
 			self.worker.restart(id, key);
@@ -698,13 +708,21 @@ pub struct AuthorityStar {
 
 	current_session: SetId,
 	routing_table: AuthorityTable,
+	last_signed: (Vec<u8>, SetId, u32),
 	authorities_tables: BTreeMap<MixPeerId, AuthorityRouting>,
+	should_connect_to: Vec<MixPeerId>,
+	// TODO every N delay put a peer from our `should_connect_to` list
+	// as off and allows connection with the next one.
+	not_connected_or_refused: HashSet<MixPeerId>,
 }
 
+#[derive(Debug)]
 struct AuthorityRouting {
-	session_index: SessionIndex,
+	session_index: SetId,
 	peer_id: MixPeerId,
-	authority_id: AuthorityId, // TODO authority id redundant with mixpeerid as we use it as peer id. -> may make peer id a blake hash of it so we ensure our random works.
+	authority_id: AuthorityId, /* TODO authority id redundant with mixpeerid as we use it as
+	                            * peer id. -> may make peer id a blake hash of it so we ensure
+	                            * our random works. */
 
 	routing_table: AuthorityTable,
 }
@@ -712,24 +730,42 @@ struct AuthorityRouting {
 /// Current published view of an authority routing table.
 ///
 /// Table is currently signed by ImOnline key.
-#[derive(Encode, Decode)]
+#[derive(Encode, Decode, Debug)]
 pub struct AuthorityTable {
 	session: SetId,
 	// TODO this info should be stored in case of node restart (otherwhise until session change, no
 	// consensus with peer routing table will be find and only active for next setid.
 	revision: u32, // TODO compact
-	public_key: MixPublicKey,
-  // TODO could put revision but change will be more costy to converge.
-	// TODO or put revision in dht key, then on handshake you also pass revision and then crawl over
-	// updates -> I kinda like that.
+	public_key: EncodableMixPublicKey,
+	// TODO could put revision but change will be more costy to converge.
+	// TODO or put revision in dht key, then on handshake you also pass revision and then crawl
+	// over updates -> I kinda like that.
 	// Actually would be easier with a `known_latest_revision` field with all known latest revision
-	// so peers can easilly resolve dht key and next dht key (if none found, can still query from 0).
-	// -> requires outside a Map MixPeerId to latest received revision, so we query other key.
+	// so peers can easilly resolve dht key and next dht key (if none found, can still query from
+	// 0). -> requires outside a Map MixPeerId to latest received revision, so we query other key.
 	// Interesting in the sense we have one key on value, but would need to change a bit the dht
-	// logic. -> actually may not be proper idea, one key and subsequent update, just need to ensure
-	// we are using the latest version which for signed info is easy: ord (sessionid, revision).
-	connected_to: HashSet<MixPeerId>,
-	receive_from: HashSet<MixPeerId>, // incoming peer needed to check if published information is fresh.
+	// logic. -> actually may not be proper idea, one key and subsequent update, just need to
+	// ensure we are using the latest version which for signed info is easy: ord (sessionid,
+	// revision).
+	connected_to: BTreeSet<MixPeerId>,
+	receive_from: BTreeSet<MixPeerId>, /* incoming peer needed to check if published information
+	                                    * is fresh. */
+}
+
+#[derive(Debug)]
+struct EncodableMixPublicKey(MixPublicKey);
+
+impl Encode for EncodableMixPublicKey {
+	fn encode_to<O: Output + ?Sized>(&self, output: &mut O) {
+		self.0.as_bytes().encode_to(output)
+	}
+}
+
+impl Decode for EncodableMixPublicKey {
+	fn decode<I: Input>(input: &mut I) -> Result<Self, codec::Error> {
+		let mix_public_key: [u8; 32] = Decode::decode(input)?;
+		Ok(EncodableMixPublicKey(mix_public_key.into()))
+	}
 }
 
 // TODO more but this is ok for testing on a 6 authority network.
@@ -737,21 +773,33 @@ pub struct AuthorityTable {
 const NUMBER_CONNECTED_FORWARD: usize = 2;
 
 impl AuthorityTable {
-	fn should_connect_to(&self, from: &MixPeerId, authorities: &BTreeMap<MixPeerId, (MixPublicKey, AuthorityId)>, nb: usize) -> Vec<MixPeerId> {
+	fn should_connect_to(
+		&self,
+		from: &MixPeerId,
+		authorities: &BTreeMap<MixPeerId, (MixPublicKey, AuthorityId)>,
+		nb: usize,
+	) -> Vec<MixPeerId> {
 		// return next peer we want to established connection with.
 		// The order is given by hashing two peer id (from and destination) and
 		// take the first n peers.
 
-		unimplemented!()
+	
+		Vec::new() // TODO implement
 		// TODO cache this function result between authorities update.
 	}
-	fn allow_receive(&self, from: &MixPeerId, authorities: &BTreeMap<MixPeerId, (MixPublicKey, AuthorityId)>) -> bool {
+	fn allow_receive(
+		&self,
+		from: &MixPeerId,
+		authorities: &BTreeMap<MixPeerId, (MixPublicKey, AuthorityId)>,
+	) -> bool {
 		// from is supposed to be verified by handshake.
 		// we allow any authorities: as we cannot say if they fail to reach their prioritized peers.
-		// TODO One could still for big difference in the priority list try to check if online and at some
-		// point reject the peer as not being connected enough (globaly with other authorities).
-		// Number can be big initially as authority may disable mixnet a lot.
-		authorities.contains(from)
+		// TODO One could still for big difference in the priority list try to check if online and
+		// at some point reject the peer as not being connected enough (globaly with other
+		// authorities). Number can be big initially as authority may disable mixnet a lot.
+		let mut from_peer_id = [0u8; 32];
+		from_peer_id.copy_from_slice(&from[..]);
+		authorities.contains_key(&from_peer_id)
 	}
 }
 
@@ -771,7 +819,11 @@ impl AuthorityStar {
 		node_public_key_new: MixPublicKey,
 	) -> Self {
 		let routing_table = AuthorityTable {
-			public_key: node_public_key_new,
+			public_key: EncodableMixPublicKey(node_public_key_new),
+			connected_to: BTreeSet::new(),
+			receive_from: BTreeSet::new(),
+			revision: 0, // TODO load from persistent storage on handle_new authority.
+			session: 0,
 		};
 		AuthorityStar {
 			node_id,
@@ -784,6 +836,10 @@ impl AuthorityStar {
 			key_store,
 			authorities_tables: BTreeMap::new(),
 			routing_table,
+			current_session: 0,
+			not_connected_or_refused: Default::default(),
+			should_connect_to: Default::default(),
+			last_signed: Default::default(),
 		}
 	}
 
@@ -1071,6 +1127,104 @@ impl Topology for AuthorityStar {
 		}
 		log::error!(target: "mixnet", "Missing imonline key for handshake.");
 		None
+	}
+}
+
+impl AuthorityStar {
+	fn published_table(&mut self) -> (&Vec<u8>, bool) {
+		let mut has_changed = false;
+		if !(self.last_signed.1 == self.routing_table.session &&
+			self.last_signed.2 == self.routing_table.revision)
+		{
+			has_changed = true;
+			let mut to_sign = self.node_id.to_vec();
+			self.routing_table.encode_to(&mut to_sign);
+			match SyncCryptoStore::sign_with(
+				&*self.key_store,
+				key_types::IM_ONLINE,
+				&CryptoTypePublicPair(sp_core::sr25519::CRYPTO_ID, self.node_id.to_vec()),
+				&to_sign[..],
+			) {
+				Ok(Some(signature)) => {
+					trace!(target: "mixnet", "Signing done: {:?} {:?} {:?}", self.node_id.to_vec(), signature, to_sign);
+					to_sign.extend_from_slice(&signature[..]);
+					trace!(target: "mixnet", "create signed routing: {:?}", self.node_id);
+					self.last_signed.0 = to_sign;
+					self.last_signed.1 = self.routing_table.session;
+					self.last_signed.2 = self.routing_table.revision;
+				},
+				Err(e) => {
+					error!(target: "mixnet", "Table signing error: {:?}", e);
+					// TODO return error
+				},
+				_ => (),
+			}
+		}
+		(&self.last_signed.0, has_changed)
+	}
+
+	fn import_table(&mut self, payload: &[u8]) -> bool {
+		if payload.len() < 64 + 32 {
+			// not even a signature and peer id
+			return false
+		}
+
+		let mut with = [0u8; 32];
+		with.copy_from_slice(&payload[..32]);
+		let mut signature = [0u8; 64];
+		signature.copy_from_slice(&payload[payload.len() - 64..]);
+		let signature = sp_application_crypto::sr25519::Signature(signature);
+
+		let (key, authority_id) = if let Some((gr_key, auth_id)) = self.authorities.get(&with) {
+			use sp_application_crypto::Public;
+			if let Some(key) = self.sessions.get(&auth_id.clone().to_public_crypto_pair()) {
+				let mut p = [0u8; 32];
+				p.copy_from_slice(&key.1[..]);
+				(sp_application_crypto::sr25519::Public(p), auth_id.clone())
+			} else {
+				trace!(target: "mixnet", "Imonline key not found");
+				return false;
+			}
+		} else {
+			trace!(target: "mixnet", "Payload for authority not in session: {:?}", payload);
+			return false
+		};
+		debug!(target: "mixnet", "check table: {:?}", with);
+		use sp_application_crypto::RuntimePublic;
+		if !key.verify(&(payload[..payload.len() - 64].to_vec()), &signature) {
+			// anybody can.
+			trace!(target: "mixnet", "Wrong signing received: {:?} {:?} {:?}", key, signature, &payload[..payload.len() - 64]);
+			return false
+		}
+
+		if let Some(payload) = AuthorityTable::decode(&mut &payload[32..payload.len() - 64]).ok() {
+			let mut insert = true;
+			if let Some(table) = self.authorities_tables.get(&with) {
+				if payload.session < table.routing_table.session ||
+					(payload.session == table.routing_table.session &&
+						payload.revision <= table.routing_table.revision)
+				{
+					log::debug!(target: "mixnet", "not updated routes: {:?}", self.authorities_tables);
+					insert = false;
+				}
+			}
+			if insert {
+				// TODO sanity check of table (not connected to too many peers), ~ consistent with
+				// peer neighbors (at least from the connected one we know)...
+				self.authorities_tables.insert(
+					with.clone(),
+					AuthorityRouting {
+						session_index: payload.session,
+						peer_id: with.clone(),
+						authority_id,
+						routing_table: payload,
+					},
+				);
+				log::debug!(target: "mixnet", "current routes: {:?}", self.authorities_tables);
+			}
+			return true
+		}
+		false
 	}
 }
 

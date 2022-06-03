@@ -53,9 +53,9 @@ use std::{
 	borrow::Cow,
 	collections::{HashSet, VecDeque},
 	iter,
+	sync::Arc,
 	task::{Context, Poll},
 	time::Duration,
-	sync::Arc,
 };
 
 pub use crate::request_responses::{
@@ -640,18 +640,24 @@ where
 				self.substrate.add_default_set_discovered_nodes(iter::once(peer_id));
 			},
 			DiscoveryOut::ValueFound(results, duration) => {
-				self.events
-					.push_back(BehaviourOut::Dht(Arc::new(DhtEvent::ValueFound(results)), duration));
+				self.events.push_back(BehaviourOut::Dht(
+					Arc::new(DhtEvent::ValueFound(results)),
+					duration,
+				));
 			},
 			DiscoveryOut::ValueNotFound(key, duration) => {
-				self.events.push_back(BehaviourOut::Dht(Arc::new(DhtEvent::ValueNotFound(key)), duration));
+				self.events
+					.push_back(BehaviourOut::Dht(Arc::new(DhtEvent::ValueNotFound(key)), duration));
 			},
 			DiscoveryOut::ValuePut(key, duration) => {
-				self.events.push_back(BehaviourOut::Dht(Arc::new(DhtEvent::ValuePut(key)), duration));
+				self.events
+					.push_back(BehaviourOut::Dht(Arc::new(DhtEvent::ValuePut(key)), duration));
 			},
 			DiscoveryOut::ValuePutFailed(key, duration) => {
-				self.events
-					.push_back(BehaviourOut::Dht(Arc::new(DhtEvent::ValuePutFailed(key)), duration));
+				self.events.push_back(BehaviourOut::Dht(
+					Arc::new(DhtEvent::ValuePutFailed(key)),
+					duration,
+				));
 			},
 			DiscoveryOut::RandomKademliaStarted(protocols) =>
 				for protocol in protocols {
