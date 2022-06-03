@@ -160,6 +160,9 @@ where
 				.0
 		};
 
+		// TODO switch to config with generated key only.
+		let config_tmp = mixnet::Config::new(local_public_key);
+	
 		let mixnet_config = if let Some((pub_key, priv_key)) = Self::get_mixnet_keys(&*key_store) {
 			mixnet::Config::new_with_keys(local_public_key, pub_key, priv_key)
 		} else {
@@ -174,6 +177,7 @@ where
 			network_identity.public().into(),
 			mixnet_config.public_key.clone(),
 			key_store.clone(),
+			config_tmp.public_key,
 		);
 		let default_limit_config = mixnet_config.limit_per_window.clone();
 
@@ -684,11 +688,71 @@ pub struct AuthorityStar {
 	// true when we are in authorities set.
 	routing: bool,
 	// All authorities are considered connected (when building message except first hop).
+	// TODO rem pub key
 	authorities: BTreeMap<MixPeerId, (MixPublicKey, AuthorityId)>,
 	// The connected nodes (for first hop use `authorities` joined `connected_nodes`).
 	connected_nodes: HashMap<MixPeerId, MixPublicKey>,
 	// Current session mapping of Grandpa key to IMonline key.
+	// TODO switch to MixPeerId to imonline key.
 	sessions: HashMap<CryptoTypePublicPair, CryptoTypePublicPair>,
+
+	current_session: SetId,
+	routing_table: AuthorityTable,
+	authorities_tables: BTreeMap<MixPeerId, AuthorityRouting>,
+}
+
+struct AuthorityRouting {
+	session_index: SessionIndex,
+	peer_id: MixPeerId,
+	authority_id: AuthorityId, // TODO authority id redundant with mixpeerid as we use it as peer id. -> may make peer id a blake hash of it so we ensure our random works.
+
+	routing_table: AuthorityTable,
+}
+
+/// Current published view of an authority routing table.
+///
+/// Table is currently signed by ImOnline key.
+#[derive(Encode, Decode)]
+pub struct AuthorityTable {
+	session: SetId,
+	// TODO this info should be stored in case of node restart (otherwhise until session change, no
+	// consensus with peer routing table will be find and only active for next setid.
+	revision: u32, // TODO compact
+	public_key: MixPublicKey,
+  // TODO could put revision but change will be more costy to converge.
+	// TODO or put revision in dht key, then on handshake you also pass revision and then crawl over
+	// updates -> I kinda like that.
+	// Actually would be easier with a `known_latest_revision` field with all known latest revision
+	// so peers can easilly resolve dht key and next dht key (if none found, can still query from 0).
+	// -> requires outside a Map MixPeerId to latest received revision, so we query other key.
+	// Interesting in the sense we have one key on value, but would need to change a bit the dht
+	// logic. -> actually may not be proper idea, one key and subsequent update, just need to ensure
+	// we are using the latest version which for signed info is easy: ord (sessionid, revision).
+	connected_to: HashSet<MixPeerId>,
+	receive_from: HashSet<MixPeerId>, // incoming peer needed to check if published information is fresh.
+}
+
+// TODO more but this is ok for testing on a 6 authority network.
+// TODO put in config.
+const NUMBER_CONNECTED_FORWARD: usize = 2;
+
+impl AuthorityTable {
+	fn should_connect_to(&self, from: &MixPeerId, authorities: &BTreeMap<MixPeerId, (MixPublicKey, AuthorityId)>, nb: usize) -> Vec<MixPeerId> {
+		// return next peer we want to established connection with.
+		// The order is given by hashing two peer id (from and destination) and
+		// take the first n peers.
+
+		unimplemented!()
+		// TODO cache this function result between authorities update.
+	}
+	fn allow_receive(&self, from: &MixPeerId, authorities: &BTreeMap<MixPeerId, (MixPublicKey, AuthorityId)>) -> bool {
+		// from is supposed to be verified by handshake.
+		// we allow any authorities: as we cannot say if they fail to reach their prioritized peers.
+		// TODO One could still for big difference in the priority list try to check if online and at some
+		// point reject the peer as not being connected enough (globaly with other authorities).
+		// Number can be big initially as authority may disable mixnet a lot.
+		authorities.contains(from)
+	}
 }
 
 #[derive(Clone)]
@@ -704,7 +768,11 @@ impl AuthorityStar {
 		network_id: PeerId,
 		node_public_key: MixPublicKey,
 		key_store: Arc<dyn SyncCryptoStore>,
+		node_public_key_new: MixPublicKey,
 	) -> Self {
+		let routing_table = AuthorityTable {
+			public_key: node_public_key_new,
+		};
 		AuthorityStar {
 			node_id,
 			network_id,
@@ -714,6 +782,8 @@ impl AuthorityStar {
 			sessions: HashMap::new(),
 			routing: false,
 			key_store,
+			authorities_tables: BTreeMap::new(),
+			routing_table,
 		}
 	}
 
