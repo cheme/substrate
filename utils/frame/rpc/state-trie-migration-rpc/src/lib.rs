@@ -41,6 +41,7 @@ use trie_db::{
 fn count_migrate<'a, H: Hasher>(
 	storage: &'a dyn trie_db::HashDBRef<H, Vec<u8>>,
 	root: &'a H::Out,
+	max_key_size: &mut usize,
 ) -> std::result::Result<(u64, TrieDB<'a, H>), String> {
 	let mut nb = 0u64;
 	let trie = TrieDB::new(storage, root).map_err(|e| format!("TrieDB creation error: {}", e))?;
@@ -49,14 +50,21 @@ fn count_migrate<'a, H: Hasher>(
 	for node in iter_node {
 		let node = node.map_err(|e| format!("TrieDB node iterator error: {}", e))?;
 		match node.2.node_plan() {
-			NodePlan::Leaf { value, .. } | NodePlan::NibbledBranch { value: Some(value), .. } =>
+			NodePlan::Leaf { value, partial, .. } |
+			NodePlan::NibbledBranch { value: Some(value), partial, .. } => {
 				if let ValuePlan::Inline(range) = value {
 					if (range.end - range.start) as u32 >=
 						sp_core::storage::TRIE_VALUE_NODE_THRESHOLD
 					{
 						nb += 1;
 					}
-				},
+				}
+				// false for branch that got an extra nibble but we will always get a bigger leaf
+				// comming after
+				*max_key_size =
+					core::cmp::max((node.0.len() + partial.len()) / 2, *max_key_size);
+			},
+
 			_ => (),
 		}
 	}
@@ -64,19 +72,20 @@ fn count_migrate<'a, H: Hasher>(
 }
 
 /// Check trie migration status.
-pub fn migration_status<H, B>(backend: &B) -> std::result::Result<(u64, u64), String>
+pub fn migration_status<H, B>(backend: &B) -> std::result::Result<(u64, u64, u64), String>
 where
 	H: Hasher,
 	H::Out: codec::Codec,
 	B: Backend<H>,
 {
+	let mut max_key_size = 0;
 	let trie_backend = if let Some(backend) = backend.as_trie_backend() {
 		backend
 	} else {
 		return Err("No access to trie from backend.".to_string())
 	};
 	let essence = trie_backend.essence();
-	let (nb_to_migrate, trie) = count_migrate(essence, essence.root())?;
+	let (nb_to_migrate, trie) = count_migrate(essence, essence.root(), &mut max_key_size)?;
 
 	let mut nb_to_migrate_child = 0;
 	let mut child_roots: Vec<(ChildInfo, Vec<u8>)> = Vec::new();
@@ -95,10 +104,10 @@ where
 		let storage = KeySpacedDB::new(essence, child_info.keyspace());
 
 		child_root.as_mut()[..].copy_from_slice(&root[..]);
-		nb_to_migrate_child += count_migrate(&storage, &child_root)?.0;
+		nb_to_migrate_child += count_migrate(&storage, &child_root, &mut max_key_size)?.0;
 	}
 
-	Ok((nb_to_migrate, nb_to_migrate_child))
+	Ok((nb_to_migrate, nb_to_migrate_child, max_key_size as u64))
 }
 
 #[derive(Serialize, Deserialize)]
@@ -107,6 +116,7 @@ where
 pub struct MigrationStatusResult {
 	top_remaining_to_migrate: u64,
 	child_remaining_to_migrate: u64,
+	max_key_size: u64,
 }
 
 /// Migration RPC methods.
@@ -147,11 +157,12 @@ where
 
 		let block_id = BlockId::hash(at.unwrap_or_else(|| self.client.info().best_hash));
 		let state = self.backend.state_at(block_id).map_err(error_into_rpc_err)?;
-		let (top, child) = migration_status(&state).map_err(error_into_rpc_err)?;
+		let (top, child, max_key_size) = migration_status(&state).map_err(error_into_rpc_err)?;
 
 		Ok(MigrationStatusResult {
 			top_remaining_to_migrate: top,
 			child_remaining_to_migrate: child,
+			max_key_size,
 		})
 	}
 }
