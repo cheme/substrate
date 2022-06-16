@@ -313,7 +313,7 @@ fn publish_discover_cycle() {
 
 			let dht_event = {
 				let (key, value) = network.put_value_call.lock().unwrap().pop().unwrap();
-				sc_network::DhtEvent::ValueFound(vec![(key, value)])
+				Arc::new(sc_network::DhtEvent::ValueFound(vec![(key, value)]))
 			};
 
 			// Node B discovering node A's address.
@@ -456,7 +456,7 @@ fn dont_stop_polling_dht_event_stream_after_bogus_event() {
 
 		// Send an event that should generate an error
 		dht_event_tx
-			.send(DhtEvent::ValueFound(Default::default()))
+			.send(Arc::new(DhtEvent::ValueFound(Default::default())))
 			.await
 			.expect("Channel has capacity of 1.");
 
@@ -469,7 +469,7 @@ fn dont_stop_polling_dht_event_stream_after_bogus_event() {
 				None,
 			)
 			.await;
-			sc_network::DhtEvent::ValueFound(kv_pairs)
+			Arc::new(sc_network::DhtEvent::ValueFound(kv_pairs))
 		};
 		dht_event_tx.send(dht_event).await.expect("Channel has capacity of 1.");
 
@@ -496,7 +496,7 @@ struct DhtValueFoundTester {
 				sp_runtime::generic::Header<u64, sp_runtime::traits::BlakeTwo256>,
 				substrate_test_runtime_client::runtime::Extrinsic,
 			>,
-			std::pin::Pin<Box<futures::channel::mpsc::Receiver<sc_network::DhtEvent>>>,
+			std::pin::Pin<Box<futures::channel::mpsc::Receiver<Arc<sc_network::DhtEvent>>>>,
 		>,
 	>,
 }
@@ -545,7 +545,7 @@ impl DhtValueFoundTester {
 		block_on(local_worker.refill_pending_lookups_queue()).unwrap();
 		local_worker.start_new_lookups();
 
-		drop(local_worker.handle_dht_value_found_event(values));
+		drop(local_worker.handle_dht_value_found_event(&values));
 
 		self.local_worker = Some(local_worker);
 
@@ -808,7 +808,7 @@ fn lookup_throttling() {
 					None,
 				)
 				.await;
-				sc_network::DhtEvent::ValueFound(kv_pairs)
+				Arc::new(sc_network::DhtEvent::ValueFound(kv_pairs))
 			};
 			dht_event_tx.send(dht_event).await.expect("Channel has capacity of 1.");
 
@@ -822,7 +822,7 @@ fn lookup_throttling() {
 
 			// Make second one fail.
 			let remote_hash = network.get_value_call.lock().unwrap().pop().unwrap();
-			let dht_event = sc_network::DhtEvent::ValueNotFound(remote_hash);
+			let dht_event = Arc::new(sc_network::DhtEvent::ValueNotFound(remote_hash));
 			dht_event_tx.send(dht_event).await.expect("Channel has capacity of 1.");
 
 			// Assert worker to trigger another lookup.
