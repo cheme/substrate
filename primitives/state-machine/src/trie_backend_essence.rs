@@ -26,10 +26,11 @@ use parking_lot::RwLock;
 use sp_core::storage::{ChildInfo, ChildType, StateVersion};
 use sp_std::{boxed::Box, vec::Vec};
 use sp_trie::{
-	child_delta_trie_root, contains_child_trie, contains_trie, delta_trie_root, read_child_trie_value,
-	read_trie_value,value_size_child_trie, value_size_trie,  LayoutParentSized,
+	child_delta_trie_root, contains_child_trie, contains_trie, delta_trie_root,
+	read_child_trie_value, read_trie_value,
 	trie_types::{TrieDB, TrieDBParentSized, TrieError},
-	DBValue, KeySpacedDB, LayoutV1 as Layout, Trie, TrieDBIterator, TrieDBKeyIterator,
+	value_size_child_trie, value_size_trie, DBValue, KeySpacedDB, LayoutParentSized,
+	LayoutV1 as Layout, Trie, TrieDBIterator, TrieDBKeyIterator,
 };
 #[cfg(feature = "std")]
 use std::collections::HashMap;
@@ -429,10 +430,20 @@ where
 		maybe_start_at: Option<&[u8]>,
 	) {
 		match child_info.as_ref().map(|info| info.child_type()) {
-			Some(ChildType::ParentKeyId) | None =>
-				self.trie_iter_key_inner2::<_, Layout<H>>(root, maybe_prefix, f, child_info, maybe_start_at),
-			Some(ChildType::ParentSized) =>
-				self.trie_iter_key_inner2::<_, LayoutParentSized<H>>(root, maybe_prefix, f, child_info, maybe_start_at),
+			Some(ChildType::ParentKeyId) | None => self.trie_iter_key_inner2::<_, Layout<H>>(
+				root,
+				maybe_prefix,
+				f,
+				child_info,
+				maybe_start_at,
+			),
+			Some(ChildType::ParentSized) => self.trie_iter_key_inner2::<_, LayoutParentSized<H>>(
+				root,
+				maybe_prefix,
+				f,
+				child_info,
+				maybe_start_at,
+			),
 		}
 	}
 

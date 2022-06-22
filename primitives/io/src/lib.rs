@@ -608,7 +608,6 @@ pub trait ParentSizedChildStorage {
 			.into()
 	}
 
-
 	/// Check a child storage key.
 	///
 	/// Check whether the given `key` exists in parent sized child defined at `storage_key`.

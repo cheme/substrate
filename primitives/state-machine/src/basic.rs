@@ -259,10 +259,8 @@ impl Externalities for BasicExternalities {
 			ChildType::ParentSized => &mut self.inner.children_sized,
 		};
 
-		let count = child_map
-			.remove(child_info.storage_key())
-			.map(|c| c.data.len())
-			.unwrap_or(0) as u32;
+		let count =
+			child_map.remove(child_info.storage_key()).map(|c| c.data.len()).unwrap_or(0) as u32;
 		MultiRemovalResults { maybe_cursor: None, backend: count, unique: count, loops: count }
 	}
 
