@@ -29,8 +29,7 @@ use sp_trie::{
 	child_delta_trie_root, delta_trie_root, empty_child_trie_root, read_child_trie_value,
 	read_trie_value,
 	trie_types::{TrieDB, TrieError},
-	DBValue, KeySpacedDB, LayoutV1 as Layout, MemoryDB, PrefixedMemoryDB, Trie, TrieDBIterator,
-	TrieDBKeyIterator,
+	DBValue, KeySpacedDB, LayoutV1 as Layout, Trie, TrieDBIterator, TrieDBKeyIterator,
 };
 #[cfg(feature = "std")]
 use std::collections::HashMap;
@@ -659,7 +658,7 @@ impl<H> Clone for NoopsBackenStorage<H> {
 
 impl<H: Hasher + 'static> TrieBackendStorage<H> for NoopsBackenStorage<H> {
 	type AsyncStorage = Self;
-	type Overlay = MemoryDB<H>;
+	type Overlay = sp_trie::MemoryDB<H>;
 
 	#[cfg(feature = "std")]
 	fn get(&self, _key: &H::Out, _prefix: Prefix) -> Result<Option<DBValue>> {
@@ -679,7 +678,7 @@ impl<H: Hasher + 'static> TrieBackendStorage<H> for NoopsBackenStorage<H> {
 // This implementation is used by normal storage trie clients.
 #[cfg(feature = "std")]
 impl<H: Hasher + 'static> TrieBackendStorage<H> for Arc<dyn Storage<H>> {
-	type Overlay = PrefixedMemoryDB<H>;
+	type Overlay = sp_trie::PrefixedMemoryDB<H>;
 	type AsyncStorage = Self;
 
 	fn get(&self, key: &H::Out, prefix: Prefix) -> Result<Option<DBValue>> {

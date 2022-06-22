@@ -20,10 +20,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 use sp_inherents::{CheckInherentsResult, InherentData};
-use sp_runtime::{
-	legacy::byte_sized_error::ApplyExtrinsicResult as ApplyExtrinsicResultBeforeV6,
-	traits::Block as BlockT, ApplyExtrinsicResult,
-};
+use sp_runtime::{traits::Block as BlockT, ApplyExtrinsicResult};
 use sp_tasks::{AccessLog, DataJoinHandle, WorkerDeclaration};
 
 sp_api::decl_runtime_apis! {
@@ -37,7 +34,9 @@ sp_api::decl_runtime_apis! {
 		fn apply_extrinsic(extrinsic: <Block as BlockT>::Extrinsic) -> ApplyExtrinsicResult;
 
 		#[changed_in(6)]
-		fn apply_extrinsic(extrinsic: <Block as BlockT>::Extrinsic) -> ApplyExtrinsicResultBeforeV6;
+		fn apply_extrinsic(
+			extrinsic: <Block as BlockT>::Extrinsic,
+		) -> sp_runtime::legacy::byte_sized_error::ApplyExtrinsicResult;
 
 		/// Spawn extrinsic, returning declarative logged accesses.
 		fn log_extrinsic(extrinsic: <Block as BlockT>::Extrinsic) -> (ApplyExtrinsicResult, AccessLog);
