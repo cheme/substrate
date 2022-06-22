@@ -73,13 +73,11 @@ where
 		key: &[u8],
 	) -> Result<Option<Vec<u8>>, String> {
 		let storage_key = child_info.storage_key();
-		let root: H::Out = if let Some(root) =
-			self.storage(storage_key)?.and_then(|r| Decode::decode(&mut &r[..]).ok())
-		{
-			root
-		} else {
-			return Ok(None)
-		};
+		let root = self
+			.storage(storage_key)?
+			.and_then(|r| Decode::decode(&mut &r[..]).ok())
+			// V1 is equivalent to V0 on empty trie
+			.unwrap_or_else(sp_trie::empty_child_trie_root::<LayoutV1<H>>);
 
 		let mut read_overlay = S::Overlay::default();
 		let eph = Ephemeral::new(self.backend.backend_storage(), &mut read_overlay);
@@ -205,7 +203,7 @@ where
 		proof_recorder: ProofRecorder<H::Out>,
 	) -> Self {
 		let essence = backend.essence();
-		let root = essence.root().clone();
+		let root = *essence.root();
 		let recorder = ProofRecorderBackend { backend: essence.backend_storage(), proof_recorder };
 		ProvingBackend(TrieBackend::new(recorder, root))
 	}
@@ -240,7 +238,7 @@ impl<'a, S: 'a + TrieBackendStorage<H>, H: 'a + Hasher> TrieBackendStorage<H>
 		}
 
 		let backend_value = self.backend.get(key, prefix)?;
-		self.proof_recorder.record(key.clone(), backend_value.clone());
+		self.proof_recorder.record(*key, backend_value.clone());
 		Ok(backend_value)
 	}
 }
@@ -314,9 +312,10 @@ where
 		&self,
 		child_info: Option<&ChildInfo>,
 		prefix: Option<&[u8]>,
+		start_at: Option<&[u8]>,
 		f: F,
 	) {
-		self.0.apply_to_keys_while(child_info, prefix, f)
+		self.0.apply_to_keys_while(child_info, prefix, start_at, f)
 	}
 
 	fn next_storage_key(&self, key: &[u8]) -> Result<Option<Vec<u8>>, Self::Error> {
@@ -418,9 +417,9 @@ mod tests {
 	use sp_runtime::traits::BlakeTwo256;
 	use sp_trie::PrefixedMemoryDB;
 
-	fn test_proving<'a>(
-		trie_backend: &'a TrieBackend<PrefixedMemoryDB<BlakeTwo256>, BlakeTwo256>,
-	) -> ProvingBackend<'a, PrefixedMemoryDB<BlakeTwo256>, BlakeTwo256> {
+	fn test_proving(
+		trie_backend: &TrieBackend<PrefixedMemoryDB<BlakeTwo256>, BlakeTwo256>,
+	) -> ProvingBackend<PrefixedMemoryDB<BlakeTwo256>, BlakeTwo256> {
 		ProvingBackend::new(trie_backend)
 	}
 
@@ -497,7 +496,6 @@ mod tests {
 		let trie_root = trie.storage_root(std::iter::empty(), state_version).0;
 		assert_eq!(in_memory_root, trie_root);
 		value_range
-			.clone()
 			.for_each(|i| assert_eq!(trie.storage(&[i]).unwrap().unwrap(), vec![i; size_content]));
 
 		let proving = ProvingBackend::new(trie);
@@ -505,8 +503,7 @@ mod tests {
 
 		let proof = proving.extract_proof();
 
-		let proof_check =
-			create_proof_check_backend::<BlakeTwo256>(in_memory_root.into(), proof).unwrap();
+		let proof_check = create_proof_check_backend::<BlakeTwo256>(in_memory_root, proof).unwrap();
 		assert_eq!(proof_check.storage(&[42]).unwrap().unwrap(), vec![42; size_content]);
 	}
 
@@ -553,8 +550,7 @@ mod tests {
 
 		let proof = proving.extract_proof();
 
-		let proof_check =
-			create_proof_check_backend::<BlakeTwo256>(in_memory_root.into(), proof).unwrap();
+		let proof_check = create_proof_check_backend::<BlakeTwo256>(in_memory_root, proof).unwrap();
 		assert!(proof_check.storage(&[0]).is_err());
 		assert_eq!(proof_check.storage(&[42]).unwrap().unwrap(), vec![42]);
 		// note that it is include in root because proof close
@@ -565,8 +561,7 @@ mod tests {
 		assert_eq!(proving.child_storage(child_info_1, &[64]), Ok(Some(vec![64])));
 
 		let proof = proving.extract_proof();
-		let proof_check =
-			create_proof_check_backend::<BlakeTwo256>(in_memory_root.into(), proof).unwrap();
+		let proof_check = create_proof_check_backend::<BlakeTwo256>(in_memory_root, proof).unwrap();
 		assert_eq!(proof_check.child_storage(child_info_1, &[64]).unwrap().unwrap(), vec![64]);
 	}
 

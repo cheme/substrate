@@ -67,7 +67,7 @@ impl GenesisConfig {
 					(well_known_keys::CODE.into(), wasm_runtime),
 					(
 						well_known_keys::HEAP_PAGES.into(),
-						vec![].and(&(self.heap_pages_override.unwrap_or(16 as u64))),
+						vec![].and(&(self.heap_pages_override.unwrap_or(16_u64))),
 					),
 				]
 				.into_iter(),
@@ -83,8 +83,7 @@ impl GenesisConfig {
 			children_default: self.extra_storage.children_default.clone(),
 			children_sized: self.extra_storage.children_sized.clone(),
 		};
-		let mut config = system::GenesisConfig::default();
-		config.authorities = self.authorities.clone();
+		let config = system::GenesisConfig { authorities: self.authorities.clone() };
 		config
 			.assimilate_storage(&mut storage)
 			.expect("Adding `system::GensisConfig` to the genesis");
