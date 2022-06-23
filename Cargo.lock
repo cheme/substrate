@@ -10043,8 +10043,10 @@ dependencies = [
 name = "sp-mmr-primitives"
 version = "4.0.0-dev"
 dependencies = [
+ "hash-db",
  "hex-literal",
  "log",
+ "memory-db",
  "parity-scale-codec",
  "serde",
  "sp-api",
