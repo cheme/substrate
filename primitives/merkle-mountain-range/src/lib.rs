@@ -712,21 +712,36 @@ pub mod MmrDb {
 	impl<'db, H: Hasher> MmrDBMut<'db, H> {
 		// TODO rem (or to_db fn)
 		pub fn get(&self, index: u64) -> Option<DBValue> {
+
 			if index < self.number_element {
+				let num_peaks = self.number_element.count_ones();
+				let mut skips = num_peaks - 1;
 				//let max_depth = 64 - self.number_element.next_power_of_two().leading_zeros();
 				let max_depth = 64 - (self.number_element - 1).leading_zeros();
 				let mut node = self.db.get(self.root, Default::default())?;
 				let mut hash = H::Out::default();
 				let hash_len = hash.as_ref().len();
+				let mut skip_next = false;
 				for i in (0..max_depth).rev() {
+					let ix = (index & 1 << i) > 0;
+					if !ix && skip_next {
+						if ((self.number_element - 1) & 1 << i) == 0 {
+							continue;
+						} else {
+							skip_next = false;
+						}
+					}
+					if ix {
+						if skips > 0 {
+							skips -= 1;
+							skip_next = true;
+						}
+					} else {
+						skips = 0;
+					}
 					if node.len() != hash_len * 2 {
 						// incorrect node, bug in impl
 						panic!("Invalid build mmr");
-					}
-					let ix = (index & 1 << i) > 0;
-					if !ix && (index | 1 << i) >= self.number_element {
-						// no sibling
-						continue;
 					}
 					let ix = ix as usize;
 					hash.as_mut().copy_from_slice(&node[ix * hash_len..(ix + 1) * hash_len]);
@@ -754,7 +769,7 @@ pub mod MmrDb {
 					let mut hash = H::Out::default();
 					let mut node = self.db.get(self.root, Default::default())?;
 					let hash_len = hash.as_ref().len();
-					for i in 0..num_peaks {
+					for i in 0..num_peaks  - 1 {
 						if node.len() != hash_len * 2 {
 							// incorrect node, bug in impl
 							panic!("Invalid build mmr");
@@ -765,6 +780,7 @@ pub mod MmrDb {
 						hash.as_mut().copy_from_slice(&node[hash_len..]);
 						node = self.db.get(&hash, Default::default())?;
 					}
+					self.peaks.push_back(hash);
 				}
 			}
 			let mut hash = H::Out::default();
@@ -781,20 +797,20 @@ pub mod MmrDb {
 				let n = self.db.insert(Default::default(), node.as_slice());
 				self.peaks.push_back(n);
 			} else if new_num_peaks > num_peaks {
-				let r = self.peaks.pop_back().unwrap();
-				node[..hash_len].copy_from_slice(r.as_ref());
-				node[hash_len..].copy_from_slice(leaf.as_ref());
-				let n = self.db.insert(Default::default(), node.as_slice());
-				self.peaks.push_back(n);
+				self.peaks.push_back(leaf);
 			} else {
-				for i in 0..new_num_peaks - num_peaks {
-					self.peaks.pop_back();
+				let mut n = leaf;
+				while self.peaks.len() as u32 != new_num_peaks {
+					let r = self.peaks.pop_back().unwrap();
+					node[..hash_len].copy_from_slice(r.as_ref());
+					node[hash_len..].copy_from_slice(n.as_ref());
+					n = self.db.insert(Default::default(), node.as_slice());
+					let r = self.peaks.pop_back().unwrap();
+					node[..hash_len].copy_from_slice(r.as_ref());
+					node[hash_len..].copy_from_slice(n.as_ref());
+					n = self.db.insert(Default::default(), node.as_slice());
+					self.peaks.push_back(n);
 				}
-				let r = self.peaks.pop_back().unwrap();
-				node[..hash_len].copy_from_slice(r.as_ref());
-				node[hash_len..].copy_from_slice(leaf.as_ref());
-				let n = self.db.insert(Default::default(), node.as_slice());
-				self.peaks.push_back(n);
 			}
 			self.number_element += 1;
 			Some(())
@@ -829,7 +845,7 @@ pub mod MmrDb {
 			peaks: Default::default(),
 			number_element: 0,
 		};
-		let mut nb = 1;
+		let mut nb = 6;
 		for i in 0u64..nb {
 			let val = i.to_le_bytes();
 
