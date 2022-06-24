@@ -799,17 +799,14 @@ pub mod MmrDb {
 			} else if new_num_peaks > num_peaks {
 				self.peaks.push_back(leaf);
 			} else {
-				let mut n = leaf;
+				self.peaks.push_back(leaf);
 				while self.peaks.len() as u32 != new_num_peaks {
+					let n = self.peaks.pop_back().unwrap();
 					let r = self.peaks.pop_back().unwrap();
 					node[..hash_len].copy_from_slice(r.as_ref());
 					node[hash_len..].copy_from_slice(n.as_ref());
-					n = self.db.insert(Default::default(), node.as_slice());
-					let r = self.peaks.pop_back().unwrap();
-					node[..hash_len].copy_from_slice(r.as_ref());
-					node[hash_len..].copy_from_slice(n.as_ref());
-					n = self.db.insert(Default::default(), node.as_slice());
-					self.peaks.push_back(n);
+					let new = self.db.insert(Default::default(), node.as_slice());
+					self.peaks.push_back(new);
 				}
 			}
 			self.number_element += 1;
@@ -845,7 +842,7 @@ pub mod MmrDb {
 			peaks: Default::default(),
 			number_element: 0,
 		};
-		let mut nb = 6;
+		let mut nb = 100;
 		for i in 0u64..nb {
 			let val = i.to_le_bytes();
 
@@ -854,7 +851,7 @@ pub mod MmrDb {
 
 			for j in 0u64..i + 1 {
 				let val = j.to_le_bytes().to_vec();
-				assert_eq!(trie_db.get(j), Some(val));
+				assert_eq!((trie_db.get(j), i, j), (Some(val), i, j));
 			}
 		}
 	}
