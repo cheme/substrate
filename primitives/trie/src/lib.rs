@@ -20,6 +20,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 mod error;
+pub mod mmr;
 mod node_codec;
 mod node_header;
 mod storage_proof;

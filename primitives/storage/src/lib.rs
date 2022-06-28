@@ -224,6 +224,9 @@ pub mod well_known_keys {
 	/// Prefix of the sized value child storage keys in the top trie.
 	pub const SIZED_PARENT_CHILD_STORAGE_KEY_PREFIX: &'static [u8] = b":child_storage:sized_value:";
 
+	/// Prefix of the sized value child storage keys in the top trie.
+	pub const MMR_CHILD_STORAGE_KEY_PREFIX: &'static [u8] = b":child_storage:mmr:";
+
 	/// Whether a key is a default child storage key.
 	///
 	/// This is convenience function which basically checks if the given `key` starts
@@ -270,6 +273,8 @@ pub enum ChildInfo {
 	ParentKeyId(ChildTrieParentKeyId),
 	/// Child trie storing size of value in parent node.
 	ParentSized(ChildTrieParentKeyId),
+	/// Mmr child state.
+	Mmr(ChildTrieParentKeyId),
 }
 
 impl ChildInfo {
@@ -298,6 +303,7 @@ impl ChildInfo {
 		match self {
 			ChildInfo::ParentKeyId(child_trie) => child_trie.try_update(other),
 			ChildInfo::ParentSized(child_trie) => child_trie.try_update(other),
+			ChildInfo::Mmr(child_trie) => child_trie.try_update(other),
 		}
 	}
 
@@ -308,6 +314,7 @@ impl ChildInfo {
 		match self {
 			ChildInfo::ParentKeyId(..) => self.storage_key(),
 			ChildInfo::ParentSized(..) => self.storage_key(),
+			ChildInfo::Mmr(..) => self.storage_key(),
 		}
 	}
 
@@ -318,6 +325,7 @@ impl ChildInfo {
 		match self {
 			ChildInfo::ParentKeyId(ChildTrieParentKeyId { data }) => &data[..],
 			ChildInfo::ParentSized(ChildTrieParentKeyId { data }) => &data[..],
+			ChildInfo::Mmr(ChildTrieParentKeyId { data }) => &data[..],
 		}
 	}
 
@@ -329,6 +337,8 @@ impl ChildInfo {
 				ChildType::ParentKeyId.new_prefixed_key(data.as_slice()),
 			ChildInfo::ParentSized(ChildTrieParentKeyId { data }) =>
 				ChildType::ParentSized.new_prefixed_key(data.as_slice()),
+			ChildInfo::Mmr(ChildTrieParentKeyId { data }) =>
+				ChildType::Mmr.new_prefixed_key(data.as_slice()),
 		}
 	}
 
@@ -344,6 +354,10 @@ impl ChildInfo {
 				ChildType::ParentSized.do_prefix_key(&mut data);
 				PrefixedStorageKey(data)
 			},
+			ChildInfo::Mmr(ChildTrieParentKeyId { mut data }) => {
+				ChildType::Mmr.do_prefix_key(&mut data);
+				PrefixedStorageKey(data)
+			},
 		}
 	}
 
@@ -352,6 +366,7 @@ impl ChildInfo {
 		match self {
 			ChildInfo::ParentKeyId(..) => ChildType::ParentKeyId,
 			ChildInfo::ParentSized(..) => ChildType::ParentSized,
+			ChildInfo::Mmr(..) => ChildType::Mmr,
 		}
 	}
 }
@@ -370,6 +385,8 @@ pub enum ChildType {
 	/// If runtime module ensures that the child key is a unique id that will
 	/// only be used once, its parent key is used as a child trie unique id.
 	ParentSized = 2,
+	/// Variant of child trie containing integer indexed push only mmr.
+	Mmr = 3,
 }
 
 impl ChildType {
@@ -422,6 +439,7 @@ impl ChildType {
 		match self {
 			&ChildType::ParentKeyId => well_known_keys::DEFAULT_CHILD_STORAGE_KEY_PREFIX,
 			&ChildType::ParentSized => well_known_keys::SIZED_PARENT_CHILD_STORAGE_KEY_PREFIX,
+			&ChildType::Mmr => well_known_keys::MMR_CHILD_STORAGE_KEY_PREFIX,
 		}
 	}
 }
@@ -447,6 +465,7 @@ impl ChildTrieParentKeyId {
 		match other {
 			ChildInfo::ParentKeyId(other) => self.data[..] == other.data[..],
 			ChildInfo::ParentSized(other) => self.data[..] == other.data[..],
+			ChildInfo::Mmr(other) => self.data[..] == other.data[..],
 		}
 	}
 }

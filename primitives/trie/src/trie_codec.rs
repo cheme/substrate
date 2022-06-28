@@ -43,6 +43,8 @@ pub enum Error<H, CodecError> {
 	TrieError(Box<trie_db::TrieError<H, CodecError>>),
 	#[cfg_attr(feature = "std", error("Parent sized trie error: {0:?}"))]
 	ParentSizedChildTrieError(Box<trie_db::TrieError<H, crate::error::Error>>),
+	#[cfg_attr(feature = "std", error("Mmr child state error: {0:?}"))]
+	MmrChildError(&'static str),
 }
 
 impl<H, CodecError> From<Box<trie_db::TrieError<H, CodecError>>> for Error<H, CodecError> {
@@ -79,6 +81,7 @@ where
 	}
 
 	let mut child_tries = Vec::new();
+	let mut mmrs = Vec::new();
 	{
 		// fetch child trie roots
 		let trie = crate::TrieDB::<L>::new(db, &top_root)?;
@@ -92,6 +95,18 @@ where
 					Some(Ok((key, value))) => {
 						let prefixed_key = PrefixedStorageKey::new_ref(&key);
 						match ChildType::from_prefixed_key(prefixed_key) {
+							Some((ChildType::Mmr, _unprefixed)) => {
+								let mut root = TrieHash::<L>::default();
+								// still in a proof so prevent panic
+								if root.as_mut().len() != value.as_slice().len() + 8 {
+									return Err(Error::InvalidChildRoot(key, value))
+								}
+								root.as_mut().copy_from_slice(&value[8..]);
+								let mut nb_encoded = [0u8; 8];
+								nb_encoded.copy_from_slice(&value[..8]);
+								let nb_elt = u64::from_le_bytes(nb_encoded);
+								mmrs.push((root, nb_elt));
+							},
 							Some((child_type, _unprefixed)) => {
 								// we expect all default child trie root to be correctly encoded.
 								// see other child trie functions.
@@ -157,6 +172,7 @@ where
 					.map_err(|e| Error::ParentSizedChildTrieError(e))?;
 					previous_extracted_child_trie = Some(top_root);
 				},
+				ChildType::Mmr => unreachable!("in mmrs"),
 			}
 		}
 
@@ -166,6 +182,21 @@ where
 		// TODO this is not true anymore as we cannot mistake a child type.
 		// -> Should change code to not allow it.
 		if Some(child_root) == previous_extracted_child_trie {
+			previous_extracted_child_trie = None;
+		}
+	}
+
+	for (mmr_root, nb_elt) in mmrs.into_iter() {
+		if previous_extracted_child_trie.is_none() && nodes_iter.peek().is_some() {
+			previous_extracted_child_trie =
+				Some(crate::mmr::MmrDBMut::decode_compact(db, nb_elt, &mut nodes_iter)
+					.map_err(Error::MmrChildError)?);
+		}
+
+		// we do not early exit on root mismatch but try the
+		// other read from proof (some child root may be
+		// in proof without actual child content).
+		if Some(mmr_root) == previous_extracted_child_trie {
 			previous_extracted_child_trie = None;
 		}
 	}
@@ -198,7 +229,8 @@ where
 	L: TrieConfiguration,
 {
 	let mut child_tries = Vec::new();
-	let partial_db = proof.into_memory_db();
+	let mut mmrs = Vec::new();
+	let mut partial_db = proof.into_memory_db();
 	let mut compact_proof = {
 		let trie = crate::TrieDB::<L>::new(&partial_db, &root)?;
 
@@ -211,6 +243,20 @@ where
 					Some(Ok((key, value))) => {
 						let prefixed_key = PrefixedStorageKey::new_ref(&key);
 						match ChildType::from_prefixed_key(prefixed_key) {
+							Some((ChildType::Mmr, _unprefixed)) => {
+								let mut root = TrieHash::<L>::default();
+								if root.as_mut().len() != value.as_slice().len() + 8 {
+									return Err(Error::InvalidChildRoot(
+										key.to_vec(),
+										value.to_vec(),
+									))
+								}
+								root.as_mut().copy_from_slice(&value[8..]);
+								let mut nb_encoded = [0u8; 8];
+								nb_encoded.copy_from_slice(&value[..8]);
+								let nb_elt = u64::from_le_bytes(nb_encoded);
+								mmrs.push((root, nb_elt));
+							},
 							Some((child_type, _unprefixed)) => {
 								let mut root = TrieHash::<L>::default();
 								if root.as_mut().len() != value.as_slice().len() {
@@ -274,7 +320,23 @@ where
 
 				compact_proof.extend(child_proof);
 			},
+			ChildType::Mmr => unreachable!("in mmrs"),
 		}
+	}
+	for (mut mmr_root, number_element) in mmrs {
+		if !HashDBT::<L::Hash, _>::contains(&partial_db, &mmr_root, EMPTY_PREFIX) {
+			// just skip
+			continue
+		}
+		let mmr = crate::mmr::MmrDBMut {
+			peaks: Default::default(),
+			db: &mut partial_db,
+			root: &mut mmr_root,
+			number_element,
+		};
+		let child_proof = mmr.encode_compact()
+			.map_err(|e| Error::MmrChildError(e))?;
+		compact_proof.extend(child_proof);
 	}
 
 	Ok(CompactProof { encoded_nodes: compact_proof })

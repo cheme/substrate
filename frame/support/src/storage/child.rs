@@ -59,6 +59,7 @@ pub fn get<T: Decode + Sized>(child_info: &ChildInfo, key: &[u8]) -> Option<T> {
 				})
 			})
 		},
+		ChildType::Mmr => unreachable!("MMR do not have byte key"),
 	}
 }
 
