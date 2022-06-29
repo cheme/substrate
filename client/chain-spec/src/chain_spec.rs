@@ -150,6 +150,7 @@ impl<G: RuntimeGenesis, E> BuildStorage for ChainSpec<G, E> {
 						)
 					})
 					.collect(),
+				children_mmr: Default::default(),
 			}),
 			// The `StateRootHash` variant exists as a way to keep note that other clients support
 			// it, but Substrate itself isn't capable of loading chain specs with just a hash at the
@@ -175,6 +176,7 @@ pub struct RawGenesis {
 	pub children_default: BTreeMap<StorageKey, GenesisStorage>,
 	#[serde(default)]
 	pub children_sized: BTreeMap<StorageKey, GenesisStorage>,
+	// TODO mmr init state
 }
 
 #[derive(Serialize, Deserialize)]

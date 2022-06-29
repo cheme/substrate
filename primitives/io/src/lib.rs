@@ -1993,6 +1993,7 @@ mod tests {
 			top: map![b"foo".to_vec() => b"bar".to_vec()],
 			children_default: map![],
 			children_sized: map![],
+			children_mmr: map![],
 		});
 
 		t.execute_with(|| {
@@ -2005,6 +2006,7 @@ mod tests {
 			top: map![b"foo00".to_vec() => value.clone()],
 			children_default: map![],
 			children_sized: map![],
+			children_mmr: map![],
 		};
 		t = BasicExternalities::new(storage);
 
@@ -2021,6 +2023,7 @@ mod tests {
 			top: map![b":test".to_vec() => value.clone()],
 			children_default: map![],
 			children_sized: map![],
+			children_mmr: map![],
 		});
 
 		t.execute_with(|| {
@@ -2044,6 +2047,7 @@ mod tests {
 			],
 			children_default: map![],
 			children_sized: map![],
+			children_mmr: map![],
 		});
 
 		t.execute_with(|| {

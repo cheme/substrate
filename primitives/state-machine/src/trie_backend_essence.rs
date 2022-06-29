@@ -154,6 +154,22 @@ where
 		Ok(result)
 	}
 
+	fn child_root_indexed(&self, child_info: &ChildInfo) -> Result<Option<(u64, H::Out)>> {
+		let result = self.storage(child_info.prefixed_storage_key().as_slice())?.map(|r| {
+			// TODO should be using Decode
+			let mut hash = H::Out::default();
+
+			// root is fetched from DB, not writable by runtime, so it's always valid.
+			hash.as_mut().copy_from_slice(&r[8..]);
+			let mut elt = [0u8; 8];
+			elt.copy_from_slice(&r[..8]);
+
+			(u64::from_le_bytes(elt), hash)
+		});
+
+		Ok(result)
+	}
+
 	/// Return the next key in the child trie i.e. the minimum key that is strictly superior to
 	/// `key` in lexicographic order.
 	pub fn next_child_storage_key(
@@ -196,6 +212,7 @@ where
 					.map_err(|e| format!("TrieDB creation error: {}", e))?;
 				self.next_storage_key_from_root_inner::<LayoutParentSized<H>>(trie, key)
 			},
+			Some(ChildType::Mmr) => return Err(format!("Invalid mmr for next_key",).into()),
 		}
 	}
 
@@ -277,6 +294,25 @@ where
 				key,
 			)
 			.map_err(map_e),
+			ChildType::Mmr => return Err(format!("Not key indexed child state",).into()),
+		}
+	}
+
+	pub fn child_storage_at(
+		&self,
+		child_info: &ChildInfo,
+		at: u64,
+	) -> Result<Option<StorageValue>> {
+		let (nb_element, root) = match self.child_root_indexed(child_info)? {
+			Some(root) => root,
+			None => return Ok(None),
+		};
+
+		match child_info.child_type() {
+			ChildType::ParentKeyId => Err(format!("Not mmr child state",).into()),
+			ChildType::ParentSized => Err(format!("Not mmr child state",).into()),
+			ChildType::Mmr =>
+				Ok(sp_trie::mmr::read_child_trie_value::<H, _>(self, &root, nb_element, at)),
 		}
 	}
 
@@ -301,6 +337,7 @@ where
 				key,
 			)
 			.map_err(map_e),
+			ChildType::Mmr => Err(format!("Not for mmr",).into()),
 		}
 	}
 
@@ -325,6 +362,7 @@ where
 				key,
 			)
 			.map_err(map_e),
+			ChildType::Mmr => Err(format!("Not for mmr",).into()),
 		}
 	}
 
@@ -444,6 +482,7 @@ where
 				child_info,
 				maybe_start_at,
 			),
+			Some(ChildType::Mmr) => (),
 		}
 	}
 
@@ -520,6 +559,7 @@ where
 				start_at,
 				allow_missing_nodes,
 			),
+			Some(ChildType::Mmr) => Err(format!("Not for mmr",).into()),
 		}
 	}
 
@@ -674,6 +714,7 @@ where
 		{
 			let mut eph = Ephemeral::new(self.backend_storage(), &mut write_overlay);
 			match match (state_version, child_info.child_type()) {
+				(_, ChildType::Mmr) => unimplemented!("should return error"),
 				(StateVersion::V0, ChildType::ParentKeyId) =>
 					child_delta_trie_root::<sp_trie::LayoutV0<H>, _, _, _, _, _, _>(
 						child_info.keyspace(),
@@ -704,6 +745,46 @@ where
 		let is_default = root == default_root;
 
 		(root, is_default, write_overlay)
+	}
+
+	pub fn child_mmr_root<'a>(
+		&self,
+		child_info: &ChildInfo,
+		delta: impl Iterator<Item = &'a [u8]>,
+	) -> (u64, H::Out, bool, S::Overlay)
+	where
+		H::Out: Ord,
+	{
+		match child_info.child_type() {
+			ChildType::Mmr => (),
+			_ => unimplemented!("should return error"),
+		}
+
+		let default_root = sp_trie::mmr::empty_root::<H>();
+		let mut write_overlay = S::Overlay::default();
+		let (mut nb_elt, mut root) = match self.child_root_indexed(child_info) {
+			Ok(Some(root)) => root,
+			Ok(None) => (0, default_root),
+			Err(e) => {
+				warn!(target: "trie", "Failed to read child storage root: {}", e);
+				(0, default_root)
+			},
+		};
+
+		{
+			let mut eph = Ephemeral::new(self.backend_storage(), &mut write_overlay);
+			match sp_trie::mmr::child_delta_trie_root::<H, _, _, _>(&mut eph, root, nb_elt, delta) {
+				Ok((new_nb, new_root)) => {
+					root = new_root;
+					nb_elt = new_nb;
+				},
+				Err(e) => warn!(target: "trie", "Failed to write to mmr: {}", e),
+			}
+		}
+
+		let is_default = root == default_root;
+
+		(nb_elt, root, is_default, write_overlay)
 	}
 }
 

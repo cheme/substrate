@@ -281,6 +281,14 @@ where
 		self.0.child_storage(child_info, key)
 	}
 
+	fn child_storage_at(
+		&self,
+		child_info: &ChildInfo,
+		at: u64,
+	) -> Result<Option<Vec<u8>>, Self::Error> {
+		self.0.child_storage_at(child_info, at)
+	}
+
 	fn exists_child_storage(
 		&self,
 		child_info: &ChildInfo,
@@ -377,6 +385,14 @@ where
 		state_version: StateVersion,
 	) -> (Vec<u8>, bool, Self::Transaction) {
 		self.0.child_storage_root(child_info, delta, state_version)
+	}
+
+	fn child_mmr_root<'b>(
+		&self,
+		child_info: &ChildInfo,
+		delta: impl Iterator<Item = &'b [u8]>,
+	) -> (Vec<u8>, bool, Self::Transaction) {
+		self.0.child_mmr_root(child_info, delta)
 	}
 
 	fn register_overlay_stats(&self, _stats: &crate::stats::StateMachineStats) {}

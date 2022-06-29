@@ -174,6 +174,14 @@ impl<B: BlockT> StateBackend<HashFor<B>> for RefTrackingState<B> {
 		self.state.child_storage(child_info, key)
 	}
 
+	fn child_storage_at(
+		&self,
+		child_info: &ChildInfo,
+		at: u64,
+	) -> Result<Option<Vec<u8>>, Self::Error> {
+		self.state.child_storage_at(child_info, at)
+	}
+
 	fn exists_storage(&self, key: &[u8]) -> Result<bool, Self::Error> {
 		self.state.exists_storage(key)
 	}
@@ -267,6 +275,14 @@ impl<B: BlockT> StateBackend<HashFor<B>> for RefTrackingState<B> {
 		state_version: StateVersion,
 	) -> (Vec<u8>, bool, Self::Transaction) {
 		self.state.child_storage_root(child_info, delta, state_version)
+	}
+
+	fn child_mmr_root<'a>(
+		&self,
+		child_info: &ChildInfo,
+		delta: impl Iterator<Item = &'a [u8]>,
+	) -> (Vec<u8>, bool, Self::Transaction) {
+		self.state.child_mmr_root(child_info, delta)
 	}
 
 	fn pairs(&self) -> Vec<(Vec<u8>, Vec<u8>)> {
@@ -2495,6 +2511,7 @@ pub(crate) mod tests {
 					top: storage.into_iter().collect(),
 					children_default: Default::default(),
 					children_sized: Default::default(),
+					children_mmr: Default::default(),
 				},
 				state_version,
 			)
@@ -2576,6 +2593,7 @@ pub(crate) mod tests {
 					top: Default::default(),
 					children_default: Default::default(),
 					children_sized: Default::default(),
+					children_mmr: Default::default(),
 				},
 				state_version,
 			)
@@ -3048,6 +3066,7 @@ pub(crate) mod tests {
 					top: storage.into_iter().collect(),
 					children_default: Default::default(),
 					children_sized: Default::default(),
+					children_mmr: Default::default(),
 				},
 				state_version,
 			)

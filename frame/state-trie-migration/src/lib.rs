@@ -1226,6 +1226,7 @@ mod mock {
 			)
 			.collect(),
 			children_sized: Default::default(),
+			children_mmr: Default::default(),
 		};
 
 		if with_pallets {

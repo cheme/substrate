@@ -82,6 +82,7 @@ impl GenesisConfig {
 			top: map,
 			children_default: self.extra_storage.children_default.clone(),
 			children_sized: self.extra_storage.children_sized.clone(),
+			children_mmr: self.extra_storage.children_mmr.clone(),
 		};
 		let config = system::GenesisConfig { authorities: self.authorities.clone() };
 		config

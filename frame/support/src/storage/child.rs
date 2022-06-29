@@ -59,7 +59,32 @@ pub fn get<T: Decode + Sized>(child_info: &ChildInfo, key: &[u8]) -> Option<T> {
 				})
 			})
 		},
-		ChildType::Mmr => unreachable!("MMR do not have byte key"),
+		ChildType::Mmr => None,
+	}
+}
+
+/// Return the value of the item in indexed child trie.
+pub fn get_at<T: Decode + Sized>(child_info: &ChildInfo, _at: u64) -> Option<T> {
+	match child_info.child_type() {
+		ChildType::ParentKeyId => None,
+		ChildType::ParentSized => None,
+		ChildType::Mmr => {
+			unimplemented!()
+			// TODO CHEME impl spio
+			//let storage_key = child_info.storage_key();
+			/*			sp_io::mmr_child_storage::get_at(storage_key, at).and_then(|v| {
+				Decode::decode(&mut &v[..]).map(Some).unwrap_or_else(|_| {
+					// TODO #3700: error should be handleable.
+					log::error!(
+						target: "runtime::storage",
+						"Corrupted state in child trie at {:?}/{:?}",
+						storage_key,
+						key,
+					);
+					None
+				})
+			})*/
+		},
 	}
 }
 
@@ -93,6 +118,19 @@ pub fn put<T: Encode>(child_info: &ChildInfo, key: &[u8], value: &T) {
 		}),
 		ChildType::ParentSized => value.using_encoded(|slice| {
 			sp_io::parent_sized_child_storage::set(child_info.storage_key(), key, slice)
+		}),
+		ChildType::Mmr => (),
+	}
+}
+
+/// Push a value to a append only child state.
+pub fn push<T: Encode>(child_info: &ChildInfo, value: &T) {
+	match child_info.child_type() {
+		ChildType::ParentKeyId => (),
+		ChildType::ParentSized => (),
+		ChildType::Mmr => value.using_encoded(|_slice| {
+			// TODO CHEME implement the sp_io!!!
+			//			sp_io::mmr_child_storage::push(child_info.storage_key(), slice)
 		}),
 	}
 }
@@ -135,6 +173,7 @@ pub fn exists(child_info: &ChildInfo, key: &[u8]) -> bool {
 			sp_io::default_child_storage::exists(child_info.storage_key(), key),
 		ChildType::ParentSized =>
 			sp_io::parent_sized_child_storage::exists(child_info.storage_key(), key),
+		ChildType::Mmr => false,
 	}
 }
 
@@ -164,6 +203,7 @@ pub fn kill_storage(child_info: &ChildInfo, limit: Option<u32>) -> KillStorageRe
 			sp_io::default_child_storage::storage_kill(child_info.storage_key(), limit),
 		ChildType::ParentSized =>
 			sp_io::parent_sized_child_storage::storage_kill(child_info.storage_key(), limit),
+		ChildType::Mmr => unimplemented!(),
 	}
 }
 
@@ -212,6 +252,7 @@ pub fn clear_storage(
 			sp_io::default_child_storage::storage_kill(child_info.storage_key(), maybe_limit),
 		ChildType::ParentSized =>
 			sp_io::parent_sized_child_storage::storage_kill(child_info.storage_key(), maybe_limit),
+		ChildType::Mmr => unimplemented!("cursor wrong type but could fit u64 in it"),
 	};
 	use sp_io::KillStorageResult::*;
 	let (maybe_cursor, backend) = match r {
@@ -230,6 +271,7 @@ pub fn kill(child_info: &ChildInfo, key: &[u8]) {
 		ChildType::ParentSized => {
 			sp_io::parent_sized_child_storage::clear(child_info.storage_key(), key);
 		},
+		ChildType::Mmr => (),
 	}
 }
 
@@ -239,6 +281,7 @@ pub fn get_raw(child_info: &ChildInfo, key: &[u8]) -> Option<Vec<u8>> {
 		ChildType::ParentKeyId => sp_io::default_child_storage::get(child_info.storage_key(), key),
 		ChildType::ParentSized =>
 			sp_io::parent_sized_child_storage::get(child_info.storage_key(), key),
+		ChildType::Mmr => None,
 	}
 }
 
@@ -249,6 +292,7 @@ pub fn put_raw(child_info: &ChildInfo, key: &[u8], value: &[u8]) {
 			sp_io::default_child_storage::set(child_info.storage_key(), key, value),
 		ChildType::ParentSized =>
 			sp_io::parent_sized_child_storage::set(child_info.storage_key(), key, value),
+		ChildType::Mmr => (),
 	}
 }
 
@@ -259,6 +303,11 @@ pub fn root(child_info: &ChildInfo, version: StateVersion) -> Vec<u8> {
 			sp_io::default_child_storage::root(child_info.storage_key(), version),
 		ChildType::ParentSized =>
 			sp_io::parent_sized_child_storage::root(child_info.storage_key(), version),
+		ChildType::Mmr => {
+			// TODO CHEME sp io
+			unimplemented!()
+			//			sp_io::mmr_child_storage::root(child_info.storage_key())
+		},
 	}
 }
 
@@ -273,5 +322,6 @@ pub fn len(child_info: &ChildInfo, key: &[u8]) -> Option<u32> {
 			let mut buffer = [0; 0];
 			sp_io::parent_sized_child_storage::read(child_info.storage_key(), key, &mut buffer, 0)
 		},
+		ChildType::Mmr => None,
 	}
 }

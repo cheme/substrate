@@ -187,6 +187,19 @@ pub struct Storage {
 	pub children_default: std::collections::HashMap<Vec<u8>, StorageChild>,
 	/// Changes for child trie with size.
 	pub children_sized: std::collections::HashMap<Vec<u8>, StorageChild>,
+	/// Changes for mmr (in append order).
+	pub children_mmr: std::collections::HashMap<Vec<u8>, StorageMmr>,
+}
+
+/// Child mmr storage data (push only).
+#[cfg(feature = "std")]
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct StorageMmr {
+	/// Child data for storage.
+	pub data: Vec<Vec<u8>>,
+	/// Associated child info for a child
+	/// state.
+	pub child_info: ChildInfo,
 }
 
 /// Storage change set
@@ -295,6 +308,14 @@ impl ChildInfo {
 	/// Same as `new_default` but with `Vec<u8>` as input.
 	pub fn new_default_from_vec(storage_key: Vec<u8>) -> Self {
 		ChildInfo::ParentKeyId(ChildTrieParentKeyId { data: storage_key })
+	}
+
+	/// Instantiates child information for a default child trie
+	/// of kind `ChildType::Mmr`, using an unprefixed parent
+	/// storage key.
+	pub fn new_mmr(storage_key: &[u8]) -> Self {
+		let data = storage_key.to_vec();
+		ChildInfo::Mmr(ChildTrieParentKeyId { data })
 	}
 
 	/// Try to update with another instance, return false if both instance

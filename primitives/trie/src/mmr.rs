@@ -24,7 +24,7 @@
 /// work with paritydb rc backend, yet with this partial code there is no removal written, so
 /// should be fine with rocksdb too).
 use hash_db::{HashDB, HashDBRef, Hasher};
-use sp_std::{vec, collections::vec_deque::VecDeque};
+use sp_std::{collections::vec_deque::VecDeque, vec, vec::Vec};
 
 pub type DBValue = Vec<u8>;
 
@@ -34,23 +34,74 @@ pub struct MmrDB<'db, H: Hasher> {
 	number_element: u64,
 }
 
+pub fn empty_root<H: Hasher>() -> H::Out {
+	H::hash(&[])
+}
+
+pub fn read_child_trie_value<H, DB>(
+	db: &DB,
+	root: &H::Out,
+	number_element: u64,
+	at: u64,
+) -> Option<Vec<u8>>
+where
+	H: Hasher,
+	DB: hash_db::HashDBRef<H, DBValue>,
+{
+	MmrDB { db: &*db, root, number_element }.get(at)
+}
+
+pub fn child_delta_trie_root<H: Hasher, DB, I, A>(
+	db: &mut DB,
+	mut root: H::Out,
+	number_element: u64,
+	delta: I,
+) -> Result<(u64, H::Out), &'static str>
+where
+	I: IntoIterator<Item = A>,
+	A: sp_std::borrow::Borrow<[u8]>,
+	DB: hash_db::HashDB<H, trie_db::DBValue>,
+{
+	let mut mmr =
+		MmrDBMut { peaks: Default::default(), db: &mut *db, root: &mut root, number_element };
+	for v in delta.into_iter() {
+		mmr.push(v.borrow()).ok_or("error calculating root")?;
+	}
+	mmr.commit();
+	Ok((mmr.number_element, root))
+}
+
 impl<'db, H: Hasher> MmrDB<'db, H> {
 	pub fn get(&self, index: u64) -> Option<DBValue> {
 		if index < self.number_element {
+			let num_peaks = self.number_element.count_ones();
+			let mut skips = num_peaks - 1;
 			//let max_depth = 64 - self.number_element.next_power_of_two().leading_zeros();
 			let max_depth = 64 - (self.number_element - 1).leading_zeros();
 			let mut node = self.db.get(self.root, Default::default())?;
 			let mut hash = H::Out::default();
 			let hash_len = hash.as_ref().len();
+			let mut skip_next = false;
 			for i in (0..max_depth).rev() {
+				let ix = (index & 1 << i) > 0;
+				if !ix && skip_next {
+					if ((self.number_element - 1) & 1 << i) == 0 {
+						continue
+					} else {
+						skip_next = false;
+					}
+				}
+				if ix {
+					if skips > 0 {
+						skips -= 1;
+						skip_next = true;
+					}
+				} else {
+					skips = 0;
+				}
 				if node.len() != hash_len * 2 {
 					// incorrect node, bug in impl
 					panic!("Invalid build mmr");
-				}
-				let ix = (index & 1 << i) > 0;
-				if !ix && (index | 1 << i) >= self.number_element {
-					// no sibling
-					continue
 				}
 				let ix = ix as usize;
 				hash.as_mut().copy_from_slice(&node[ix * hash_len..(ix + 1) * hash_len]);
@@ -195,8 +246,7 @@ impl<'db, H: Hasher> MmrDBMut<'db, H> {
 		let mut result = Vec::new();
 		let mut hash = H::Out::default();
 		let hash_len = hash.as_ref().len();
-		let mut node = self.db.get(self.root, Default::default())
-			.ok_or("Missing mmr root")?;
+		let mut node = self.db.get(self.root, Default::default()).ok_or("Missing mmr root")?;
 		let mut descend = true;
 		loop {
 			if descend {
@@ -329,7 +379,7 @@ fn simple_test() {
 	let mut root = <BlakeTwo256 as Hasher>::Out::default();
 	let mut trie_db =
 		MmrDBMut { db: &mut db, root: &mut root, peaks: Default::default(), number_element: 0 };
-	let mut nb = 100;
+	let nb = 100;
 	for i in 0u64..nb {
 		let val = i.to_le_bytes();
 

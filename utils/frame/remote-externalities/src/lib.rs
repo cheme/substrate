@@ -611,6 +611,9 @@ impl<B: BlockT + DeserializeOwned> Builder<B> {
 				Some((ChildType::ParentSized, storage_key)) => {
 					child_kv.push((ChildInfo::new_parent_sized(&storage_key), child_kv_inner));
 				},
+				Some((ChildType::Mmr, _storage_key)) => {
+					unimplemented!("No impl of mmr child storage for mmr");
+				},
 				None => {
 					log::error!(target: LOG_TARGET, "invalid key: {:?}", prefixed_top_key);
 					return Err("Invalid child key")

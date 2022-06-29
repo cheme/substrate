@@ -188,9 +188,10 @@ where
 
 	for (mmr_root, nb_elt) in mmrs.into_iter() {
 		if previous_extracted_child_trie.is_none() && nodes_iter.peek().is_some() {
-			previous_extracted_child_trie =
-				Some(crate::mmr::MmrDBMut::decode_compact(db, nb_elt, &mut nodes_iter)
-					.map_err(Error::MmrChildError)?);
+			previous_extracted_child_trie = Some(
+				crate::mmr::MmrDBMut::decode_compact(db, nb_elt, &mut nodes_iter)
+					.map_err(Error::MmrChildError)?,
+			);
 		}
 
 		// we do not early exit on root mismatch but try the
@@ -334,8 +335,7 @@ where
 			root: &mut mmr_root,
 			number_element,
 		};
-		let child_proof = mmr.encode_compact()
-			.map_err(|e| Error::MmrChildError(e))?;
+		let child_proof = mmr.encode_compact().map_err(|e| Error::MmrChildError(e))?;
 		compact_proof.extend(child_proof);
 	}
 

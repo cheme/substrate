@@ -501,7 +501,8 @@ where
 						ChildInfo::new_default(storage_key),
 					Some((ChildType::ParentSized, storage_key)) =>
 						ChildInfo::new_parent_sized(storage_key),
-					None => return Err(sp_blockchain::Error::InvalidChildStorageKey),
+					Some((ChildType::Mmr, _)) | None =>
+						return Err(sp_blockchain::Error::InvalidChildStorageKey),
 				};
 				self.client
 					.read_child_proof(
@@ -528,7 +529,8 @@ where
 						ChildInfo::new_default(storage_key),
 					Some((ChildType::ParentSized, storage_key)) =>
 						ChildInfo::new_parent_sized(storage_key),
-					None => return Err(sp_blockchain::Error::InvalidChildStorageKey),
+					Some((ChildType::Mmr, _)) | None =>
+						return Err(sp_blockchain::Error::InvalidChildStorageKey),
 				};
 				self.client.child_storage_keys(&BlockId::Hash(block), &child_info, &prefix)
 			})
@@ -550,7 +552,8 @@ where
 						ChildInfo::new_default(storage_key),
 					Some((ChildType::ParentSized, storage_key)) =>
 						ChildInfo::new_parent_sized(storage_key),
-					None => return Err(sp_blockchain::Error::InvalidChildStorageKey),
+					Some((ChildType::Mmr, _)) | None =>
+						return Err(sp_blockchain::Error::InvalidChildStorageKey),
 				};
 				self.client.child_storage_keys_iter(
 					&BlockId::Hash(block),
@@ -576,7 +579,8 @@ where
 						ChildInfo::new_default(storage_key),
 					Some((ChildType::ParentSized, storage_key)) =>
 						ChildInfo::new_parent_sized(storage_key),
-					None => return Err(sp_blockchain::Error::InvalidChildStorageKey),
+					Some((ChildType::Mmr, _)) | None =>
+						return Err(sp_blockchain::Error::InvalidChildStorageKey),
 				};
 				self.client.child_storage(&BlockId::Hash(block), &child_info, &key)
 			})
@@ -594,7 +598,8 @@ where
 				Arc::new(ChildInfo::new_default(storage_key)),
 			Some((ChildType::ParentSized, storage_key)) =>
 				Arc::new(ChildInfo::new_parent_sized(storage_key)),
-			None => return Err(client_err(sp_blockchain::Error::InvalidChildStorageKey)),
+			Some((ChildType::Mmr, _)) | None =>
+				return Err(client_err(sp_blockchain::Error::InvalidChildStorageKey)),
 		};
 		let block = self.block_or_best(block).map_err(client_err)?;
 		let client = self.client.clone();
@@ -622,7 +627,8 @@ where
 						ChildInfo::new_default(storage_key),
 					Some((ChildType::ParentSized, storage_key)) =>
 						ChildInfo::new_parent_sized(storage_key),
-					None => return Err(sp_blockchain::Error::InvalidChildStorageKey),
+					Some((ChildType::Mmr, _)) | None =>
+						return Err(sp_blockchain::Error::InvalidChildStorageKey),
 				};
 				self.client.child_storage_hash(&BlockId::Hash(block), &child_info, &key)
 			})

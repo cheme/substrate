@@ -57,6 +57,13 @@ pub trait Backend<H: Hasher>: sp_std::fmt::Debug {
 		key: &[u8],
 	) -> Result<Option<StorageValue>, Self::Error>;
 
+	/// Get value at a child mmr index if defined.
+	fn child_storage_at(
+		&self,
+		child_info: &ChildInfo,
+		at: u64,
+	) -> Result<Option<StorageValue>, Self::Error>;
+
 	/// Get child keyed storage value hash or None if there is nothing associated.
 	fn child_storage_hash(
 		&self,
@@ -157,6 +164,13 @@ pub trait Backend<H: Hasher>: sp_std::fmt::Debug {
 		child_info: &ChildInfo,
 		delta: impl Iterator<Item = (&'a [u8], Option<&'a [u8]>)>,
 		state_version: StateVersion,
+	) -> (Vec<u8>, bool, Self::Transaction);
+
+	/// Root and size for mmr child.
+	fn child_mmr_root<'a>(
+		&self,
+		child_info: &ChildInfo,
+		delta: impl Iterator<Item = &'a [u8]>,
 	) -> (Vec<u8>, bool, Self::Transaction);
 
 	/// Get all key/value pairs into a Vec.

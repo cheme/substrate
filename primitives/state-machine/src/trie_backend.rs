@@ -96,6 +96,14 @@ where
 		self.essence.child_storage(child_info, key)
 	}
 
+	fn child_storage_at(
+		&self,
+		child_info: &ChildInfo,
+		at: u64,
+	) -> Result<Option<StorageValue>, Self::Error> {
+		self.essence.child_storage_at(child_info, at)
+	}
+
 	fn exists_child_storage(
 		&self,
 		child_info: &ChildInfo,
@@ -196,6 +204,18 @@ where
 		(root.encode(), is_default, transaction)
 	}
 
+	fn child_mmr_root<'a>(
+		&self,
+		child_info: &ChildInfo,
+		delta: impl Iterator<Item = &'a [u8]>,
+	) -> (Vec<u8>, bool, Self::Transaction)
+	where
+		H::Out: Encode,
+	{
+		let (size, root, is_default, transaction) = self.essence.child_mmr_root(child_info, delta);
+		((size, root).encode(), is_default, transaction)
+	}
+
 	fn as_trie_backend(&self) -> Option<&TrieBackend<Self::TrieBackendStorage, H>> {
 		Some(self)
 	}
@@ -223,6 +243,7 @@ where
 			StateVersion::V1 => empty_child_trie_root::<LayoutV1<H>>(),
 		},
 		ChildType::ParentSized => empty_child_trie_root::<LayoutParentSized<H>>(),
+		ChildType::Mmr => sp_trie::mmr::empty_root::<H>(),
 	}
 }
 

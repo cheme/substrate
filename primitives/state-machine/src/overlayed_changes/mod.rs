@@ -20,7 +20,7 @@
 mod changeset;
 mod offchain;
 
-use self::changeset::OverlayedChangeSet;
+use self::changeset::{OverlayedChangeSet, OverlayedChangeSetMmr};
 use crate::{backend::Backend, stats::StateMachineStats, DefaultError};
 use codec::{Decode, Encode};
 use hash_db::Hasher;
@@ -59,6 +59,9 @@ pub type StorageCollection = Vec<(StorageKey, Option<StorageValue>)>;
 /// In memory arrays of storage values for multiple child tries.
 pub type ChildStorageCollection = Vec<(StorageKey, StorageCollection)>;
 
+/// In memory changes for Mmr (push only
+pub type ChildMmrCollection = Vec<(StorageKey, Vec<StorageValue>)>;
+
 /// In memory array of storage values.
 pub type OffchainChangesCollection = Vec<((Vec<u8>, Vec<u8>), OffchainOverlayedChange)>;
 
@@ -94,6 +97,8 @@ pub struct OverlayedChanges {
 	top: OverlayedChangeSet,
 	/// Child storage changes. The map key is the child storage key without the common prefix.
 	children: Map<StorageKey, (OverlayedChangeSet, ChildInfo)>,
+	/// Child mmr changes. The map key is the child storage key without the common prefix.
+	mmr: Map<StorageKey, (OverlayedChangeSetMmr, ChildInfo)>,
 	/// Offchain related changes.
 	offchain: OffchainOverlayedChanges,
 	/// Transaction index changes,
@@ -136,6 +141,8 @@ pub struct StorageChanges<Transaction, H: Hasher> {
 	pub main_storage_changes: StorageCollection,
 	/// All changes to the child storages.
 	pub child_storage_changes: ChildStorageCollection,
+	/// All changes to the child mmr storages.
+	pub child_mmr_changes: ChildMmrCollection,
 	/// Offchain state changes to write to the offchain database.
 	pub offchain_storage_changes: OffchainChangesCollection,
 	/// A transaction for the backend that contains all changes from
@@ -202,6 +209,7 @@ impl<Transaction: Default, H: Hasher> Default for StorageChanges<Transaction, H>
 		Self {
 			main_storage_changes: Default::default(),
 			child_storage_changes: Default::default(),
+			child_mmr_changes: Default::default(),
 			offchain_storage_changes: Default::default(),
 			transaction: Default::default(),
 			transaction_storage_root: Default::default(),
@@ -448,11 +456,15 @@ impl OverlayedChanges {
 				(impl Iterator<Item = (StorageKey, Option<StorageValue>)>, ChildInfo),
 			),
 		>,
+		impl Iterator<Item = (StorageKey, (impl Iterator<Item = StorageValue>, ChildInfo))>,
 	) {
 		use sp_std::mem::take;
 		(
 			take(&mut self.top).drain_commited(),
 			take(&mut self.children)
+				.into_iter()
+				.map(|(key, (val, info))| (key, (val.drain_commited(), info))),
+			take(&mut self.mmr)
 				.into_iter()
 				.map(|(key, (val, info))| (key, (val.drain_commited(), info))),
 		)
@@ -530,7 +542,8 @@ impl OverlayedChanges {
 			.and_then(|t| cache.transaction_storage_root.take().map(|tr| (t, tr)))
 			.expect("Transaction was be generated as part of `storage_root`; qed");
 
-		let (main_storage_changes, child_storage_changes) = self.drain_committed();
+		let (main_storage_changes, child_storage_changes, child_mmr_changes) =
+			self.drain_committed();
 		let offchain_storage_changes = self.offchain_drain_committed().collect();
 
 		#[cfg(feature = "std")]
@@ -541,6 +554,7 @@ impl OverlayedChanges {
 			child_storage_changes: child_storage_changes
 				.map(|(sk, it)| (sk, it.0.collect()))
 				.collect(),
+			child_mmr_changes: child_mmr_changes.map(|(sk, it)| (sk, it.0.collect())).collect(),
 			offchain_storage_changes,
 			transaction,
 			transaction_storage_root,

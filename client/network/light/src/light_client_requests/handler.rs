@@ -259,6 +259,7 @@ where
 			Some((ChildType::ParentKeyId, storage_key)) => Ok(ChildInfo::new_default(storage_key)),
 			Some((ChildType::ParentSized, storage_key)) =>
 				Ok(ChildInfo::new_parent_sized(storage_key)),
+			Some((ChildType::Mmr, _)) => Err(sp_blockchain::Error::InvalidChildStorageKey),
 			None => Err(sp_blockchain::Error::InvalidChildStorageKey),
 		};
 		let proof = match child_info.and_then(|child_info| {

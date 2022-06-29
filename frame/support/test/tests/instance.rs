@@ -345,6 +345,7 @@ fn storage_instance_independence() {
 		top: std::collections::BTreeMap::new(),
 		children_default: std::collections::HashMap::new(),
 		children_sized: std::collections::HashMap::new(),
+		children_mmr: std::collections::HashMap::new(),
 	};
 	sp_state_machine::BasicExternalities::execute_with_storage(&mut storage, || {
 		module2::Value::<Runtime>::put(0);

@@ -62,7 +62,7 @@ use sc_utils::mpsc::{tracing_unbounded, TracingUnboundedSender};
 use sp_core::{
 	storage::{
 		well_known_keys, ChildInfo, ChildType, PrefixedStorageKey, Storage, StorageChild,
-		StorageData, StorageKey,
+		StorageData, StorageKey, StorageMmr,
 	},
 	NativeOrEncoded,
 };
@@ -633,6 +633,20 @@ where
 													storage_key,
 												),
 											}),
+										Some((ChildType::Mmr, storage_key)) => {
+											let entry = storage
+												.children_mmr
+												.entry(storage_key.to_vec())
+												.or_insert_with(|| StorageMmr {
+													data: Default::default(),
+													child_info: ChildInfo::new_mmr(storage_key),
+												});
+											debug_assert!(state.key_values.is_empty());
+											for value in state.values.iter() {
+												entry.data.push(value.clone());
+											}
+											continue
+										},
 										None =>
 											return Err(Error::Backend(
 												"Invalid child storage key.".to_string(),
@@ -1225,6 +1239,7 @@ where
 					Ok(ChildInfo::new_default(storage_key)),
 				Some((ChildType::ParentSized, storage_key)) =>
 					Ok(ChildInfo::new_parent_sized(storage_key)),
+				Some((ChildType::Mmr, storage_key)) => unimplemented!("TODO probly start key u64 le"),
 				None => Err(Error::Backend("Invalid child storage key.".to_string())),
 			}
 		};
@@ -1247,6 +1262,7 @@ where
 			KeyValueStorageLevel {
 				state_root: Vec::new(),
 				key_values: Vec::new(),
+				values: Vec::new(),
 				parent_storage_keys: Vec::new(),
 			},
 			false,
@@ -1306,6 +1322,7 @@ where
 					KeyValueStorageLevel {
 						state_root: child_root,
 						key_values: entries,
+						values: Default::default(),
 						parent_storage_keys: Vec::new(),
 					},
 					complete,

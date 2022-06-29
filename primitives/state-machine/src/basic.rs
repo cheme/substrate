@@ -78,6 +78,7 @@ impl BasicExternalities {
 				top: std::mem::take(&mut storage.top),
 				children_default: std::mem::take(&mut storage.children_default),
 				children_sized: std::mem::take(&mut storage.children_sized),
+				children_mmr: std::mem::take(&mut storage.children_mmr),
 			},
 			extensions: Default::default(),
 		};
@@ -136,6 +137,7 @@ impl From<BTreeMap<StorageKey, StorageValue>> for BasicExternalities {
 				top: hashmap,
 				children_default: Default::default(),
 				children_sized: Default::default(),
+				children_mmr: Default::default(),
 			},
 			extensions: Default::default(),
 		}
@@ -165,6 +167,7 @@ impl Externalities for BasicExternalities {
 		let child_map = match child_info.child_type() {
 			ChildType::ParentKeyId => &self.inner.children_default,
 			ChildType::ParentSized => &self.inner.children_sized,
+			ChildType::Mmr => return None,
 		};
 		child_map
 			.get(child_info.storage_key())
@@ -201,6 +204,7 @@ impl Externalities for BasicExternalities {
 		let child_map = match child_info.child_type() {
 			ChildType::ParentKeyId => &self.inner.children_default,
 			ChildType::ParentSized => &self.inner.children_sized,
+			ChildType::Mmr => return None,
 		};
 		child_map
 			.get(child_info.storage_key())
@@ -232,6 +236,7 @@ impl Externalities for BasicExternalities {
 		let child_map = match child_info.child_type() {
 			ChildType::ParentKeyId => &mut self.inner.children_default,
 			ChildType::ParentSized => &mut self.inner.children_sized,
+			ChildType::Mmr => return,
 		};
 
 		let child_map =
@@ -257,6 +262,7 @@ impl Externalities for BasicExternalities {
 		let child_map = match child_info.child_type() {
 			ChildType::ParentKeyId => &mut self.inner.children_default,
 			ChildType::ParentSized => &mut self.inner.children_sized,
+			ChildType::Mmr => unimplemented!(),
 		};
 
 		let count =
@@ -305,6 +311,7 @@ impl Externalities for BasicExternalities {
 		let child_map = match child_info.child_type() {
 			ChildType::ParentKeyId => &mut self.inner.children_default,
 			ChildType::ParentSized => &mut self.inner.children_sized,
+			ChildType::Mmr => unimplemented!(),
 		};
 
 		if let Some(child) = child_map.get_mut(child_info.storage_key()) {
@@ -369,6 +376,16 @@ impl Externalities for BasicExternalities {
 		let child_map = match child_info.child_type() {
 			ChildType::ParentKeyId => &self.inner.children_default,
 			ChildType::ParentSized => &self.inner.children_sized,
+			ChildType::Mmr =>
+				return if let Some(child) = self.inner.children_mmr.get(child_info.storage_key()) {
+					let delta = child.data.iter().map(|v| v.as_ref());
+					crate::in_memory_backend::new_in_mem::<Blake2Hasher, HashKey<_>>()
+						.child_mmr_root(&child.child_info, delta)
+						.0
+				} else {
+					let root = sp_trie::mmr::empty_root::<Blake2Hasher>();
+					(0u64, root).encode()
+				},
 		};
 
 		if let Some(child) = child_map.get(child_info.storage_key()) {
@@ -488,6 +505,7 @@ mod tests {
 				}
 			],
 			children_sized: map![],
+			children_mmr: map![],
 		});
 
 		assert_eq!(ext.child_storage(child_info, b"doe"), Some(b"reindeer".to_vec()));
@@ -519,6 +537,7 @@ mod tests {
 				}
 			],
 			children_sized: map![],
+			children_mmr: map![],
 		});
 
 		let res = ext.kill_child_storage(child_info, None, None);
@@ -532,5 +551,6 @@ mod tests {
 		assert!(storage.top.is_empty());
 		assert!(storage.children_default.is_empty());
 		assert!(storage.children_sized.is_empty());
+		assert!(storage.children_mmr.is_empty());
 	}
 }
