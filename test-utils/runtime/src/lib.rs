@@ -824,6 +824,7 @@ cfg_if! {
 				fn test_storage() {
 					test_read_storage();
 					test_read_child_storage();
+					test_read_mmr_storage();
 				}
 
 				fn test_witness(proof: StorageProof, root: crate::Hash) {
@@ -1088,6 +1089,7 @@ cfg_if! {
 				fn test_storage() {
 					test_read_storage();
 					test_read_child_storage();
+					test_read_mmr_storage();
 				}
 
 				fn test_witness(proof: StorageProof, root: crate::Hash) {
@@ -1262,6 +1264,21 @@ fn test_read_child_storage() {
 	let r = sp_io::default_child_storage::read(STORAGE_KEY, KEY, &mut v, 8);
 	assert_eq!(r, Some(0));
 	assert_eq!(&v, &[0, 0, 0, 0]);
+}
+
+// TODO CHEME make this test run
+fn test_read_mmr_storage() {
+	use frame_support::storage::child;
+	const STORAGE_KEY: &[u8] = b"mmr_unique_id_1";
+	let child_info = sp_core::storage::ChildInfo::new_mmr(STORAGE_KEY);
+	let init: Option<u64> = child::get_at(&child_info, 1);
+	assert_eq!(init, None);
+
+	child::push(&child_info, &1u64);
+	let init = child::get_at(&child_info, 0);
+	assert_eq!(init, Some(1u64));
+	let init: Option<u64> = child::get_at(&child_info, 1);
+	assert_eq!(init, None);
 }
 
 fn test_witness(proof: StorageProof, root: crate::Hash) {
