@@ -813,14 +813,9 @@ impl<Block: BlockT> BlockImportOperation<Block> {
 			},
 		);
 
-		let child_delta_mmr = storage.children_mmr.iter().map(
-			|(_storage_key, child_content)| {
-				(
-					&child_content.child_info,
-					child_content.data.iter().map(|v| &v[..]),
-				)
-			},
-		);
+		let child_delta_mmr = storage.children_mmr.iter().map(|(_storage_key, child_content)| {
+			(&child_content.child_info, child_content.data.iter().map(|v| &v[..]))
+		});
 
 		let (root, transaction) = self.old_state.full_storage_root(
 			storage.top.iter().map(|(k, v)| (&k[..], Some(&v[..]))),
