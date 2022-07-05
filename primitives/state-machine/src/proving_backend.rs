@@ -531,25 +531,36 @@ mod tests {
 	fn proof_recorded_and_checked_with_child_inner(state_version: StateVersion) {
 		let child_info_1 = ChildInfo::new_default(b"sub1");
 		let child_info_2 = ChildInfo::new_default(b"sub2");
+		let child_info_mmr = ChildInfo::new_mmr(b"sub1");
 		let child_info_1 = &child_info_1;
 		let child_info_2 = &child_info_2;
+		let child_info_mmr = &child_info_mmr;
 		let contents = vec![
 			(None, (0..64).map(|i| (vec![i], Some(vec![i]))).collect::<Vec<_>>()),
 			(Some(child_info_1.clone()), (28..65).map(|i| (vec![i], Some(vec![i]))).collect()),
 			(Some(child_info_2.clone()), (10..15).map(|i| (vec![i], Some(vec![i]))).collect()),
 		];
 		let in_memory = InMemoryBackend::<BlakeTwo256>::default();
-		let in_memory = in_memory.update(contents, state_version);
+		let mut in_memory = in_memory.update(contents, state_version);
+		let mut mmr_val = Vec::new();
+		for i in 0u8..100 {
+			mmr_val.push(vec![i]);
+		}
+		let mmrs = vec![child_info_mmr.to_owned()];
 		let child_storage_keys = vec![child_info_1.to_owned(), child_info_2.to_owned()];
-		let mmrs: sp_std::iter::Empty<(_, sp_std::iter::Empty<_>)> = sp_std::iter::empty();
-		let in_memory_root = in_memory
+		let (in_memory_root, transaction) = in_memory
 			.full_storage_root(
 				std::iter::empty(),
 				child_storage_keys.iter().map(|k| (k, std::iter::empty())),
-				mmrs,
+				mmrs.iter().map(|k| (k, mmr_val.iter().map(AsRef::as_ref))),
 				state_version,
-			)
-			.0;
+			);
+		let mut storage = in_memory.into_storage();
+		storage.consolidate(transaction);
+
+		let in_memory = InMemoryBackend::<BlakeTwo256>::new(storage, in_memory_root);
+
+		//in_memory.storage_mut().root = in_memory_root;
 		(0..64).for_each(|i| assert_eq!(in_memory.storage(&[i]).unwrap().unwrap(), vec![i]));
 		(28..65).for_each(|i| {
 			assert_eq!(in_memory.child_storage(child_info_1, &[i]).unwrap().unwrap(), vec![i])
@@ -577,10 +588,13 @@ mod tests {
 
 		let proving = ProvingBackend::new(trie);
 		assert_eq!(proving.child_storage(child_info_1, &[64]), Ok(Some(vec![64])));
+		assert_eq!(proving.child_storage_at(child_info_mmr, 50), Ok(Some(vec![50])));
 
 		let proof = proving.extract_proof();
 		let proof_check = create_proof_check_backend::<BlakeTwo256>(in_memory_root, proof).unwrap();
+		// TODO compact proof?
 		assert_eq!(proof_check.child_storage(child_info_1, &[64]).unwrap().unwrap(), vec![64]);
+		assert_eq!(proof_check.child_storage_at(child_info_mmr, 50), Ok(Some(vec![50])));
 	}
 
 	#[test]
