@@ -108,6 +108,12 @@ impl<'a, H: Hasher, B: 'a + Backend<H>> Externalities for ReadOnlyExternalities<
 			.expect("Backed failed for child_storage in ReadOnlyExternalities")
 	}
 
+	fn child_storage_at(&self, child_info: &ChildInfo, at: u64) -> Option<StorageValue> {
+		self.backend
+			.child_storage_at(child_info, at)
+			.expect("Backed failed for child_storage in ReadOnlyExternalities")
+	}
+
 	fn exists_child_storage(&self, child_info: &ChildInfo, key: &[u8]) -> bool {
 		self.backend
 			.exists_child_storage(child_info, key)
@@ -147,6 +153,14 @@ impl<'a, H: Hasher, B: 'a + Backend<H>> Externalities for ReadOnlyExternalities<
 		_value: Option<StorageValue>,
 	) {
 		unimplemented!("place_child_storage not supported in ReadOnlyExternalities")
+	}
+
+	fn push_storage(
+		&mut self,
+		_child_info: &ChildInfo,
+		_value: StorageValue,
+	) {
+		unimplemented!("push_storage not supported in ReadOnlyExternalities")
 	}
 
 	fn kill_child_storage(

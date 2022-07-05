@@ -246,6 +246,28 @@ where
 		result
 	}
 
+	fn child_storage_at(&self, child_info: &ChildInfo, at: u64) -> Option<StorageValue> {
+		let _guard = guard();
+		let result = self
+			.overlay
+			.child_storage_at(child_info, at)
+			.map(|x| x.map(|x| x.to_vec()))
+			.unwrap_or_else(|| {
+				self.backend.child_storage_at(child_info, at).expect(EXT_NOT_ALLOWED_TO_FAIL)
+			});
+
+		trace!(
+			target: "state",
+			method = "ChildGet",
+			ext_id = %HexDisplay::from(&self.id.to_le_bytes()),
+			child_info = %HexDisplay::from(&child_info.storage_key()),
+			at = %at,
+			result = ?result.as_ref().map(HexDisplay::from)
+		);
+
+		result
+	}
+
 	fn child_storage_hash(&self, child_info: &ChildInfo, key: &[u8]) -> Option<Vec<u8>> {
 		let _guard = guard();
 		let result = self
@@ -450,6 +472,10 @@ where
 		self.overlay.set_storage(key, value);
 	}
 
+	fn push_storage(&mut self, child_info: &ChildInfo, value: StorageValue) {
+		unimplemented!("CHEME");
+	}
+
 	fn place_child_storage(
 		&mut self,
 		child_info: &ChildInfo,
@@ -599,6 +625,7 @@ where
 		let _guard = guard();
 		let storage_key = child_info.storage_key();
 		let prefixed_storage_key = child_info.prefixed_storage_key();
+		unimplemented!("CHEME changes for mmr");
 		if self.storage_transaction_cache.transaction_storage_root.is_some() {
 			let root = self
 				.storage(prefixed_storage_key.as_slice())

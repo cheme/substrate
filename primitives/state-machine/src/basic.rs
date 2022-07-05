@@ -24,7 +24,7 @@ use log::warn;
 use sp_core::{
 	storage::{
 		well_known_keys::is_child_storage_key, ChildInfo, ChildType, StateVersion, Storage,
-		StorageChild, TrackedStorageKey,
+		StorageChild, StorageMmr,TrackedStorageKey,
 	},
 	traits::Externalities,
 	Blake2Hasher,
@@ -175,6 +175,18 @@ impl Externalities for BasicExternalities {
 			.cloned()
 	}
 
+	fn child_storage_at(&self, child_info: &ChildInfo, at: u64) -> Option<StorageValue> {
+		let child_map = match child_info.child_type() {
+			ChildType::ParentKeyId => return None,
+			ChildType::ParentSized => return None,
+			ChildType::Mmr => &self.inner.children_mmr,
+		};
+		child_map
+			.get(child_info.storage_key())
+			.and_then(|child| child.data.get(at as usize))
+			.cloned()
+	}
+
 	fn exists_child_storage(&self, child_info: &ChildInfo, key: &[u8]) -> bool {
 		self.inner
 			.children_default
@@ -251,6 +263,27 @@ impl Externalities for BasicExternalities {
 		} else {
 			child_map.data.remove(&key);
 		}
+	}
+
+	fn push_storage(
+		&mut self,
+		child_info: &ChildInfo,
+		value: StorageValue,
+	) {
+		let child_map = match child_info.child_type() {
+			ChildType::ParentKeyId => return,
+			ChildType::ParentSized => return,
+			ChildType::Mmr => &mut self.inner.children_mmr,
+		};
+
+		let child_map =
+			child_map
+				.entry(child_info.storage_key().to_vec())
+				.or_insert_with(|| StorageMmr {
+					data: Default::default(),
+					child_info: child_info.to_owned(),
+				});
+		child_map.data.push(value);
 	}
 
 	fn kill_child_storage(

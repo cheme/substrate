@@ -270,6 +270,19 @@ impl OverlayedChanges {
 		Some(value.map(AsRef::as_ref))
 	}
 
+	/// Returns a double-Option: None if the key is unknown (i.e. and the query should be referred
+	/// to the backend); Some(None) if the key has been deleted. Some(Some(...)) for a key whose
+	/// value has been set.
+	pub fn child_storage_at(&self, child_info: &ChildInfo, at: u64) -> Option<Option<&[u8]>> {
+		let map = self.mmr.get(child_info.storage_key())?;
+		// TODO need to check offset nad access map from it (len in childinfo)
+		// CHEME
+		let value = map.0.get_at(at);
+		let size_read = value.map(|x| x.len() as u64).unwrap_or(0);
+		self.stats.tally_read_modified(size_read);
+		Some(value.map(AsRef::as_ref))
+	}
+
 	/// Set a new value for the specified key.
 	///
 	/// Can be rolled back or committed when called inside a transaction.
