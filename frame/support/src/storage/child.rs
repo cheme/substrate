@@ -64,26 +64,24 @@ pub fn get<T: Decode + Sized>(child_info: &ChildInfo, key: &[u8]) -> Option<T> {
 }
 
 /// Return the value of the item in indexed child trie.
-pub fn get_at<T: Decode + Sized>(child_info: &ChildInfo, _at: u64) -> Option<T> {
+pub fn get_at<T: Decode + Sized>(child_info: &ChildInfo, at: u64) -> Option<T> {
 	match child_info.child_type() {
 		ChildType::ParentKeyId => None,
 		ChildType::ParentSized => None,
 		ChildType::Mmr => {
-			unimplemented!()
-			// TODO CHEME impl spio
-			//let storage_key = child_info.storage_key();
-			/*			sp_io::mmr_child_storage::get_at(storage_key, at).and_then(|v| {
+			let storage_key = child_info.storage_key();
+			sp_io::mmr_child_storage::get(storage_key, at).and_then(|v| {
 				Decode::decode(&mut &v[..]).map(Some).unwrap_or_else(|_| {
 					// TODO #3700: error should be handleable.
 					log::error!(
 						target: "runtime::storage",
-						"Corrupted state in child trie at {:?}/{:?}",
+						"Corrupted state in child mmr at {:?}/{:?}",
 						storage_key,
-						key,
+						at,
 					);
 					None
 				})
-			})*/
+			})
 		},
 	}
 }
@@ -128,10 +126,8 @@ pub fn push<T: Encode>(child_info: &ChildInfo, value: &T) {
 	match child_info.child_type() {
 		ChildType::ParentKeyId => (),
 		ChildType::ParentSized => (),
-		ChildType::Mmr => value.using_encoded(|_slice| {
-			// TODO CHEME implement the sp_io!!!
-			//			sp_io::mmr_child_storage::push(child_info.storage_key(), slice)
-		}),
+		ChildType::Mmr => value
+			.using_encoded(|slice| sp_io::mmr_child_storage::push(child_info.storage_key(), slice)),
 	}
 }
 
@@ -303,11 +299,7 @@ pub fn root(child_info: &ChildInfo, version: StateVersion) -> Vec<u8> {
 			sp_io::default_child_storage::root(child_info.storage_key(), version),
 		ChildType::ParentSized =>
 			sp_io::parent_sized_child_storage::root(child_info.storage_key(), version),
-		ChildType::Mmr => {
-			// TODO CHEME sp io
-			unimplemented!()
-			//			sp_io::mmr_child_storage::root(child_info.storage_key())
-		},
+		ChildType::Mmr => sp_io::mmr_child_storage::root(child_info.storage_key()),
 	}
 }
 
