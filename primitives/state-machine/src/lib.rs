@@ -2191,6 +2191,7 @@ mod tests {
 		};
 		let remote_backend = trie_backend::tests::test_trie(state_version);
 		let long_vec: Vec<u8> = (0..1024usize).map(|_| 8u8).collect();
+		let mmrs: sp_std::iter::Empty<(_, sp_std::iter::Empty<_>)> = sp_std::iter::empty();
 		let (remote_root, transaction) = remote_backend.full_storage_root(
 			std::iter::empty(),
 			vec![
@@ -2219,6 +2220,7 @@ mod tests {
 				),
 			]
 			.into_iter(),
+			mmrs,
 			state_version,
 		);
 		let mut remote_storage = remote_backend.into_storage();

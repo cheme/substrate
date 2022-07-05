@@ -541,10 +541,12 @@ mod tests {
 		let in_memory = InMemoryBackend::<BlakeTwo256>::default();
 		let in_memory = in_memory.update(contents, state_version);
 		let child_storage_keys = vec![child_info_1.to_owned(), child_info_2.to_owned()];
+		let mmrs: sp_std::iter::Empty<(_, sp_std::iter::Empty<_>)> = sp_std::iter::empty();
 		let in_memory_root = in_memory
 			.full_storage_root(
 				std::iter::empty(),
 				child_storage_keys.iter().map(|k| (k, std::iter::empty())),
+				mmrs,
 				state_version,
 			)
 			.0;
