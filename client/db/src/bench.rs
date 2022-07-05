@@ -138,10 +138,12 @@ impl<B: BlockT> BenchmarkingState<B> {
 				)
 			},
 		);
+		let child_delta_mmr: std::iter::Empty<(_, std::iter::Empty<_>)> = std::iter::empty();
 		let (root, transaction): (B::Hash, _) =
 			state.state.borrow_mut().as_mut().unwrap().full_storage_root(
 				genesis.top.iter().map(|(k, v)| (k.as_ref(), Some(v.as_ref()))),
 				child_delta,
+				child_delta_mmr,
 				state_version,
 			);
 		state.genesis = transaction.clone().drain();

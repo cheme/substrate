@@ -525,9 +525,19 @@ where
 			},
 		);
 
+		let child_delta_mmr = storage.children_mmr.iter().map(
+			|(_storage_key, child_content)| {
+				(
+					&child_content.child_info,
+					child_content.data.iter().map(|v| v.as_ref()),
+				)
+			},
+		);
+
 		let (root, transaction) = self.old_state.full_storage_root(
 			storage.top.iter().map(|(k, v)| (k.as_ref(), Some(v.as_ref()))),
 			child_delta,
+			child_delta_mmr,
 			state_version,
 		);
 

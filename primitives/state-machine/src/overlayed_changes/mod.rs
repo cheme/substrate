@@ -528,6 +528,13 @@ impl OverlayedChanges {
 		self.children.iter().map(|(_, v)| (v.0.changes(), &v.1))
 	}
 
+	/// Get an iterator over all child changes as seen by the current transaction.
+	pub fn children_mmr(
+		&self,
+	) -> impl Iterator<Item = (impl Iterator<Item = &Vec<u8>>, &ChildInfo)> {
+		self.mmr.iter().map(|(_, v)| (v.0.changes.changes.iter(), &v.1))
+	}
+
 	/// Get an iterator over all top changes as been by the current transaction.
 	pub fn changes(&self) -> impl Iterator<Item = (&StorageKey, &OverlayedValue)> {
 		self.top.changes()
@@ -652,8 +659,11 @@ impl OverlayedChanges {
 		let child_delta = self.children().map(|(changes, info)| {
 			(info, changes.map(|(k, v)| (&k[..], v.value().map(|v| &v[..]))))
 		});
+		let child_delta_mmr =
+			self.children_mmr().map(|(changes, info)| (info, changes.map(|v| &v[..])));
 
-		let (root, transaction) = backend.full_storage_root(delta, child_delta, state_version);
+		let (root, transaction) =
+			backend.full_storage_root(delta, child_delta, child_delta_mmr, state_version);
 
 		cache.transaction = Some(transaction);
 		cache.transaction_storage_root = Some(root);

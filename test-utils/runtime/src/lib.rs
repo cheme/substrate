@@ -1288,6 +1288,7 @@ fn test_read_mmr_storage() {
 	assert_eq!(init, Some(1u64));
 	let init: Option<u64> = child::get_at(&child_info, 1);
 	assert_eq!(init, None);
+	child::root(&child_info, Default::default());
 }
 
 fn test_witness(proof: StorageProof, root: crate::Hash) {
@@ -1368,14 +1369,14 @@ mod tests {
 	#[test]
 	fn test_mmr_storage() {
 		// can only run once (update)
-		let client =
-			TestClientBuilder::new().set_execution_strategy(ExecutionStrategy::AlwaysWasm).build();
+		let client = TestClientBuilder::new()
+			.set_execution_strategy(ExecutionStrategy::AlwaysWasm)
+			.build();
 		let runtime_api = client.runtime_api();
 		let block_id = BlockId::Number(client.chain_info().best_number);
 
 		runtime_api.test_mmr_storage(&block_id).unwrap();
 	}
-
 
 	fn witness_backend() -> (sp_trie::MemoryDB<crate::Hashing>, crate::Hash) {
 		use sp_trie::TrieMut;

@@ -473,14 +473,14 @@ where
 	}
 
 	fn push_storage(&mut self, child_info: &ChildInfo, value: StorageValue) {
+		let _guard = guard();
 		trace!(
 			target: "state",
-			method = "ChildPuuh",
+			method = "ChildPush",
 			ext_id = %HexDisplay::from(&self.id.to_le_bytes()),
 			child_info = %HexDisplay::from(&child_info.storage_key()),
 			value = %HexDisplay::from(&value),
 		);
-		let _guard = guard();
 
 		self.mark_dirty();
 		let fetch_size_mmr = || {

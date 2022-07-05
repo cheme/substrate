@@ -203,6 +203,7 @@ pub trait Backend<H: Hasher>: sp_std::fmt::Debug {
 		child_deltas: impl Iterator<
 			Item = (&'a ChildInfo, impl Iterator<Item = (&'a [u8], Option<&'a [u8]>)>),
 		>,
+		child_mmr_deltas: impl Iterator<Item = (&'a ChildInfo, impl Iterator<Item = &'a [u8]>)>,
 		state_version: StateVersion,
 	) -> (H::Out, Self::Transaction)
 	where
@@ -222,6 +223,18 @@ pub trait Backend<H: Hasher>: sp_std::fmt::Debug {
 				child_roots.push((prefixed_storage_key.into_inner(), Some(child_root)));
 			}
 		}
+
+		for (child_info, child_delta) in child_mmr_deltas {
+			let (child_root, empty, child_txs) = self.child_mmr_root(child_info, child_delta);
+			let prefixed_storage_key = child_info.prefixed_storage_key();
+			txs.consolidate(child_txs);
+			if empty {
+				child_roots.push((prefixed_storage_key.into_inner(), None));
+			} else {
+				child_roots.push((prefixed_storage_key.into_inner(), Some(child_root)));
+			}
+		}
+
 		let (root, parent_txs) = self.storage_root(
 			delta
 				.map(|(k, v)| (k, v.as_ref().map(|v| &v[..])))
