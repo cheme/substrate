@@ -747,7 +747,9 @@ mod execution {
 		}
 	}
 
+	/// KeyValue state from mamr values iterator.
 	pub struct MmrsToKeyValueStates<I>(I); // TODO any use??
+
 	impl<I> From<MmrsToKeyValueStates<I>> for KeyValueStates
 	where
 		I: IntoIterator<Item = (Vec<u8>, (Vec<Vec<u8>>, Vec<Vec<u8>>))>,

@@ -24,7 +24,7 @@ use log::warn;
 use sp_core::{
 	storage::{
 		well_known_keys::is_child_storage_key, ChildInfo, ChildType, StateVersion, Storage,
-		StorageChild, StorageMmr,TrackedStorageKey,
+		StorageChild, StorageMmr, TrackedStorageKey,
 	},
 	traits::Externalities,
 	Blake2Hasher,
@@ -265,11 +265,7 @@ impl Externalities for BasicExternalities {
 		}
 	}
 
-	fn push_storage(
-		&mut self,
-		child_info: &ChildInfo,
-		value: StorageValue,
-	) {
+	fn push_storage(&mut self, child_info: &ChildInfo, value: StorageValue) {
 		let child_map = match child_info.child_type() {
 			ChildType::ParentKeyId => return,
 			ChildType::ParentSized => return,

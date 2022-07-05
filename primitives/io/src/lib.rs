@@ -1986,6 +1986,8 @@ pub type TestExternalities = sp_state_machine::TestExternalities<sp_core::Blake2
 pub type SubstrateHostFunctions = (
 	storage::HostFunctions,
 	default_child_storage::HostFunctions,
+	parent_sized_child_storage::HostFunctions,
+	mmr_child_storage::HostFunctions,
 	misc::HostFunctions,
 	wasm_tracing::HostFunctions,
 	offchain::HostFunctions,

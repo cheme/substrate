@@ -125,11 +125,7 @@ impl Externalities for AsyncExternalities {
 		panic!("`place_child_storage`: should not be used in async externalities!")
 	}
 
-	fn push_storage(
-		&mut self,
-		_child_info: &ChildInfo,
-		_value: StorageValue,
-	) {
+	fn push_storage(&mut self, _child_info: &ChildInfo, _value: StorageValue) {
 		panic!("`push_storage`: should not be used in async externalities!")
 	}
 

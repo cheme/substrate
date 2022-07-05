@@ -94,7 +94,12 @@ pub type OverlayedValue = OverlayedEntry<Option<StorageValue>>;
 pub type OverlayedChangeSet = OverlayedMap<StorageKey, Option<StorageValue>>;
 
 /// Change set for push only operation.
-pub type OverlayedChangeSetMmr = OverlayedList<StorageValue>;
+#[derive(Debug, Clone)]
+pub struct OverlayedChangeSetMmr {
+	pub changes: OverlayedList<StorageValue>,
+	pub offset: u64, /* TODO CHEME question: should be lazy loaded to have push then transaction
+	                  * drop not querying parent state. */
+}
 
 /// Holds a set of changes with the ability modify them using nested transactions.
 #[derive(Debug, Clone)]
@@ -128,7 +133,7 @@ impl<K: Ord + Hash, V> Default for OverlayedMap<K, V> {
 #[derive(Debug, Clone)]
 pub struct OverlayedList<V> {
 	/// Stores the changes that this overlay constitutes.
-	changes: Vec<V>,
+	pub changes: Vec<V>,
 	/// last transactions number of push.
 	indexes: Vec<usize>,
 	/// The number of how many transactions beginning from the first transactions are started
@@ -235,6 +240,20 @@ impl<K: Ord + Hash + Clone, V> OverlayedMap<K, V> {
 		Self {
 			changes: Default::default(),
 			dirty_keys: repeat(Set::new()).take(self.transaction_depth()).collect(),
+			num_client_transactions: self.num_client_transactions,
+			execution_mode: self.execution_mode,
+		}
+	}
+
+	/// Create a new changeset list at the same transaction state but without any contents.
+	///
+	/// This changeset might be created when there are already open transactions.
+	/// We need to catch up here so that the child is at the same transaction depth.
+	pub fn spawn_child_list<V2>(&self) -> OverlayedList<V2> {
+		use sp_std::iter::repeat;
+		OverlayedList {
+			changes: Default::default(),
+			indexes: repeat(0).take(self.transaction_depth() + 1).collect(),
 			num_client_transactions: self.num_client_transactions,
 			execution_mode: self.execution_mode,
 		}
@@ -406,20 +425,6 @@ impl<K: Ord + Hash + Clone, V> OverlayedMap<K, V> {
 }
 
 impl<V> OverlayedList<V> {
-	/// Create a new changeset at the same transaction state but without any contents.
-	///
-	/// This changeset might be created when there are already open transactions.
-	/// We need to catch up here so that the child is at the same transaction depth.
-	pub fn spawn_child(&self) -> Self {
-		use sp_std::iter::repeat;
-		Self {
-			changes: Default::default(),
-			indexes: repeat(0).take(self.transaction_depth() + 1).collect(),
-			num_client_transactions: self.num_client_transactions,
-			execution_mode: self.execution_mode,
-		}
-	}
-
 	/// True if no changes at all are contained in the change set.
 	pub fn is_empty(&self) -> bool {
 		self.changes.is_empty()

@@ -275,9 +275,10 @@ impl OverlayedChanges {
 	/// value has been set.
 	pub fn child_storage_at(&self, child_info: &ChildInfo, at: u64) -> Option<Option<&[u8]>> {
 		let map = self.mmr.get(child_info.storage_key())?;
-		// TODO need to check offset nad access map from it (len in childinfo)
-		// CHEME
-		let value = map.0.get_at(at);
+		if at < map.0.offset {
+			return None
+		}
+		let value = map.0.changes.get_at(at - map.0.offset);
 		let size_read = value.map(|x| x.len() as u64).unwrap_or(0);
 		self.stats.tally_read_modified(size_read);
 		Some(value.map(AsRef::as_ref))
@@ -315,6 +316,31 @@ impl OverlayedChanges {
 		let updatable = info.try_update(child_info);
 		debug_assert!(updatable);
 		changeset.set(key, val, extrinsic_index);
+	}
+
+	/// Push a new value in the specified child (if support appending).
+	///
+	/// Can be rolled back or committed when called inside a transaction.
+	pub fn push_storage(
+		&mut self,
+		child_info: &ChildInfo,
+		val: StorageValue,
+		fetch_offset: impl FnOnce() -> u64,
+	) {
+		let size_write = val.len() as u64;
+		self.stats.tally_write_overlay(size_write);
+		let storage_key = child_info.storage_key().to_vec();
+		let top = &self.top;
+		let (changeset, info) = self.mmr.entry(storage_key).or_insert_with(|| {
+			let changes = top.spawn_child_list();
+			// TODO CHEME this should be lazy but require switching proto of get
+			// to mutable so here access directy which is incorrect.
+			let offset = fetch_offset();
+			(OverlayedChangeSetMmr { changes, offset }, child_info.clone())
+		});
+		let updatable = info.try_update(child_info);
+		debug_assert!(updatable);
+		changeset.changes.push(val);
 	}
 
 	/// Clear child storage of given storage key.
@@ -479,7 +505,7 @@ impl OverlayedChanges {
 				.map(|(key, (val, info))| (key, (val.drain_commited(), info))),
 			take(&mut self.mmr)
 				.into_iter()
-				.map(|(key, (val, info))| (key, (val.drain_commited(), info))),
+				.map(|(key, (val, info))| (key, (val.changes.drain_commited(), info))),
 		)
 	}
 
@@ -513,6 +539,16 @@ impl OverlayedChanges {
 		key: &[u8],
 	) -> Option<(impl Iterator<Item = (&StorageKey, &OverlayedValue)>, &ChildInfo)> {
 		self.children.get(key).map(|(overlay, info)| (overlay.changes(), info))
+	}
+
+	/// Get an optional iterator over all child changes stored under the supplied key.
+	pub fn child_mmr_changes(
+		&self,
+		key: &[u8],
+	) -> Option<(impl Iterator<Item = &[u8]>, &ChildInfo)> {
+		self.mmr
+			.get(key)
+			.map(|(overlay, info)| (overlay.changes.changes.iter().map(AsRef::as_ref), info))
 	}
 
 	/// Get an list of all index operations.

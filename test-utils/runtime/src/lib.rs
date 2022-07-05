@@ -366,6 +366,8 @@ cfg_if! {
 				fn test_ecdsa_crypto() -> (ecdsa::AppSignature, ecdsa::AppPublic);
 				/// Run various tests against storage.
 				fn test_storage();
+				/// Run various tests against mmr storage.
+				fn test_mmr_storage();
 				/// Check a witness.
 				fn test_witness(proof: StorageProof, root: crate::Hash);
 				/// Test that ensures that we can call a function that takes multiple
@@ -416,6 +418,8 @@ cfg_if! {
 				fn test_ecdsa_crypto() -> (ecdsa::AppSignature, ecdsa::AppPublic);
 				/// Run various tests against storage.
 				fn test_storage();
+				/// Run various tests against mmr storage.
+				fn test_mmr_storage();
 				/// Check a witness.
 				fn test_witness(proof: StorageProof, root: crate::Hash);
 				/// Test that ensures that we can call a function that takes multiple
@@ -824,6 +828,9 @@ cfg_if! {
 				fn test_storage() {
 					test_read_storage();
 					test_read_child_storage();
+				}
+
+				fn test_mmr_storage() {
 					test_read_mmr_storage();
 				}
 
@@ -1089,6 +1096,9 @@ cfg_if! {
 				fn test_storage() {
 					test_read_storage();
 					test_read_child_storage();
+				}
+
+				fn test_mmr_storage() {
 					test_read_mmr_storage();
 				}
 
@@ -1271,9 +1281,8 @@ fn test_read_mmr_storage() {
 	use frame_support::storage::child;
 	const STORAGE_KEY: &[u8] = b"mmr_unique_id_1";
 	let child_info = sp_core::storage::ChildInfo::new_mmr(STORAGE_KEY);
-	let init: Option<u64> = child::get_at(&child_info, 1);
+	let init: Option<u64> = child::get_at(&child_info, 0);
 	assert_eq!(init, None);
-
 	child::push(&child_info, &1u64);
 	let init = child::get_at(&child_info, 0);
 	assert_eq!(init, Some(1u64));
@@ -1355,6 +1364,18 @@ mod tests {
 
 		runtime_api.test_storage(&block_id).unwrap();
 	}
+
+	#[test]
+	fn test_mmr_storage() {
+		// can only run once (update)
+		let client =
+			TestClientBuilder::new().set_execution_strategy(ExecutionStrategy::AlwaysWasm).build();
+		let runtime_api = client.runtime_api();
+		let block_id = BlockId::Number(client.chain_info().best_number);
+
+		runtime_api.test_mmr_storage(&block_id).unwrap();
+	}
+
 
 	fn witness_backend() -> (sp_trie::MemoryDB<crate::Hashing>, crate::Hash) {
 		use sp_trie::TrieMut;
