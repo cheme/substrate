@@ -548,13 +548,12 @@ mod tests {
 		}
 		let mmrs = vec![child_info_mmr.to_owned()];
 		let child_storage_keys = vec![child_info_1.to_owned(), child_info_2.to_owned()];
-		let (in_memory_root, transaction) = in_memory
-			.full_storage_root(
-				std::iter::empty(),
-				child_storage_keys.iter().map(|k| (k, std::iter::empty())),
-				mmrs.iter().map(|k| (k, mmr_val.iter().map(AsRef::as_ref))),
-				state_version,
-			);
+		let (in_memory_root, transaction) = in_memory.full_storage_root(
+			std::iter::empty(),
+			child_storage_keys.iter().map(|k| (k, std::iter::empty())),
+			mmrs.iter().map(|k| (k, mmr_val.iter().map(AsRef::as_ref))),
+			state_version,
+		);
 		let mut storage = in_memory.into_storage();
 		storage.consolidate(transaction);
 
