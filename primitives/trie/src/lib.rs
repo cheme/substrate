@@ -269,7 +269,7 @@ where
 	DB: hash_db::HashDBRef<L::Hash, trie_db::DBValue>,
 {
 	// Can use default layout (read only).
-	let trie = TrieDB::<L>::new(db, &root)?;
+	let trie = TrieDB::<L>::new(db, &root);
 	generate_proof(&trie, keys)
 }
 
@@ -309,7 +309,7 @@ where
 	DB: hash_db::HashDB<L::Hash, trie_db::DBValue>,
 {
 	{
-		let mut trie = TrieDBMut::<L>::from_existing(db, &mut root)?;
+		let mut trie = TrieDBMut::<L>::from_existing(db, &mut root);
 
 		let mut delta = delta.into_iter().collect::<Vec<_>>();
 		delta.sort_by(|l, r| l.0.borrow().cmp(r.0.borrow()));
@@ -335,7 +335,7 @@ where
 	L: TrieConfiguration,
 	DB: hash_db::HashDBRef<L::Hash, trie_db::DBValue>,
 {
-	TrieDB::<L>::new(&*db, root)?.get(key).map(|x| x.map(|val| val.to_vec()))
+	TrieDB::<L>::new(&*db, root).get(key).map(|x| x.map(|val| val.to_vec()))
 }
 
 /// Does storage contains a value. Depending on storage, this
@@ -349,7 +349,7 @@ where
 	L: TrieConfiguration,
 	DB: hash_db::HashDBRef<L::Hash, trie_db::DBValue>,
 {
-	TrieDB::<L>::new(&*db, root)?.contains(key)
+	TrieDB::<L>::new(&*db, root).contains(key)
 }
 
 /// Size of storage value if it exists. Depending on storage, this
@@ -363,7 +363,7 @@ where
 	L: TrieConfiguration,
 	DB: hash_db::HashDBRef<L::Hash, trie_db::DBValue>,
 {
-	Ok(TrieDB::<L>::new(&*db, root)?.get_size(key)?.map(|s| s as u32))
+	Ok(TrieDB::<L>::new(&*db, root).get_size(key)?.map(|s| s as u32))
 }
 
 /// Read a value from the trie with given Query.
@@ -378,7 +378,7 @@ where
 	Q: Query<L::Hash, Item = DBValue>,
 	DB: hash_db::HashDBRef<L::Hash, trie_db::DBValue>,
 {
-	TrieDB::<L>::new(&*db, root)?
+	TrieDB::<L>::new(&*db, root)
 		.get_with(key, query)
 		.map(|x| x.map(|val| val.to_vec()))
 }
@@ -437,7 +437,7 @@ pub fn record_all_keys<L: TrieConfiguration, DB>(
 where
 	DB: hash_db::HashDBRef<L::Hash, trie_db::DBValue>,
 {
-	let trie = TrieDB::<L>::new(&*db, root)?;
+	let trie = TrieDB::<L>::new(&*db, root);
 	let iter = trie.iter()?;
 
 	for x in iter {
@@ -464,7 +464,7 @@ where
 	DB: hash_db::HashDBRef<L::Hash, trie_db::DBValue>,
 {
 	let db = KeySpacedDB::new(&*db, keyspace);
-	TrieDB::<L>::new(&db, root)?.get(key).map(|x| x.map(|val| val.to_vec()))
+	TrieDB::<L>::new(&db, root).get(key).map(|x| x.map(|val| val.to_vec()))
 }
 
 /// Does storage contains a value. Depending on storage, this
@@ -480,7 +480,7 @@ where
 	DB: hash_db::HashDBRef<L::Hash, trie_db::DBValue>,
 {
 	let db = KeySpacedDB::new(&*db, keyspace);
-	TrieDB::<L>::new(&db, root)?.contains(key)
+	TrieDB::<L>::new(&db, root).contains(key)
 }
 
 /// Size of storage value if it exists. Depending on storage, this
@@ -496,7 +496,7 @@ where
 	DB: hash_db::HashDBRef<L::Hash, trie_db::DBValue>,
 {
 	let db = KeySpacedDB::new(&*db, keyspace);
-	Ok(TrieDB::<L>::new(&db, root)?.get_size(key)?.map(|s| s as u32))
+	Ok(TrieDB::<L>::new(&db, root).get_size(key)?.map(|s| s as u32))
 }
 
 /// Read a value from the child trie with given query.
@@ -517,7 +517,7 @@ where
 	root.as_mut().copy_from_slice(root_slice);
 
 	let db = KeySpacedDB::new(&*db, keyspace);
-	TrieDB::<L>::new(&db, &root)?
+	TrieDB::<L>::new(&db, &root)
 		.get_with(key, query)
 		.map(|x| x.map(|val| val.to_vec()))
 }
@@ -686,7 +686,7 @@ mod tests {
 			}
 		}
 		{
-			let t = TrieDB::<T>::new(&memdb, &root).unwrap();
+			let t = TrieDB::<T>::new(&memdb, &root);
 			assert_eq!(
 				input.iter().map(|(i, j)| (i.to_vec(), j.to_vec())).collect::<Vec<_>>(),
 				t.iter()
@@ -957,7 +957,7 @@ mod tests {
 		let mut root = Default::default();
 		let _ = populate_trie::<Layout>(&mut mdb, &mut root, &pairs);
 
-		let trie = TrieDB::<Layout>::new(&mdb, &root).unwrap();
+		let trie = TrieDB::<Layout>::new(&mdb, &root);
 
 		let iter = trie.iter().unwrap();
 		let mut iter_pairs = Vec::new();

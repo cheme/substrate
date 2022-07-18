@@ -203,13 +203,11 @@ where
 
 		match child_info.as_ref().map(|info| info.child_type()) {
 			Some(ChildType::ParentKeyId) | None => {
-				let trie = TrieDB::<H>::new(dyn_eph, root)
-					.map_err(|e| format!("TrieDB creation error: {}", e))?;
+				let trie = TrieDB::<H>::new(dyn_eph, root);
 				self.next_storage_key_from_root_inner::<Layout<H>>(trie, key)
 			},
 			Some(ChildType::ParentSized) => {
-				let trie = TrieDBParentSized::<H>::new(dyn_eph, root)
-					.map_err(|e| format!("TrieDB creation error: {}", e))?;
+				let trie = TrieDBParentSized::<H>::new(dyn_eph, root);
 				self.next_storage_key_from_root_inner::<LayoutParentSized<H>>(trie, key)
 			},
 			Some(ChildType::Mmr) => return Err(format!("Invalid mmr for next_key",).into()),
@@ -498,7 +496,7 @@ where
 		L: sp_trie::TrieLayout<Hash = H>,
 	{
 		let mut iter = move |db| -> sp_std::result::Result<(), Box<TrieError<H::Out>>> {
-			let trie = TrieDB::<H>::new(db, root)?;
+			let trie = TrieDB::<H>::new(db, root);
 			let prefix = maybe_prefix.unwrap_or(&[]);
 			let iter = match maybe_start_at {
 				Some(start_at) =>
@@ -577,7 +575,7 @@ where
 		L: sp_trie::TrieLayout<Hash = H>,
 	{
 		let mut iter = move |db| -> sp_std::result::Result<bool, Box<sp_trie::TrieError<L>>> {
-			let trie = sp_trie::TrieDB::<L>::new(db, root)?;
+			let trie = sp_trie::TrieDB::<L>::new(db, root);
 
 			let prefix = prefix.unwrap_or(&[]);
 			let iterator = if let Some(start_at) = start_at {
@@ -632,7 +630,7 @@ where
 	/// Returns all `(key, value)` pairs in the trie.
 	pub fn pairs(&self) -> Vec<(StorageKey, StorageValue)> {
 		let collect_all = || -> sp_std::result::Result<_, Box<TrieError<H::Out>>> {
-			let trie = TrieDB::<H>::new(self, &self.root)?;
+			let trie = TrieDB::<H>::new(self, &self.root);
 			let mut v = Vec::new();
 			for x in trie.iter()? {
 				let (key, value) = x?;

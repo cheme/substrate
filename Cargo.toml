@@ -294,6 +294,7 @@ zeroize = { opt-level = 3 }
 
 [patch.crates-io]
 trie-db = { git = "https://github.com/cheme/trie", branch = "size_parent_node" }
+trie-bench = { git = "https://github.com/cheme/trie", branch = "size_parent_node" }
 hash-db = { git = "https://github.com/cheme/trie", branch = "size_parent_node" }
 
 [profile.release]

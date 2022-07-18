@@ -84,7 +84,7 @@ where
 	let mut mmrs = Vec::new();
 	{
 		// fetch child trie roots
-		let trie = crate::TrieDB::<L>::new(db, &top_root)?;
+		let trie = crate::TrieDB::<L>::new(db, &top_root);
 
 		let mut iter = trie.iter()?;
 
@@ -233,7 +233,7 @@ where
 	let mut mmrs = Vec::new();
 	let mut partial_db = proof.into_memory_db();
 	let mut compact_proof = {
-		let trie = crate::TrieDB::<L>::new(&partial_db, &root)?;
+		let trie = crate::TrieDB::<L>::new(&partial_db, &root);
 
 		let mut iter = trie.iter()?;
 
@@ -304,7 +304,7 @@ where
 
 		match child_type {
 			ChildType::ParentKeyId => {
-				let trie = crate::TrieDB::<L>::new(&partial_db, &child_root)?;
+				let trie = crate::TrieDB::<L>::new(&partial_db, &child_root);
 				let child_proof = trie_db::encode_compact::<L>(&trie)?;
 
 				compact_proof.extend(child_proof);
@@ -313,8 +313,7 @@ where
 				let trie = crate::TrieDB::<crate::LayoutParentSized<L::Hash>>::new(
 					&partial_db,
 					&child_root,
-				)
-				.map_err(|e| Error::ParentSizedChildTrieError(e))?;
+				);
 				let child_proof =
 					trie_db::encode_compact::<crate::LayoutParentSized<L::Hash>>(&trie)
 						.map_err(|e| Error::ParentSizedChildTrieError(e))?;

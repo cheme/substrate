@@ -442,7 +442,6 @@ pub mod tests {
 	fn keys_with_empty_prefix_returns_all_keys_inner(state_version: StateVersion) {
 		let (test_db, test_root) = test_db(state_version);
 		let expected = TrieDB::new(&test_db, &test_root)
-			.unwrap()
 			.iter()
 			.unwrap()
 			.map(|d| d.unwrap().0.to_vec())
