@@ -831,7 +831,7 @@ cfg_if! {
 				}
 
 				fn test_mmr_storage() {
-					test_read_mmr_storage();
+					test_read_write_mmr_storage();
 				}
 
 				fn test_witness(proof: StorageProof, root: crate::Hash) {
@@ -1099,7 +1099,7 @@ cfg_if! {
 				}
 
 				fn test_mmr_storage() {
-					test_read_mmr_storage();
+					test_read_write_mmr_storage();
 				}
 
 				fn test_witness(proof: StorageProof, root: crate::Hash) {
@@ -1276,8 +1276,8 @@ fn test_read_child_storage() {
 	assert_eq!(&v, &[0, 0, 0, 0]);
 }
 
-// TODO CHEME make this test run
-fn test_read_mmr_storage() {
+// QUESTION make this test run
+fn test_read_write_mmr_storage() {
 	use frame_support::storage::child;
 	const STORAGE_KEY: &[u8] = b"mmr_unique_id_1";
 	let child_info = sp_core::storage::ChildInfo::new_mmr(STORAGE_KEY);
@@ -1286,6 +1286,16 @@ fn test_read_mmr_storage() {
 	child::push(&child_info, &1u64);
 	let init = child::get_at(&child_info, 0);
 	assert_eq!(init, Some(1u64));
+	let init: Option<u64> = child::get_at(&child_info, 1);
+	assert_eq!(init, None);
+
+	sp_io::storage::start_transaction();
+	child::push(&child_info, &2u64);
+	child::push(&child_info, &3u64);
+	let init = child::get_at(&child_info, 2);
+	assert_eq!(init, Some(3u64));
+	sp_io::storage::rollback_transaction();
+
 	let init: Option<u64> = child::get_at(&child_info, 1);
 	assert_eq!(init, None);
 	child::root(&child_info, Default::default());

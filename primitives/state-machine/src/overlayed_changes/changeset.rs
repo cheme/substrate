@@ -97,7 +97,7 @@ pub type OverlayedChangeSet = OverlayedMap<StorageKey, Option<StorageValue>>;
 #[derive(Debug, Clone)]
 pub struct OverlayedChangeSetMmr {
 	pub changes: OverlayedList<StorageValue>,
-	pub offset: u64, /* TODO CHEME question: should be lazy loaded to have push then transaction
+	pub offset: u64, /* QUESTION : should be lazy loaded to have push then transaction
 	                  * drop not querying parent state. */
 }
 
@@ -560,7 +560,7 @@ impl<V> OverlayedList<V> {
 	}
 
 	fn has_open_runtime_transactions(&self) -> bool {
-		self.transaction_depth() > self.num_client_transactions
+		self.transaction_depth() >= self.num_client_transactions
 	}
 }
 

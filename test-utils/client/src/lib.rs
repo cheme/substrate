@@ -233,8 +233,8 @@ impl<Block: BlockT, ExecutorDispatch, Backend, G: GenesisInit>
 						storage.children_mmr.insert(
 							key,
 							StorageMmr {
-								data: unimplemented!("TODO new storage extension for mmr"),
 								child_info: child_content.child_info,
+								data: unimplemented!("TODO new storage extension for mmr"),
 							},
 						);
 					},

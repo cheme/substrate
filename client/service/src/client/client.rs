@@ -1239,7 +1239,7 @@ where
 					Ok(ChildInfo::new_default(storage_key)),
 				Some((ChildType::ParentSized, storage_key)) =>
 					Ok(ChildInfo::new_parent_sized(storage_key)),
-				Some((ChildType::Mmr, storage_key)) =>
+				Some((ChildType::Mmr, _storage_key)) =>
 					unimplemented!("TODO probly start key u64 le"),
 				None => Err(Error::Backend("Invalid child storage key.".to_string())),
 			}

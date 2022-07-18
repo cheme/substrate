@@ -541,7 +541,7 @@ mod tests {
 			(Some(child_info_2.clone()), (10..15).map(|i| (vec![i], Some(vec![i]))).collect()),
 		];
 		let in_memory = InMemoryBackend::<BlakeTwo256>::default();
-		let mut in_memory = in_memory.update(contents, state_version);
+		let in_memory = in_memory.update(contents, state_version);
 		let mut mmr_val = Vec::new();
 		for i in 0u8..100 {
 			mmr_val.push(vec![i]);

@@ -333,7 +333,7 @@ impl OverlayedChanges {
 		let top = &self.top;
 		let (changeset, info) = self.mmr.entry(storage_key).or_insert_with(|| {
 			let changes = top.spawn_child_list();
-			// TODO CHEME this should be lazy but require switching proto of get
+			// QUESTION this should be lazy but require switching proto of get
 			// to mutable so here access directy which is incorrect.
 			let offset = fetch_offset();
 			(OverlayedChangeSetMmr { changes, offset }, child_info.clone())
@@ -403,6 +403,9 @@ impl OverlayedChanges {
 		for (_, (changeset, _)) in self.children.iter_mut() {
 			changeset.start_transaction();
 		}
+		for (_, (changeset, _)) in self.mmr.iter_mut() {
+			changeset.changes.start_transaction();
+		}
 		self.offchain.overlay_mut().start_transaction();
 	}
 
@@ -417,6 +420,13 @@ impl OverlayedChanges {
 				.rollback_transaction()
 				.expect("Top and children changesets are started in lockstep; qed");
 			!changeset.is_empty()
+		});
+		retain_map(&mut self.mmr, |_, (changeset, _)| {
+			changeset
+				.changes
+				.rollback_transaction()
+				.expect("Top and children changesets are started in lockstep; qed");
+			!changeset.changes.is_empty()
 		});
 		self.offchain
 			.overlay_mut()
@@ -433,6 +443,12 @@ impl OverlayedChanges {
 		self.top.commit_transaction()?;
 		for (_, (changeset, _)) in self.children.iter_mut() {
 			changeset
+				.commit_transaction()
+				.expect("Top and children changesets are started in lockstep; qed");
+		}
+		for (_, (changeset, _)) in self.mmr.iter_mut() {
+			changeset
+				.changes
 				.commit_transaction()
 				.expect("Top and children changesets are started in lockstep; qed");
 		}

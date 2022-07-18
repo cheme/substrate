@@ -87,13 +87,15 @@ where
 			Ok::<_, Error>(())
 		})?;
 
+		children_sized.insert(key.0, StorageChild { child_info, data: pairs });
+
 		while let Some(pos) = top_storage
 			.iter()
 			.position(|(k, _)| k.0.starts_with(well_known_keys::MMR_CHILD_STORAGE_KEY_PREFIX))
 		{
 			let (key, _) = top_storage.swap_remove(pos);
 
-			let key =
+			let _key =
 				StorageKey(key.0[well_known_keys::MMR_CHILD_STORAGE_KEY_PREFIX.len()..].to_vec());
 			unimplemented!("read all mmr content and add to vec like raw state");
 		}
