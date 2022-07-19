@@ -253,7 +253,7 @@ impl<K: Ord + Hash + Clone, V> OverlayedMap<K, V> {
 		use sp_std::iter::repeat;
 		OverlayedList {
 			changes: Default::default(),
-			indexes: repeat(0).take(self.transaction_depth() + 1).collect(),
+			indexes: repeat(0).take(self.transaction_depth()).collect(),
 			num_client_transactions: self.num_client_transactions,
 			execution_mode: self.execution_mode,
 		}
@@ -441,9 +441,6 @@ impl<V> OverlayedList<V> {
 	/// Can be rolled back or committed when called inside a transaction.
 	pub fn push(&mut self, value: V) {
 		self.changes.push(value);
-		self.indexes.last_mut().map(|v| {
-			*v += 1;
-		});
 	}
 
 	/// Get a list of all changes as seen by current transaction.
@@ -470,7 +467,7 @@ impl<V> OverlayedList<V> {
 	///
 	/// A value of zero means that no transaction is open and changes are committed on write.
 	pub fn transaction_depth(&self) -> usize {
-		self.indexes.len() - 1
+		self.indexes.len()
 	}
 
 	/// Call this before transfering control to the runtime.
@@ -516,7 +513,7 @@ impl<V> OverlayedList<V> {
 	///
 	/// Changes made without any open transaction are committed immediately.
 	pub fn start_transaction(&mut self) {
-		self.indexes.push(0);
+		self.indexes.push(self.changes.len());
 	}
 
 	/// Rollback the last transaction started by `start_transaction`.
@@ -543,24 +540,19 @@ impl<V> OverlayedList<V> {
 			}
 		}
 
-		if let Some(keys) = self.indexes.pop() {
-			if rollback {
-				self.changes.truncate(self.changes.len() - keys);
+		if rollback {
+			self.changes.truncate(self.indexes.pop().unwrap_or(0));
+		} else {
+			if let Some(_) = self.indexes.pop() {
 			} else {
-				if let Some(dirty_keys) = self.indexes.last_mut() {
-					*dirty_keys += keys
-				} else {
-					self.indexes.push(keys);
-					return Err(NoOpenTransaction)
-				}
+				return Err(NoOpenTransaction)
 			}
 		}
-
 		Ok(())
 	}
 
 	fn has_open_runtime_transactions(&self) -> bool {
-		self.transaction_depth() >= self.num_client_transactions
+		self.transaction_depth() > self.num_client_transactions
 	}
 }
 

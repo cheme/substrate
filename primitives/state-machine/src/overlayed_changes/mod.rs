@@ -470,6 +470,13 @@ impl OverlayedChanges {
 				.enter_runtime()
 				.expect("Top and children changesets are entering runtime in lockstep; qed")
 		}
+		for (_, (changeset, _)) in self.mmr.iter_mut() {
+			changeset
+				.changes
+				.enter_runtime()
+				.expect("Top and children changesets are entering runtime in lockstep; qed")
+		}
+
 		self.offchain
 			.overlay_mut()
 			.enter_runtime()
@@ -485,6 +492,12 @@ impl OverlayedChanges {
 		self.top.exit_runtime()?;
 		for (_, (changeset, _)) in self.children.iter_mut() {
 			changeset
+				.exit_runtime()
+				.expect("Top and children changesets are entering runtime in lockstep; qed");
+		}
+		for (_, (changeset, _)) in self.mmr.iter_mut() {
+			changeset
+				.changes
 				.exit_runtime()
 				.expect("Top and children changesets are entering runtime in lockstep; qed");
 		}
