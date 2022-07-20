@@ -252,7 +252,8 @@ impl<'db, H: Hasher> MmrDBMut<'db, H> {
 		let hash_len = hash.as_ref().len();
 		// TODO corner case single value?
 		// (node, depth, went_left)
-		let mut node = (self.db.get(self.root, Default::default()).ok_or("Missing mmr root")?, 0, false);
+		let mut node =
+			(self.db.get(self.root, Default::default()).ok_or("Missing mmr root")?, 0, false);
 		let mut descend = true;
 
 		let num_peaks = self.number_element.count_ones();
@@ -280,13 +281,16 @@ impl<'db, H: Hasher> MmrDBMut<'db, H> {
 									let mut s = vec![0];
 									s.extend_from_slice(&node.0[..hash_len]);
 									stack.push((s, node.1, node.2)); // right only
-									let mut new_depth = node.1;
+									let mut new_depth = node.1 + 1;
 									if !node.2 {
-									while self.number_element & (1 << new_depth) > 0 {
-										new_depth += 1;
+										while new_depth < max_depth &&
+											(self.number_element - 1) &
+												(1 << (max_depth - 1 - new_depth)) == 0
+										{
+											new_depth += 1;
+										}
 									}
-									}
-									node = (child, new_depth + 1, node.2);
+									node = (child, new_depth, node.2);
 								} else {
 									unreachable!("no child in node, node should not be here");
 									// TODO just descend = false; ?
@@ -315,13 +319,16 @@ impl<'db, H: Hasher> MmrDBMut<'db, H> {
 							hash.as_mut().copy_from_slice(&node_stacked.0[1..]);
 							if let Some(child) = self.db.get(&hash, Default::default()) {
 								stack.push((vec![2], node_stacked.1, node_stacked.2)); // 2 for both child
-								let mut new_depth = node_stacked.1;
-								if !node.2 {
-								while self.number_element & (1 << (new_depth - 1)) > 0 {
-									new_depth += 1;
+								let mut new_depth = node_stacked.1 + 1;
+								if !node_stacked.2 {
+									while new_depth < max_depth &&
+										(self.number_element - 1) &
+											(1 << (max_depth - 1 - new_depth)) == 0
+									{
+										new_depth += 1;
+									}
 								}
-								}
-								node = (child, new_depth + 1, node_stacked.2);
+								node = (child, new_depth, node_stacked.2);
 								descend = true;
 							} else {
 								// just no child continue unstack
