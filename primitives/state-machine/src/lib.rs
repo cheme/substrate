@@ -2339,6 +2339,60 @@ mod tests {
 	}
 
 	#[test]
+	fn compact_child_mmr() {
+		for i in 0..50 {
+			for j in 0..i {
+				compact_child_mmr_inner(i, j);
+			}
+		}
+	}
+	fn compact_child_mmr_inner(nb_value: u8, index: u8) {
+		let child_info_mmr = ChildInfo::new_mmr(b"sub1");
+		let child_info_mmr = &child_info_mmr;
+
+		let child_info1 = ChildInfo::new_default(b"sub1");
+		let remote_backend = trie_backend::tests::test_trie(Default::default());
+		let values: Vec<_> = (0..nb_value).map(|i| vec![i]).collect();
+		//		let mmrs: sp_std::iter::Empty<(_, sp_std::iter::Empty<_>)> = sp_std::iter::empty();
+		let (remote_root, transaction) = remote_backend.full_storage_root(
+			std::iter::empty(),
+			vec![
+				(
+					&child_info1,
+					vec![
+						(&b"key1"[..], Some(&vec![5u8; 32][..])),
+					]
+					.into_iter(),
+				),
+			]
+			.into_iter(),
+			//			mmrs,
+			vec![(
+				child_info_mmr,
+				values.iter().map(Vec::as_slice),
+			)]
+			.into_iter(),
+			Default::default(),
+		);
+		let mut remote_storage = remote_backend.into_storage();
+		remote_storage.consolidate(transaction);
+		let remote_backend = TrieBackend::new(remote_storage, remote_root);
+		let remote_proof =
+			prove_child_read_at(remote_backend, &child_info_mmr, vec![index as u64]).unwrap();
+		let _size_mmr = remote_proof.encoded_size();
+		let remote_proof = test_compact(remote_proof, &remote_root);
+		let local_result1 = read_child_proof_check_at::<BlakeTwo256, _>(
+			remote_root,
+			remote_proof,
+			child_info_mmr,
+			vec![index as u64],
+		)
+		.unwrap();
+		assert_eq!(local_result1, vec![(index as u64, Some(vec![index]))]);
+	}
+
+
+	#[test]
 	fn child_storage_uuid() {
 		let state_version = StateVersion::V0;
 		let child_info_1 = ChildInfo::new_default(b"sub_test1");
