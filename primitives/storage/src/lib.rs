@@ -432,6 +432,7 @@ impl ChildType {
 		};
 		match_type(storage_key, ChildType::ParentKeyId)
 			.or_else(|| match_type(storage_key, ChildType::ParentSized))
+			.or_else(|| match_type(storage_key, ChildType::Mmr))
 	}
 
 	/// Produce a prefixed key for a given child type.
