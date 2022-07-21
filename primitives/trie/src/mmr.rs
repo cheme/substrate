@@ -76,7 +76,6 @@ impl<'db, H: Hasher> MmrDB<'db, H> {
 		if index < self.number_element {
 			let num_peaks = self.number_element.count_ones();
 			let mut skips = num_peaks - 1;
-			//let max_depth = 64 - self.number_element.next_power_of_two().leading_zeros();
 			let max_depth = 64 - (self.number_element - 1).leading_zeros();
 			let mut node = self.db.get(self.root, Default::default())?;
 			let mut hash = H::Out::default();
@@ -125,46 +124,12 @@ impl<'db, H: Hasher> MmrDBMut<'db, H> {
 	pub fn empty(db: &'db mut dyn HashDB<H, DBValue>, root: &'db mut H::Out) -> Self {
 		MmrDBMut { db, root, peaks: Default::default(), number_element: 0 }
 	}
-	// TODO rem (or to_db fn)
 	pub fn get(&self, index: u64) -> Option<DBValue> {
-		if index < self.number_element {
-			let num_peaks = self.number_element.count_ones();
-			let mut skips = num_peaks - 1;
-			//let max_depth = 64 - self.number_element.next_power_of_two().leading_zeros();
-			let max_depth = 64 - (self.number_element - 1).leading_zeros();
-			let mut node = self.db.get(self.root, Default::default())?;
-			let mut hash = H::Out::default();
-			let hash_len = hash.as_ref().len();
-			let mut skip_next = false;
-			for i in (0..max_depth).rev() {
-				let ix = (index & 1 << i) > 0;
-				if !ix && skip_next {
-					if ((self.number_element - 1) & 1 << i) == 0 {
-						continue
-					} else {
-						skip_next = false;
-					}
-				}
-				if ix {
-					if skips > 0 {
-						skips -= 1;
-						skip_next = true;
-					}
-				} else {
-					skips = 0;
-				}
-				if node.len() != hash_len * 2 {
-					// incorrect node, bug in impl
-					panic!("Invalid build mmr");
-				}
-				let ix = ix as usize;
-				hash.as_mut().copy_from_slice(&node[ix * hash_len..(ix + 1) * hash_len]);
-				node = self.db.get(&hash, Default::default())?;
-			}
-			Some(node)
-		} else {
-			None
-		}
+		MmrDB {
+			db: &self.db,
+			root: &*self.root,
+			number_element: self.number_element,
+		}.get(index)
 	}
 
 	pub fn push(&mut self, value: &[u8]) -> Option<()> {
@@ -256,7 +221,6 @@ impl<'db, H: Hasher> MmrDBMut<'db, H> {
 			(self.db.get(self.root, Default::default()).ok_or("Missing mmr root")?, 0, false);
 		let mut descend = true;
 
-		let num_peaks = self.number_element.count_ones();
 		let max_depth = 64 - (self.number_element - 1).leading_zeros();
 		loop {
 			if descend {

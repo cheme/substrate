@@ -2353,7 +2353,7 @@ mod tests {
 		let child_info1 = ChildInfo::new_default(b"sub1");
 		let remote_backend = trie_backend::tests::test_trie(Default::default());
 		let values: Vec<_> = (0..nb_value).map(|i| vec![i]).collect();
-		//		let mmrs: sp_std::iter::Empty<(_, sp_std::iter::Empty<_>)> = sp_std::iter::empty();
+		// let mmrs: sp_std::iter::Empty<(_, sp_std::iter::Empty<_>)> = sp_std::iter::empty();
 		let (remote_root, transaction) = remote_backend.full_storage_root(
 			std::iter::empty(),
 			vec![
@@ -2366,7 +2366,7 @@ mod tests {
 				),
 			]
 			.into_iter(),
-			//			mmrs,
+			// mmrs,
 			vec![(
 				child_info_mmr,
 				values.iter().map(Vec::as_slice),
