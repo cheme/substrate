@@ -35,13 +35,20 @@ fn assert_last_event<T: Config>(generic_event: <T as Config>::Event) {
 }
 
 benchmarks! {
-	store {
-		let l in 1 .. 1024*1024;
-		let caller: T::AccountId = whitelisted_caller();
-	}: _(RawOrigin::Signed(caller.clone()), vec![0u8; l as usize])
-	verify {
-		assert_last_event::<T>(Event::Stored { sender: caller, content_hash: sp_io::hashing::blake2_256(&vec![0u8; l as usize]).into() }.into());
-	}
+	   hash_io {
+				let l in 32 .. 32*100;
+				let caller: T::AccountId = whitelisted_caller();
+	   }: _(RawOrigin::Signed(caller.clone()), vec![0u8; l as usize])
+	   verify {
+	   }
+
+	   hash_wasm {
+				let l in 32 .. 32*100;
+				let caller: T::AccountId = whitelisted_caller();
+	   }: _(RawOrigin::Signed(caller.clone()), vec![0u8; l as usize])
+	   verify {
+	   }
+
 
 	impl_benchmark_test_suite!(Remark, crate::mock::new_test_ext(), crate::mock::Test);
 }

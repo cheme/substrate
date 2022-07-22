@@ -61,6 +61,33 @@ pub mod pallet {
 
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
+		#[pallet::weight(T::WeightInfo::store(input.len() as u32))]
+		pub fn hash_io(origin: OriginFor<T>, input: Vec<u8>) -> DispatchResult {
+			for i in 0..10 {
+				let hash = sp_io::hashing::twox_128(&input[..]);
+				Self::deposit_event(Event::Hash { hash });
+			}
+			Ok(())
+		}
+
+		#[pallet::weight(T::WeightInfo::store(input.len() as u32))]
+		pub fn hash_wasm(origin: OriginFor<T>, input: Vec<u8>) -> DispatchResult {
+			use byteorder::{ByteOrder, LittleEndian};
+			use core::hash::Hasher;
+			use digest::Digest;
+//					consts::{U16, U32, U8},
+
+			for i in 0..10 {
+				let mut dest = [0u8; 16];
+				let r0 = twox_hash::XxHash::with_seed(0).chain_update(&input[..]).finish();
+				let r1 = twox_hash::XxHash::with_seed(1).chain_update(&input[..]).finish();
+				LittleEndian::write_u64(&mut dest[0..8], r0);
+				LittleEndian::write_u64(&mut dest[8..16], r1);
+				Self::deposit_event(Event::Hash { hash: dest });
+			}
+			Ok(())
+		}
+
 		/// Index and store data off chain.
 		#[pallet::weight(T::WeightInfo::store(remark.len() as u32))]
 		pub fn store(origin: OriginFor<T>, remark: Vec<u8>) -> DispatchResultWithPostInfo {
@@ -80,5 +107,6 @@ pub mod pallet {
 	pub enum Event<T: Config> {
 		/// Stored data off chain.
 		Stored { sender: T::AccountId, content_hash: sp_core::H256 },
+		Hash { hash: [u8; 16] },
 	}
 }

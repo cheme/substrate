@@ -6188,6 +6188,8 @@ dependencies = [
 name = "pallet-remark"
 version = "4.0.0-dev"
 dependencies = [
+ "byteorder",
+ "digest 0.10.3",
  "frame-benchmarking",
  "frame-support",
  "frame-system",
@@ -6198,6 +6200,7 @@ dependencies = [
  "sp-io",
  "sp-runtime",
  "sp-std",
+ "twox-hash",
 ]
 
 [[package]]
