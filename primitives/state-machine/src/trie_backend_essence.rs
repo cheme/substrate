@@ -210,7 +210,7 @@ where
 				let trie = TrieDBParentSized::<H>::new(dyn_eph, root);
 				self.next_storage_key_from_root_inner::<LayoutParentSized<H>>(trie, key)
 			},
-			Some(ChildType::Mmr) => return Err("Invalid mmr for next_key".to_string()),
+			Some(ChildType::Mmr) => return Err(format!("Invalid mmr for next_key",).into()),
 		}
 	}
 
@@ -292,7 +292,7 @@ where
 				key,
 			)
 			.map_err(map_e),
-			ChildType::Mmr => return Err("Not key indexed child state".to_string()),
+			ChildType::Mmr => return Err(format!("Not key indexed child state",).into()),
 		}
 	}
 
@@ -307,8 +307,8 @@ where
 		};
 
 		match child_info.child_type() {
-			ChildType::ParentKeyId => Err("Not mmr child state".to_string()),
-			ChildType::ParentSized => Err("Not mmr child state".to_string()),
+			ChildType::ParentKeyId => Err(format!("Not mmr child state",).into()),
+			ChildType::ParentSized => Err(format!("Not mmr child state",).into()),
 			ChildType::Mmr =>
 				Ok(sp_trie::mmr::read_child_trie_value::<H, _>(self, &root, nb_element, at)),
 		}
@@ -335,7 +335,7 @@ where
 				key,
 			)
 			.map_err(map_e),
-			ChildType::Mmr => Err("Not for mmr".to_string()),
+			ChildType::Mmr => Err(format!("Not for mmr",).into()),
 		}
 	}
 
@@ -360,7 +360,7 @@ where
 				key,
 			)
 			.map_err(map_e),
-			ChildType::Mmr => Err("Not for mmr".to_string()),
+			ChildType::Mmr => Err(format!("Not for mmr",).into()),
 		}
 	}
 
@@ -557,7 +557,7 @@ where
 				start_at,
 				allow_missing_nodes,
 			),
-			Some(ChildType::Mmr) => Err("Not for mmr".to_string()),
+			Some(ChildType::Mmr) => Err(format!("Not for mmr",).into()),
 		}
 	}
 
