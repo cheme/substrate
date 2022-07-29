@@ -725,6 +725,8 @@ mod execution {
 		pub parent_storage_keys: Vec<Vec<u8>>,
 		/// Pair of key and values from this state.
 		pub key_values: Vec<(Vec<u8>, Vec<u8>)>,
+		/// Pair of pushed values (not compatible with key_values usage).
+		pub values: Vec<Vec<u8>>,
 	}
 
 	impl<I> From<I> for KeyValueStates
@@ -737,6 +739,28 @@ mod execution {
 				result.push(KeyValueStorageLevel {
 					state_root,
 					key_values,
+					values: Default::default(),
+					parent_storage_keys: storage_paths,
+				})
+			}
+			KeyValueStates(result)
+		}
+	}
+
+	/// KeyValue state from mamr values iterator.
+	pub struct MmrsToKeyValueStates<I>(I); // TODO any use??
+
+	impl<I> From<MmrsToKeyValueStates<I>> for KeyValueStates
+	where
+		I: IntoIterator<Item = (Vec<u8>, (Vec<Vec<u8>>, Vec<Vec<u8>>))>,
+	{
+		fn from(b: MmrsToKeyValueStates<I>) -> Self {
+			let mut result = Vec::new();
+			for (state_root, (values, storage_paths)) in b.0.into_iter() {
+				result.push(KeyValueStorageLevel {
+					state_root,
+					key_values: Default::default(),
+					values,
 					parent_storage_keys: storage_paths,
 				})
 			}
@@ -883,6 +907,9 @@ mod execution {
 					Some(match ChildType::from_prefixed_key(storage_key) {
 						Some((ChildType::ParentKeyId, storage_key)) =>
 							ChildInfo::new_default(storage_key),
+						Some((ChildType::ParentSized, storage_key)) =>
+							ChildInfo::new_parent_sized(storage_key),
+						Some((ChildType::Mmr, _)) => return Err(Box::new("No range key for mmr.")),
 						None => return Err(Box::new("Invalid range start child trie key.")),
 					}),
 					2,
@@ -1233,6 +1260,7 @@ mod execution {
 		let mut result = vec![KeyValueStorageLevel {
 			state_root: Default::default(),
 			key_values: Default::default(),
+			values: Default::default(),
 			parent_storage_keys: Default::default(),
 		}];
 		if start_at.len() > MAX_NESTED_TRIE_DEPTH {
@@ -1262,6 +1290,7 @@ mod execution {
 				result.push(KeyValueStorageLevel {
 					state_root: state_root.clone(),
 					key_values: Default::default(),
+					values: Default::default(),
 					parent_storage_keys: Default::default(),
 				});
 
@@ -1270,6 +1299,11 @@ mod execution {
 					Some(match ChildType::from_prefixed_key(storage_key) {
 						Some((ChildType::ParentKeyId, storage_key)) =>
 							ChildInfo::new_default(storage_key),
+						Some((ChildType::ParentSized, storage_key)) =>
+							ChildInfo::new_parent_sized(storage_key),
+						// TODO not this break WarpSync: should equivalence u64 index with an
+						// u64 index and manage progress like it.
+						Some((ChildType::Mmr, _)) => return Err(Box::new("No range key for mmr.")),
 						None => return Err(Box::new("Invalid range start child trie key.")),
 					}),
 					2,
@@ -2035,7 +2069,7 @@ mod tests {
 		let mut state_version = StateVersion::V0;
 		let (mut mdb, mut root) = trie_backend::tests::test_db(state_version);
 		{
-			let mut trie = TrieDBMutV0::from_existing(&mut mdb, &mut root).unwrap();
+			let mut trie = TrieDBMutV0::from_existing(&mut mdb, &mut root);
 			trie.insert(b"foo", vec![1u8; 1_000].as_slice()) // big inner hash
 				.expect("insert failed");
 			trie.insert(b"foo2", vec![3u8; 16].as_slice()) // no inner hash
@@ -2069,7 +2103,7 @@ mod tests {
 		// do switch
 		state_version = StateVersion::V1;
 		{
-			let mut trie = TrieDBMutV1::from_existing(&mut mdb, &mut root).unwrap();
+			let mut trie = TrieDBMutV1::from_existing(&mut mdb, &mut root);
 			trie.insert(b"foo222", vec![5u8; 100].as_slice()) // inner hash
 				.expect("insert failed");
 			// update with same value do change
@@ -2087,6 +2121,7 @@ mod tests {
 
 	#[test]
 	fn prove_range_with_child_works() {
+		// TODO this really need test with multiple kind of trie
 		let state_version = StateVersion::V0;
 		let remote_backend = trie_backend::tests::test_trie(state_version);
 		let remote_root = remote_backend.storage_root(std::iter::empty(), state_version).0;
@@ -2127,19 +2162,36 @@ mod tests {
 
 	#[test]
 	fn compact_multiple_child_trie() {
-		let size_no_inner_hash = compact_multiple_child_trie_inner(StateVersion::V0);
-		let size_inner_hash = compact_multiple_child_trie_inner(StateVersion::V1);
+		let size_no_inner_hash =
+			compact_multiple_child_trie_inner(StateVersion::V0, Default::default());
+		let size_inner_hash =
+			compact_multiple_child_trie_inner(StateVersion::V1, Default::default());
 		assert!(size_inner_hash < size_no_inner_hash);
+		let sized_inner_hash = compact_multiple_child_trie_inner(Default::default(), true);
+		assert!(size_inner_hash < sized_inner_hash);
 	}
-	fn compact_multiple_child_trie_inner(state_version: StateVersion) -> usize {
+	fn compact_multiple_child_trie_inner(state_version: StateVersion, test_dummy: bool) -> usize {
 		// this root will be queried
-		let child_info1 = ChildInfo::new_default(b"sub1");
+		let child_info1 = if test_dummy {
+			ChildInfo::new_parent_sized(b"sub1")
+		} else {
+			ChildInfo::new_default(b"sub1")
+		};
 		// this root will not be include in proof
-		let child_info2 = ChildInfo::new_default(b"sub2");
+		let child_info2 = if test_dummy {
+			ChildInfo::new_parent_sized(b"sub2")
+		} else {
+			ChildInfo::new_default(b"sub2")
+		};
 		// this root will be include in proof
-		let child_info3 = ChildInfo::new_default(b"sub");
+		let child_info3 = if test_dummy {
+			ChildInfo::new_parent_sized(b"sub")
+		} else {
+			ChildInfo::new_default(b"sub")
+		};
 		let remote_backend = trie_backend::tests::test_trie(state_version);
 		let long_vec: Vec<u8> = (0..1024usize).map(|_| 8u8).collect();
+		let mmrs: sp_std::iter::Empty<(_, sp_std::iter::Empty<_>)> = sp_std::iter::empty();
 		let (remote_root, transaction) = remote_backend.full_storage_root(
 			std::iter::empty(),
 			vec![
@@ -2168,6 +2220,7 @@ mod tests {
 				),
 			]
 			.into_iter(),
+			mmrs,
 			state_version,
 		);
 		let mut remote_storage = remote_backend.into_storage();
