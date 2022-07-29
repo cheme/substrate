@@ -98,7 +98,7 @@ where
 							Some((ChildType::Mmr, _unprefixed)) => {
 								let mut root = TrieHash::<L>::default();
 								// still in a proof so prevent panic
-								if root.as_mut().len() + 8 != value.as_slice().len() {
+								if root.as_mut().len() != value.as_slice().len() + 8 {
 									return Err(Error::InvalidChildRoot(key, value))
 								}
 								root.as_mut().copy_from_slice(&value[8..]);
@@ -246,7 +246,7 @@ where
 						match ChildType::from_prefixed_key(prefixed_key) {
 							Some((ChildType::Mmr, _unprefixed)) => {
 								let mut root = TrieHash::<L>::default();
-								if root.as_mut().len() + 8 != value.as_slice().len() {
+								if root.as_mut().len() != value.as_slice().len() + 8 {
 									return Err(Error::InvalidChildRoot(
 										key.to_vec(),
 										value.to_vec(),

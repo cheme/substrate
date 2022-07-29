@@ -2192,13 +2192,13 @@ mod tests {
 
 	#[test]
 	fn compact_multiple_child_trie() {
-		/*		let size_no_inner_hash =
+		let size_no_inner_hash =
 			compact_multiple_child_trie_inner(StateVersion::V0, Default::default());
 		let size_inner_hash =
 			compact_multiple_child_trie_inner(StateVersion::V1, Default::default());
-		assert!(size_inner_hash < size_no_inner_hash);*/
+		assert!(size_inner_hash < size_no_inner_hash);
 		let sized_inner_hash = compact_multiple_child_trie_inner(Default::default(), true);
-		//		assert!(size_inner_hash < sized_inner_hash);
+		assert!(size_inner_hash < sized_inner_hash);
 	}
 	fn compact_multiple_child_trie_inner(state_version: StateVersion, test_dummy: bool) -> usize {
 		// this root will be queried
@@ -2223,7 +2223,6 @@ mod tests {
 		let child_info_mmr = &child_info_mmr;
 		let remote_backend = trie_backend::tests::test_trie(state_version);
 		let long_vec: Vec<u8> = (0..1024usize).map(|_| 8u8).collect();
-		//		let mmrs: sp_std::iter::Empty<(_, sp_std::iter::Empty<_>)> = sp_std::iter::empty();
 		let (remote_root, transaction) = remote_backend.full_storage_root(
 			std::iter::empty(),
 			vec![

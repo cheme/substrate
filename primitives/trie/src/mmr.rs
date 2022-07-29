@@ -124,6 +124,7 @@ impl<'db, H: Hasher> MmrDBMut<'db, H> {
 	pub fn empty(db: &'db mut dyn HashDB<H, DBValue>, root: &'db mut H::Out) -> Self {
 		MmrDBMut { db, root, peaks: Default::default(), number_element: 0 }
 	}
+
 	pub fn get(&self, index: u64) -> Option<DBValue> {
 		MmrDB { db: &self.db, root: &*self.root, number_element: self.number_element }.get(index)
 	}

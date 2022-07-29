@@ -1293,8 +1293,11 @@ fn test_read_write_mmr_storage() {
 	let init: Option<u64> = child::get_at(&child_info, 1);
 	assert_eq!(init, None);
 
+<<<<<<< HEAD
 	/* QUESTION after this test pass, uncomment this
 	 * and complete storage overlay transaction.
+=======
+>>>>>>> ec-mmr-testing2
 	sp_io::storage::start_transaction();
 	child::push(&child_info, &2u64);
 	child::push(&child_info, &3u64);
@@ -1304,7 +1307,10 @@ fn test_read_write_mmr_storage() {
 
 	let init: Option<u64> = child::get_at(&child_info, 1);
 	assert_eq!(init, None);
+<<<<<<< HEAD
 	*/
+=======
+>>>>>>> ec-mmr-testing2
 	child::root(&child_info, Default::default());
 }
 
