@@ -42,7 +42,6 @@ use libp2p::{multiaddr, PeerId};
 use log::{debug, trace, warn};
 use prometheus_endpoint::{register, Counter, PrometheusError, Registry, U64};
 use sc_network_common::config::ProtocolId;
-use sc_utils::mpsc::TracingUnboundedSender;
 use sp_runtime::traits::Block as BlockT;
 use std::{
 	borrow::Cow,
@@ -85,8 +84,6 @@ mod rep {
 	pub const GOOD_TRANSACTION: Rep = Rep::new(1 << 7, "Good transaction");
 	/// Reputation change when a peer sends us a bad transaction.
 	pub const BAD_TRANSACTION: Rep = Rep::new(-(1 << 12), "Bad transaction");
-	/// We received an unexpected transaction packet.
-	pub const UNEXPECTED_TRANSACTIONS: Rep = Rep::new_fatal("Unexpected transactions packet");
 }
 
 struct Metrics {
@@ -112,7 +109,8 @@ struct PendingTransaction<H> {
 	#[pin]
 	validation: TransactionImportFuture,
 	tx_hash: H,
-	mixnet: Option<Option<(TracingUnboundedSender<MixnetCommand>, Box<mixnet::SurbsPayload>)>>,
+	mixnet:
+		Option<Option<(futures::channel::mpsc::Sender<MixnetCommand>, Box<mixnet::SurbsPayload>)>>,
 }
 
 impl<H: ExHashT> Future for PendingTransaction<H> {
@@ -181,11 +179,10 @@ impl TransactionsHandlerPrototype {
 	pub fn build<B: BlockT + 'static, H: ExHashT>(
 		self,
 		service: Arc<NetworkService<B, H>>,
-		local_role: config::Role,
 		transaction_pool: Arc<dyn TransactionPool<H, B>>,
 		metrics_registry: Option<&Registry>,
 	) -> error::Result<(TransactionsHandler<B, H>, TransactionsHandlerController<H>)> {
-		let event_stream = service.event_stream("transactions-handler", Some(event_filter)).boxed();
+		let event_stream = service.event_stream("transactions-handler").boxed();
 		let (to_handler, from_controller) = mpsc::unbounded();
 		let gossip_enabled = Arc::new(AtomicBool::new(false));
 
@@ -199,7 +196,6 @@ impl TransactionsHandlerPrototype {
 			event_stream,
 			peers: HashMap::new(),
 			transaction_pool,
-			local_role,
 			from_controller,
 			metrics: if let Some(r) = metrics_registry {
 				Some(Metrics::register(r)?)
@@ -252,7 +248,7 @@ impl<H: ExHashT> TransactionsHandlerController<H> {
 		&self,
 		kind: mixnet::MessageType,
 		data: Vec<u8>,
-		reply: Option<TracingUnboundedSender<MixnetCommand>>,
+		reply: Option<futures::channel::mpsc::Sender<MixnetCommand>>,
 	) {
 		let _ = self
 			.to_handler
@@ -267,7 +263,7 @@ enum ToHandler<H: ExHashT> {
 	InjectTransactionMixnet(
 		mixnet::MessageType,
 		Vec<u8>,
-		Option<TracingUnboundedSender<MixnetCommand>>,
+		Option<futures::channel::mpsc::Sender<MixnetCommand>>,
 	),
 }
 
@@ -291,7 +287,6 @@ pub struct TransactionsHandler<B: BlockT + 'static, H: ExHashT> {
 	peers: HashMap<PeerId, Peer<H>>,
 	transaction_pool: Arc<dyn TransactionPool<H, B>>,
 	gossip_enabled: Arc<AtomicBool>,
-	local_role: config::Role,
 	from_controller: mpsc::UnboundedReceiver<ToHandler<H>>,
 	/// Prometheus metrics.
 	metrics: Option<Metrics>,
@@ -345,7 +340,7 @@ impl<B: BlockT + 'static, H: ExHashT> TransactionsHandler<B, H> {
 
 	async fn handle_network_event(&mut self, event: Event) {
 		match event {
-			Event::Dht(_) => {}, // filtered by the filter.
+			Event::Dht(_) => {},
 			Event::SyncConnected { remote } => {
 				let addr = iter::once(multiaddr::Protocol::P2p(remote.into()))
 					.collect::<multiaddr::Multiaddr>();
@@ -419,7 +414,7 @@ impl<B: BlockT + 'static, H: ExHashT> TransactionsHandler<B, H> {
 		&mut self,
 		kind: mixnet::MessageType,
 		transactions: Vec<u8>,
-		reply: Option<TracingUnboundedSender<MixnetCommand>>,
+		reply: Option<futures::channel::mpsc::Sender<MixnetCommand>>,
 	) {
 		if let Ok(transactions) =
 			<message::Transactions<B::Extrinsic> as Decode>::decode(&mut transactions.as_ref())
@@ -433,8 +428,8 @@ impl<B: BlockT + 'static, H: ExHashT> TransactionsHandler<B, H> {
 			for t in transactions {
 				let hash = self.transaction_pool.hash_of(&t);
 				let mixnet_reply = if let Some(surb) = kind.clone().surb() {
-					// note that only first reply will pass (other will be blocked by replay
-					// protection. TODO consider single transaction only
+					// note that only first reply will pass (others will be blocked by replay
+					// protection).
 					reply.clone().map(move |r| (r, surb))
 				} else {
 					None
@@ -462,14 +457,6 @@ impl<B: BlockT + 'static, H: ExHashT> TransactionsHandler<B, H> {
 
 	/// Called when peer sends us new transactions
 	fn on_transactions(&mut self, who: PeerId, transactions: message::Transactions<B::Extrinsic>) {
-		// sending transaction to light node is considered a bad behavior
-		if matches!(self.local_role, config::Role::Light) {
-			debug!(target: "sync", "Peer {} is trying to send transactions to the light node", who);
-			self.service.disconnect_peer(who, self.protocol_name.clone());
-			self.service.report_peer(who, rep::UNEXPECTED_TRANSACTIONS);
-			return
-		}
-
 		// Accept transactions only when enabled
 		if !self.gossip_enabled.load(Ordering::Relaxed) {
 			trace!(target: "sync", "{} Ignoring transactions while disabled", who);
@@ -582,12 +569,5 @@ impl<B: BlockT + 'static, H: ExHashT> TransactionsHandler<B, H> {
 		let transactions = self.transaction_pool.transactions();
 		let propagated_to = self.do_propagate_transactions(&transactions);
 		self.transaction_pool.on_broadcasted(propagated_to);
-	}
-}
-
-fn event_filter(event: &Event) -> bool {
-	match event {
-		Event::Dht(_) => false,
-		_ => true,
 	}
 }

@@ -23,9 +23,9 @@
 use codec::Encode;
 use frame_system_rpc_runtime_api::AccountNonceApi;
 use futures::prelude::*;
+use kitchensink_runtime::RuntimeApi;
 use node_executor::ExecutorDispatch;
 use node_primitives::Block;
-use node_runtime::RuntimeApi;
 use sc_client_api::{BlockBackend, ExecutorProvider};
 use sc_consensus_babe::{self, SlotProportion};
 use sc_executor::NativeElseWasmExecutor;
@@ -68,41 +68,43 @@ pub fn fetch_nonce(client: &FullClient, account: sp_core::sr25519::Pair) -> u32 
 pub fn create_extrinsic(
 	client: &FullClient,
 	sender: sp_core::sr25519::Pair,
-	function: impl Into<node_runtime::Call>,
+	function: impl Into<kitchensink_runtime::Call>,
 	nonce: Option<u32>,
-) -> node_runtime::UncheckedExtrinsic {
+) -> kitchensink_runtime::UncheckedExtrinsic {
 	let function = function.into();
 	let genesis_hash = client.block_hash(0).ok().flatten().expect("Genesis block exists; qed");
 	let best_hash = client.chain_info().best_hash;
 	let best_block = client.chain_info().best_number;
 	let nonce = nonce.unwrap_or_else(|| fetch_nonce(client, sender.clone()));
 
-	let period = node_runtime::BlockHashCount::get()
+	let period = kitchensink_runtime::BlockHashCount::get()
 		.checked_next_power_of_two()
 		.map(|c| c / 2)
 		.unwrap_or(2) as u64;
 	let tip = 0;
-	let extra: node_runtime::SignedExtra = (
-		frame_system::CheckNonZeroSender::<node_runtime::Runtime>::new(),
-		frame_system::CheckSpecVersion::<node_runtime::Runtime>::new(),
-		frame_system::CheckTxVersion::<node_runtime::Runtime>::new(),
-		frame_system::CheckGenesis::<node_runtime::Runtime>::new(),
-		frame_system::CheckEra::<node_runtime::Runtime>::from(generic::Era::mortal(
+	let extra: kitchensink_runtime::SignedExtra = (
+		frame_system::CheckNonZeroSender::<kitchensink_runtime::Runtime>::new(),
+		frame_system::CheckSpecVersion::<kitchensink_runtime::Runtime>::new(),
+		frame_system::CheckTxVersion::<kitchensink_runtime::Runtime>::new(),
+		frame_system::CheckGenesis::<kitchensink_runtime::Runtime>::new(),
+		frame_system::CheckEra::<kitchensink_runtime::Runtime>::from(generic::Era::mortal(
 			period,
 			best_block.saturated_into(),
 		)),
-		frame_system::CheckNonce::<node_runtime::Runtime>::from(nonce),
-		frame_system::CheckWeight::<node_runtime::Runtime>::new(),
-		pallet_asset_tx_payment::ChargeAssetTxPayment::<node_runtime::Runtime>::from(tip, None),
+		frame_system::CheckNonce::<kitchensink_runtime::Runtime>::from(nonce),
+		frame_system::CheckWeight::<kitchensink_runtime::Runtime>::new(),
+		pallet_asset_tx_payment::ChargeAssetTxPayment::<kitchensink_runtime::Runtime>::from(
+			tip, None,
+		),
 	);
 
-	let raw_payload = node_runtime::SignedPayload::from_raw(
+	let raw_payload = kitchensink_runtime::SignedPayload::from_raw(
 		function.clone(),
 		extra.clone(),
 		(
 			(),
-			node_runtime::VERSION.spec_version,
-			node_runtime::VERSION.transaction_version,
+			kitchensink_runtime::VERSION.spec_version,
+			kitchensink_runtime::VERSION.transaction_version,
 			genesis_hash,
 			best_hash,
 			(),
@@ -112,10 +114,10 @@ pub fn create_extrinsic(
 	);
 	let signature = raw_payload.using_encoded(|e| sender.sign(e));
 
-	node_runtime::UncheckedExtrinsic::new_signed(
+	kitchensink_runtime::UncheckedExtrinsic::new_signed(
 		function,
 		sp_runtime::AccountId32::from(sender.public()).into(),
-		node_runtime::Signature::Sr25519(signature),
+		kitchensink_runtime::Signature::Sr25519(signature),
 		extra,
 	)
 }
@@ -352,17 +354,17 @@ pub fn new_full_base(
 		Vec::default(),
 	));
 
-	let mut mixnet_channels = None;
+	let mut mixnet = None;
 	let mut mixnet_worker = None;
 	let role = config.role.clone();
 
 	// mixnet is optional for non validator node, mandatory for validator.
 	if config.mixnet || role.is_authority() {
-		let (worker_inner, (worker_in, worker_out, command_sender)) = sc_mixnet::new_channels();
-		mixnet_channels = Some((worker_in, worker_out, command_sender));
+		let (mixnet_to_network, network_to_mixnet) = sc_mixnet::new_channels();
+		mixnet = Some(network_to_mixnet);
 		let local_id = config.network.node_key.clone().into_keypair()?;
 		let authority_set = import_setup.1.shared_authority_set().clone();
-		mixnet_worker = Some((authority_set, worker_inner, local_id));
+		mixnet_worker = Some((authority_set, mixnet_to_network, local_id));
 	}
 
 	let (network, system_rpc_tx, mixnet_tx, network_starter) =
@@ -374,7 +376,7 @@ pub fn new_full_base(
 			import_queue,
 			block_announce_validator_builder: None,
 			warp_sync: Some(warp_sync),
-			mixnet: mixnet_channels,
+			mixnet,
 		})?;
 
 	if config.offchain_worker.enabled {
@@ -495,9 +497,8 @@ pub fn new_full_base(
 		} else {
 			sc_authority_discovery::Role::Discover
 		};
-		let dht_event_stream = network
-			.event_stream("authority-discovery", Some(|e| matches!(e, Event::Dht(e))))
-			.filter_map(|e| async move {
+		let dht_event_stream =
+			network.event_stream("authority-discovery").filter_map(|e| async move {
 				match e {
 					Event::Dht(e) => Some(e),
 					_ => None,
@@ -567,20 +568,17 @@ pub fn new_full_base(
 	}
 
 	// warn need to start after grandpa or imonline to access key.
-	if let Some((authority_set, inner_channels, local_id)) = mixnet_worker {
-		let dht_event_stream = Box::new(Box::pin(
-			network.event_stream("mixnet", Some(|e| matches!(e, Event::Dht(e)))).filter_map(
-				|e| async move {
-					match e {
-						Event::Dht(e) => Some(e),
-						_ => None,
-					}
-				},
-			),
-		));
+	if let Some((authority_set, channels_to_network, local_id)) = mixnet_worker {
+		let dht_event_stream =
+			Box::new(Box::pin(network.event_stream("mixnet").filter_map(|e| async move {
+				match e {
+					Event::Dht(e) => Some(e),
+					_ => None,
+				}
+			})));
 
 		if let Some(mixnet_worker) = sc_mixnet::MixnetWorker::new(
-			inner_channels,
+			channels_to_network,
 			&local_id,
 			client.clone(),
 			network.clone(),
@@ -613,11 +611,11 @@ pub fn new_full(
 mod tests {
 	use crate::service::{new_full_base, NewFullBase};
 	use codec::Encode;
-	use node_primitives::{Block, DigestItem, Signature};
-	use node_runtime::{
+	use kitchensink_runtime::{
 		constants::{currency::CENTS, time::SLOT_DURATION},
 		Address, BalancesCall, Call, UncheckedExtrinsic,
 	};
+	use node_primitives::{Block, DigestItem, Signature};
 	use sc_client_api::BlockBackend;
 	use sc_consensus::{BlockImport, BlockImportParams, ForkChoiceStrategy};
 	use sc_consensus_babe::{BabeIntermediate, CompatibleDigestItem, INTERMEDIATE_KEY};

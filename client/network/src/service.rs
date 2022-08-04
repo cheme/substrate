@@ -61,7 +61,7 @@ use mixnet::MixnetBehaviour;
 use parking_lot::Mutex;
 use sc_client_api::{BlockBackend, ProofProvider};
 use sc_consensus::{BlockImportError, BlockImportStatus, ImportQueue, Link};
-use sc_network_sync::{Status as SyncStatus, SyncState};
+use sc_network_common::sync::{SyncState, SyncStatus};
 use sc_peerset::PeersetHandle;
 use sc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver, TracingUnboundedSender};
 use sp_blockchain::{HeaderBackend, HeaderMetadata};
@@ -149,6 +149,47 @@ where
 	/// for the network processing to advance. From it, you can extract a `NetworkService` using
 	/// `worker.service()`. The `NetworkService` can be shared through the codebase.
 	pub fn new(mut params: Params<B, H, Client>) -> Result<Self, Error> {
+		// Private and public keys configuration.
+		let local_identity = params.network_config.node_key.clone().into_keypair()?;
+		let local_public = local_identity.public();
+		let local_peer_id = local_public.to_peer_id();
+
+		params.network_config.boot_nodes = params
+			.network_config
+			.boot_nodes
+			.into_iter()
+			.filter(|boot_node| {
+				if boot_node.peer_id == local_peer_id {
+					warn!(
+						target: "sub-libp2p",
+						"Local peer ID used in bootnode, ignoring: {}",
+						boot_node,
+					);
+					false
+				} else {
+					true
+				}
+			})
+			.collect();
+		params.network_config.default_peers_set.reserved_nodes = params
+			.network_config
+			.default_peers_set
+			.reserved_nodes
+			.into_iter()
+			.filter(|reserved_node| {
+				if reserved_node.peer_id == local_peer_id {
+					warn!(
+						target: "sub-libp2p",
+						"Local peer ID used in reserved node, ignoring: {}",
+						reserved_node,
+					);
+					false
+				} else {
+					true
+				}
+			})
+			.collect();
+
 		// Ensure the listen addresses are consistent with the transport.
 		ensure_addresses_consistent_with_transport(
 			params.network_config.listen_addresses.iter(),
@@ -191,10 +232,6 @@ where
 			.extra_sets
 			.insert(0, transactions_handler_proto.set_config());
 
-		// Private and public keys configuration.
-		let local_identity = params.network_config.node_key.clone().into_keypair()?;
-		let local_public = local_identity.public();
-		let local_peer_id = local_public.to_peer_id();
 		info!(
 			target: "sub-libp2p",
 			"🏷  Local node identity is: {}",
@@ -203,17 +240,8 @@ where
 
 		let default_notif_handshake_message = Roles::from(&params.role).encode();
 
-		let (warp_sync_provider, warp_sync_protocol_config) = match params.warp_sync {
-			Some((p, c)) => (Some(p), Some(c)),
-			None => (None, None),
-		};
-
 		let (protocol, peerset_handle, mut known_addresses) = Protocol::new(
-			protocol::ProtocolConfig {
-				roles: From::from(&params.role),
-				max_parallel_downloads: params.network_config.max_parallel_downloads,
-				sync_mode: params.network_config.sync_mode.clone(),
-			},
+			From::from(&params.role),
 			params.chain.clone(),
 			params.protocol_id.clone(),
 			&params.network_config,
@@ -223,9 +251,8 @@ where
 						.map(|_| default_notif_handshake_message.clone()),
 				)
 				.collect(),
-			params.block_announce_validator,
 			params.metrics_registry.as_ref(),
-			warp_sync_provider,
+			params.chain_sync,
 		)?;
 
 		// List of multiaddresses that we know in the network.
@@ -262,7 +289,6 @@ where
 		let is_major_syncing = Arc::new(AtomicBool::new(false));
 
 		// Build the swarm.
-		let client = params.chain.clone();
 		let (mut swarm, bandwidth): (Swarm<Behaviour<B, Client>>, _) = {
 			let user_agent = format!(
 				"{} ({})",
@@ -270,7 +296,7 @@ where
 			);
 
 			let discovery_config = {
-				let mut config = DiscoveryConfig::new(local_public);
+				let mut config = DiscoveryConfig::new(local_public.clone());
 				config.with_permanent_addresses(known_addresses);
 				config.discovery_limit(
 					u64::from(params.network_config.default_peers_set.out_peers) + 15,
@@ -348,10 +374,8 @@ where
 			};
 
 			let behaviour = {
-				let bitswap = params.network_config.ipfs_server.then(|| Bitswap::new(client));
+				let bitswap = params.network_config.ipfs_server.then(|| Bitswap::new(params.chain));
 
-				// TODO move mixnet building to MixnetHandlePrototype?? + add metrics
-				// through call backs in crate and same as transaction handler to register
 				let mut mixnet = None;
 				if let Some((mixnet_in, mixnet_out, command_sender)) = params.mixnet {
 					mixnet = Some((MixnetBehaviour::new(mixnet_in, mixnet_out), command_sender));
@@ -360,11 +384,11 @@ where
 				let result = Behaviour::new(
 					protocol,
 					user_agent,
-					local_identity.clone(),
+					local_public,
 					discovery_config,
 					params.block_request_protocol_config,
 					params.state_request_protocol_config,
-					warp_sync_protocol_config,
+					params.warp_sync_protocol_config,
 					bitswap,
 					mixnet,
 					params.light_client_request_protocol_config,
@@ -389,7 +413,8 @@ where
 				)
 				.substream_upgrade_protocol_override(upgrade::Version::V1Lazy)
 				.notify_handler_buffer_size(NonZeroUsize::new(32).expect("32 != 0; qed"))
-				.connection_event_buffer_size(1024);
+				.connection_event_buffer_size(1024)
+				.max_negotiating_inbound_streams(2048);
 			if let Some(spawner) = params.executor {
 				struct SpawnImpl<F>(F);
 				impl<F: Fn(Pin<Box<dyn Future<Output = ()> + Send>>)> Executor for SpawnImpl<F> {
@@ -452,7 +477,6 @@ where
 
 		let (tx_handler, tx_handler_controller) = transactions_handler_proto.build(
 			service.clone(),
-			params.role,
 			params.transaction_pool,
 			params.metrics_registry.as_ref(),
 		)?;
@@ -908,16 +932,9 @@ impl<B: BlockT + 'static, H: ExHashT> NetworkService<B, H> {
 	///
 	/// The name passed is used to identify the channel in the Prometheus metrics. Note that the
 	/// parameter is a `&'static str`, and not a `String`, in order to avoid accidentally having
-	/// an unbounded set of Prometheus metrics, which would be quite bad in terms of memory.
-	///
-	/// Events can be filtered with and optional `filter` method.
-	/// TODO consider event_stream_with_filter to avoid breaking existing code
-	pub fn event_stream(
-		&self,
-		name: &'static str,
-		filter: Option<fn(&Event) -> bool>,
-	) -> impl Stream<Item = Event> {
-		let (tx, rx) = out_events::channel(name, filter);
+	/// an unbounded set of Prometheus metrics, which would be quite bad in terms of memory
+	pub fn event_stream(&self, name: &'static str) -> impl Stream<Item = Event> {
+		let (tx, rx) = out_events::channel(name);
 		let _ = self.to_worker.unbounded_send(ServiceToWorkerMsg::EventStream(tx));
 		rx
 	}
@@ -1932,9 +1949,7 @@ where
 					kind,
 					reply,
 				))) => {
-					// TODO sender in message still make sense to possibly track com from peer
-					// (worker side)
-					debug!(target: "mixnet", "Inject transaction from mixnet from {:?}) tx: {:?}", sender, message);
+					info!(target: "mixnet", "Inject transaction from mixnet from {:?}) tx: {:?}", sender, message);
 					this.tx_handler_controller.inject_transaction_mixnet(kind, message, reply);
 				},
 				Poll::Ready(SwarmEvent::ConnectionEstablished {
@@ -2022,12 +2037,16 @@ where
 
 						if this.boot_node_ids.contains(&peer_id) {
 							if let DialError::WrongPeerId { obtained, endpoint } = &error {
-								error!(
-									"💔 The bootnode you want to connect provided a different peer ID than the one you expect: `{}` with `{}`:`{:?}`.",
-									peer_id,
-									obtained,
-									endpoint,
-								);
+								if let ConnectedPoint::Dialer { address, role_override: _ } =
+									endpoint
+								{
+									error!(
+										"💔 The bootnode you want to connect to at `{}` provided a different peer ID `{}` than the one you expect `{}`.",
+										address,
+										obtained,
+										peer_id,
+									);
+								}
 							}
 						}
 					}

@@ -53,6 +53,8 @@ pub struct GossipEngine<B: BlockT> {
 	message_sinks: HashMap<B::Hash, Vec<Sender<TopicNotification>>>,
 	/// Buffered messages (see [`ForwardingState`]).
 	forwarding_state: ForwardingState<B>,
+
+	is_terminated: bool,
 }
 
 /// A gossip engine receives messages from the network via the `network_event_stream` and forwards
@@ -83,7 +85,7 @@ impl<B: BlockT> GossipEngine<B> {
 		B: 'static,
 	{
 		let protocol = protocol.into();
-		let network_event_stream = network.event_stream(None);
+		let network_event_stream = network.event_stream();
 
 		GossipEngine {
 			state_machine: ConsensusGossip::new(validator, protocol.clone(), metrics_registry),
@@ -94,6 +96,8 @@ impl<B: BlockT> GossipEngine<B> {
 			network_event_stream,
 			message_sinks: HashMap::new(),
 			forwarding_state: ForwardingState::Idle,
+
+			is_terminated: false,
 		}
 	}
 
@@ -214,7 +218,10 @@ impl<B: BlockT> Future for GossipEngine<B> {
 							Event::Dht(_) => {},
 						},
 						// The network event stream closed. Do the same for [`GossipValidator`].
-						Poll::Ready(None) => return Poll::Ready(()),
+						Poll::Ready(None) => {
+							self.is_terminated = true;
+							return Poll::Ready(())
+						},
 						Poll::Pending => break,
 					}
 				},
@@ -288,6 +295,12 @@ impl<B: BlockT> Future for GossipEngine<B> {
 	}
 }
 
+impl<B: BlockT> futures::future::FusedFuture for GossipEngine<B> {
+	fn is_terminated(&self) -> bool {
+		self.is_terminated
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -318,10 +331,7 @@ mod tests {
 	}
 
 	impl<B: BlockT> Network<B> for TestNetwork {
-		fn event_stream(
-			&self,
-			_filter: Option<fn(&Event) -> bool>,
-		) -> Pin<Box<dyn Stream<Item = Event> + Send>> {
+		fn event_stream(&self) -> Pin<Box<dyn Stream<Item = Event> + Send>> {
 			let (tx, rx) = unbounded();
 			self.inner.lock().unwrap().event_senders.push(tx);
 

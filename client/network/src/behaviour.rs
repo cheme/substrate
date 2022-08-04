@@ -27,9 +27,8 @@ use bytes::Bytes;
 use codec::{Decode, Encode};
 use futures::channel::oneshot;
 use libp2p::{
-	core::{Multiaddr, PeerId},
+	core::{Multiaddr, PeerId, PublicKey},
 	identify::IdentifyInfo,
-	identity::Keypair,
 	kad::record,
 	swarm::{
 		behaviour::toggle::Toggle, NetworkBehaviour, NetworkBehaviourAction,
@@ -38,7 +37,7 @@ use libp2p::{
 	NetworkBehaviour,
 };
 use log::{debug, info, trace};
-use prost::Message;
+
 use sc_client_api::{BlockBackend, ProofProvider};
 use sc_consensus::import_queue::{IncomingBlock, Origin};
 use sc_network_common::{config::ProtocolId, request_responses::ProtocolConfig};
@@ -62,7 +61,6 @@ pub use crate::request_responses::{
 	IfDisconnected, InboundFailure, OutboundFailure, RequestFailure, RequestId, ResponseFailure,
 };
 use mixnet::{MixPeerId, MixnetBehaviour, MixnetEvent};
-use sc_utils::mpsc::TracingUnboundedSender;
 
 /// Command for the mixnet worker.
 pub enum MixnetCommand {
@@ -114,7 +112,7 @@ where
 	mixnet: Toggle<MixnetBehaviour>,
 	/// Mixnet command sender if mixnet is enabled.
 	#[behaviour(ignore)]
-	mixnet_command_sender: Option<TracingUnboundedSender<MixnetCommand>>,
+	mixnet_command_sender: Option<futures::channel::mpsc::Sender<MixnetCommand>>,
 	/// Generic request-response protocols.
 	request_responses: request_responses::RequestResponsesBehaviour,
 
@@ -238,7 +236,7 @@ pub enum BehaviourOut<B: BlockT> {
 		MixPeerId,
 		Vec<u8>,
 		mixnet::MessageType,
-		Option<TracingUnboundedSender<MixnetCommand>>,
+		Option<futures::channel::mpsc::Sender<MixnetCommand>>,
 	),
 }
 
@@ -257,13 +255,13 @@ where
 	pub fn new(
 		substrate: Protocol<B, Client>,
 		user_agent: String,
-		local_identity: Keypair,
+		local_public_key: PublicKey,
 		disco_config: DiscoveryConfig,
 		block_request_protocol_config: ProtocolConfig,
 		state_request_protocol_config: ProtocolConfig,
 		warp_sync_protocol_config: Option<ProtocolConfig>,
 		bitswap: Option<Bitswap<B, Client>>,
-		mixnet: Option<(MixnetBehaviour, TracingUnboundedSender<MixnetCommand>)>,
+		mixnet: Option<(MixnetBehaviour, futures::channel::mpsc::Sender<MixnetCommand>)>,
 		light_client_request_protocol_config: ProtocolConfig,
 		// All remaining request protocol configs.
 		mut request_response_protocols: Vec<ProtocolConfig>,
@@ -280,7 +278,6 @@ where
 			},
 			None => None,
 		};
-		let local_public_key = local_identity.public();
 		request_response_protocols.push(block_request_protocol_config);
 		request_response_protocols.push(state_request_protocol_config);
 		request_response_protocols.push(light_client_request_protocol_config);
@@ -310,12 +307,11 @@ where
 		self.discovery.known_peers()
 	}
 
-	/// TODO this doc? more like a TODO ?
-	/// Adds a hard-coded address for the given peer, that never expires.
+	/// Submit transaction to the mix network.
 	pub fn send_transaction_to_mixnet(
 		&mut self,
 		encoded_tx: Vec<u8>,
-		num_hop: usize,
+		number_hops: usize,
 		surb_reply: bool,
 		reply: oneshot::Sender<Result<(), mixnet::Error>>,
 	) -> Result<(), String> {
@@ -323,7 +319,7 @@ where
 			if let Ok(decoded) = <B::Extrinsic as Decode>::decode(&mut encoded_tx.as_ref()) {
 				let message = crate::protocol::message::Message::<B>::Transactions(vec![decoded]);
 				let send_options =
-					mixnet::SendOptions { num_hop: Some(num_hop), with_surb: surb_reply };
+					mixnet::SendOptions { num_hop: Some(number_hops), with_surb: surb_reply };
 				mixnet
 					.start_send(MixnetCommand::SendTransaction(
 						message.encode(),
@@ -458,42 +454,44 @@ where
 				.events
 				.push_back(BehaviourOut::JustificationImport(origin, hash, nb, justification)),
 			CustomMessageOutcome::BlockRequest { target, request, pending_response } => {
-				let mut buf = Vec::with_capacity(request.encoded_len());
-				if let Err(err) = request.encode(&mut buf) {
-					log::warn!(
-						target: "sync",
-						"Failed to encode block request {:?}: {:?}",
-						request, err
-					);
-					return
+				match self.substrate.encode_block_request(&request) {
+					Ok(data) => {
+						self.request_responses.send_request(
+							&target,
+							&self.block_request_protocol_name,
+							data,
+							pending_response,
+							IfDisconnected::ImmediateError,
+						);
+					},
+					Err(err) => {
+						log::warn!(
+							target: "sync",
+							"Failed to encode block request {:?}: {:?}",
+							request, err
+						);
+					},
 				}
-
-				self.request_responses.send_request(
-					&target,
-					&self.block_request_protocol_name,
-					buf,
-					pending_response,
-					IfDisconnected::ImmediateError,
-				);
 			},
 			CustomMessageOutcome::StateRequest { target, request, pending_response } => {
-				let mut buf = Vec::with_capacity(request.encoded_len());
-				if let Err(err) = request.encode(&mut buf) {
-					log::warn!(
-						target: "sync",
-						"Failed to encode state request {:?}: {:?}",
-						request, err
-					);
-					return
+				match self.substrate.encode_state_request(&request) {
+					Ok(data) => {
+						self.request_responses.send_request(
+							&target,
+							&self.state_request_protocol_name,
+							data,
+							pending_response,
+							IfDisconnected::ImmediateError,
+						);
+					},
+					Err(err) => {
+						log::warn!(
+							target: "sync",
+							"Failed to encode state request {:?}: {:?}",
+							request, err
+						);
+					},
 				}
-
-				self.request_responses.send_request(
-					&target,
-					&self.state_request_protocol_name,
-					buf,
-					pending_response,
-					IfDisconnected::ImmediateError,
-				);
 			},
 			CustomMessageOutcome::WarpSyncRequest { target, request, pending_response } =>
 				match &self.warp_sync_protocol_name {
@@ -681,19 +679,17 @@ where
 	fn inject_event(&mut self, event: MixnetEvent) {
 		match event {
 			MixnetEvent::Message(message) => {
-				// TODO could write specifically a message type here, but currently
-				// only one of a kind for query or reply.
 				match message.kind {
-					mixnet::MessageType::FromSurbs(_query) => {
-						trace!(target: "mixnet", "Got surb reply");
+					mixnet::MessageType::FromSurbs(query, recipient) => {
+						trace!(target: "mixnet", "Got surb reply for {:?}", query);
 
-						// TODO send in some client notification (keep query in worker?).
-						// Also attach query to FromSurbs??
 						let result = MixnetImportResult::decode(&mut message.message.as_ref());
-						info!(target: "mixnet", "Received from surb {:?}", result);
+						// Currently we only log reply for mixnet surb, could be send to
+						// some client ws in the future.
+						info!(target: "mixnet", "Received from {:?}, surb {:?}", recipient, result);
 					},
 					kind => {
-						trace!(target: "mixnet", "Got query");
+						trace!(target: "mixnet", "Received query.");
 						let reply = if kind.with_surb() {
 							self.mixnet_command_sender.clone()
 						} else {

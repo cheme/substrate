@@ -37,16 +37,15 @@ use sc_client_db::{Backend, DatabaseSettings};
 use sc_consensus::import_queue::ImportQueue;
 use sc_executor::RuntimeVersionOf;
 use sc_keystore::LocalKeystore;
-use sc_network::{
-	block_request_handler::{self, BlockRequestHandler},
-	config::{Role, SyncMode},
-	light_client_requests::{self, handler::LightClientRequestHandler},
-	state_request_handler::{self, StateRequestHandler},
-	warp_request_handler::{self, RequestHandler as WarpSyncRequestHandler, WarpSyncProvider},
-	NetworkService,
+use sc_network::{config::SyncMode, NetworkService};
+use sc_network_common::sync::warp::WarpSyncProvider;
+use sc_network_light::light_client_requests::handler::LightClientRequestHandler;
+use sc_network_sync::{
+	block_request_handler::BlockRequestHandler, state_request_handler::StateRequestHandler,
+	warp_request_handler::RequestHandler as WarpSyncRequestHandler, ChainSync,
 };
 use sc_rpc::{
-	author::AuthorApiServer,
+	author::{AuthorApiServer, LIMIT_MIXNET_QUERY_QUEUE},
 	chain::ChainApiServer,
 	offchain::OffchainApiServer,
 	state::{ChildStateApiServer, StateApiServer},
@@ -341,8 +340,8 @@ pub struct SpawnTasksParams<'a, TBl: BlockT, TCl, TExPool, TRpc, Backend> {
 	pub network: Arc<NetworkService<TBl, <TBl as BlockT>::Hash>>,
 	/// A Sender for RPC requests.
 	pub system_rpc_tx: TracingUnboundedSender<sc_rpc::system::Request<TBl>>,
-	/// A Sender for mixnet message. TODO remove rpc from name and move type somewhere else.
-	pub mixnet_tx: TracingUnboundedSender<sc_rpc::author::SendToMixnet>,
+	/// A Sender for mixnet message.
+	pub mixnet_tx: futures::channel::mpsc::Sender<sc_rpc::author::SendToMixnet>,
 	/// Telemetry instance for this node.
 	pub telemetry: Option<&'a mut Telemetry>,
 }
@@ -587,7 +586,7 @@ fn gen_rpc_module<TBl, TBackend, TCl, TRpc, TExPool>(
 	transaction_pool: Arc<TExPool>,
 	keystore: SyncCryptoStorePtr,
 	system_rpc_tx: TracingUnboundedSender<sc_rpc::system::Request<TBl>>,
-	mixnet_tx: TracingUnboundedSender<sc_rpc::author::SendToMixnet>,
+	mixnet_tx: futures::channel::mpsc::Sender<sc_rpc::author::SendToMixnet>,
 	config: &Configuration,
 	offchain_storage: Option<<TBackend as sc_client_api::backend::Backend<TBl>>::OffchainStorage>,
 	rpc_builder: &(dyn Fn(DenyUnsafe, SubscriptionTaskExecutor) -> Result<RpcModule<TRpc>, Error>),
@@ -685,11 +684,10 @@ pub struct BuildNetworkParams<'a, TBl: BlockT, TExPool, TImpQu, TCl> {
 	/// An optional warp sync provider.
 	pub warp_sync: Option<Arc<dyn WarpSyncProvider<TBl>>>,
 	/// Mixnet worker access if running.
-	/// TODO type instead of tuple.
 	pub mixnet: Option<(
 		sc_mixnet::SinkToWorker,
 		sc_mixnet::StreamFromWorker,
-		TracingUnboundedSender<sc_network::MixnetCommand>,
+		futures::channel::mpsc::Sender<sc_network::MixnetCommand>,
 	)>,
 }
 
@@ -700,7 +698,7 @@ pub fn build_network<TBl, TExPool, TImpQu, TCl>(
 	(
 		Arc<NetworkService<TBl, <TBl as BlockT>::Hash>>,
 		TracingUnboundedSender<sc_rpc::system::Request<TBl>>,
-		TracingUnboundedSender<sc_rpc::author::SendToMixnet>,
+		futures::channel::mpsc::Sender<sc_rpc::author::SendToMixnet>,
 		NetworkStarter,
 	),
 	Error,
@@ -742,11 +740,8 @@ where
 		}
 	}
 
-	let transaction_pool_adapter = Arc::new(TransactionPoolAdapter {
-		imports_external_transactions: !matches!(config.role, Role::Light),
-		pool: transaction_pool,
-		client: client.clone(),
-	});
+	let transaction_pool_adapter =
+		Arc::new(TransactionPoolAdapter { pool: transaction_pool, client: client.clone() });
 
 	let protocol_id = config.protocol_id();
 
@@ -757,65 +752,58 @@ where
 	};
 
 	let block_request_protocol_config = {
-		if matches!(config.role, Role::Light) {
-			// Allow outgoing requests but deny incoming requests.
-			block_request_handler::generate_protocol_config(&protocol_id)
-		} else {
-			// Allow both outgoing and incoming requests.
-			let (handler, protocol_config) = BlockRequestHandler::new(
-				&protocol_id,
-				client.clone(),
-				config.network.default_peers_set.in_peers as usize +
-					config.network.default_peers_set.out_peers as usize,
-			);
-			spawn_handle.spawn("block-request-handler", Some("networking"), handler.run());
-			protocol_config
-		}
+		// Allow both outgoing and incoming requests.
+		let (handler, protocol_config) = BlockRequestHandler::new(
+			&protocol_id,
+			client.clone(),
+			config.network.default_peers_set.in_peers as usize +
+				config.network.default_peers_set.out_peers as usize,
+		);
+		spawn_handle.spawn("block-request-handler", Some("networking"), handler.run());
+		protocol_config
 	};
 
 	let state_request_protocol_config = {
-		if matches!(config.role, Role::Light) {
-			// Allow outgoing requests but deny incoming requests.
-			state_request_handler::generate_protocol_config(&protocol_id)
-		} else {
-			// Allow both outgoing and incoming requests.
-			let (handler, protocol_config) = StateRequestHandler::new(
-				&protocol_id,
-				client.clone(),
-				config.network.default_peers_set_num_full as usize,
-			);
-			spawn_handle.spawn("state-request-handler", Some("networking"), handler.run());
-			protocol_config
-		}
+		// Allow both outgoing and incoming requests.
+		let (handler, protocol_config) = StateRequestHandler::new(
+			&protocol_id,
+			client.clone(),
+			config.network.default_peers_set_num_full as usize,
+		);
+		spawn_handle.spawn("state-request-handler", Some("networking"), handler.run());
+		protocol_config
 	};
 
-	let warp_sync_params = warp_sync.map(|provider| {
-		let protocol_config = if matches!(config.role, Role::Light) {
-			// Allow outgoing requests but deny incoming requests.
-			warp_request_handler::generate_request_response_config(protocol_id.clone())
-		} else {
+	let (warp_sync_provider, warp_sync_protocol_config) = warp_sync
+		.map(|provider| {
 			// Allow both outgoing and incoming requests.
 			let (handler, protocol_config) =
 				WarpSyncRequestHandler::new(protocol_id.clone(), provider.clone());
 			spawn_handle.spawn("warp-sync-request-handler", Some("networking"), handler.run());
-			protocol_config
-		};
-		(provider, protocol_config)
-	});
+			(Some(provider), Some(protocol_config))
+		})
+		.unwrap_or_default();
 
 	let light_client_request_protocol_config = {
-		if matches!(config.role, Role::Light) {
-			// Allow outgoing requests but deny incoming requests.
-			light_client_requests::generate_protocol_config(&protocol_id)
-		} else {
-			// Allow both outgoing and incoming requests.
-			let (handler, protocol_config) =
-				LightClientRequestHandler::new(&protocol_id, client.clone());
-			spawn_handle.spawn("light-client-request-handler", Some("networking"), handler.run());
-			protocol_config
-		}
+		// Allow both outgoing and incoming requests.
+		let (handler, protocol_config) =
+			LightClientRequestHandler::new(&protocol_id, client.clone());
+		spawn_handle.spawn("light-client-request-handler", Some("networking"), handler.run());
+		protocol_config
 	};
 
+	let chain_sync = ChainSync::new(
+		match config.network.sync_mode {
+			SyncMode::Full => sc_network_common::sync::SyncMode::Full,
+			SyncMode::Fast { skip_proofs, storage_chain_mode } =>
+				sc_network_common::sync::SyncMode::LightState { skip_proofs, storage_chain_mode },
+			SyncMode::Warp => sc_network_common::sync::SyncMode::Warp,
+		},
+		client.clone(),
+		block_announce_validator,
+		config.network.max_parallel_downloads,
+		warp_sync_provider,
+	)?;
 	let network_params = sc_network::config::Params {
 		role: config.role.clone(),
 		executor: {
@@ -833,13 +821,13 @@ where
 		network_config: config.network.clone(),
 		chain: client.clone(),
 		transaction_pool: transaction_pool_adapter as _,
-		import_queue: Box::new(import_queue),
 		protocol_id,
-		block_announce_validator,
+		import_queue: Box::new(import_queue),
+		chain_sync: Box::new(chain_sync),
 		metrics_registry: config.prometheus_config.as_ref().map(|config| config.registry.clone()),
 		block_request_protocol_config,
 		state_request_protocol_config,
-		warp_sync: warp_sync_params,
+		warp_sync_protocol_config,
 		light_client_request_protocol_config,
 		mixnet,
 	};
@@ -849,7 +837,7 @@ where
 	let network = network_mut.service().clone();
 
 	let (system_rpc_tx, system_rpc_rx) = tracing_unbounded("mpsc_system_rpc");
-	let (mixnet_tx, mixnet_rx) = tracing_unbounded("mpsc_mixnet");
+	let (mixnet_tx, mixnet_rx) = futures::channel::mpsc::channel(LIMIT_MIXNET_QUERY_QUEUE);
 
 	let future = build_network_future(
 		config.role.clone(),

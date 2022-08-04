@@ -20,7 +20,7 @@
 
 use grandpa_primitives::AuthorityId as GrandpaId;
 use hex_literal::hex;
-use node_runtime::{
+use kitchensink_runtime::{
 	constants::currency::*, wasm_binary_unwrap, AuthorityDiscoveryConfig, BabeConfig,
 	BalancesConfig, Block, CouncilConfig, DemocracyConfig, ElectionsConfig, GrandpaConfig,
 	ImOnlineConfig, IndicesConfig, MaxNominations, NominationPoolsConfig, SessionConfig,
@@ -40,8 +40,8 @@ use sp_runtime::{
 	Perbill,
 };
 
+pub use kitchensink_runtime::GenesisConfig;
 pub use node_primitives::{AccountId, Balance, Signature};
-pub use node_runtime::GenesisConfig;
 
 type AccountPublic = <Signature as Verify>::Signer;
 
@@ -343,7 +343,7 @@ pub fn testnet_genesis(
 		sudo: SudoConfig { key: Some(root_key) },
 		babe: BabeConfig {
 			authorities: vec![],
-			epoch_config: Some(node_runtime::BABE_GENESIS_EPOCH_CONFIG),
+			epoch_config: Some(kitchensink_runtime::BABE_GENESIS_EPOCH_CONFIG),
 		},
 		im_online: ImOnlineConfig { keys: vec![] },
 		authority_discovery: AuthorityDiscoveryConfig { keys: vec![] },
@@ -400,7 +400,15 @@ pub fn development_config() -> ChainSpec {
 }
 
 fn local_testnet_genesis() -> GenesisConfig {
-	// TODO specific mixnet conf: this will break most tests
+	testnet_genesis(
+		vec![authority_keys_from_seed("Alice"), authority_keys_from_seed("Bob")],
+		vec![],
+		get_account_id_from_seed::<sr25519::Public>("Alice"),
+		None,
+	)
+}
+
+fn local_testnet_genesis_mixnet() -> GenesisConfig {
 	testnet_genesis(
 		vec![
 			authority_keys_from_seed("Alice"),
@@ -423,6 +431,22 @@ pub fn local_testnet_config() -> ChainSpec {
 		"local_testnet",
 		ChainType::Local,
 		local_testnet_genesis,
+		vec![],
+		None,
+		None,
+		None,
+		None,
+		Default::default(),
+	)
+}
+
+/// Local testnet config for mixnet tests (6 validators)
+pub fn local_testnet_config_mixnet() -> ChainSpec {
+	ChainSpec::from_genesis(
+		"Local Testnet Mixnet",
+		"local_testnet_mixnet",
+		ChainType::Local,
+		local_testnet_genesis_mixnet,
 		vec![],
 		None,
 		None,
