@@ -303,13 +303,13 @@ impl<BlockHash: Hash + MallocSizeOf, Key: Hash + MallocSizeOf, D: MetaDb>
 		Ok(StateDbSync { mode, non_canonical, pruning, pinned: Default::default() })
 	}
 
-	fn insert_block<E: fmt::Debug>(
+	fn insert_block(
 		&mut self,
 		hash: &BlockHash,
 		number: u64,
 		parent_hash: &BlockHash,
 		mut changeset: ChangeSet<Key>,
-	) -> Result<CommitSet<Key>, Error<E>> {
+	) -> Result<CommitSet<Key>, Error<D::Error>> {
 		match self.mode {
 			PruningMode::ArchiveAll => {
 				changeset.deleted.clear();
