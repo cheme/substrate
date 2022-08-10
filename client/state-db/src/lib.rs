@@ -323,7 +323,7 @@ impl<BlockHash: Hash + MallocSizeOf, Key: Hash + MallocSizeOf, D: MetaDb>
 		}
 	}
 
-	fn canonicalize_block(&mut self, hash: &BlockHash) -> Result<CommitSet<Key>, Error<D::Error>> {
+	fn canonicalize_block(&mut self, hash: &BlockHash, db: &D) -> Result<CommitSet<Key>, Error<D::Error>> {
 		// NOTE: it is importent that the change to `LAST_CANONICAL` (emit from
 		// `non_canonical.canonicalize`) and the insert of the new pruning journal (emit from
 		// `pruning.note_canonical`) are collected into the same `CommitSet` and are committed to
@@ -342,7 +342,7 @@ impl<BlockHash: Hash + MallocSizeOf, Key: Hash + MallocSizeOf, D: MetaDb>
 		if let Some(ref mut pruning) = self.pruning {
 			pruning.note_canonical(hash, &mut commit);
 		}
-		self.prune(&mut commit)?;
+		self.prune(&mut commit, db)?;
 		Ok(commit)
 	}
 
@@ -374,7 +374,7 @@ impl<BlockHash: Hash + MallocSizeOf, Key: Hash + MallocSizeOf, D: MetaDb>
 		is_pruned.into()
 	}
 
-	fn prune(&mut self, commit: &mut CommitSet<Key>) -> Result<(), Error<D::Error>> {
+	fn prune(&mut self, commit: &mut CommitSet<Key>, db: &D) -> Result<(), Error<D::Error>> {
 		if let (&mut Some(ref mut pruning), &PruningMode::Constrained(ref constraints)) =
 			(&mut self.pruning, &self.mode)
 		{
@@ -388,10 +388,10 @@ impl<BlockHash: Hash + MallocSizeOf, Key: Hash + MallocSizeOf, D: MetaDb>
 				}
 
 				let pinned = &self.pinned;
-				if pruning.next_hash()?.map_or(false, |h| pinned.contains_key(&h)) {
+				if pruning.next_hash(db)?.map_or(false, |h| pinned.contains_key(&h)) {
 					break
 				}
-				pruning.prune_one(commit)?;
+				pruning.prune_one(commit, db)?;
 			}
 		}
 		Ok(())
@@ -478,15 +478,15 @@ impl<BlockHash: Hash + MallocSizeOf, Key: Hash + MallocSizeOf, D: MetaDb>
 		db.get(key.as_ref()).map_err(Error::Db)
 	}
 
-	fn apply_pending(&mut self) {
+	fn apply_pending(&mut self, db: &D) {
 		self.non_canonical.apply_pending();
 		if let Some(pruning) = &mut self.pruning {
-			pruning.apply_pending();
+			pruning.apply_pending(db);
 		}
 		trace!(
 			target: "forks",
 			"First available: {:?} ({}), Last canon: {:?} ({}), Best forks: {:?}",
-			self.pruning.as_mut().map(|p| p.next_hash()),
+			self.pruning.as_mut().map(|p| p.next_hash(db)),
 			self.pruning.as_ref().map(|p| p.pending()).unwrap_or(0),
 			self.non_canonical.last_canonicalized_hash(),
 			self.non_canonical.last_canonicalized_block_number().unwrap_or(0),
@@ -569,19 +569,19 @@ impl<BlockHash: Hash + MallocSizeOf, Key: Hash + MallocSizeOf, D: MetaDb>
 	}
 
 	/// Add a new non-canonical block.
-	pub fn insert_block<E: fmt::Debug>(
+	pub fn insert_block(
 		&self,
 		hash: &BlockHash,
 		number: u64,
 		parent_hash: &BlockHash,
 		changeset: ChangeSet<Key>,
-	) -> Result<CommitSet<Key>, Error<E>> {
+	) -> Result<CommitSet<Key>, Error<D::Error>> {
 		self.db.write().insert_block(hash, number, parent_hash, changeset)
 	}
 
 	/// Finalize a previously inserted block.
-	pub fn canonicalize_block(&self, hash: &BlockHash) -> Result<CommitSet<Key>, Error<D::Error>> {
-		self.db.write().canonicalize_block(hash)
+	pub fn canonicalize_block(&self, hash: &BlockHash, db: &D) -> Result<CommitSet<Key>, Error<D::Error>> {
+		self.db.write().canonicalize_block(hash, db)
 	}
 
 	/// Prevents pruning of specified block and its descendants.
@@ -636,8 +636,8 @@ impl<BlockHash: Hash + MallocSizeOf, Key: Hash + MallocSizeOf, D: MetaDb>
 	}
 
 	/// Apply all pending changes
-	pub fn apply_pending(&self) {
-		self.db.write().apply_pending();
+	pub fn apply_pending(&self, db: &D) {
+		self.db.write().apply_pending(db);
 	}
 
 	/// Revert all pending changes
@@ -732,7 +732,7 @@ mod tests {
 
 		db.commit(
 			&state_db
-				.insert_block::<io::Error>(
+				.insert_block(
 					&H256::from_low_u64_be(1),
 					1,
 					&H256::from_low_u64_be(0),
@@ -742,7 +742,7 @@ mod tests {
 		);
 		db.commit(
 			&state_db
-				.insert_block::<io::Error>(
+				.insert_block(
 					&H256::from_low_u64_be(21),
 					2,
 					&H256::from_low_u64_be(1),
@@ -752,7 +752,7 @@ mod tests {
 		);
 		db.commit(
 			&state_db
-				.insert_block::<io::Error>(
+				.insert_block(
 					&H256::from_low_u64_be(22),
 					2,
 					&H256::from_low_u64_be(1),
@@ -762,7 +762,7 @@ mod tests {
 		);
 		db.commit(
 			&state_db
-				.insert_block::<io::Error>(
+				.insert_block(
 					&H256::from_low_u64_be(3),
 					3,
 					&H256::from_low_u64_be(21),
@@ -770,12 +770,12 @@ mod tests {
 				)
 				.unwrap(),
 		);
-		state_db.apply_pending();
-		db.commit(&state_db.canonicalize_block(&H256::from_low_u64_be(1)).unwrap());
-		state_db.apply_pending();
+		state_db.apply_pending(&db);
+		db.commit(&state_db.canonicalize_block(&H256::from_low_u64_be(1), &db).unwrap());
+		state_db.apply_pending(&db);
 		db.commit(
 			&state_db
-				.insert_block::<io::Error>(
+				.insert_block(
 					&H256::from_low_u64_be(4),
 					4,
 					&H256::from_low_u64_be(3),
@@ -783,11 +783,11 @@ mod tests {
 				)
 				.unwrap(),
 		);
-		state_db.apply_pending();
-		db.commit(&state_db.canonicalize_block(&H256::from_low_u64_be(21)).unwrap());
-		state_db.apply_pending();
-		db.commit(&state_db.canonicalize_block(&H256::from_low_u64_be(3)).unwrap());
-		state_db.apply_pending();
+		state_db.apply_pending(&db);
+		db.commit(&state_db.canonicalize_block(&H256::from_low_u64_be(21), &db).unwrap());
+		state_db.apply_pending(&db);
+		db.commit(&state_db.canonicalize_block(&H256::from_low_u64_be(3), &db).unwrap());
+		state_db.apply_pending(&db);
 
 		(db, state_db)
 	}
@@ -848,7 +848,7 @@ mod tests {
 		db.commit(&state_db_init);
 		db.commit(
 			&state_db
-				.insert_block::<io::Error>(
+				.insert_block(
 					&H256::from_low_u64_be(0),
 					0,
 					&H256::from_low_u64_be(0),
