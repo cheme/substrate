@@ -312,12 +312,15 @@ where
 
 	// TODO need async ??
 	async fn publish_topology(&mut self, only_if_changed: bool) {
+			debug!(target: "mixnet", "In Publish topology.");
 		let topology = &mut self.worker.mixnet_mut().topology;
 		if !topology.routing {
+			debug!(target: "mixnet", "Skip pub, not routing.");
 			return
 		}
 		let (payload, has_changed) = topology.published_table();
 		if only_if_changed && !has_changed {
+			debug!(target: "mixnet", "Skip pub, unchanged.");
 			return
 		}
 
