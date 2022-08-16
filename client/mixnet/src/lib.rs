@@ -826,11 +826,10 @@ impl AuthorityTable {
 		} else {
 			None
 		}).collect();
-		let nb_auth = auths.len();
+		let mut nb_auth = auths.len();
 		let mut result = Vec::with_capacity(std::cmp::min(nb, nb_auth));
 		let mut cursor = 0;
-		while result.len() < nb {
-			let nb_auth = auths.len();
+		while result.len() < nb && nb_auth > 0 {
 			// TODO bit arith
 			let mut nb_bytes = match nb_auth {
 				nb_auth if nb_auth < 2^8 => 1,
@@ -855,6 +854,7 @@ impl AuthorityTable {
 			}
 			at = at % nb_auth;
 			result.push(auths.remove(at).clone());
+			nb_auth = auths.len();
 		}
 		result
 	}
