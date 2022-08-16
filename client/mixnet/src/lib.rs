@@ -516,6 +516,7 @@ where
 		topology.routing = false;
 
 		self.current_authorities_keys.clear();
+		self.pending_lookup_at = None;
 		let mut restart = None;
 		for (auth, _) in set.into_iter() {
 			self.current_authorities_keys.push((hash_authority_id(auth.as_ref()), auth.clone()));
