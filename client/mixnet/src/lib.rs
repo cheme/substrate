@@ -512,6 +512,7 @@ where
 									 // of a restarted node).
 		debug!(target: "mixnet", "Change authorities {:?}", set);
 		let mut old_authority = std::mem::take(&mut topology.authorities);
+		topology.all_authorities.clear();
 
 		topology.routing = false;
 
@@ -534,6 +535,8 @@ where
 				let public_key = mixnet::public_from_ed25519(p);
 
 				if self.authority_id.as_ref() == Some(&auth) {
+
+					topology.all_authorities.insert(peer_id, (public_key, auth.clone()));
 					debug!(target: "mixnet", "In new authority set, routing.");
 					topology.routing = true;
 					let new_id = (current_local_id != peer_id).then(|| {
@@ -558,7 +561,8 @@ where
 					}
 				} else {
 					debug!(target: "mixnet", "Insert auth {:?}", peer_id);
-					topology.authorities.insert(peer_id, (public_key, auth));
+					topology.authorities.insert(peer_id, (public_key, auth.clone()));
+					topology.all_authorities.insert(peer_id, (public_key, auth));
 				}
 			} else {
 				error!(target: "mixnet", "Missing imonline key for authority {:?}, not adding it to topology.", auth);
@@ -566,9 +570,12 @@ where
 		}
 		topology.should_connect_to = topology.routing_table.should_connect_to(
 			&topology.node_id,
-			&topology.authorities,
+			&topology.all_authorities,
 			usize::MAX,
 		);
+		for (index, id) in topology.should_connect_to.iter().enumerate() {
+			topology.should_connect_pending.insert(id.clone(), (index, true));
+		}
 		debug!(target: "mixnet", "should connect to {:?}", topology.should_connect_to);
 		if let Some((id, key)) = restart {
 			debug!(target: "mixnet", "Restarting");
@@ -710,6 +717,7 @@ pub struct AuthorityStar {
 	// All authorities are considered connected (when building message except first hop).
 	// TODO rem pub key
 	authorities: BTreeMap<MixPeerId, (MixPublicKey, AuthorityId)>,
+	all_authorities: BTreeMap<MixPeerId, (MixPublicKey, AuthorityId)>,
 	// The connected nodes (for first hop use `authorities` joined `connected_nodes`).
 	connected_nodes: HashMap<MixPeerId, MixPublicKey>,
 	// Current session mapping of Grandpa key to IMonline key.
@@ -720,10 +728,16 @@ pub struct AuthorityStar {
 	routing_table: AuthorityTable,
 	last_signed: (Vec<u8>, SetId, u32),
 	authorities_tables: BTreeMap<MixPeerId, AuthorityRouting>,
-	should_connect_to: Vec<MixPeerId>,
 	// TODO every N delay put a peer from our `should_connect_to` list
 	// as off and allows connection with the next one.
 	not_connected_or_refused: HashSet<MixPeerId>,
+	// Connection to peer that are more prioritary: attempt connect.
+	should_connect_to: Vec<MixPeerId>,
+	should_connect_pending: HashMap<MixPeerId, (usize, bool)>, // TODO audit usage of should_connect,
+																														 // does not looks very smart
+	// peers not connected to other peer when they should (may not be their fault
+	// but if number get big it is still fishy).
+	disconnected_in_routing: HashMap<MixPeerId, Vec<MixPeerId>>,
 }
 
 #[derive(Debug)]
@@ -740,7 +754,7 @@ struct AuthorityRouting {
 /// Current published view of an authority routing table.
 ///
 /// Table is currently signed by ImOnline key.
-#[derive(Encode, Decode, Debug)]
+#[derive(Encode, Decode, Debug, Eq, PartialEq, Clone)]
 pub struct AuthorityTable {
 	session: SetId,
 	// TODO this info should be stored in case of node restart (otherwhise until session change, no
@@ -762,7 +776,7 @@ pub struct AuthorityTable {
 	                                    * is fresh. */
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq, Clone)]
 struct EncodableMixPublicKey(MixPublicKey);
 
 impl Encode for EncodableMixPublicKey {
@@ -782,6 +796,11 @@ impl Decode for EncodableMixPublicKey {
 // TODO put in config.
 const NUMBER_CONNECTED_FORWARD: usize = 2;
 
+// This is only to double check connection publication and should stay low.
+// TODO this is actually unused (no limit while testing): we should just not transmit anything when runing, but from should be calculated from published
+// state actually.
+const PUBLISH_NUMBER_CONNECTED_BACKWARD: usize = 2;
+
 impl AuthorityTable {
 	fn should_connect_to(
 		&self,
@@ -789,13 +808,57 @@ impl AuthorityTable {
 		authorities: &BTreeMap<MixPeerId, (MixPublicKey, AuthorityId)>,
 		nb: usize,
 	) -> Vec<MixPeerId> {
-		// return next peer we want to established connection with.
-		// The order is given by hashing two peer id (from and destination) and
-		// take the first n peers.
+		// TODO cache common seed when all_auth got init
+		let mut common_seed = [0u8; 32];
+		for auth in authorities.iter() {
+			let hash = sp_core::hashing::blake2_256(auth.0);
+			for i in 0..32 {
+				common_seed[i] ^= hash[i];
+			}
+		}
+		let mut hash = sp_core::hashing::blake2_256(from);
+		for i in 0..32 {
+			hash[i] ^= common_seed[i];
+		}
 
-		Vec::new() // TODO implement
-		   // TODO cache this function result between authorities update.
+		let mut auths: Vec<_> = authorities.iter().filter_map(|a| if a.0 != from {
+			Some(a.0)
+		} else {
+			None
+		}).collect();
+		let nb_auth = auths.len();
+		let mut result = Vec::with_capacity(std::cmp::min(nb, nb_auth));
+		let mut cursor = 0;
+		while result.len() < nb {
+			let nb_auth = authorities.len();
+			// TODO bit arith
+			let mut nb_bytes = match nb_auth {
+				nb_auth if nb_auth < 2^8 => 1,
+				nb_auth if nb_auth < 2^16 => 2,
+				nb_auth if nb_auth < 2^24 => 3,
+				nb_auth if nb_auth < 2^32 => 4,
+				_ => unimplemented!(),
+			};
+			let mut at = 0usize;
+			loop {
+				if let Some(next) = hash.get(cursor) {
+					nb_bytes -= 1;
+					at += (*next as usize) * (1usize << (8 * nb_bytes));
+					cursor += 1;
+					if nb_bytes == 0 {
+						break;
+					}
+				} else {
+					cursor = 0;
+					hash = sp_core::hashing::blake2_256(&hash);
+				}
+			}
+			at = at % nb_auth;
+			result.push(auths.remove(at).clone());
+		}
+		result
 	}
+
 	fn allow_receive(
 		&self,
 		from: &MixPeerId,
@@ -839,6 +902,7 @@ impl AuthorityStar {
 			network_id,
 			node_public_key,
 			authorities: BTreeMap::new(),
+			all_authorities: BTreeMap::new(),
 			connected_nodes: HashMap::new(),
 			sessions: HashMap::new(),
 			routing: false,
@@ -848,7 +912,9 @@ impl AuthorityStar {
 			current_session: 0,
 			not_connected_or_refused: Default::default(),
 			should_connect_to: Default::default(),
+			should_connect_pending: Default::default(),
 			last_signed: Default::default(),
+			disconnected_in_routing: Default::default(),
 		}
 	}
 
@@ -860,15 +926,52 @@ impl AuthorityStar {
 		debug!(target: "mixnet", "Connected to mixnet {:?} {:?}", peer_id, key);
 		if let Some(public_key) = self.connected_nodes.get_mut(&peer_id) {
 			*public_key = key;
-			return
+		} else {
+			self.connected_nodes.insert(peer_id, key);
 		}
-
-		self.connected_nodes.insert(peer_id, key);
+		if let Some(info) = self.should_connect_pending.get_mut(&peer_id) {
+			if info.1 == true {
+				info.1 = false;
+				self.refresh_connection_table();
+			}
+		}
 	}
 
 	fn add_disconnected_peer(&mut self, peer_id: &MixPeerId) {
 		debug!(target: "mixnet", "Disconnected from mixnet {:?}", peer_id);
 		let _ = self.connected_nodes.remove(peer_id);
+		if let Some(info) = self.should_connect_pending.get_mut(peer_id) {
+			if info.1 == false {
+				info.1 = true;
+				self.refresh_connection_table();
+			}
+		}
+	}
+
+	// TODO move to routing_table??
+	fn refresh_connection_table(&mut self) {
+		let past = self.routing_table.clone();
+		self.routing_table.connected_to.clear(); // TODO update a bit more precise
+		for (index, peer) in self.should_connect_to.iter().enumerate() {
+			if let Some(info) = self.should_connect_pending.get(peer) {
+				if info.1 == false {
+					self.routing_table.connected_to.insert(peer.clone());
+				}
+			}
+			if self.routing_table.connected_to.len() == NUMBER_CONNECTED_FORWARD {
+				break;
+			}
+		}
+		self.routing_table.receive_from.clear(); // TODO update a bit more precise
+		for (peer_id, table) in self.authorities_tables.iter() {
+			if table.routing_table.connected_to.contains(&self.node_id) {
+				self.routing_table.receive_from.insert(peer_id.clone());
+			}
+		}
+
+		if past != self.routing_table {
+			self.routing_table.revision += 1;
+		}
 	}
 }
 
