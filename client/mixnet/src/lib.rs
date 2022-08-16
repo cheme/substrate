@@ -92,8 +92,9 @@ pub struct MixnetWorker<B: BlockT, C, N> {
 	latest_published_payload: Option<Vec<u8>>,
 	query_interval: ExpIncInterval, /* TODO exp interval is questionable here, at least need to
 	                                 * reset on session id change */
-	pending_lookups: Vec<AuthorityId>,
 	in_flight_lookups: HashMap<sc_network::KademliaKey, AuthorityId>,
+	current_authorities_keys: Vec<(sc_network::KademliaKey, AuthorityId)>,
+	pending_lookup_at: Option<usize>,
 }
 
 type WorkerChannels = (mixnet::WorkerChannels, futures::channel::mpsc::Receiver<MixnetCommand>);
@@ -206,7 +207,6 @@ where
 			dht_event_rx,
 			in_flight_lookups: HashMap::new(),
 			latest_published_payload: None,
-			pending_lookups: Vec::new(),
 			publish_interval: ExpIncInterval::new(
 				Duration::from_secs(publish_interval_secs),
 				Duration::from_secs(max_publish_interval_secs),
@@ -219,6 +219,8 @@ where
 				Duration::from_secs(query_interval_secs),
 				Duration::from_secs(max_query_interval_secs),
 			),
+			current_authorities_keys: Default::default(),
+			pending_lookup_at: None,
 		})
 	}
 
@@ -258,15 +260,29 @@ where
 	}
 
 	fn start_new_lookups(&mut self) {
-		while self.in_flight_lookups.len() < MAX_IN_FLIGHT_LOOKUPS {
-			let authority_id = match self.pending_lookups.pop() {
-				Some(authority) => authority,
-				None => return,
-			};
-			let hash = hash_authority_id(authority_id.as_ref());
-			self.network.get_value(&hash);
-			self.in_flight_lookups.insert(hash, authority_id);
+		let nb_authorities = self.current_authorities_keys.len();
+		let topology = &mut self.worker.mixnet_mut().topology;
+		// Ignore all still in-flight lookups. Those that are still in-flight are likely stalled as
+		// query interval ticks are far enough apart for all lookups to succeed.
+		self.in_flight_lookups.clear();
 
+		while self.in_flight_lookups.len() < std::cmp::min(MAX_IN_FLIGHT_LOOKUPS, nb_authorities) {
+			if let Some(at) = self.pending_lookup_at.clone() {
+				let (hash, authority_id) = match self.current_authorities_keys.get(at) {
+					Some(authority) => authority,
+					None => {
+						self.pending_lookup_at = None;
+						continue;
+					},
+				};
+				self.network.get_value(&hash);
+				self.in_flight_lookups.insert(hash.clone(), authority_id.clone());
+				self.pending_lookup_at = Some(at + 1);
+			} else {
+				use rand::seq::SliceRandom;
+				self.current_authorities_keys.shuffle(&mut rand::thread_rng());
+				self.pending_lookup_at = Some(0);
+			}
 			/*			if let Some(metrics) = &self.metrics {
 				metrics.requests.inc();
 				metrics
@@ -332,20 +348,6 @@ where
 		}
 	}
 
-	async fn refill_pending_lookups_queue(&mut self) {
-		let topology = &mut self.worker.mixnet_mut().topology;
-		// TODO filter recently fetched?
-		let mut authorities: Vec<AuthorityId> =
-			topology.authorities.values().map(|(_, id)| id.clone()).collect();
-
-		use rand::seq::SliceRandom;
-		authorities.shuffle(&mut rand::thread_rng());
-		self.pending_lookups = authorities;
-		// Ignore all still in-flight lookups. Those that are still in-flight are likely stalled as
-		// query interval ticks are far enough apart for all lookups to succeed.
-		self.in_flight_lookups.clear();
-	}
-
 	pub async fn run(mut self) {
 		let info = self.client.usage_info().chain;
 		if info.finalized_number == 0u32.into() {
@@ -356,7 +358,6 @@ where
 		let mut delay_finalized = Delay::new(Duration::from_secs(DELAY_NO_FINALISATION_S));
 		let delay_finalized = &mut delay_finalized;
 		loop {
-			self.start_new_lookups();
 			futures::select! {
 							event = self.dht_event_rx.next().fuse() => {
 								if let Some(event) = event {
@@ -377,7 +378,7 @@ where
 								}*/
 							},
 							_ = self.query_interval.next().fuse() => {
-								self.refill_pending_lookups_queue().await;
+								self.start_new_lookups();
 			/*					if let Err(e) = self.refill_pending_lookups_queue().await {
 									error!(
 										target: "mixnet",
@@ -514,8 +515,10 @@ where
 
 		topology.routing = false;
 
+		self.current_authorities_keys.clear();
 		let mut restart = None;
 		for (auth, _) in set.into_iter() {
+			self.current_authorities_keys.push((hash_authority_id(auth.as_ref()), auth.clone()));
 			use sp_application_crypto::Public;
 			let auth_pub_pair = auth.clone().to_public_crypto_pair(); // TODO change key type in map?
 			if let Some(key) = topology.sessions.get(&auth_pub_pair) {
