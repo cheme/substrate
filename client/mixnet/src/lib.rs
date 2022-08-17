@@ -28,7 +28,7 @@ pub use mixnet::{Config, SinkToWorker, StreamFromWorker};
 use sp_application_crypto::key_types;
 use sp_keystore::SyncCryptoStore;
 
-use codec::{Decode, Encode, Input, Output};
+use codec::{Decode, Encode, Input, Output, Compact};
 use futures::{future, FutureExt, StreamExt};
 use futures_timer::Delay;
 use log::{debug, error, trace, warn};
@@ -334,7 +334,7 @@ where
 			debug!(target: "mixnet", "Skip pub, not routing.");
 			return
 		}
-		let (payload, has_changed) = topology.published_table();
+		let (payload, has_changed) = topology.publish_table();
 		if only_if_changed && !has_changed {
 			debug!(target: "mixnet", "Skip pub, unchanged.");
 			return
@@ -499,7 +499,12 @@ where
 			Duration::from_secs(max_publish_interval_secs),
 		);
 
+		if self.session.as_ref().map(|s| s < &session).unwrap_or(false) {
+			error!(target: "mixnet", "Handling outdated authority set.");
+			return;
+		}
 		self.session = Some(session);
+
 		self.fetch_new_session_keys(at, session);
 		self.update_own_public_key_within_authority_set(&set);
 		let mut remove_limit = Vec::new();
@@ -508,7 +513,7 @@ where
 		let topology = &mut self.worker.mixnet_mut().topology;
 		topology.current_session = session;
 		topology.routing_table.session = session;
-		topology.routing_table.revision = 1; // TODO load from persistence in case it is first call here (may be ongoing session
+		topology.routing_table.revision = Compact(1); // TODO load from persistence in case it is first call here (may be ongoing session
 									 // of a restarted node).
 		debug!(target: "mixnet", "Change authorities {:?}", set);
 		let mut old_authority = std::mem::take(&mut topology.authorities);
@@ -759,7 +764,7 @@ pub struct AuthorityTable {
 	session: SetId,
 	// TODO this info should be stored in case of node restart (otherwhise until session change, no
 	// consensus with peer routing table will be find and only active for next setid.
-	revision: u32, // TODO compact
+	revision: Compact<u32>,
 	public_key: EncodableMixPublicKey,
 	// TODO could put revision but change will be more costy to converge.
 	// TODO or put revision in dht key, then on handshake you also pass revision and then crawl
@@ -894,7 +899,8 @@ impl AuthorityStar {
 			public_key: EncodableMixPublicKey(node_public_key_new),
 			connected_to: BTreeSet::new(),
 			receive_from: BTreeSet::new(),
-			revision: 0, // TODO load from persistent storage on handle_new authority.
+			revision: Compact(0), // TODO load from persistent storage on handle_new authority -> here on
+														// restart we publish older revision!! and cannot synch.
 			session: 0,
 		};
 		AuthorityStar {
@@ -970,7 +976,7 @@ impl AuthorityStar {
 		}
 
 		if past != self.routing_table {
-			self.routing_table.revision += 1;
+			self.routing_table.revision.0 += 1;
 		}
 	}
 }
@@ -1257,10 +1263,11 @@ impl Topology for AuthorityStar {
 }
 
 impl AuthorityStar {
-	fn published_table(&mut self) -> (&Vec<u8>, bool) {
+	fn publish_table(&mut self) -> (&Vec<u8>, bool) {
 		let mut has_changed = false;
-		if !(self.last_signed.1 == self.routing_table.session &&
-			self.last_signed.2 == self.routing_table.revision)
+		if self.last_signed.1 < self.routing_table.session ||
+			(self.last_signed.1 == self.routing_table.session &&
+			self.last_signed.2 < self.routing_table.revision.0)
 		{
 			has_changed = true;
 			let mut to_sign = self.node_id.to_vec();
@@ -1277,7 +1284,7 @@ impl AuthorityStar {
 					trace!(target: "mixnet", "create signed routing: {:?}", self.node_id);
 					self.last_signed.0 = to_sign;
 					self.last_signed.1 = self.routing_table.session;
-					self.last_signed.2 = self.routing_table.revision;
+					self.last_signed.2 = self.routing_table.revision.0;
 				},
 				Err(e) => {
 					error!(target: "mixnet", "Table signing error: {:?}", e);
