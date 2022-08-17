@@ -28,7 +28,7 @@ pub use mixnet::{Config, SinkToWorker, StreamFromWorker};
 use sp_application_crypto::key_types;
 use sp_keystore::SyncCryptoStore;
 
-use codec::{Decode, Encode, Input, Output, Compact};
+use codec::{Compact, Decode, Encode, Input, Output};
 use futures::{future, FutureExt, StreamExt};
 use futures_timer::Delay;
 use log::{debug, error, trace, warn};
@@ -272,7 +272,7 @@ where
 					Some(authority) => authority,
 					None => {
 						self.pending_lookup_at = None;
-						continue;
+						continue
 					},
 				};
 				self.network.get_value(&hash);
@@ -328,7 +328,7 @@ where
 
 	// TODO need async ??
 	async fn publish_topology(&mut self, only_if_changed: bool) {
-			debug!(target: "mixnet", "In Publish topology.");
+		debug!(target: "mixnet", "In Publish topology.");
 		let topology = &mut self.worker.mixnet_mut().topology;
 		if !topology.routing {
 			debug!(target: "mixnet", "Skip pub, not routing.");
@@ -501,7 +501,7 @@ where
 
 		if self.session.as_ref().map(|s| s < &session).unwrap_or(false) {
 			error!(target: "mixnet", "Handling outdated authority set.");
-			return;
+			return
 		}
 		self.session = Some(session);
 
@@ -514,7 +514,7 @@ where
 		topology.current_session = session;
 		topology.routing_table.session = session;
 		topology.routing_table.revision = Compact(1); // TODO load from persistence in case it is first call here (may be ongoing session
-									 // of a restarted node).
+											  // of a restarted node).
 		debug!(target: "mixnet", "Change authorities {:?}", set);
 		let mut old_authority = std::mem::take(&mut topology.authorities);
 		topology.all_authorities.clear();
@@ -525,7 +525,8 @@ where
 		self.pending_lookup_at = None;
 		let mut restart = None;
 		for (auth, _) in set.into_iter() {
-			self.current_authorities_keys.push((hash_authority_id(auth.as_ref()), auth.clone()));
+			self.current_authorities_keys
+				.push((hash_authority_id(auth.as_ref()), auth.clone()));
 			use sp_application_crypto::Public;
 			let auth_pub_pair = auth.clone().to_public_crypto_pair(); // TODO change key type in map?
 			if let Some(key) = topology.sessions.get(&auth_pub_pair) {
@@ -540,7 +541,6 @@ where
 				let public_key = mixnet::public_from_ed25519(p);
 
 				if self.authority_id.as_ref() == Some(&auth) {
-
 					topology.all_authorities.insert(peer_id, (public_key, auth.clone()));
 					debug!(target: "mixnet", "In new authority set, routing.");
 					topology.routing = true;
@@ -738,8 +738,9 @@ pub struct AuthorityStar {
 	not_connected_or_refused: HashSet<MixPeerId>,
 	// Connection to peer that are more prioritary: attempt connect.
 	should_connect_to: Vec<MixPeerId>,
-	should_connect_pending: HashMap<MixPeerId, (usize, bool)>, // TODO audit usage of should_connect,
-																														 // does not looks very smart
+	should_connect_pending: HashMap<MixPeerId, (usize, bool)>, /* TODO audit usage of
+	                                                            * should_connect, */
+	// does not looks very smart
 	// peers not connected to other peer when they should (may not be their fault
 	// but if number get big it is still fishy).
 	disconnected_in_routing: HashMap<MixPeerId, Vec<MixPeerId>>,
@@ -802,8 +803,8 @@ impl Decode for EncodableMixPublicKey {
 const NUMBER_CONNECTED_FORWARD: usize = 2;
 
 // This is only to double check connection publication and should stay low.
-// TODO this is actually unused (no limit while testing): we should just not transmit anything when runing, but from should be calculated from published
-// state actually.
+// TODO this is actually unused (no limit while testing): we should just not transmit anything when
+// runing, but from should be calculated from published state actually.
 const PUBLISH_NUMBER_CONNECTED_BACKWARD: usize = 2;
 
 impl AuthorityTable {
@@ -826,21 +827,20 @@ impl AuthorityTable {
 			hash[i] ^= common_seed[i];
 		}
 
-		let mut auths: Vec<_> = authorities.iter().filter_map(|a| if a.0 != from {
-			Some(a.0)
-		} else {
-			None
-		}).collect();
+		let mut auths: Vec<_> = authorities
+			.iter()
+			.filter_map(|a| if a.0 != from { Some(a.0) } else { None })
+			.collect();
 		let mut nb_auth = auths.len();
 		let mut result = Vec::with_capacity(std::cmp::min(nb, nb_auth));
 		let mut cursor = 0;
 		while result.len() < nb && nb_auth > 0 {
 			// TODO bit arith
 			let mut nb_bytes = match nb_auth {
-				nb_auth if nb_auth < 2^8 => 1,
-				nb_auth if nb_auth < 2^16 => 2,
-				nb_auth if nb_auth < 2^24 => 3,
-				nb_auth if nb_auth < 2^32 => 4,
+				nb_auth if nb_auth < 2 ^ 8 => 1,
+				nb_auth if nb_auth < 2 ^ 16 => 2,
+				nb_auth if nb_auth < 2 ^ 24 => 3,
+				nb_auth if nb_auth < 2 ^ 32 => 4,
 				_ => unimplemented!(),
 			};
 			let mut at = 0usize;
@@ -850,7 +850,7 @@ impl AuthorityTable {
 					at += (*next as usize) * (1usize << (8 * nb_bytes));
 					cursor += 1;
 					if nb_bytes == 0 {
-						break;
+						break
 					}
 				} else {
 					cursor = 0;
@@ -899,8 +899,9 @@ impl AuthorityStar {
 			public_key: EncodableMixPublicKey(node_public_key_new),
 			connected_to: BTreeSet::new(),
 			receive_from: BTreeSet::new(),
-			revision: Compact(0), // TODO load from persistent storage on handle_new authority -> here on
-														// restart we publish older revision!! and cannot synch.
+			revision: Compact(0), /* TODO load from persistent storage on handle_new authority ->
+			                       * here on */
+			// restart we publish older revision!! and cannot synch.
 			session: 0,
 		};
 		AuthorityStar {
@@ -965,7 +966,7 @@ impl AuthorityStar {
 				}
 			}
 			if self.routing_table.connected_to.len() == NUMBER_CONNECTED_FORWARD {
-				break;
+				break
 			}
 		}
 		self.routing_table.receive_from.clear(); // TODO update a bit more precise
@@ -1267,7 +1268,7 @@ impl AuthorityStar {
 		let mut has_changed = false;
 		if self.last_signed.1 < self.routing_table.session ||
 			(self.last_signed.1 == self.routing_table.session &&
-			self.last_signed.2 < self.routing_table.revision.0)
+				self.last_signed.2 < self.routing_table.revision.0)
 		{
 			has_changed = true;
 			let mut to_sign = self.node_id.to_vec();
