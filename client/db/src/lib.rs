@@ -2276,7 +2276,11 @@ impl<Block: BlockT> sc_client_api::backend::Backend<Block> for Backend<Block> {
 		match self.blockchain.header_metadata(hash) {
 			Ok(ref hdr) => {
 				let hint = || {
-					sc_state_db::NodeDb::get(self.storage.as_ref(), hdr.state_root.as_ref())
+					sp_state_machine::Storage::get(
+										self.storage.as_ref(),
+										&hdr.state_root,
+										(&[], None),
+									)
 						.unwrap_or(None)
 						.is_some()
 				};
