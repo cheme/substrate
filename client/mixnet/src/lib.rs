@@ -733,6 +733,12 @@ pub struct AuthorityTopology {
 	routing_table: AuthorityTable,
 	last_signed: (Vec<u8>, SetId, u32),
 	authorities_tables: BTreeMap<MixPeerId, AuthorityRouting>,
+	// all path of a given size.
+	// on every change to auth table this is cleared TODO make change synchronously to
+	// avoid full calc every time.
+	//
+	// TODO find something better
+	paths: BTreeMap<usize, HashMap<(MixPeerId, MixPeerId), Vec<Vec<MixPeerId>>>>,
 	// TODO every N delay put a peer from our `should_connect_to` list
 	// as off and allows connection with the next one.
 	not_connected_or_refused: HashSet<MixPeerId>,
@@ -920,6 +926,7 @@ impl AuthorityTopology {
 			authorities_tables: BTreeMap::new(),
 			routing_table,
 			current_session: 0,
+			paths: Default::default(),
 			not_connected_or_refused: Default::default(),
 			should_connect_to: Default::default(),
 			should_connect_pending: Default::default(),
@@ -988,6 +995,7 @@ impl AuthorityTopology {
 
 		if past != self.routing_table {
 			self.routing_table.revision.0 += 1;
+			self.paths.clear();
 		}
 	}
 }
@@ -1111,7 +1119,7 @@ impl Topology for AuthorityTopology {
 	}
 
 	fn random_path(
-		&self,
+		&mut self,
 		start_node: (&MixPeerId, Option<&MixPublicKey>),
 		recipient_node: (&MixPeerId, Option<&MixPublicKey>),
 		nb_chunk: usize,
@@ -1169,9 +1177,15 @@ impl Topology for AuthorityTopology {
 			let mut ids = BTreeSet::new();
 			ids.insert(start.clone());
 			ids.insert(recipient.clone());
-			unimplemented!("Need a full map");
-			/*
-			while ids.len() - 2 < num_hops - 1 {
+
+			let mut path_accessed: Vec<BTreeSet<usize>> = Vec::with_capacity(num_hops + 1);
+			let mut path = Vec::with_capacity(num_hops + 1);
+
+			let mut current = start;
+			// in depth search is terrible : just here to test TODO correct path map with all path of
+			// right length.
+			unimplemented!("lazy gen path of given length from and too");
+/*			while ids.len() - 2 < num_hops - 1 {
 				if let Some(key) = self.random_connected(|k| ids.contains(k)) {
 					trace!(target: "mixnet", "Add hop {:?}.", key);
 					ids.insert(key.0);
@@ -1179,9 +1193,8 @@ impl Topology for AuthorityTopology {
 					debug!(target: "mixnet", "No random connected {:?}.", ids.len() - 2);
 					return Err(Error::NotEnoughRoutingPeers)
 				}
-			}*/
-
-			let mut path = Vec::with_capacity(num_hops + 1);
+			}
+*/
 			if let Some((peer, key)) = add_start {
 				debug!(target: "mixnet", "Add first ,nexts {:?}.", ids.len());
 				path.push((peer.clone(), key.clone()));
@@ -1394,6 +1407,7 @@ impl AuthorityTopology {
 						routing_table: payload,
 					},
 				);
+				self.paths.clear();
 				log::debug!(target: "mixnet", "current routes: {:?}", self.authorities_tables);
 			}
 			return true
