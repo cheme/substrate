@@ -1059,6 +1059,7 @@ fn random_path(
 		}) {
 			if let Some(next) = random_path_inner(&mut rng, paths, |p| exclude.contains(p)) {
 				result.push(next);
+				touched.last_mut().map(|touched| { touched.push(next); });
 				touched.push(Vec::new());
 				exclude.insert(next);
 				at -= 1;
@@ -1074,9 +1075,6 @@ fn random_path(
 				for touch in touched.into_iter() {
 					exclude.remove(&touch);
 				}
-			}
-			if let Some(touched) = touched.last_mut() {
-				touched.push(child);
 			}
 			at += 1;
 		}
@@ -1106,13 +1104,14 @@ fn count_paths(
 			paths.get(&at).and_then(|paths| paths.get(to)).and_then(|paths| paths.get(from))
 				.map(|p| (p, *at_ix))
 		}) {
-		if let Some(next) = paths.get(at_ix).map(|n| if exclude.contains(n) { None } else {Some(n.clone())}) {
+		if let Some(next) = paths.get(at_ix).cloned() {
 			result.last_mut().map(|(_, at_ix)| { *at_ix += 1; });
-			if let Some(next) = next {
+			if !exclude.contains(&next) {
 				if at == 3 {
 					total += 1;
 				} else {
 					result.push((next,  0));
+					touched.last_mut().map(|touched| { touched.push(next); });
 					touched.push(Vec::new());
 					exclude.insert(next);
 					at -= 1;
@@ -1131,9 +1130,6 @@ fn count_paths(
 				for touch in touched.into_iter() {
 					exclude.remove(&touch);
 				}
-			}
-			if let Some(touched) = touched.last_mut() {
-				touched.push(child);
 			}
 			at += 1;
 		}
@@ -1695,9 +1691,13 @@ fn test_fill_paths() {
 /*	let nb_peers: u16 = 1000;
 	let nb_forward = 15;
 	let depth = 4;*/
-	let nb_peers: u16 = 8;
+/*	let nb_peers: u16 = 8;
 	let nb_forward = 4;
+	let depth = 5;*/
+	let nb_peers: u16 = 5;
+	let nb_forward = 3;
 	let depth = 5;
+
 
 
 	let peers: Vec<[u8; 32]> = (0..nb_peers).map(|i| {
@@ -1725,6 +1725,7 @@ fn test_fill_paths() {
 		from_to.insert(p.clone(), tos);
 	}
 	let mut to_from: HashMap<MixPeerId, Vec<MixPeerId>> = Default::default();
+//	let from_to2: BTreeMap<_, _> = from_to.iter().map(|(k, v)|(k.clone(), v.clone())).collect();
 	for (from, tos) in from_to.iter() {
 		for to in tos.iter() {
 			to_from.entry(to.clone()).or_default().push(from.clone());
@@ -1737,11 +1738,11 @@ fn test_fill_paths() {
 	println!("size {:?}", AuthorityTopology::paths_mem_size(&paths));
 // there is a path but cycle on 0 (depth 4)
 //	assert!(random_path(&paths, &peers[0], &peers[1], depth).is_none());
-	let path = random_path(&paths, &peers[2], &peers[1], depth);
 	let nb_path = count_paths(&paths, &peers[2], &peers[1], depth);
 	println!("nb_path {:?}", nb_path);
+	let path = random_path(&paths, &peers[2], &peers[1], depth);
 	if path.is_none() {
-		assert_eq!(nb_path, 0);
+//		assert_eq!(nb_path, 0);
 	}
 	panic!("{:?}", path);
 }
