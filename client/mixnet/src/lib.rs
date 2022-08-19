@@ -50,6 +50,9 @@ use std::{
 /// Minimal number of node for accepting to add new message.
 const LOW_MIXNET_THRESHOLD: usize = 5;
 
+/// Minimal number of paths for sending to recipient.
+const LOW_MIXNET_PATHS: usize = 2;
+
 // Buffer size for mixnet command channel.
 const COMMAND_BUFFER_SIZE: usize = 25;
 
@@ -167,12 +170,14 @@ where
 		// TODO switch to config with generated key only.
 		let config_tmp = mixnet::Config::new(local_public_key);
 
-		let mixnet_config = if let Some((pub_key, priv_key)) = Self::get_mixnet_keys(&*key_store) {
+		let mut mixnet_config = if let Some((pub_key, priv_key)) = Self::get_mixnet_keys(&*key_store) {
 			mixnet::Config::new_with_keys(local_public_key, pub_key, priv_key)
 		} else {
 			log::error!(target: "mixnet", "Not using grandpa key");
 			mixnet::Config::new(local_public_key)
 		};
+
+		mixnet_config.num_hops = DEFAULT_NUM_HOPS;
 
 		let finality_stream = client.finality_notification_stream();
 
@@ -713,7 +718,7 @@ where
 /// When sending a message, the message can only reach nodes
 /// that are part of the topology.
 pub struct AuthorityTopology {
-	node_id: MixPeerId,
+	node_id: MixPeerId, // TODO rename local_id?
 	network_id: PeerId,
 	node_public_key: MixPublicKey,
 	key_store: Arc<dyn SyncCryptoStore>,
@@ -813,6 +818,8 @@ impl Decode for EncodableMixPublicKey {
 // TODO more but this is ok for testing on a 6 authority network.
 // TODO put in config.
 const NUMBER_CONNECTED_FORWARD: usize = 2;
+
+const DEFAULT_NUM_HOPS: u32 = 4;
 
 // should statically be NUMBER_CONNECTED_BACKWARD, but applying a small variation margin.
 const NUMBER_CONNECTED_BACKWARD: usize = NUMBER_CONNECTED_FORWARD - 1;
@@ -1008,7 +1015,7 @@ impl AuthorityTopology {
 }
 
 impl AuthorityTopology {
-	fn random_recipient(&self, skip: impl Fn(&MixPeerId) -> bool) -> Option<MixPeerId> {
+	fn random_dest(&self, skip: impl Fn(&MixPeerId) -> bool) -> Option<MixPeerId> {
 		use rand::RngCore;
 		// Warning this assume that PeerId is a randomly distributed value.
 		let mut ix = [0u8; 32];
@@ -1143,7 +1150,6 @@ fn count_paths(
 			at += 1;
 		}
 	}
-
 	total
 }
 
@@ -1202,10 +1208,6 @@ impl AuthorityTable {
 }
 
 impl Topology for AuthorityTopology {
-	fn first_hop_nodes(&self) -> Vec<(MixPeerId, MixPublicKey)> {
-		self.authorities.iter().map(|(k, v)| (k.clone(), v.0.clone())).collect()
-	}
-
 	fn first_hop_nodes_external(
 		&self,
 		from: &MixPeerId,
@@ -1213,30 +1215,64 @@ impl Topology for AuthorityTopology {
 	) -> Vec<(MixPeerId, MixPublicKey)> {
 		// allow for all
 		let mut keys: Vec<_> = self
-			.first_hop_nodes()
-			.into_iter()
-			.filter(|(id, _key)| self.connected_nodes.contains_key(id))
-			.filter(|(id, _key)| from != id)
-			.filter(|(id, _key)| to != id)
+			.authorities
+			.iter()
+			.filter(|(id, _key)| from != *id)
+			.filter(|(id, _key)| to != *id)
+			.filter(|(id, _key)| self.connected_nodes.contains_key(*id))
+			.map(|(k, v)| (k.clone(), v.0.clone()))
 			.collect();
 
-		use rand::prelude::SliceRandom;
-		keys.shuffle(&mut rand::thread_rng());
 		keys
 	}
 
 	fn is_first_node(&self, id: &MixPeerId) -> bool {
-		// allow for all
 		self.is_routing(id)
 	}
 
-	fn random_recipient(&self, from: &MixPeerId) -> Option<(MixPeerId, MixPublicKey)> {
+	// TODO make random_recipient return path directly.
+	fn random_recipient(&mut self, from: &MixPeerId, send_options: &mixnet::SendOptions) -> Option<(MixPeerId, MixPublicKey)> {
 		if !self.has_enough_nodes_to_send() {
 			debug!(target: "mixnet", "Not enough routing nodes for path.");
 			return None
 		}
-		self.random_recipient(|p| p == from)
-			.and_then(|peer| self.all_authorities.get(&peer).map(|keys| (peer, keys.0)))
+		let mut bad = HashSet::new();
+		loop {
+			if let Some(peer) = self.random_dest(|p| p == from || bad.contains(p)) {
+				let nb_hop = send_options.num_hop.unwrap_or(DEFAULT_NUM_HOPS as usize);
+				AuthorityTopology::fill_paths(
+					&self.node_id,
+					&mut self.paths,
+					&mut self.paths_depth,
+					&self.authorities_tables,
+					nb_hop,
+				);
+				let from_count = if self.is_routing(from) {
+					// TODO should return path directly rather than random here that could be different that
+					// path one -> then the check on count could be part of path building
+					let firsts = self.first_hop_nodes_external(from, &peer);
+					if firsts.len() == 0 {
+						return None;
+					}
+					firsts[0].0.clone()
+				} else {
+					from.clone()
+				};
+				// TODO also count surbs??
+				if count_paths(
+					&self.paths,
+					&from_count,
+					&peer,
+					nb_hop,
+				) >= LOW_MIXNET_PATHS {
+					return self.all_authorities.get(&peer).map(|keys| (peer, keys.0));
+				} else {
+					bad.insert(peer);
+				}
+			} else {
+				return None
+			}
+		}
 	}
 
 	/// For a given peer return a list of peers it is supposed to be connected to.
@@ -1319,37 +1355,37 @@ impl Topology for AuthorityTopology {
 			}
 		};
 		trace!(target: "mixnet", "number hop: {:?}", num_hops);
+		AuthorityTopology::fill_paths(
+			&self.node_id,
+			&mut self.paths,
+			&mut self.paths_depth,
+			&self.authorities_tables,
+			num_hops,
+		);
+		if count_paths(
+			&self.paths,
+			&start,
+			&recipient,
+			num_hops,
+		) < LOW_MIXNET_PATHS {
+			// TODO NotEnoughPath error
+			return Err(Error::NoPath(Some(recipient)));
+		};
+
 		let mut result = Vec::with_capacity(nb_chunk);
 		while result.len() < nb_chunk {
-			let mut ids = BTreeSet::new();
-			ids.insert(start.clone());
-			ids.insert(recipient.clone());
-
-			let mut path_accessed: Vec<BTreeSet<usize>> = Vec::with_capacity(num_hops + 1);
+			let path_ids = if let Some(path) = random_path(&self.paths, &start, &recipient, num_hops) {
+				path
+			} else {
+				return Err(Error::NoPath(Some(recipient)));
+			};
 			let mut path = Vec::with_capacity(num_hops + 1);
-
-			let mut current = start;
-			// in depth search is terrible : just here to test TODO correct path map with all path
-			// of right length.
-			unimplemented!("lazy gen path of given length from and too");
-			/*			while ids.len() - 2 < num_hops - 1 {
-							if let Some(key) = self.random_connected(|k| ids.contains(k)) {
-								trace!(target: "mixnet", "Add hop {:?}.", key);
-								ids.insert(key.0);
-							} else {
-								debug!(target: "mixnet", "No random connected {:?}.", ids.len() - 2);
-								return Err(Error::NotEnoughRoutingPeers)
-							}
-						}
-			*/
 			if let Some((peer, key)) = add_start {
-				debug!(target: "mixnet", "Add first ,nexts {:?}.", ids.len());
+				debug!(target: "mixnet", "Add first, nexts {:?}.", path_ids.len());
 				path.push((peer.clone(), key.clone()));
 			}
 
-			ids.remove(&start);
-			ids.remove(&recipient);
-			for peer_id in ids.into_iter() {
+			for peer_id in path_ids.into_iter() {
 				if let Some(public_key) = self.authorities.get(&peer_id) {
 					path.push((peer_id, public_key.0.clone()));
 				} else {
@@ -1383,11 +1419,7 @@ impl Topology for AuthorityTopology {
 	}
 
 	fn is_routing(&self, id: &MixPeerId) -> bool {
-		/*		if id == &self.node_id {
-			self.routing
-		} else {*/
 		self.all_authorities.contains_key(id)
-		//		}
 	}
 
 	fn connected(&mut self, peer_id: MixPeerId, key: MixPublicKey) {
@@ -1401,7 +1433,7 @@ impl Topology for AuthorityTopology {
 	}
 
 	fn allowed_external(&self, _id: &MixPeerId) -> Option<(usize, usize)> {
-		// 10% TODO just limit nb connection (on check_handshake success)
+		// 10% TODO also limit nb connection (on check_handshake success)
 		Some((1, 10))
 	}
 
@@ -1468,7 +1500,8 @@ impl AuthorityTopology {
 	fn paths_mem_size(
 		paths: &BTreeMap<usize, HashMap<MixPeerId, HashMap<MixPeerId, Vec<MixPeerId>>>>,
 	) -> usize {
-		// approximate and slow, just to get idea in test.
+		// approximate and slow, just to get idea in test. TODO update when switching paths to use
+		// indexes as ptr.
 		let mut size = 0;
 		for paths in paths.iter() {
 			size += 8; // usize
@@ -1491,21 +1524,19 @@ impl AuthorityTopology {
 		local_id: &MixPeerId,
 		paths: &mut BTreeMap<usize, HashMap<MixPeerId, HashMap<MixPeerId, Vec<MixPeerId>>>>,
 		paths_depth: &mut usize,
-		authorities_tables: &BTreeMap<MixPeerId, AuthorityRouting>, /* TODO Note we do not
-		                                                             * include our node */
-		// in routing, could
+		authorities_tables: &BTreeMap<MixPeerId, AuthorityRouting>,
 		depth: usize,
 	) {
 		if &depth <= paths_depth {
 			return
 		}
 		// TODO not strictly needed (all in authorities_tables), convenient to exclude local id..
-		let mut from_to = HashMap::<MixPeerId, Vec<MixPeerId>>::new();
+//		let mut from_to = HashMap::<MixPeerId, Vec<MixPeerId>>::new();
 		// TODO not strictly needed (all in authorities_tables), convenient to exclude local id.
 		let mut to_from = HashMap::<MixPeerId, Vec<MixPeerId>>::new();
 
 		for (from, table) in authorities_tables {
-			from_to.insert(
+/*			from_to.insert(
 				from.clone(),
 				table
 					.routing_table
@@ -1514,7 +1545,7 @@ impl AuthorityTopology {
 					.filter(|n| n != &local_id)
 					.cloned()
 					.collect(),
-			);
+			);*/
 			// TODO change if limitting size of receive_from
 			to_from.insert(
 				from.clone(),
@@ -1528,14 +1559,13 @@ impl AuthorityTopology {
 			);
 		}
 
-		Self::fill_paths_inner(from_to, to_from, paths, *paths_depth, depth);
+		Self::fill_paths_inner(to_from, paths, *paths_depth, depth);
 		if *paths_depth < depth {
 			*paths_depth = depth;
 		}
 	}
 
 	fn fill_paths_inner(
-		from_to: HashMap<MixPeerId, Vec<MixPeerId>>,
 		to_from: HashMap<MixPeerId, Vec<MixPeerId>>,
 		paths: &mut BTreeMap<usize, HashMap<MixPeerId, HashMap<MixPeerId, Vec<MixPeerId>>>>,
 		paths_depth: usize,
@@ -1660,13 +1690,15 @@ impl AuthorityTopology {
 					(payload.session == table.routing_table.session &&
 						payload.revision <= table.routing_table.revision)
 				{
-					log::debug!(target: "mixnet", "not updated routes: {:?}", self.authorities_tables);
+					log::debug!(target: "mixnet", "Not updated routes: {:?}", self.authorities_tables);
+					// TODO old tables should lower dht peer prio.
 					insert = false;
 				}
 			}
 			if insert {
 				// TODO sanity check of table (not connected to too many peers), ~ consistent with
 				// peer neighbors (at least from the connected one we know)...
+				// TODO number of non connected neighbor that should be.
 				self.authorities_tables.insert(
 					with.clone(),
 					AuthorityRouting {
@@ -1741,7 +1773,7 @@ fn test_fill_paths() {
 	//		let to_from = to_from.clone();
 	let mut paths = BTreeMap::new();
 	let paths_depth = 0;
-	AuthorityTopology::fill_paths_inner(from_to, to_from, &mut paths, paths_depth, depth);
+	AuthorityTopology::fill_paths_inner(to_from, &mut paths, paths_depth, depth);
 	//	println!("{:?}", paths);
 	println!("size {:?}", AuthorityTopology::paths_mem_size(&paths));
 
