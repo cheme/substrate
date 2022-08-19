@@ -1033,6 +1033,82 @@ impl AuthorityTopology {
 	}
 }
 
+fn random_path(
+	paths: &BTreeMap<usize, HashMap<MixPeerId, HashMap<MixPeerId, Vec<MixPeerId>>>>,
+	from: &MixPeerId,
+	to: &MixPeerId,
+	size_path: usize,
+) -> Option<Vec<MixPeerId>> {
+	trace!(target: "mixnet", "routing from {:?}, to {:?}, path size {:?}", from, to, size_path);
+	// TODO some minimal length??
+	if size_path < 3 {
+		return None
+	}
+	let mut rng = rand::thread_rng();
+	let mut at = size_path;
+	let mut exclude = HashSet::new();
+	exclude.insert(from.clone());
+	exclude.insert(to.clone());
+	let mut result = Vec::<MixPeerId>::with_capacity(size_path); // allocate two extra for case where a node is
+															 // appended front or/and back.
+	result.push(from.clone());
+	// when going up state we only remove one parent peer from.
+	let mut child_rem: Option<MixPeerId> = None;
+	while at > 2 {
+		if let Some(paths) = result.last().and_then(|from| {
+			paths.get(&at).and_then(|paths| paths.get(to)).and_then(|paths| paths.get(from))
+		}) {
+			if let Some(next) = random_path_inner(&mut rng, paths, |p| exclude.contains(p)) {
+				result.push(next);
+				exclude.insert(next);
+				at -= 1;
+				continue
+			}
+		}
+		// dead end path
+		if result.len() == 1 {
+			return None
+		}
+		if let Some(child) = result.pop() {
+			if let Some(child_rem) = std::mem::replace(&mut child_rem, Some(child)) {
+				exclude.remove(&child_rem);
+			}
+		}
+	}
+	result.push(to.clone());
+	Some(result)
+}
+
+fn random_path_inner(
+	rng: &mut rand::rngs::ThreadRng,
+	routes: &Vec<MixPeerId>,
+	skip: impl Fn(&MixPeerId) -> bool,
+) -> Option<MixPeerId> {
+	use rand::Rng;
+	// Warning this assume that PeerId is a randomly distributed value.
+	let ix: usize = match routes.len() {
+		l if l <= u8::MAX as usize => rng.gen::<u8>() as usize,
+		l if l <= u16::MAX as usize => rng.gen::<u16>() as usize,
+		l if l <= u32::MAX as usize => rng.gen::<u32>() as usize,
+		l => rng.gen::<usize>(),
+	};
+	let ix = ix % routes.len();
+
+	for key in routes[ix..].iter() {
+		if !skip(&key) {
+			debug!(target: "mixnet", "Random route node");
+			return Some(key.clone())
+		}
+	}
+	for key in routes[..ix].iter() {
+		if !skip(key) {
+			debug!(target: "mixnet", "Random route node");
+			return Some(key.clone())
+		}
+	}
+	None
+}
+
 impl AuthorityTable {
 	fn random_connected(&self, skip: impl Fn(&MixPeerId) -> bool) -> Option<MixPeerId> {
 		use rand::RngCore;
@@ -1387,6 +1463,13 @@ impl AuthorityTopology {
 					for mid in mid {
 						if let Some(parents) = to_from.get(mid) {
 							for from in parents.iter() {
+								// avoid two identical node locally (paths still contains
+								// redundant node in some of its paths but being
+								// distributed in a balanced way we will just avoid those
+								// on each hop random calculation.
+								if from == to {
+									continue
+								}
 								depth_paths.entry(from.clone()).or_default().push(mid.clone());
 							}
 						}
@@ -1400,6 +1483,9 @@ impl AuthorityTopology {
 					for (mid, _) in paths_to.iter() {
 						if let Some(parents) = to_from.get(mid) {
 							for from in parents.iter() {
+								if from == to {
+									continue
+								}
 								depth_paths.entry(from.clone()).or_default().push(mid.clone());
 							}
 						}
@@ -1409,7 +1495,6 @@ impl AuthorityTopology {
 			}
 			start_depth += 1;
 		}
-
 	}
 
 	fn publish_table(&mut self) -> (&Vec<u8>, bool) {
@@ -1526,7 +1611,9 @@ fn test_fill_paths() {
 		(peers[0].clone(), vec![peers[1].clone(), peers[2].clone()]),
 		(peers[1].clone(), vec![peers[3].clone(), peers[4].clone()]),
 		(peers[2].clone(), vec![peers[0].clone(), peers[4].clone()]),
-	].into_iter().collect();
+	]
+	.into_iter()
+	.collect();
 	let mut to_from: HashMap<MixPeerId, Vec<MixPeerId>> = Default::default();
 	for (from, tos) in from_to.iter() {
 		for to in tos.iter() {
@@ -1535,13 +1622,11 @@ fn test_fill_paths() {
 	}
 	let mut paths = BTreeMap::new();
 	let paths_depth = 0;
-	let depth = 4;
-	AuthorityTopology::fill_paths_inner(
-		from_to,
-		to_from,
-		&mut paths,
-		paths_depth,
-		depth,
-	);
-	panic!("{:?}", paths)
+	let depth = 5;
+	AuthorityTopology::fill_paths_inner(from_to, to_from, &mut paths, paths_depth, depth);
+	println!("{:?}", paths);
+// there is a path but cycle on 0 (depth 4)
+//	assert!(random_path(&paths, &peers[0], &peers[1], depth).is_none());
+	let path = random_path(&paths, &peers[2], &peers[1], depth);
+	panic!("{:?}", path);
 }
