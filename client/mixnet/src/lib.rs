@@ -475,7 +475,7 @@ where
 							let _ = reply.send(Ok(()));
 						},
 						Err(e) => {
-							error!(target: "mixnet", "Could send transaction in mixnet {:?}", e);
+							error!(target: "mixnet", "Could not send transaction in mixnet {:?}", e);
 							let _ = reply.send(Err(e));
 						},
 					}
@@ -546,6 +546,7 @@ where
 				let public_key = mixnet::public_from_ed25519(p);
 
 				if self.authority_id.as_ref() == Some(&auth) {
+					debug!(target: "mixnet", "Insert self {:?}", peer_id);
 					topology.all_authorities.insert(peer_id, (public_key, auth.clone()));
 					debug!(target: "mixnet", "In new authority set, routing.");
 					topology.routing = true;
@@ -817,12 +818,12 @@ impl Decode for EncodableMixPublicKey {
 
 // TODO more but this is ok for testing on a 6 authority network.
 // TODO put in config.
-const NUMBER_CONNECTED_FORWARD: usize = 2;
+const NUMBER_CONNECTED_FORWARD: usize = 3;
 
 const DEFAULT_NUM_HOPS: u32 = 4;
 
 // should statically be NUMBER_CONNECTED_BACKWARD, but applying a small variation margin.
-const NUMBER_CONNECTED_BACKWARD: usize = NUMBER_CONNECTED_FORWARD - 1;
+const NUMBER_CONNECTED_BACKWARD: usize = NUMBER_CONNECTED_FORWARD - 2;
 
 // This is only to double check connection publication and should stay low.
 // TODO this is actually unused (no limit while testing): we should just not transmit anything when
@@ -1021,18 +1022,22 @@ impl AuthorityTopology {
 		let mut ix = [0u8; 32];
 		rand::thread_rng().fill_bytes(&mut ix[..]);
 
-		trace!(target: "mixnet", "routing {:?}, ix {:?}", self.authorities, ix);
+		trace!(target: "mixnet", "routing {:?}, ix {:?}", self.authorities_tables, ix);
 		for (key, table) in self.authorities_tables.range(ix..) {
 			// TODO alert on low receive_from
-			if !skip(&key) && !table.routing_table.receive_from.len() < NUMBER_CONNECTED_BACKWARD {
+			if !skip(&key) && !(table.routing_table.receive_from.len() < NUMBER_CONNECTED_BACKWARD) {
 				debug!(target: "mixnet", "Random route node");
 				return Some(key.clone())
+			} else {
+				debug!(target: "mixnet", "Skip {:?}, nb {:?}, {:?}", skip(&key), table.routing_table.receive_from.len(), NUMBER_CONNECTED_BACKWARD);
 			}
 		}
 		for (key, table) in self.authorities_tables.range(..ix).rev() {
-			if !skip(&key) && !table.routing_table.receive_from.len() < NUMBER_CONNECTED_BACKWARD {
+			if !skip(&key) && !(table.routing_table.receive_from.len() < NUMBER_CONNECTED_BACKWARD) {
 				debug!(target: "mixnet", "Random route node");
 				return Some(key.clone())
+			} else {
+				debug!(target: "mixnet", "Skip {:?}, nb {:?}, {:?}", skip(&key), table.routing_table.receive_from.len(), NUMBER_CONNECTED_BACKWARD);
 			}
 		}
 		None
@@ -1238,7 +1243,9 @@ impl Topology for AuthorityTopology {
 		}
 		let mut bad = HashSet::new();
 		loop {
+			debug!(target: "mixnet", "rdest {:?}", (&from, &bad));
 			if let Some(peer) = self.random_dest(|p| p == from || bad.contains(p)) {
+				debug!(target: "mixnet", "Trying random dest {:?}.", peer);
 				let nb_hop = send_options.num_hop.unwrap_or(DEFAULT_NUM_HOPS as usize);
 				AuthorityTopology::fill_paths(
 					&self.node_id,
@@ -1247,7 +1254,8 @@ impl Topology for AuthorityTopology {
 					&self.authorities_tables,
 					nb_hop,
 				);
-				let from_count = if self.is_routing(from) {
+				let from_count = if !self.is_routing(from) {
+					debug!(target: "mixnet", "external {:?}", from);
 					// TODO should return path directly rather than random here that could be different that
 					// path one -> then the check on count could be part of path building
 					let firsts = self.first_hop_nodes_external(from, &peer);
@@ -1259,17 +1267,21 @@ impl Topology for AuthorityTopology {
 					from.clone()
 				};
 				// TODO also count surbs??
-				if count_paths(
+				let nb_path = count_paths(
 					&self.paths,
 					&from_count,
 					&peer,
 					nb_hop,
-				) >= LOW_MIXNET_PATHS {
+				);
+				debug!(target: "mixnet", "Number path for dest {:?}.", nb_path);
+				debug!(target: "mixnet", "{:?} to {:?}", from_count, peer);
+				if nb_path >= LOW_MIXNET_PATHS {
 					return self.all_authorities.get(&peer).map(|keys| (peer, keys.0));
 				} else {
 					bad.insert(peer);
 				}
 			} else {
+				debug!(target: "mixnet", "No random dest.");
 				return None
 			}
 		}
@@ -1362,12 +1374,16 @@ impl Topology for AuthorityTopology {
 			&self.authorities_tables,
 			num_hops,
 		);
-		if count_paths(
+		let nb_path = count_paths(
 			&self.paths,
 			&start,
 			&recipient,
 			num_hops,
-		) < LOW_MIXNET_PATHS {
+		);
+		debug!(target: "mixnet", "Number path for dest {:?}.", nb_path);
+		debug!(target: "mixnet", "{:?} to {:?}", start, recipient);
+		if nb_path < LOW_MIXNET_PATHS {
+			trace!(target: "mixnet", "not enough paths: {:?}", &self.paths);
 			// TODO NotEnoughPath error
 			return Err(Error::NoPath(Some(recipient)));
 		};
@@ -1375,6 +1391,7 @@ impl Topology for AuthorityTopology {
 		let mut result = Vec::with_capacity(nb_chunk);
 		while result.len() < nb_chunk {
 			let path_ids = if let Some(path) = random_path(&self.paths, &start, &recipient, num_hops) {
+				trace!(target: "mixnet", "Got path: {:?}", &path);
 				path
 			} else {
 				return Err(Error::NoPath(Some(recipient)));
@@ -1779,7 +1796,7 @@ fn test_fill_paths() {
 
 	// there is a path but cycle on 0 (depth 4)
 	//	assert!(random_path(&paths, &peers[0], &peers[1], depth).is_none());
-	let nb_path = count_paths(&paths, &peers[2], &peers[1], depth);
+	let nb_path = count_paths(&paths, &local_id, &peers[1], depth);
 	println!("nb_path {:?}", nb_path);
 	let path = random_path(&paths, &peers[2], &peers[1], depth);
 	if path.is_none() {
