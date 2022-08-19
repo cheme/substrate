@@ -1695,12 +1695,12 @@ fn hash_authority_id(auth_id: &[u8]) -> sc_network::KademliaKey {
 
 #[test]
 fn test_fill_paths() {
-	let nb_peers: u16 = 1000;
-	let nb_forward = 15;
-	let depth = 4;
-	/*let nb_peers: u16 = 8;
-	let nb_forward = 4;
+	/*let nb_peers: u16 = 1000;
+	let nb_forward = 10;
 	let depth = 5;*/
+	let nb_peers: u16 = 5;
+	let nb_forward = 3;
+	let depth = 4;
 
 	let peers: Vec<[u8; 32]> = (0..nb_peers)
 		.map(|i| {
@@ -1751,8 +1751,21 @@ fn test_fill_paths() {
 	println!("nb_path {:?}", nb_path);
 	let path = random_path(&paths, &peers[2], &peers[1], depth);
 	if path.is_none() {
-		//		assert_eq!(nb_path, 0);
+		assert_eq!(nb_path, 0);
 	}
 	println!("{:?}", path);
+	let mut nb_reachable = 0;
+	let mut med_nb_con = 0;
+	for i in 1..nb_peers as usize {
+		let path = random_path(&paths, &peers[0], &peers[i], depth);
+		if path.is_some() {
+			nb_reachable += 1;
+		}
+		let nb_path = count_paths(&paths, &peers[0], &peers[i], depth);
+		med_nb_con += nb_path;
+	}
+	let med_nb_con = med_nb_con as f64 / (nb_peers as f64 - 1.0);
+	let reachable = nb_reachable as f64 / (nb_peers as f64 - 1.0);
+	println!("Reachable {:?}, Med nb {:?}", reachable, med_nb_con);
 	panic!("to print");
 }
