@@ -1051,16 +1051,22 @@ fn random_path(
 	let mut result = Vec::<MixPeerId>::with_capacity(size_path); // allocate two extra for case where a node is
 															 // appended front or/and back.
 	result.push(from.clone());
-	let mut touched = Vec::<Vec<MixPeerId>>::with_capacity(size_path - 2);
-	touched.push(Vec::new());
+	// TODO consider Vec instead of hashset (small nb elt)
+	let mut touched = Vec::<HashSet<MixPeerId>>::with_capacity(size_path - 2);
+	touched.push(HashSet::new());
 	while at > 2 {
 		if let Some(paths) = result.last().and_then(|from| {
 			paths.get(&at).and_then(|paths| paths.get(to)).and_then(|paths| paths.get(from))
 		}) {
-			if let Some(next) = random_path_inner(&mut rng, paths, |p| exclude.contains(p)) {
+			if let Some(next) = random_path_inner(&mut rng, paths, |p| {
+				exclude.contains(p) ||
+					touched.last().map(|touched| touched.contains(p)).unwrap_or(false)
+			}) {
 				result.push(next);
-				touched.last_mut().map(|touched| { touched.push(next); });
-				touched.push(Vec::new());
+				touched.last_mut().map(|touched| {
+					touched.insert(next);
+				});
+				touched.push(HashSet::new());
 				exclude.insert(next);
 				at -= 1;
 				continue
@@ -1071,11 +1077,8 @@ fn random_path(
 			return None
 		}
 		if let Some(child) = result.pop() {
-			if let Some(touched) = touched.pop() {
-				for touch in touched.into_iter() {
-					exclude.remove(&touch);
-				}
-			}
+			exclude.remove(&child);
+			touched.pop();
 			at += 1;
 		}
 	}
@@ -1095,49 +1098,54 @@ fn count_paths(
 	exclude.insert(from.clone());
 	exclude.insert(to.clone());
 	let mut result = Vec::<(MixPeerId, usize)>::with_capacity(size_path); // allocate two extra for case where a node is
-															 // appended front or/and back.
+																	  // appended front or/and back.
 	result.push((from.clone(), 0));
-	let mut touched = Vec::<Vec<MixPeerId>>::with_capacity(size_path - 2);
-	touched.push(Vec::new());
+	let mut touched = Vec::<HashSet<MixPeerId>>::with_capacity(size_path - 2);
+	touched.push(HashSet::new());
 	loop {
 		if let Some((paths, at_ix)) = result.last().and_then(|(from, at_ix)| {
-			paths.get(&at).and_then(|paths| paths.get(to)).and_then(|paths| paths.get(from))
+			paths
+				.get(&at)
+				.and_then(|paths| paths.get(to))
+				.and_then(|paths| paths.get(from))
 				.map(|p| (p, *at_ix))
 		}) {
-		if let Some(next) = paths.get(at_ix).cloned() {
-			result.last_mut().map(|(_, at_ix)| { *at_ix += 1; });
-			if !exclude.contains(&next) {
-				if at == 3 {
-					total += 1;
+			if let Some(next) = paths.get(at_ix).cloned() {
+				result.last_mut().map(|(_, at_ix)| {
+					*at_ix += 1;
+				});
+				if !exclude.contains(&next) &&
+					!touched.last().map(|touched| touched.contains(&next)).unwrap_or(false)
+				{
+					if at == 3 {
+						total += 1;
+					} else {
+						result.push((next, 0));
+						touched.last_mut().map(|touched| {
+							touched.insert(next);
+						});
+						touched.push(HashSet::new());
+						exclude.insert(next);
+						at -= 1;
+					}
+					continue
 				} else {
-					result.push((next,  0));
-					touched.last_mut().map(|touched| { touched.push(next); });
-					touched.push(Vec::new());
-					exclude.insert(next);
-					at -= 1;
+					continue
 				}
-				continue
-			} else {
-				continue;
 			}
-		}
 		}
 		if result.len() == 1 {
-			break;
+			break
 		}
 		if let Some((child, _)) = result.pop() {
-			if let Some(touched) = touched.pop() {
-				for touch in touched.into_iter() {
-					exclude.remove(&touch);
-				}
-			}
+			exclude.remove(&child);
+			touched.pop();
 			at += 1;
 		}
 	}
 
 	total
 }
-	
 
 fn random_path_inner(
 	rng: &mut rand::rngs::ThreadRng,
@@ -1456,7 +1464,6 @@ impl Topology for AuthorityTopology {
 }
 
 impl AuthorityTopology {
-
 	#[cfg(test)]
 	fn paths_mem_size(
 		paths: &BTreeMap<usize, HashMap<MixPeerId, HashMap<MixPeerId, Vec<MixPeerId>>>>,
@@ -1477,7 +1484,7 @@ impl AuthorityTopology {
 		}
 		size
 	}
-	
+
 	// TODO Note that building this is rather brutal, could just make some
 	// random selection already to reduce size (and refresh after x uses).
 	fn fill_paths(
@@ -1688,30 +1695,29 @@ fn hash_authority_id(auth_id: &[u8]) -> sc_network::KademliaKey {
 
 #[test]
 fn test_fill_paths() {
-/*	let nb_peers: u16 = 1000;
+	let nb_peers: u16 = 1000;
 	let nb_forward = 15;
-	let depth = 4;*/
-/*	let nb_peers: u16 = 8;
+	let depth = 4;
+	/*let nb_peers: u16 = 8;
 	let nb_forward = 4;
 	let depth = 5;*/
-	let nb_peers: u16 = 5;
-	let nb_forward = 3;
-	let depth = 5;
 
-
-
-	let peers: Vec<[u8; 32]> = (0..nb_peers).map(|i| {
-		let mut id = [0u8; 32];
-		id[0] = (i % 8) as u8;
-		id[1] = (i / 8) as u8;
-		id
-	}).collect();
+	let peers: Vec<[u8; 32]> = (0..nb_peers)
+		.map(|i| {
+			let mut id = [0u8; 32];
+			id[0] = (i % 8) as u8;
+			id[1] = (i / 8) as u8;
+			id
+		})
+		.collect();
 	let local_id = [255u8; 32];
-	let all_authorities: BTreeMap<_, _> = peers.iter()
+	let all_authorities: BTreeMap<_, _> = peers
+		.iter()
 		.chain(std::iter::once(&local_id))
-		.map(|p| (p.clone(), ())).collect();
+		.map(|p| (p.clone(), ()))
+		.collect();
 
-/*	let from_to: HashMap<MixPeerId, Vec<MixPeerId>> = vec![
+	/*	let from_to: HashMap<MixPeerId, Vec<MixPeerId>> = vec![
 		(peers[0].clone(), vec![peers[1].clone(), peers[2].clone()]),
 		(peers[1].clone(), vec![peers[3].clone(), peers[4].clone()]),
 		(peers[2].clone(), vec![peers[0].clone(), peers[4].clone()]),
@@ -1725,24 +1731,28 @@ fn test_fill_paths() {
 		from_to.insert(p.clone(), tos);
 	}
 	let mut to_from: HashMap<MixPeerId, Vec<MixPeerId>> = Default::default();
-//	let from_to2: BTreeMap<_, _> = from_to.iter().map(|(k, v)|(k.clone(), v.clone())).collect();
+	//	let from_to2: BTreeMap<_, _> = from_to.iter().map(|(k, v)|(k.clone(), v.clone())).collect();
 	for (from, tos) in from_to.iter() {
 		for to in tos.iter() {
 			to_from.entry(to.clone()).or_default().push(from.clone());
 		}
 	}
+	//		let from_to = from_to.clone();
+	//		let to_from = to_from.clone();
 	let mut paths = BTreeMap::new();
 	let paths_depth = 0;
 	AuthorityTopology::fill_paths_inner(from_to, to_from, &mut paths, paths_depth, depth);
-//	println!("{:?}", paths);
+	//	println!("{:?}", paths);
 	println!("size {:?}", AuthorityTopology::paths_mem_size(&paths));
-// there is a path but cycle on 0 (depth 4)
-//	assert!(random_path(&paths, &peers[0], &peers[1], depth).is_none());
+
+	// there is a path but cycle on 0 (depth 4)
+	//	assert!(random_path(&paths, &peers[0], &peers[1], depth).is_none());
 	let nb_path = count_paths(&paths, &peers[2], &peers[1], depth);
 	println!("nb_path {:?}", nb_path);
 	let path = random_path(&paths, &peers[2], &peers[1], depth);
 	if path.is_none() {
-//		assert_eq!(nb_path, 0);
+		//		assert_eq!(nb_path, 0);
 	}
-	panic!("{:?}", path);
+	println!("{:?}", path);
+	panic!("to print");
 }
