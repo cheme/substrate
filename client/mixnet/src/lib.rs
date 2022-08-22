@@ -22,7 +22,7 @@
 //!
 //! Topology specific to substrate and utils to link to network.
 
-use mixnet::{Error, MixPeerId, MixPublicKey, Topology};
+use mixnet::{Error, MixPeerId, MixPublicKey, MixSecretKey, Topology};
 
 pub use mixnet::{Config, SinkToWorker, StreamFromWorker};
 use sp_application_crypto::key_types;
@@ -34,7 +34,7 @@ use futures_timer::Delay;
 use log::{debug, error, trace, warn};
 use sc_authority_discovery::{ExpIncInterval, NetworkProvider};
 use sc_client_api::{BlockchainEvents, FinalityNotification, UsageProvider};
-use sc_network::{DhtEvent, MixnetCommand, PeerId};
+use sc_network::{DhtEvent, MixnetCommand, PeerId as NetworkPeerId};
 use sc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver, TracingUnboundedSender};
 use sp_api::ProvideRuntimeApi;
 use sp_core::crypto::CryptoTypePublicPair;
@@ -170,12 +170,7 @@ where
 		// TODO switch to config with generated key only.
 		let config_tmp = mixnet::Config::new(local_public_key);
 
-		let mut mixnet_config = if let Some((pub_key, priv_key)) = Self::get_mixnet_keys(&*key_store) {
-			mixnet::Config::new_with_keys(local_public_key, pub_key, priv_key)
-		} else {
-			log::error!(target: "mixnet", "Not using grandpa key");
-			mixnet::Config::new(local_public_key)
-		};
+		let mut mixnet_config = mixnet::Config::new(local_public_key);
 
 		mixnet_config.num_hops = DEFAULT_NUM_HOPS;
 
@@ -183,7 +178,7 @@ where
 
 		let topology = AuthorityTopology::new(
 			mixnet_config.local_id.clone(),
-			PeerId::from_public_key(&network_identity.public()),
+			NetworkPeerId::from_public_key(&network_identity.public()),
 			mixnet_config.public_key.clone(),
 			key_store.clone(),
 			config_tmp.public_key,
@@ -227,41 +222,6 @@ where
 			current_authorities_keys: Default::default(),
 			pending_lookup_at: None,
 		})
-	}
-
-	fn get_mixnet_keys(
-		key_store: &dyn SyncCryptoStore,
-	) -> Option<(MixPublicKey, mixnet::MixSecretKey)> {
-		// get last key, if it is not the right one, node will restart on next
-		// handle_new_authority call.
-		let mut grandpa_key = None;
-		for key in SyncCryptoStore::ed25519_public_keys(&*key_store, key_types::GRANDPA)
-			.into_iter()
-			.rev()
-		{
-			if SyncCryptoStore::has_keys(&*key_store, &[(key.0.into(), key_types::GRANDPA)]) {
-				grandpa_key = Some(key);
-				break
-			} else {
-				log::error!(target: "mixnet", "No private key for grandpa key");
-			}
-		}
-
-		if let Some(grandpa_key) = grandpa_key {
-			let mut p = [0u8; 32];
-			p.copy_from_slice(grandpa_key.as_ref());
-			let pub_key = mixnet::public_from_ed25519(p);
-
-			let priv_key = SyncCryptoStore::mixnet_secret_from_ed25519(
-				&*key_store,
-				key_types::GRANDPA,
-				&grandpa_key,
-			)
-			.ok()?;
-			Some((pub_key, priv_key))
-		} else {
-			None
-		}
 	}
 
 	fn start_new_lookups(&mut self) {
@@ -514,7 +474,6 @@ where
 		self.update_own_public_key_within_authority_set(&set);
 		let mut remove_limit = Vec::new();
 		let current_local_id = self.worker.local_id().clone();
-		let current_public_key = self.worker.public_key().clone();
 		let topology = &mut self.worker.mixnet_mut().topology;
 		topology.current_session = session;
 		topology.routing_table.session = session;
@@ -532,6 +491,9 @@ where
 		for (auth, _) in set.into_iter() {
 			self.current_authorities_keys
 				.push((hash_authority_id(auth.as_ref()), auth.clone()));
+			// TODO handle switch of myonline key (maybe not here).
+			// TODO rotate mixnet key (anyway we got change of route table already
+			// TODO persist old mixnet for a gracefull switch period.
 			use sp_application_crypto::Public;
 			let auth_pub_pair = auth.clone().to_public_crypto_pair(); // TODO change key type in map?
 			if let Some(key) = topology.sessions.get(&auth_pub_pair) {
@@ -540,40 +502,35 @@ where
 				if old_authority.remove(&peer_id).is_none() {
 					remove_limit.push(peer_id.clone());
 				}
-				// derive from grandpa one
-				let mut p = [0u8; 32];
-				p.copy_from_slice(auth.as_ref());
-				let public_key = mixnet::public_from_ed25519(p);
 
+				let public_key = &topology.node_public_key;
 				if self.authority_id.as_ref() == Some(&auth) {
 					debug!(target: "mixnet", "Insert self {:?}", peer_id);
-					topology.all_authorities.insert(peer_id, (public_key, auth.clone()));
+					topology.all_authorities.insert(peer_id, (public_key.clone(), auth.clone()));
 					debug!(target: "mixnet", "In new authority set, routing.");
 					topology.routing = true;
+					// Use ImOnline for the current session.
 					let new_id = (current_local_id != peer_id).then(|| {
 						topology.node_id = peer_id.clone();
 						peer_id.clone()
 					});
-					let new_key = (current_public_key != public_key)
-						.then(|| {
-							let secret_key = SyncCryptoStore::mixnet_secret_from_ed25519(
-								&*self.key_store,
-								key_types::GRANDPA,
-								&auth.into(),
-							)
-							.ok()?;
-							topology.node_public_key = public_key.clone();
-
-							Some((public_key.clone(), secret_key))
-						})
-						.flatten();
+					// change session key on new ImOnline id.
+					// TODO may do it more often (not doing it keeps
+					// mixnet connection open, still need to republish
+					// tables which may lead to all disconnected anyway).
+					let rollkey = new_id.is_some();
+					let new_key = rollkey.then(|| {
+						let new_key = mixnet::generate_new_keys();
+						topology.node_public_key = new_key.0.clone();
+						new_key
+					});
 					if new_id.is_some() || new_key.is_some() {
 						restart = Some((new_id, new_key));
 					}
 				} else {
 					debug!(target: "mixnet", "Insert auth {:?}", peer_id);
-					topology.authorities.insert(peer_id, (public_key, auth.clone()));
-					topology.all_authorities.insert(peer_id, (public_key, auth));
+					topology.authorities.insert(peer_id, (public_key.clone(), auth.clone()));
+					topology.all_authorities.insert(peer_id, (public_key.clone(), auth));
 				}
 			} else {
 				error!(target: "mixnet", "Missing imonline key for authority {:?}, not adding it to topology.", auth);
@@ -719,14 +676,16 @@ where
 /// When sending a message, the message can only reach nodes
 /// that are part of the topology.
 pub struct AuthorityTopology {
+	// MixPeerId is ImOnline key.
 	node_id: MixPeerId, // TODO rename local_id?
-	network_id: PeerId,
+	network_id: NetworkPeerId,
 	node_public_key: MixPublicKey,
 	key_store: Arc<dyn SyncCryptoStore>,
 	// true when we are in authorities set.
 	routing: bool,
 	// All authorities are considered connected (when building message except first hop).
 	// TODO rem pub key
+	// AuthorityId is Grandpa Key.
 	authorities: BTreeMap<MixPeerId, (MixPublicKey, AuthorityId)>,
 	all_authorities: BTreeMap<MixPeerId, (MixPublicKey, AuthorityId)>,
 	// The connected nodes (for first hop use `authorities` joined `connected_nodes`).
@@ -912,7 +871,7 @@ impl AuthorityTopology {
 	/// Instantiate a new topology.
 	pub fn new(
 		node_id: MixPeerId,
-		network_id: PeerId,
+		network_id: NetworkPeerId,
 		node_public_key: MixPublicKey,
 		key_store: Arc<dyn SyncCryptoStore>,
 		node_public_key_new: MixPublicKey,
@@ -1018,14 +977,15 @@ impl AuthorityTopology {
 impl AuthorityTopology {
 	fn random_dest(&self, skip: impl Fn(&MixPeerId) -> bool) -> Option<MixPeerId> {
 		use rand::RngCore;
-		// Warning this assume that PeerId is a randomly distributed value.
+		// Warning this assume that NetworkPeerId is a randomly distributed value.
 		let mut ix = [0u8; 32];
 		rand::thread_rng().fill_bytes(&mut ix[..]);
 
 		trace!(target: "mixnet", "routing {:?}, ix {:?}", self.authorities_tables, ix);
 		for (key, table) in self.authorities_tables.range(ix..) {
 			// TODO alert on low receive_from
-			if !skip(&key) && !(table.routing_table.receive_from.len() < NUMBER_CONNECTED_BACKWARD) {
+			if !skip(&key) && !(table.routing_table.receive_from.len() < NUMBER_CONNECTED_BACKWARD)
+			{
 				debug!(target: "mixnet", "Random route node");
 				return Some(key.clone())
 			} else {
@@ -1033,7 +993,8 @@ impl AuthorityTopology {
 			}
 		}
 		for (key, table) in self.authorities_tables.range(..ix).rev() {
-			if !skip(&key) && !(table.routing_table.receive_from.len() < NUMBER_CONNECTED_BACKWARD) {
+			if !skip(&key) && !(table.routing_table.receive_from.len() < NUMBER_CONNECTED_BACKWARD)
+			{
 				debug!(target: "mixnet", "Random route node");
 				return Some(key.clone())
 			} else {
@@ -1237,7 +1198,11 @@ impl Topology for AuthorityTopology {
 	}
 
 	// TODO make random_recipient return path directly.
-	fn random_recipient(&mut self, from: &MixPeerId, send_options: &mixnet::SendOptions) -> Option<(MixPeerId, MixPublicKey)> {
+	fn random_recipient(
+		&mut self,
+		from: &MixPeerId,
+		send_options: &mixnet::SendOptions,
+	) -> Option<(MixPeerId, MixPublicKey)> {
 		if !self.has_enough_nodes_to_send() {
 			debug!(target: "mixnet", "Not enough routing nodes for path.");
 			return None
@@ -1258,27 +1223,23 @@ impl Topology for AuthorityTopology {
 				);
 				let from_count = if !self.is_routing(from) {
 					debug!(target: "mixnet", "external {:?}", from);
-					// TODO should return path directly rather than random here that could be different that
-					// path one -> then the check on count could be part of path building
+					// TODO should return path directly rather than random here that could be
+					// different that path one -> then the check on count could be part of path
+					// building
 					let firsts = self.first_hop_nodes_external(from, &peer);
 					if firsts.len() == 0 {
-						return None;
+						return None
 					}
 					firsts[0].0.clone()
 				} else {
 					from.clone()
 				};
 				// TODO also count surbs??
-				let nb_path = count_paths(
-					&self.paths,
-					&from_count,
-					&peer,
-					nb_hop,
-				);
+				let nb_path = count_paths(&self.paths, &from_count, &peer, nb_hop);
 				debug!(target: "mixnet", "Number path for dest {:?}.", nb_path);
 				debug!(target: "mixnet", "{:?} to {:?}", from_count, peer);
 				if nb_path >= LOW_MIXNET_PATHS {
-					return self.all_authorities.get(&peer).map(|keys| (peer, keys.0));
+					return self.all_authorities.get(&peer).map(|keys| (peer, keys.0))
 				} else {
 					bad.insert(peer);
 				}
@@ -1377,28 +1338,24 @@ impl Topology for AuthorityTopology {
 			&self.authorities_tables,
 			num_hops,
 		);
-		let nb_path = count_paths(
-			&self.paths,
-			&start,
-			&recipient,
-			num_hops,
-		);
+		let nb_path = count_paths(&self.paths, &start, &recipient, num_hops);
 		debug!(target: "mixnet", "Number path for dest {:?}.", nb_path);
 		debug!(target: "mixnet", "{:?} to {:?}", start, recipient);
 		if nb_path < LOW_MIXNET_PATHS {
 			trace!(target: "mixnet", "not enough paths: {:?}", &self.paths);
 			// TODO NotEnoughPath error
-			return Err(Error::NoPath(Some(recipient)));
+			return Err(Error::NoPath(Some(recipient)))
 		};
 
 		let mut result = Vec::with_capacity(nb_chunk);
 		while result.len() < nb_chunk {
-			let path_ids = if let Some(path) = random_path(&self.paths, &start, &recipient, num_hops) {
-				trace!(target: "mixnet", "Got path: {:?}", &path);
-				path
-			} else {
-				return Err(Error::NoPath(Some(recipient)));
-			};
+			let path_ids =
+				if let Some(path) = random_path(&self.paths, &start, &recipient, num_hops) {
+					trace!(target: "mixnet", "Got path: {:?}", &path);
+					path
+				} else {
+					return Err(Error::NoPath(Some(recipient)))
+				};
 			let mut path = Vec::with_capacity(num_hops + 1);
 			if let Some((peer, key)) = add_start {
 				debug!(target: "mixnet", "Add first, nexts {:?}.", path_ids.len());
@@ -1464,7 +1421,7 @@ impl Topology for AuthorityTopology {
 	fn check_handshake(
 		&mut self,
 		payload: &[u8],
-		_from: &PeerId,
+		_from: &NetworkPeerId,
 	) -> Option<(MixPeerId, MixPublicKey)> {
 		let mut peer_id = [0u8; 32];
 		peer_id.copy_from_slice(&payload[0..32]);
@@ -1489,7 +1446,7 @@ impl Topology for AuthorityTopology {
 		}
 	}
 
-	fn handshake(&mut self, with: &PeerId, public_key: &MixPublicKey) -> Option<Vec<u8>> {
+	fn handshake(&mut self, with: &NetworkPeerId, public_key: &MixPublicKey) -> Option<Vec<u8>> {
 		let mut result = self.node_id.to_vec();
 		result.extend_from_slice(&public_key.as_bytes()[..]);
 		let mut message = with.to_bytes().to_vec();
@@ -1552,13 +1509,16 @@ impl AuthorityTopology {
 			return
 		}
 		// TODO not strictly needed (all in authorities_tables), convenient to exclude local id..
-//		let mut from_to = HashMap::<MixPeerId, Vec<MixPeerId>>::new();
+		//		let mut from_to = HashMap::<MixPeerId, Vec<MixPeerId>>::new();
 		// TODO not strictly needed (all in authorities_tables), convenient to exclude local id.
 		let mut to_from = HashMap::<MixPeerId, Vec<MixPeerId>>::new();
 
-		for (from, table) in authorities_tables.iter().map(|(id, routing)| (id, &routing.routing_table))
-			.chain(std::iter::once((local_id, local_routing))) {
-/*			from_to.insert(
+		for (from, table) in authorities_tables
+			.iter()
+			.map(|(id, routing)| (id, &routing.routing_table))
+			.chain(std::iter::once((local_id, local_routing)))
+		{
+			/*			from_to.insert(
 				from.clone(),
 				table
 					.routing_table
@@ -1574,7 +1534,7 @@ impl AuthorityTopology {
 				table
 					.receive_from
 					.iter()
-//					.filter(|n| n != &local_id)
+					//					.filter(|n| n != &local_id)
 					.cloned()
 					.collect(),
 			);
@@ -1795,7 +1755,7 @@ fn test_fill_paths() {
 	let mut paths = BTreeMap::new();
 	let paths_depth = 0;
 	AuthorityTopology::fill_paths_inner(to_from, &mut paths, paths_depth, depth);
-//	println!("{:?}", paths);
+	//	println!("{:?}", paths);
 	println!("size {:?}", AuthorityTopology::paths_mem_size(&paths));
 
 	// there is a path but cycle on 0 (depth 4)

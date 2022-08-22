@@ -249,16 +249,6 @@ pub trait SyncCryptoStore: CryptoStore + Send + Sync {
 		seed: Option<&str>,
 	) -> Result<ed25519::Public, Error>;
 
-	/// Construct a Montgomery curve25519 private key from an Ed25519 secret key.
-	///
-	/// This function is only temporary until DH could be defined at keystore level
-	/// or mixnet publish their own keys.
-	fn mixnet_secret_from_ed25519(
-		&self,
-		id: KeyTypeId,
-		key: &ed25519::Public,
-	) -> Result<MixnetSecret, Error>;
-
 	/// Returns all ecdsa public keys for the given key type.
 	fn ecdsa_public_keys(&self, id: KeyTypeId) -> Vec<ecdsa::Public>;
 
