@@ -167,9 +167,6 @@ where
 				.0
 		};
 
-		// TODO switch to config with generated key only.
-		let config_tmp = mixnet::Config::new(local_public_key);
-
 		let mut mixnet_config = mixnet::Config::new(local_public_key);
 
 		mixnet_config.num_hops = DEFAULT_NUM_HOPS;
@@ -181,7 +178,6 @@ where
 			NetworkPeerId::from_public_key(&network_identity.public()),
 			mixnet_config.public_key.clone(),
 			key_store.clone(),
-			config_tmp.public_key,
 		);
 		let default_limit_config = mixnet_config.limit_per_window.clone();
 
@@ -503,10 +499,9 @@ where
 					remove_limit.push(peer_id.clone());
 				}
 
-				let public_key = &topology.node_public_key;
 				if self.authority_id.as_ref() == Some(&auth) {
 					debug!(target: "mixnet", "Insert self {:?}", peer_id);
-					topology.all_authorities.insert(peer_id, (public_key.clone(), auth.clone()));
+					topology.all_authorities.insert(peer_id, auth.clone());
 					debug!(target: "mixnet", "In new authority set, routing.");
 					topology.routing = true;
 					// Use ImOnline for the current session.
@@ -529,8 +524,8 @@ where
 					}
 				} else {
 					debug!(target: "mixnet", "Insert auth {:?}", peer_id);
-					topology.authorities.insert(peer_id, (public_key.clone(), auth.clone()));
-					topology.all_authorities.insert(peer_id, (public_key.clone(), auth));
+					topology.authorities.insert(peer_id, auth.clone());
+					topology.all_authorities.insert(peer_id, auth);
 				}
 			} else {
 				error!(target: "mixnet", "Missing imonline key for authority {:?}, not adding it to topology.", auth);
@@ -679,6 +674,7 @@ pub struct AuthorityTopology {
 	// MixPeerId is ImOnline key.
 	node_id: MixPeerId, // TODO rename local_id?
 	network_id: NetworkPeerId,
+	// TODO remove redundant with the one in routing_table
 	node_public_key: MixPublicKey,
 	key_store: Arc<dyn SyncCryptoStore>,
 	// true when we are in authorities set.
@@ -686,9 +682,11 @@ pub struct AuthorityTopology {
 	// All authorities are considered connected (when building message except first hop).
 	// TODO rem pub key
 	// AuthorityId is Grandpa Key.
-	authorities: BTreeMap<MixPeerId, (MixPublicKey, AuthorityId)>,
-	all_authorities: BTreeMap<MixPeerId, (MixPublicKey, AuthorityId)>,
+	authorities: BTreeMap<MixPeerId, AuthorityId>,
+	all_authorities: BTreeMap<MixPeerId, AuthorityId>,
 	// The connected nodes (for first hop use `authorities` joined `connected_nodes`).
+	// TODO currently the value in connected_nodes is unused. -> TODO HashSet?
+	// (note it is from handshake and note updated from routing tables).
 	connected_nodes: HashMap<MixPeerId, MixPublicKey>,
 	// Current session mapping of Grandpa key to IMonline key.
 	// TODO switch to MixPeerId to imonline key.
@@ -874,10 +872,9 @@ impl AuthorityTopology {
 		network_id: NetworkPeerId,
 		node_public_key: MixPublicKey,
 		key_store: Arc<dyn SyncCryptoStore>,
-		node_public_key_new: MixPublicKey,
 	) -> Self {
 		let routing_table = AuthorityTable {
-			public_key: EncodableMixPublicKey(node_public_key_new),
+			public_key: EncodableMixPublicKey(node_public_key),
 			connected_to: BTreeSet::new(),
 			receive_from: BTreeSet::new(),
 			revision: Compact(0), /* TODO load from persistent storage on handle_new authority ->
@@ -1187,7 +1184,11 @@ impl Topology for AuthorityTopology {
 			.filter(|(id, _key)| from != *id)
 			.filter(|(id, _key)| to != *id)
 			.filter(|(id, _key)| self.connected_nodes.contains_key(*id))
-			.map(|(k, v)| (k.clone(), v.0.clone()))
+			.filter_map(|(k, v)| {
+				self.authorities_tables
+					.get(k)
+					.map(|table| (k.clone(), table.routing_table.public_key.0.clone()))
+			})
 			.collect();
 
 		keys
@@ -1239,7 +1240,10 @@ impl Topology for AuthorityTopology {
 				debug!(target: "mixnet", "Number path for dest {:?}.", nb_path);
 				debug!(target: "mixnet", "{:?} to {:?}", from_count, peer);
 				if nb_path >= LOW_MIXNET_PATHS {
-					return self.all_authorities.get(&peer).map(|keys| (peer, keys.0))
+					return self
+						.authorities_tables
+						.get(&peer)
+						.map(|keys| (peer, keys.routing_table.public_key.0))
 				} else {
 					bad.insert(peer);
 				}
@@ -1253,22 +1257,9 @@ impl Topology for AuthorityTopology {
 	/// For a given peer return a list of peers it is supposed to be connected to.
 	/// Return `None` if peer is unknown to the topology.
 	fn neighbors(&self, from: &MixPeerId) -> Option<Vec<(MixPeerId, MixPublicKey)>> {
-		if self.authorities.contains_key(from) || (&self.node_id == from && self.routing) {
-			Some(
-				self.authorities
-					.iter()
-					.filter_map(|id| {
-						if id.0 == from {
-							None
-						} else {
-							Some((id.0.clone(), (id.1).0.clone()))
-						}
-					})
-					.collect(),
-			)
-		} else {
-			None
-		}
+		// unused, random_paths directly implement.
+		// TODO remove from mixnet crate??
+		unimplemented!()
 	}
 
 	fn routing_to(&self, from: &MixPeerId, to: &MixPeerId) -> bool {
@@ -1363,8 +1354,8 @@ impl Topology for AuthorityTopology {
 			}
 
 			for peer_id in path_ids.into_iter() {
-				if let Some(public_key) = self.authorities.get(&peer_id) {
-					path.push((peer_id, public_key.0.clone()));
+				if let Some(table) = self.authorities_tables.get(&peer_id) {
+					path.push((peer_id, table.routing_table.public_key.0.clone()));
 				} else {
 					error!(target: "mixnet", "node in routing_nodes must also be in connected_nodes");
 					unreachable!("node in routing_nodes must also be in connected_nodes");
@@ -1642,12 +1633,24 @@ impl AuthorityTopology {
 		signature.copy_from_slice(&payload[payload.len() - 64..]);
 		let signature = sp_application_crypto::sr25519::Signature(signature);
 
-		let (key, authority_id) = if let Some((gr_key, auth_id)) = self.authorities.get(&with) {
+		let authority_id = if let Some(auth) = self.all_authorities.get(&with) {
+			auth.clone()
+		} else {
+			trace!(target: "mixnet", "No authority found for with: {:?}, dropping table.", with);
+			return false;
+		};
+
+		let mut p = [0u8; 32];
+		p.copy_from_slice(&with[..]);
+		let key = sp_application_crypto::sr25519::Public(p);
+
+/*		let authority_id = if let Some(table) = self.authorities_tables.get(&with) {
 			use sp_application_crypto::Public;
-			if let Some(key) = self.sessions.get(&auth_id.clone().to_public_crypto_pair()) {
-				let mut p = [0u8; 32];
-				p.copy_from_slice(&key.1[..]);
-				(sp_application_crypto::sr25519::Public(p), auth_id.clone())
+			if let Some(key) = self.sessions.get(&table.authority_id.to_public_crypto_pair()) {
+				if &with[..] != key.1.as_slice() {
+					trace!(target: "mixnet", "Wrong id for table");
+				}
+				table.authority_id.clone()
 			} else {
 				trace!(target: "mixnet", "Imonline key not found");
 				return false
@@ -1655,7 +1658,7 @@ impl AuthorityTopology {
 		} else {
 			trace!(target: "mixnet", "Payload for authority not in session: {:?}", payload);
 			return false
-		};
+		};*/
 		debug!(target: "mixnet", "check table: {:?}", with);
 		use sp_application_crypto::RuntimePublic;
 		if !key.verify(&(payload[..payload.len() - 64].to_vec()), &signature) {
