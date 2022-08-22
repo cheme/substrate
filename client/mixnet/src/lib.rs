@@ -470,7 +470,6 @@ where
 		let mut remove_limit = Vec::new();
 		let current_local_id = self.worker.local_id().clone();
 		let topology = &mut self.worker.mixnet_mut().topology;
-		topology.current_session = session;
 		topology.routing_table.session = session;
 		topology.routing_table.revision = Compact(1); // TODO load from persistence in case it is first call here (may be ongoing session
 											  // of a restarted node).
@@ -681,10 +680,8 @@ pub struct AuthorityTopology {
 	// (note it is from handshake and note updated from routing tables).
 	connected_nodes: HashSet<MixPeerId>,
 	// Current session mapping of Grandpa key to IMonline key.
-	// TODO switch to MixPeerId to imonline key.
 	sessions: HashMap<CryptoTypePublicPair, CryptoTypePublicPair>,
 
-	current_session: SetId,
 	routing_table: AuthorityTable,
 	last_signed: (Vec<u8>, SetId, u32),
 	authorities_tables: BTreeMap<MixPeerId, AuthorityTable>,
@@ -856,7 +853,6 @@ impl AuthorityTopology {
 			key_store,
 			authorities_tables: BTreeMap::new(),
 			routing_table,
-			current_session: 0,
 			paths: Default::default(),
 			paths_depth: 0,
 			should_connect_to: Default::default(),
