@@ -243,12 +243,6 @@ where
 				self.current_authorities_keys.shuffle(&mut rand::thread_rng());
 				self.pending_lookup_at = Some(0);
 			}
-			/*			if let Some(metrics) = &self.metrics {
-				metrics.requests.inc();
-				metrics
-					.requests_pending
-					.set(self.pending_lookups.len().try_into().unwrap_or(std::u64::MAX));
-			}*/
 		}
 	}
 
@@ -286,8 +280,7 @@ where
 		}
 	}
 
-	// TODO need async ??
-	async fn publish_topology(&mut self, only_if_changed: bool) {
+	fn publish_topology(&mut self, only_if_changed: bool) {
 		debug!(target: "mixnet", "In Publish topology.");
 		let topology = &mut self.worker.mixnet_mut().topology;
 		if !topology.routing {
@@ -319,66 +312,56 @@ where
 		let delay_finalized = &mut delay_finalized;
 		loop {
 			futures::select! {
-							event = self.dht_event_rx.next().fuse() => {
-								if let Some(event) = event {
-									self.handle_dht_event(event).await;
-								} else {
-									// This point is reached if the network has shut down, at which point there is not
-									// much else to do than to shut down the authority discovery as well.
-									return;
-								}
-							},
-							only_if_changed = future::select(
-								self.publish_interval.next().map(|_| false),
-								self.publish_if_changed_interval.next().map(|_| true)
-							).map(|e| e.factor_first().0).fuse() => {
-								self.publish_topology(only_if_changed).await;
-			/*					if let Err(e) = self.publish_topology(only_if_changed).await {
-									error!(target: "mixnet", "Failed to publish topology: {}", e);
-								}*/
-							},
-							_ = self.query_interval.next().fuse() => {
-								self.start_new_lookups();
-			/*					if let Err(e) = self.refill_pending_lookups_queue().await {
-									error!(
-										target: "mixnet",
-										"Failed to request addresses of authorities: {}", e,
-									);
-								}
-			*/
-							},
-							notif = self.finality_stream.next() => {
-								// TODO try accessing last of finality stream (possibly skipping some block)
-								if let Some(notif) = notif {
-									delay_finalized.reset(Duration::from_secs(DELAY_NO_FINALISATION_S));
-									self.handle_new_finalize_block(notif);
-								} else {
-									// This point is reached if the other component did shutdown.
-									debug!(target: "mixnet", "Mixnet, shutdown.");
-									return;
-								}
-							},
-							command = self.command_stream.next() => {
-								if let Some(command) = command {
-									self.handle_command(command);
-								} else {
-									// This point is reached if the other component did shutdown.
-									// Shutdown as well.
-									debug!(target: "mixnet", "Mixnet, shutdown.");
-									return;
-								}
-							},
-							success = future::poll_fn(|cx| self.worker.poll(cx)).fuse() => {
-								if !success {
-									debug!(target: "mixnet", "Mixnet, shutdown.");
-									return;
-								}
-							},
-							_ = delay_finalized.fuse() => {
-								self.state = State::Synching;
-								delay_finalized.reset(Duration::from_secs(DELAY_NO_FINALISATION_S));
-							},
-						}
+				event = self.dht_event_rx.next().fuse() => {
+					if let Some(event) = event {
+						self.handle_dht_event(event).await;
+					} else {
+						// This point is reached if the network has shut down, at which point there is not
+						// much else to do than to shut down the authority discovery as well.
+						return;
+					}
+				},
+				only_if_changed = future::select(
+					self.publish_interval.next().map(|_| false),
+					self.publish_if_changed_interval.next().map(|_| true)
+				).map(|e| e.factor_first().0).fuse() => {
+					self.publish_topology(only_if_changed);
+				},
+				_ = self.query_interval.next().fuse() => {
+					self.start_new_lookups();
+				},
+				notif = self.finality_stream.next() => {
+					// TODO try accessing last of finality stream (possibly skipping some block)
+					if let Some(notif) = notif {
+						delay_finalized.reset(Duration::from_secs(DELAY_NO_FINALISATION_S));
+						self.handle_new_finalize_block(notif);
+					} else {
+						// This point is reached if the other component did shutdown.
+						debug!(target: "mixnet", "Mixnet, shutdown.");
+						return;
+					}
+				},
+				command = self.command_stream.next() => {
+					if let Some(command) = command {
+						self.handle_command(command);
+					} else {
+						// This point is reached if the other component did shutdown.
+						// Shutdown as well.
+						debug!(target: "mixnet", "Mixnet, shutdown.");
+						return;
+					}
+				},
+				success = future::poll_fn(|cx| self.worker.poll(cx)).fuse() => {
+					if !success {
+						debug!(target: "mixnet", "Mixnet, shutdown.");
+						return;
+					}
+				},
+				_ = delay_finalized.fuse() => {
+					self.state = State::Synching;
+					delay_finalized.reset(Duration::from_secs(DELAY_NO_FINALISATION_S));
+				},
+			}
 		}
 	}
 
@@ -1003,7 +986,6 @@ fn random_path(
 			at += 1;
 		}
 	}
-	//result.push(to.clone());
 	result.remove(0); // TODO rewrite to avoid it.
 	Some(result)
 }
@@ -1438,26 +1420,8 @@ impl AuthorityTopology {
 		for (from, table) in
 			authorities_tables.iter().chain(std::iter::once((local_id, local_routing)))
 		{
-			/*			from_to.insert(
-				from.clone(),
-				table
-					.routing_table
-					.connected_to
-					.iter()
-					.filter(|n| n != &local_id)
-					.cloned()
-					.collect(),
-			);*/
 			// TODO change if limitting size of receive_from
-			to_from.insert(
-				from.clone(),
-				table
-					.receive_from
-					.iter()
-					//					.filter(|n| n != &local_id)
-					.cloned()
-					.collect(),
-			);
+			to_from.insert(from.clone(), table.receive_from.iter().cloned().collect());
 		}
 
 		Self::fill_paths_inner(to_from, paths, *paths_depth, depth);
@@ -1574,21 +1538,6 @@ impl AuthorityTopology {
 		p.copy_from_slice(&with[..]);
 		let key = sp_application_crypto::sr25519::Public(p);
 
-		/*		let authority_id = if let Some(table) = self.authorities_tables.get(&with) {
-			use sp_application_crypto::Public;
-			if let Some(key) = self.sessions.get(&table.authority_id.to_public_crypto_pair()) {
-				if &with[..] != key.1.as_slice() {
-					trace!(target: "mixnet", "Wrong id for table");
-				}
-				table.authority_id.clone()
-			} else {
-				trace!(target: "mixnet", "Imonline key not found");
-				return false
-			}
-		} else {
-			trace!(target: "mixnet", "Payload for authority not in session: {:?}", payload);
-			return false
-		};*/
 		debug!(target: "mixnet", "check table: {:?}", with);
 		use sp_application_crypto::RuntimePublic;
 		if !key.verify(&(payload[..payload.len() - 64].to_vec()), &signature) {
