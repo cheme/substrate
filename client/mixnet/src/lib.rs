@@ -22,7 +22,7 @@
 //!
 //! Topology specific to substrate and utils to link to network.
 
-use mixnet::{Error, MixPeerId, MixPublicKey, MixSecretKey, Topology};
+use mixnet::{Error, MixPeerId, MixPublicKey, Topology};
 
 pub use mixnet::{Config, SinkToWorker, StreamFromWorker};
 use sp_application_crypto::key_types;
@@ -35,7 +35,7 @@ use log::{debug, error, trace, warn};
 use sc_authority_discovery::{ExpIncInterval, NetworkProvider};
 use sc_client_api::{BlockchainEvents, FinalityNotification, UsageProvider};
 use sc_network::{DhtEvent, MixnetCommand, PeerId as NetworkPeerId};
-use sc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver, TracingUnboundedSender};
+use sc_utils::mpsc::tracing_unbounded;
 use sp_api::ProvideRuntimeApi;
 use sp_core::crypto::CryptoTypePublicPair;
 pub use sp_finality_grandpa::{AuthorityId, AuthorityList, SetId};
@@ -222,7 +222,6 @@ where
 
 	fn start_new_lookups(&mut self) {
 		let nb_authorities = self.current_authorities_keys.len();
-		let topology = &mut self.worker.mixnet_mut().topology;
 		// Ignore all still in-flight lookups. Those that are still in-flight are likely stalled as
 		// query interval ticks are far enough apart for all lookups to succeed.
 		self.in_flight_lookups.clear();
@@ -695,7 +694,7 @@ pub struct AuthorityTopology {
 	current_session: SetId,
 	routing_table: AuthorityTable,
 	last_signed: (Vec<u8>, SetId, u32),
-	authorities_tables: BTreeMap<MixPeerId, AuthorityRouting>,
+	authorities_tables: BTreeMap<MixPeerId, AuthorityTable>,
 	// all path of a given size.
 	// on every change to auth table this is cleared TODO make change synchronously to
 	// avoid full calc every time.
@@ -707,29 +706,20 @@ pub struct AuthorityTopology {
 	// TODO could replace HashMap by vec and use indices as ptr
 	paths: BTreeMap<usize, HashMap<MixPeerId, HashMap<MixPeerId, Vec<MixPeerId>>>>,
 	paths_depth: usize,
-	// TODO every N delay put a peer from our `should_connect_to` list
-	// as off and allows connection with the next one.
-	not_connected_or_refused: HashSet<MixPeerId>,
 	// Connection to peer that are more prioritary: attempt connect.
 	should_connect_to: Vec<MixPeerId>,
 	should_connect_pending: HashMap<MixPeerId, (usize, bool)>, /* TODO audit usage of
 	                                                            * should_connect, */
-	// does not looks very smart
-	// peers not connected to other peer when they should (may not be their fault
-	// but if number get big it is still fishy).
-	disconnected_in_routing: HashMap<MixPeerId, Vec<MixPeerId>>,
-}
-
-#[derive(Debug)]
-struct AuthorityRouting {
-	session_index: SetId, // TODO only initialize routing table if right session: but would more be
-	// current_session: remove?
-	peer_id: MixPeerId,
-	authority_id: AuthorityId, /* TODO authority id redundant with mixpeerid as we use it as
-	                            * peer id. -> may make peer id a blake hash of it so we ensure
-	                            * our random works. */
-
-	routing_table: AuthorityTable,
+	                                                           /* TODO for stats.
+	                                                            * does not looks very smart
+	                                                            * peers not connected to other
+	                                                            * peer when they should (may not
+	                                                            * be their fault
+	                                                            * but if number get big it is
+	                                                            * still fishy).
+	                                                            * disconnected_in_routing:
+	                                                            * HashMap<MixPeerId,
+	                                                            * Vec<MixPeerId>>, */
 }
 
 /// Current published view of an authority routing table.
@@ -781,11 +771,6 @@ const DEFAULT_NUM_HOPS: u32 = 4;
 
 // should statically be NUMBER_CONNECTED_BACKWARD, but applying a small variation margin.
 const NUMBER_CONNECTED_BACKWARD: usize = NUMBER_CONNECTED_FORWARD - 2;
-
-// This is only to double check connection publication and should stay low.
-// TODO this is actually unused (no limit while testing): we should just not transmit anything when
-// runing, but from should be calculated from published state actually.
-const PUBLISH_NUMBER_CONNECTED_BACKWARD: usize = 2;
 
 impl AuthorityTable {
 	fn should_connect_to<D>(
@@ -842,21 +827,6 @@ impl AuthorityTable {
 		}
 		result
 	}
-
-	fn allow_receive(
-		&self,
-		from: &MixPeerId,
-		authorities: &BTreeMap<MixPeerId, (MixPublicKey, AuthorityId)>,
-	) -> bool {
-		// from is supposed to be verified by handshake.
-		// we allow any authorities: as we cannot say if they fail to reach their prioritized peers.
-		// TODO One could still for big difference in the priority list try to check if online and
-		// at some point reject the peer as not being connected enough (globaly with other
-		// authorities). Number can be big initially as authority may disable mixnet a lot.
-		let mut from_peer_id = [0u8; 32];
-		from_peer_id.copy_from_slice(&from[..]);
-		authorities.contains_key(&from_peer_id)
-	}
 }
 
 #[derive(Clone)]
@@ -897,18 +867,17 @@ impl AuthorityTopology {
 			current_session: 0,
 			paths: Default::default(),
 			paths_depth: 0,
-			not_connected_or_refused: Default::default(),
 			should_connect_to: Default::default(),
 			should_connect_pending: Default::default(),
 			last_signed: Default::default(),
-			disconnected_in_routing: Default::default(),
+			//disconnected_in_routing: Default::default(),
 		}
 	}
 
 	fn has_enough_nodes_to_send(&self) -> bool {
 		self.authorities_tables
 			.iter()
-			.filter(|(_, table)| table.routing_table.connected_to.len() >= NUMBER_CONNECTED_FORWARD)
+			.filter(|(_, table)| table.connected_to.len() >= NUMBER_CONNECTED_FORWARD)
 			.count() >= LOW_MIXNET_THRESHOLD
 	}
 
@@ -958,7 +927,7 @@ impl AuthorityTopology {
 		}
 		self.routing_table.receive_from.clear(); // TODO update a bit more precise
 		for (peer_id, table) in self.authorities_tables.iter() {
-			if table.routing_table.connected_to.contains(&self.node_id) {
+			if table.connected_to.contains(&self.node_id) {
 				self.routing_table.receive_from.insert(peer_id.clone());
 			}
 		}
@@ -981,21 +950,19 @@ impl AuthorityTopology {
 		trace!(target: "mixnet", "routing {:?}, ix {:?}", self.authorities_tables, ix);
 		for (key, table) in self.authorities_tables.range(ix..) {
 			// TODO alert on low receive_from
-			if !skip(&key) && !(table.routing_table.receive_from.len() < NUMBER_CONNECTED_BACKWARD)
-			{
+			if !skip(&key) && !(table.receive_from.len() < NUMBER_CONNECTED_BACKWARD) {
 				debug!(target: "mixnet", "Random route node");
 				return Some(key.clone())
 			} else {
-				debug!(target: "mixnet", "Skip {:?}, nb {:?}, {:?}", skip(&key), table.routing_table.receive_from.len(), NUMBER_CONNECTED_BACKWARD);
+				debug!(target: "mixnet", "Skip {:?}, nb {:?}, {:?}", skip(&key), table.receive_from.len(), NUMBER_CONNECTED_BACKWARD);
 			}
 		}
 		for (key, table) in self.authorities_tables.range(..ix).rev() {
-			if !skip(&key) && !(table.routing_table.receive_from.len() < NUMBER_CONNECTED_BACKWARD)
-			{
+			if !skip(&key) && !(table.receive_from.len() < NUMBER_CONNECTED_BACKWARD) {
 				debug!(target: "mixnet", "Random route node");
 				return Some(key.clone())
 			} else {
-				debug!(target: "mixnet", "Skip {:?}, nb {:?}, {:?}", skip(&key), table.routing_table.receive_from.len(), NUMBER_CONNECTED_BACKWARD);
+				debug!(target: "mixnet", "Skip {:?}, nb {:?}, {:?}", skip(&key), table.receive_from.len(), NUMBER_CONNECTED_BACKWARD);
 			}
 		}
 		None
@@ -1128,7 +1095,7 @@ fn random_path_inner(
 		l if l <= u8::MAX as usize => rng.gen::<u8>() as usize,
 		l if l <= u16::MAX as usize => rng.gen::<u16>() as usize,
 		l if l <= u32::MAX as usize => rng.gen::<u32>() as usize,
-		l => rng.gen::<usize>(),
+		_ => rng.gen::<usize>(),
 	};
 	let ix = ix % routes.len();
 
@@ -1147,30 +1114,6 @@ fn random_path_inner(
 	None
 }
 
-impl AuthorityTable {
-	fn random_connected(&self, skip: impl Fn(&MixPeerId) -> bool) -> Option<MixPeerId> {
-		use rand::RngCore;
-		// Warning this assume that PeerId is a randomly distributed value.
-		let mut ix = [0u8; 32];
-		rand::thread_rng().fill_bytes(&mut ix[..]);
-
-		trace!(target: "mixnet", "routing {:?}, ix {:?}", self.connected_to, ix);
-		for key in self.connected_to.range(ix..) {
-			if !skip(&key) {
-				debug!(target: "mixnet", "Random route node");
-				return Some(key.clone())
-			}
-		}
-		for key in self.connected_to.range(..ix).rev() {
-			if !skip(key) {
-				debug!(target: "mixnet", "Random route node");
-				return Some(key.clone())
-			}
-		}
-		None
-	}
-}
-
 impl Topology for AuthorityTopology {
 	fn first_hop_nodes_external(
 		&self,
@@ -1178,20 +1121,17 @@ impl Topology for AuthorityTopology {
 		to: &MixPeerId,
 	) -> Vec<(MixPeerId, MixPublicKey)> {
 		// allow for all
-		let mut keys: Vec<_> = self
-			.authorities
+		self.authorities
 			.iter()
 			.filter(|(id, _key)| from != *id)
 			.filter(|(id, _key)| to != *id)
 			.filter(|(id, _key)| self.connected_nodes.contains_key(*id))
-			.filter_map(|(k, v)| {
+			.filter_map(|(k, _v)| {
 				self.authorities_tables
 					.get(k)
-					.map(|table| (k.clone(), table.routing_table.public_key.0.clone()))
+					.map(|table| (k.clone(), table.public_key.0.clone()))
 			})
-			.collect();
-
-		keys
+			.collect()
 	}
 
 	fn is_first_node(&self, id: &MixPeerId) -> bool {
@@ -1240,10 +1180,7 @@ impl Topology for AuthorityTopology {
 				debug!(target: "mixnet", "Number path for dest {:?}.", nb_path);
 				debug!(target: "mixnet", "{:?} to {:?}", from_count, peer);
 				if nb_path >= LOW_MIXNET_PATHS {
-					return self
-						.authorities_tables
-						.get(&peer)
-						.map(|keys| (peer, keys.routing_table.public_key.0))
+					return self.authorities_tables.get(&peer).map(|keys| (peer, keys.public_key.0))
 				} else {
 					bad.insert(peer);
 				}
@@ -1256,7 +1193,7 @@ impl Topology for AuthorityTopology {
 
 	/// For a given peer return a list of peers it is supposed to be connected to.
 	/// Return `None` if peer is unknown to the topology.
-	fn neighbors(&self, from: &MixPeerId) -> Option<Vec<(MixPeerId, MixPublicKey)>> {
+	fn neighbors(&self, _from: &MixPeerId) -> Option<Vec<(MixPeerId, MixPublicKey)>> {
 		// unused, random_paths directly implement.
 		// TODO remove from mixnet crate??
 		unimplemented!()
@@ -1355,7 +1292,7 @@ impl Topology for AuthorityTopology {
 
 			for peer_id in path_ids.into_iter() {
 				if let Some(table) = self.authorities_tables.get(&peer_id) {
-					path.push((peer_id, table.routing_table.public_key.0.clone()));
+					path.push((peer_id, table.public_key.0.clone()));
 				} else {
 					error!(target: "mixnet", "node in routing_nodes must also be in connected_nodes");
 					unreachable!("node in routing_nodes must also be in connected_nodes");
@@ -1430,6 +1367,15 @@ impl Topology for AuthorityTopology {
 			if !self.accept_peer(&self.node_id, &peer_id) {
 				return None
 			}
+			if self.is_routing(&peer_id) {
+				// TODO this should be checking routing table from other peer and see peers
+				// connected to multiple others so we wait for their connection or ping them.
+				// TODO One could still for big difference in the priority list try to check if
+				// online and at some point reject the peer as not being connected enough (globaly
+				// with other authorities). Number can be big initially as authority may disable
+				// mixnet a lot. TODO in case we are already receiving from more than a threshould
+				// we drop others connection.
+			}
 			let pk = MixPublicKey::from(pk);
 			Some((peer_id, pk))
 		} else {
@@ -1493,7 +1439,7 @@ impl AuthorityTopology {
 		local_routing: &AuthorityTable,
 		paths: &mut BTreeMap<usize, HashMap<MixPeerId, HashMap<MixPeerId, Vec<MixPeerId>>>>,
 		paths_depth: &mut usize,
-		authorities_tables: &BTreeMap<MixPeerId, AuthorityRouting>,
+		authorities_tables: &BTreeMap<MixPeerId, AuthorityTable>,
 		depth: usize,
 	) {
 		if &depth <= paths_depth {
@@ -1504,10 +1450,8 @@ impl AuthorityTopology {
 		// TODO not strictly needed (all in authorities_tables), convenient to exclude local id.
 		let mut to_from = HashMap::<MixPeerId, Vec<MixPeerId>>::new();
 
-		for (from, table) in authorities_tables
-			.iter()
-			.map(|(id, routing)| (id, &routing.routing_table))
-			.chain(std::iter::once((local_id, local_routing)))
+		for (from, table) in
+			authorities_tables.iter().chain(std::iter::once((local_id, local_routing)))
 		{
 			/*			from_to.insert(
 				from.clone(),
@@ -1633,18 +1577,19 @@ impl AuthorityTopology {
 		signature.copy_from_slice(&payload[payload.len() - 64..]);
 		let signature = sp_application_crypto::sr25519::Signature(signature);
 
-		let authority_id = if let Some(auth) = self.all_authorities.get(&with) {
-			auth.clone()
-		} else {
+		//let authority_id = if let Some(auth) = self.all_authorities.get(&with) {
+		if !self.all_authorities.contains_key(&with) {
+			//			auth.clone()
+			//		} else {
 			trace!(target: "mixnet", "No authority found for with: {:?}, dropping table.", with);
-			return false;
+			return false
 		};
 
 		let mut p = [0u8; 32];
 		p.copy_from_slice(&with[..]);
 		let key = sp_application_crypto::sr25519::Public(p);
 
-/*		let authority_id = if let Some(table) = self.authorities_tables.get(&with) {
+		/*		let authority_id = if let Some(table) = self.authorities_tables.get(&with) {
 			use sp_application_crypto::Public;
 			if let Some(key) = self.sessions.get(&table.authority_id.to_public_crypto_pair()) {
 				if &with[..] != key.1.as_slice() {
@@ -1670,9 +1615,8 @@ impl AuthorityTopology {
 		if let Some(payload) = AuthorityTable::decode(&mut &payload[32..payload.len() - 64]).ok() {
 			let mut insert = true;
 			if let Some(table) = self.authorities_tables.get(&with) {
-				if payload.session < table.routing_table.session ||
-					(payload.session == table.routing_table.session &&
-						payload.revision <= table.routing_table.revision)
+				if payload.session < table.session ||
+					(payload.session == table.session && payload.revision <= table.revision)
 				{
 					log::debug!(target: "mixnet", "Not updated routes: {:?}", self.authorities_tables);
 					// TODO old tables should lower dht peer prio.
@@ -1683,15 +1627,7 @@ impl AuthorityTopology {
 				// TODO sanity check of table (not connected to too many peers), ~ consistent with
 				// peer neighbors (at least from the connected one we know)...
 				// TODO number of non connected neighbor that should be.
-				self.authorities_tables.insert(
-					with.clone(),
-					AuthorityRouting {
-						session_index: payload.session,
-						peer_id: with.clone(),
-						authority_id,
-						routing_table: payload,
-					},
-				);
+				self.authorities_tables.insert(with.clone(), payload);
 				self.paths.clear();
 				log::debug!(target: "mixnet", "current routes: {:?}", self.authorities_tables);
 			}
