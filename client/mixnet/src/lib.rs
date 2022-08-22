@@ -505,7 +505,7 @@ where
 					topology.routing = true;
 					// Use ImOnline for the current session.
 					let new_id = (current_local_id != peer_id).then(|| {
-						topology.node_id = peer_id.clone();
+						topology.local_id = peer_id.clone();
 						peer_id.clone()
 					});
 					// change session key on new ImOnline id.
@@ -531,7 +531,7 @@ where
 			}
 		}
 		topology.should_connect_to = AuthorityTable::should_connect_to(
-			&topology.node_id,
+			&topology.local_id,
 			&topology.all_authorities,
 			usize::MAX,
 		);
@@ -671,7 +671,7 @@ where
 /// that are part of the topology.
 pub struct AuthorityTopology {
 	// MixPeerId is ImOnline key.
-	node_id: MixPeerId, // TODO rename local_id?
+	local_id: MixPeerId,
 	network_id: NetworkPeerId,
 	// TODO remove redundant with the one in routing_table
 	node_public_key: MixPublicKey,
@@ -710,7 +710,7 @@ pub struct AuthorityTopology {
 	should_connect_to: Vec<MixPeerId>,
 	should_connect_pending: HashMap<MixPeerId, (usize, bool)>, /* TODO audit usage of
 	                                                            * should_connect, */
-	                                                           /* TODO for stats.
+	                                                            * TODO for stats.
 	                                                            * does not looks very smart
 	                                                            * peers not connected to other
 	                                                            * peer when they should (may not
@@ -838,7 +838,7 @@ pub struct AuthorityInfo {
 impl AuthorityTopology {
 	/// Instantiate a new topology.
 	pub fn new(
-		node_id: MixPeerId,
+		local_id: MixPeerId,
 		network_id: NetworkPeerId,
 		node_public_key: MixPublicKey,
 		key_store: Arc<dyn SyncCryptoStore>,
@@ -853,7 +853,7 @@ impl AuthorityTopology {
 			session: 0,
 		};
 		AuthorityTopology {
-			node_id,
+			local_id,
 			network_id,
 			node_public_key,
 			authorities: BTreeMap::new(),
@@ -927,7 +927,7 @@ impl AuthorityTopology {
 		}
 		self.routing_table.receive_from.clear(); // TODO update a bit more precise
 		for (peer_id, table) in self.authorities_tables.iter() {
-			if table.connected_to.contains(&self.node_id) {
+			if table.connected_to.contains(&self.local_id) {
 				self.routing_table.receive_from.insert(peer_id.clone());
 			}
 		}
@@ -1155,7 +1155,7 @@ impl Topology for AuthorityTopology {
 				debug!(target: "mixnet", "Trying random dest {:?}.", peer);
 				let nb_hop = send_options.num_hop.unwrap_or(DEFAULT_NUM_HOPS as usize);
 				AuthorityTopology::fill_paths(
-					&self.node_id,
+					&self.local_id,
 					&self.routing_table,
 					&mut self.paths,
 					&mut self.paths_depth,
@@ -1200,8 +1200,8 @@ impl Topology for AuthorityTopology {
 	}
 
 	fn routing_to(&self, from: &MixPeerId, to: &MixPeerId) -> bool {
-		(self.authorities.contains_key(from) || (&self.node_id == from && self.routing)) &&
-			(self.authorities.contains_key(to) || (&self.node_id == to && self.routing))
+		(self.authorities.contains_key(from) || (&self.local_id == from && self.routing)) &&
+			(self.authorities.contains_key(to) || (&self.local_id == to && self.routing))
 	}
 
 	fn random_path(
@@ -1259,7 +1259,7 @@ impl Topology for AuthorityTopology {
 		};
 		trace!(target: "mixnet", "number hop: {:?}", num_hops);
 		AuthorityTopology::fill_paths(
-			&self.node_id,
+			&self.local_id,
 			&self.routing_table,
 			&mut self.paths,
 			&mut self.paths_depth,
@@ -1301,9 +1301,9 @@ impl Topology for AuthorityTopology {
 			if let Some(public_key) = self.connected_nodes.get(&recipient) {
 				path.push((recipient.clone(), public_key.clone()));
 			} else {
-				if self.node_id == recipient {
+				if self.local_id == recipient {
 					// surb reply
-					path.push((self.node_id.clone(), self.node_public_key.clone()));
+					path.push((self.local_id.clone(), self.node_public_key.clone()));
 				} else {
 					error!(target: "mixnet", "Unknown recipient {:?}", recipient);
 					return Err(Error::NotEnoughRoutingPeers)
@@ -1364,7 +1364,7 @@ impl Topology for AuthorityTopology {
 		debug!(target: "mixnet", "check handshake: {:?}, {:?}, {:?} from {:?}", peer_id, message, signature, _from);
 		use sp_application_crypto::RuntimePublic;
 		if key.verify(&message, &signature) {
-			if !self.accept_peer(&self.node_id, &peer_id) {
+			if !self.accept_peer(&self.local_id, &peer_id) {
 				return None
 			}
 			if self.is_routing(&peer_id) {
@@ -1384,19 +1384,19 @@ impl Topology for AuthorityTopology {
 	}
 
 	fn handshake(&mut self, with: &NetworkPeerId, public_key: &MixPublicKey) -> Option<Vec<u8>> {
-		let mut result = self.node_id.to_vec();
+		let mut result = self.local_id.to_vec();
 		result.extend_from_slice(&public_key.as_bytes()[..]);
 		let mut message = with.to_bytes().to_vec();
 		message.extend_from_slice(&public_key.as_bytes()[..]);
 		match SyncCryptoStore::sign_with(
 			&*self.key_store,
 			key_types::IM_ONLINE,
-			&CryptoTypePublicPair(sp_core::sr25519::CRYPTO_ID, self.node_id.to_vec()),
+			&CryptoTypePublicPair(sp_core::sr25519::CRYPTO_ID, self.local_id.to_vec()),
 			&message[..],
 		) {
 			Ok(Some(signature)) => {
 				result.extend_from_slice(&signature[..]);
-				trace!(target: "mixnet", "create handshake: {:?}, {:?}, {:?} with {:?}", self.node_id, message, signature, with);
+				trace!(target: "mixnet", "create handshake: {:?}, {:?}, {:?} with {:?}", self.local_id, message, signature, with);
 				return Some(result)
 			},
 			Err(e) => {
@@ -1539,18 +1539,18 @@ impl AuthorityTopology {
 				self.last_signed.2 < self.routing_table.revision.0)
 		{
 			has_changed = true;
-			let mut to_sign = self.node_id.to_vec();
+			let mut to_sign = self.local_id.to_vec();
 			self.routing_table.encode_to(&mut to_sign);
 			match SyncCryptoStore::sign_with(
 				&*self.key_store,
 				key_types::IM_ONLINE,
-				&CryptoTypePublicPair(sp_core::sr25519::CRYPTO_ID, self.node_id.to_vec()),
+				&CryptoTypePublicPair(sp_core::sr25519::CRYPTO_ID, self.local_id.to_vec()),
 				&to_sign[..],
 			) {
 				Ok(Some(signature)) => {
-					trace!(target: "mixnet", "Signing done: {:?} {:?} {:?}", self.node_id.to_vec(), signature, to_sign);
+					trace!(target: "mixnet", "Signing done: {:?} {:?} {:?}", self.local_id.to_vec(), signature, to_sign);
 					to_sign.extend_from_slice(&signature[..]);
-					trace!(target: "mixnet", "create signed routing: {:?}", self.node_id);
+					trace!(target: "mixnet", "create signed routing: {:?}", self.local_id);
 					self.last_signed.0 = to_sign;
 					self.last_signed.1 = self.routing_table.session;
 					self.last_signed.2 = self.routing_table.revision.0;
