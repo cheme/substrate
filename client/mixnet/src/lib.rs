@@ -476,7 +476,7 @@ where
 											  // of a restarted node).
 		debug!(target: "mixnet", "Change authorities {:?}", set);
 		let mut old_authority = std::mem::take(&mut topology.authorities);
-		topology.all_authorities.clear();
+		old_authority.remove(&topology.local_id);
 
 		topology.routing = false;
 
@@ -500,7 +500,7 @@ where
 
 				if self.authority_id.as_ref() == Some(&auth) {
 					debug!(target: "mixnet", "Insert self {:?}", peer_id);
-					topology.all_authorities.insert(peer_id, auth.clone());
+					topology.authorities.insert(peer_id, auth.clone());
 					debug!(target: "mixnet", "In new authority set, routing.");
 					topology.routing = true;
 					// Use ImOnline for the current session.
@@ -515,7 +515,7 @@ where
 					let rollkey = new_id.is_some();
 					let new_key = rollkey.then(|| {
 						let new_key = mixnet::generate_new_keys();
-						topology.node_public_key = new_key.0.clone();
+						topology.routing_table.public_key.0 = new_key.0.clone();
 						new_key
 					});
 					if new_id.is_some() || new_key.is_some() {
@@ -523,8 +523,7 @@ where
 					}
 				} else {
 					debug!(target: "mixnet", "Insert auth {:?}", peer_id);
-					topology.authorities.insert(peer_id, auth.clone());
-					topology.all_authorities.insert(peer_id, auth);
+					topology.authorities.insert(peer_id, auth);
 				}
 			} else {
 				error!(target: "mixnet", "Missing imonline key for authority {:?}, not adding it to topology.", auth);
@@ -532,7 +531,7 @@ where
 		}
 		topology.should_connect_to = AuthorityTable::should_connect_to(
 			&topology.local_id,
-			&topology.all_authorities,
+			&topology.authorities,
 			usize::MAX,
 		);
 		for (index, id) in topology.should_connect_to.iter().enumerate() {
@@ -673,20 +672,14 @@ pub struct AuthorityTopology {
 	// MixPeerId is ImOnline key.
 	local_id: MixPeerId,
 	network_id: NetworkPeerId,
-	// TODO remove redundant with the one in routing_table
-	node_public_key: MixPublicKey,
 	key_store: Arc<dyn SyncCryptoStore>,
 	// true when we are in authorities set.
 	routing: bool,
-	// All authorities are considered connected (when building message except first hop).
-	// TODO rem pub key
-	// AuthorityId is Grandpa Key.
+	// Authorities, including self (if an authority).
 	authorities: BTreeMap<MixPeerId, AuthorityId>,
-	all_authorities: BTreeMap<MixPeerId, AuthorityId>,
 	// The connected nodes (for first hop use `authorities` joined `connected_nodes`).
-	// TODO currently the value in connected_nodes is unused. -> TODO HashSet?
 	// (note it is from handshake and note updated from routing tables).
-	connected_nodes: HashMap<MixPeerId, MixPublicKey>,
+	connected_nodes: HashSet<MixPeerId>,
 	// Current session mapping of Grandpa key to IMonline key.
 	// TODO switch to MixPeerId to imonline key.
 	sessions: HashMap<CryptoTypePublicPair, CryptoTypePublicPair>,
@@ -709,7 +702,7 @@ pub struct AuthorityTopology {
 	// Connection to peer that are more prioritary: attempt connect.
 	should_connect_to: Vec<MixPeerId>,
 	should_connect_pending: HashMap<MixPeerId, (usize, bool)>, /* TODO audit usage of
-	                                                            * should_connect, */
+	                                                            * should_connect,
 	                                                            * TODO for stats.
 	                                                            * does not looks very smart
 	                                                            * peers not connected to other
@@ -742,6 +735,7 @@ pub struct AuthorityTable {
 	// logic. -> actually may not be proper idea, one key and subsequent update, just need to
 	// ensure we are using the latest version which for signed info is easy: ord (sessionid,
 	// revision).
+	// TODO could replace MixPeerId by index in list of authorities for compactness.
 	connected_to: BTreeSet<MixPeerId>,
 	receive_from: BTreeSet<MixPeerId>, /* incoming peer needed to check if published information
 	                                    * is fresh. */
@@ -855,10 +849,8 @@ impl AuthorityTopology {
 		AuthorityTopology {
 			local_id,
 			network_id,
-			node_public_key,
 			authorities: BTreeMap::new(),
-			all_authorities: BTreeMap::new(),
-			connected_nodes: HashMap::new(),
+			connected_nodes: HashSet::new(),
 			sessions: HashMap::new(),
 			routing: false,
 			key_store,
@@ -887,11 +879,7 @@ impl AuthorityTopology {
 
 	fn add_connected_peer(&mut self, peer_id: MixPeerId, key: MixPublicKey) {
 		debug!(target: "mixnet", "Connected to mixnet {:?} {:?}", peer_id, key);
-		if let Some(public_key) = self.connected_nodes.get_mut(&peer_id) {
-			*public_key = key;
-		} else {
-			self.connected_nodes.insert(peer_id, key);
-		}
+		self.connected_nodes.insert(peer_id);
 		if let Some(info) = self.should_connect_pending.get_mut(&peer_id) {
 			if info.1 == true {
 				info.1 = false;
@@ -1125,7 +1113,8 @@ impl Topology for AuthorityTopology {
 			.iter()
 			.filter(|(id, _key)| from != *id)
 			.filter(|(id, _key)| to != *id)
-			.filter(|(id, _key)| self.connected_nodes.contains_key(*id))
+			.filter(|(id, _key)| &self.local_id != *id)
+			.filter(|(id, _key)| self.connected_nodes.contains(*id))
 			.filter_map(|(k, _v)| {
 				self.authorities_tables
 					.get(k)
@@ -1298,12 +1287,12 @@ impl Topology for AuthorityTopology {
 					unreachable!("node in routing_nodes must also be in connected_nodes");
 				}
 			}
-			if let Some(public_key) = self.connected_nodes.get(&recipient) {
-				path.push((recipient.clone(), public_key.clone()));
+			if let Some(table) = self.authorities_tables.get(&recipient) {
+				path.push((recipient.clone(), table.public_key.0.clone()));
 			} else {
 				if self.local_id == recipient {
 					// surb reply
-					path.push((self.local_id.clone(), self.node_public_key.clone()));
+					path.push((self.local_id.clone(), self.routing_table.public_key.0.clone()));
 				} else {
 					error!(target: "mixnet", "Unknown recipient {:?}", recipient);
 					return Err(Error::NotEnoughRoutingPeers)
@@ -1324,7 +1313,7 @@ impl Topology for AuthorityTopology {
 	}
 
 	fn is_routing(&self, id: &MixPeerId) -> bool {
-		self.all_authorities.contains_key(id)
+		self.authorities.contains_key(id)
 	}
 
 	fn connected(&mut self, peer_id: MixPeerId, key: MixPublicKey) {
@@ -1577,8 +1566,8 @@ impl AuthorityTopology {
 		signature.copy_from_slice(&payload[payload.len() - 64..]);
 		let signature = sp_application_crypto::sr25519::Signature(signature);
 
-		//let authority_id = if let Some(auth) = self.all_authorities.get(&with) {
-		if !self.all_authorities.contains_key(&with) {
+		//let authority_id = if let Some(auth) = self.authorities.get(&with) {
+		if !self.authorities.contains_key(&with) {
 			//			auth.clone()
 			//		} else {
 			trace!(target: "mixnet", "No authority found for with: {:?}, dropping table.", with);
@@ -1663,7 +1652,7 @@ fn test_fill_paths() {
 		})
 		.collect();
 	let local_id = [255u8; 32];
-	let all_authorities: BTreeMap<_, _> = peers
+	let authorities: BTreeMap<_, _> = peers
 		.iter()
 		.chain(std::iter::once(&local_id))
 		.map(|p| (p.clone(), ()))
@@ -1679,7 +1668,7 @@ fn test_fill_paths() {
 
 	let mut from_to: HashMap<MixPeerId, Vec<MixPeerId>> = Default::default();
 	for p in peers.iter().chain(std::iter::once(&local_id)) {
-		let tos = AuthorityTable::should_connect_to(p, &all_authorities, nb_forward);
+		let tos = AuthorityTable::should_connect_to(p, &authorities, nb_forward);
 		from_to.insert(p.clone(), tos);
 	}
 	let mut to_from: HashMap<MixPeerId, Vec<MixPeerId>> = Default::default();
