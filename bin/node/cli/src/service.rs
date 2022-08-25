@@ -365,7 +365,8 @@ pub fn new_full_base(
 		mixnet = Some(network_to_mixnet);
 		let local_id = config.network.node_key.clone().into_keypair()?;
 		let authority_set = import_setup.1.shared_authority_set().clone();
-		mixnet_worker = Some((authority_set, mixnet_to_network, local_id));
+		let metrics = config.prometheus_registry().cloned();
+		mixnet_worker = Some((authority_set, mixnet_to_network, local_id, metrics));
 	}
 
 	let (network, system_rpc_tx, mixnet_tx, network_starter) =
@@ -568,8 +569,7 @@ pub fn new_full_base(
 		);
 	}
 
-	// warn need to start after grandpa or imonline to access key.
-	if let Some((authority_set, channels_to_network, local_id)) = mixnet_worker {
+	if let Some((authority_set, channels_to_network, local_id, metrics)) = mixnet_worker {
 		let dht_event_stream =
 			Box::new(Box::pin(network.event_stream("mixnet").filter_map(|e| async move {
 				match e {
@@ -577,7 +577,6 @@ pub fn new_full_base(
 					_ => None,
 				}
 			})));
-
 		if let Some(mixnet_worker) = sc_mixnet::MixnetWorker::new(
 			channels_to_network,
 			&local_id,
@@ -586,6 +585,7 @@ pub fn new_full_base(
 			dht_event_stream,
 			authority_set,
 			keystore_container.sync_keystore(),
+			metrics,
 		) {
 			task_manager
 				.spawn_handle()

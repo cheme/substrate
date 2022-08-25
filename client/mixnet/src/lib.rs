@@ -32,6 +32,8 @@ use codec::{Compact, Decode, Encode, Input, Output};
 use futures::{future, FutureExt, StreamExt};
 use futures_timer::Delay;
 use log::{debug, error, trace, warn};
+use metrics::{PacketsKind, PacketsResult};
+use prometheus_endpoint::Registry as PrometheusRegistry;
 use sc_authority_discovery::{ExpIncInterval, NetworkProvider};
 use sc_client_api::{BlockchainEvents, FinalityNotification, UsageProvider};
 use sc_network::{DhtEvent, MixnetCommand, PeerId as NetworkPeerId};
@@ -67,6 +69,13 @@ const DELAY_NO_FINALISATION_S: u64 = 60;
 /// Maximum number of in-flight DHT lookups at any given point in time.
 const MAX_IN_FLIGHT_LOOKUPS: usize = 8;
 
+/// Maximum number of external node.
+const MAX_EXTERNAL: usize = 10;
+
+/// Percent of additional bandwidth allowed for external
+/// node message reception.
+const EXTERNAL_BANDWIDTH: (usize, usize) = (1, 10);
+
 /// Mixnet running worker.
 pub struct MixnetWorker<B: BlockT, C, N> {
 	// current node authority_id if validating.
@@ -84,7 +93,6 @@ pub struct MixnetWorker<B: BlockT, C, N> {
 	// External command.
 	command_stream: futures::channel::mpsc::Receiver<MixnetCommand>,
 	key_store: Arc<dyn SyncCryptoStore>,
-	default_limit_config: Option<usize>,
 
 	// DHT related fields. TODO rename dht_...
 	network: Arc<N>,
@@ -142,7 +150,9 @@ where
 			NumberFor<B>,
 		>,
 		key_store: Arc<dyn SyncCryptoStore>,
+		metrics: Option<PrometheusRegistry>,
 	) -> Option<Self> {
+		let max_external = Some(MAX_EXTERNAL);
 		let mut local_public_key = None;
 		// get the peer id, could be another one than the one define in session: in this
 		// case node will restart.
@@ -151,10 +161,13 @@ where
 			.rev()
 		{
 			if SyncCryptoStore::has_keys(&*key_store, &[(key.0.into(), key_types::IM_ONLINE)]) {
+				// use first with a secret key, on handle new auth, if we are
+				// authority this will be updated to the right one, otherwise
+				// any key will do.
 				local_public_key = Some(key);
 				break
 			} else {
-				log::error!(target: "mixnet", "No private key for imonline key");
+				log::warn!(target: "mixnet", "No private key for imonline key, may be old key");
 			}
 		}
 
@@ -173,13 +186,27 @@ where
 
 		let finality_stream = client.finality_notification_stream();
 
+		let metrics = if let Some(metrics) = metrics {
+			Some(
+				metrics::register_metrics(metrics, &mixnet_config.local_id)
+					.map_err(|e| {
+						log::error!(target: "mixnet", "{}", format!("metrics: {:?}", e));
+					})
+					.ok()?,
+			)
+		} else {
+			None
+		};
+
 		let topology = AuthorityTopology::new(
 			mixnet_config.local_id.clone(),
 			NetworkPeerId::from_public_key(&network_identity.public()),
 			mixnet_config.public_key.clone(),
 			key_store.clone(),
+			&mixnet_config,
+			max_external,
+			metrics,
 		);
-		let default_limit_config = mixnet_config.limit_per_window.clone();
 
 		let worker = mixnet::MixnetWorker::new(mixnet_config, topology, inner_channels.0);
 		let state = State::Synching;
@@ -198,7 +225,6 @@ where
 			state,
 			command_stream: inner_channels.1,
 			key_store,
-			default_limit_config,
 			network,
 			dht_event_rx,
 			in_flight_lookups: HashMap::new(),
@@ -450,16 +476,12 @@ where
 
 		self.fetch_new_session_keys(at, session);
 		self.update_own_public_key_within_authority_set(&set);
-		let mut remove_limit = Vec::new();
 		let current_local_id = self.worker.local_id().clone();
 		let topology = &mut self.worker.mixnet_mut().topology;
 		topology.routing_table.session = session;
 		topology.routing_table.revision = Compact(1); // TODO load from persistence in case it is first call here (may be ongoing session
 											  // of a restarted node).
 		debug!(target: "mixnet", "Change authorities {:?}", set);
-		let mut old_authority = std::mem::take(&mut topology.authorities);
-		old_authority.remove(&topology.local_id);
-
 		topology.routing = false;
 
 		self.current_authorities_keys.clear();
@@ -472,13 +494,10 @@ where
 			// TODO rotate mixnet key (anyway we got change of route table already
 			// TODO persist old mixnet for a gracefull switch period.
 			use sp_application_crypto::Public;
-			let auth_pub_pair = auth.clone().to_public_crypto_pair(); // TODO change key type in map?
+			let auth_pub_pair = auth.clone().to_public_crypto_pair();
 			if let Some(key) = topology.sessions.get(&auth_pub_pair) {
 				let mut peer_id = [0u8; 32];
 				peer_id.copy_from_slice(&key.1[..]);
-				if old_authority.remove(&peer_id).is_none() {
-					remove_limit.push(peer_id.clone());
-				}
 
 				if self.authority_id.as_ref() == Some(&auth) {
 					debug!(target: "mixnet", "Insert self {:?}", peer_id);
@@ -487,6 +506,12 @@ where
 					topology.routing = true;
 					// Use ImOnline for the current session.
 					let new_id = (current_local_id != peer_id).then(|| {
+						topology.metrics.as_mut().map(|m| {
+							if let Err(e) = m.change_id(&peer_id) {
+								error!(target: "mixnet", "Error changing local id in metrics {:?}", e);
+							}
+						});
+
 						topology.local_id = peer_id.clone();
 						peer_id.clone()
 					});
@@ -500,6 +525,11 @@ where
 						topology.routing_table.public_key.0 = new_key.0.clone();
 						new_key
 					});
+					if new_id.is_some() && new_key.is_none() {
+						error!(
+							"peer id derived from public key, one cannot change without the other"
+						);
+					}
 					if new_id.is_some() || new_key.is_some() {
 						restart = Some((new_id, new_key));
 					}
@@ -511,6 +541,7 @@ where
 				error!(target: "mixnet", "Missing imonline key for authority {:?}, not adding it to topology.", auth);
 			}
 		}
+
 		topology.should_connect_to = AuthorityTable::should_connect_to(
 			&topology.local_id,
 			&topology.authorities,
@@ -520,19 +551,22 @@ where
 			topology.should_connect_pending.insert(id.clone(), (index, true));
 		}
 		debug!(target: "mixnet", "should connect to {:?}", topology.should_connect_to);
+
+		let connected = std::mem::take(&mut topology.connected_nodes);
+		topology.nb_connected_forward_routing = 0;
+		topology.nb_connected_receive_routing = 0;
+		topology.nb_connected_external = 0;
+		topology.copy_connected_info_to_metrics();
+		for peer_id in connected.into_iter() {
+			topology.add_connected_peer(peer_id.0);
+		}
+
 		if let Some((id, key)) = restart {
 			debug!(target: "mixnet", "Restarting");
 			self.worker.restart(id, key);
 		}
+
 		self.update_state(false);
-		for peer in remove_limit.into_iter() {
-			debug!(target: "mixnet", "Remove limit for {:?}.", peer);
-			self.worker.change_peer_limit_window(&peer, None);
-		}
-		for (peer, _) in old_authority.into_iter() {
-			debug!(target: "mixnet", "Restore limit for {:?}.", peer);
-			self.worker.change_peer_limit_window(&peer, self.default_limit_config.clone());
-		}
 	}
 
 	fn fetch_new_session_keys(&mut self, mut at: NumberFor<B>, session: SetId) {
@@ -657,11 +691,15 @@ pub struct AuthorityTopology {
 	key_store: Arc<dyn SyncCryptoStore>,
 	// true when we are in authorities set.
 	routing: bool,
+	nb_connected_forward_routing: usize,
+	nb_connected_receive_routing: usize,
+	nb_connected_external: usize,
+
 	// Authorities, including self (if an authority).
 	authorities: BTreeMap<MixPeerId, AuthorityId>,
 	// The connected nodes (for first hop use `authorities` joined `connected_nodes`).
 	// (note it is from handshake and note updated from routing tables).
-	connected_nodes: HashSet<MixPeerId>,
+	connected_nodes: HashMap<MixPeerId, ConnectedKind>,
 	// Current session mapping of Grandpa key to IMonline key.
 	sessions: HashMap<CryptoTypePublicPair, CryptoTypePublicPair>,
 
@@ -693,6 +731,12 @@ pub struct AuthorityTopology {
 	                                                            * disconnected_in_routing:
 	                                                            * HashMap<MixPeerId,
 	                                                            * Vec<MixPeerId>>, */
+
+	target_bytes_per_seconds: usize,
+	// limit to external connection
+	max_external: Option<usize>,
+
+	metrics: Option<metrics::MetricsHandle>,
 }
 
 /// Current published view of an authority routing table.
@@ -803,6 +847,13 @@ impl AuthorityTable {
 	}
 }
 
+enum ConnectedKind {
+	External,
+	RoutingForward,
+	RoutingReceive,
+	RoutingReceiveForward,
+}
+
 #[derive(Clone)]
 pub struct AuthorityInfo {
 	pub grandpa_id: AuthorityId,
@@ -816,6 +867,9 @@ impl AuthorityTopology {
 		network_id: NetworkPeerId,
 		node_public_key: MixPublicKey,
 		key_store: Arc<dyn SyncCryptoStore>,
+		config: &Config,
+		max_external: Option<usize>,
+		metrics: Option<metrics::MetricsHandle>,
 	) -> Self {
 		let routing_table = AuthorityTable {
 			public_key: EncodableMixPublicKey(node_public_key),
@@ -830,7 +884,7 @@ impl AuthorityTopology {
 			local_id,
 			network_id,
 			authorities: BTreeMap::new(),
-			connected_nodes: HashSet::new(),
+			connected_nodes: HashMap::new(),
 			sessions: HashMap::new(),
 			routing: false,
 			key_store,
@@ -842,6 +896,12 @@ impl AuthorityTopology {
 			should_connect_pending: Default::default(),
 			last_signed: Default::default(),
 			//disconnected_in_routing: Default::default(),
+			nb_connected_forward_routing: 0,
+			nb_connected_receive_routing: 0,
+			nb_connected_external: 0,
+			target_bytes_per_seconds: config.target_bytes_per_second as usize,
+			max_external,
+			metrics,
 		}
 	}
 
@@ -856,20 +916,91 @@ impl AuthorityTopology {
 		self.authorities.len() >= LOW_MIXNET_THRESHOLD
 	}
 
-	fn add_connected_peer(&mut self, peer_id: MixPeerId, key: MixPublicKey) {
-		debug!(target: "mixnet", "Connected to mixnet {:?} {:?}", peer_id, key);
-		self.connected_nodes.insert(peer_id);
-		if let Some(info) = self.should_connect_pending.get_mut(&peer_id) {
-			if info.1 == true {
-				info.1 = false;
-				self.refresh_connection_table();
+	fn copy_connected_info_to_metrics(&self) {
+		self.metrics.as_ref().map(|m| {
+			m.current_connected
+				.with_label_values(&[
+					metrics::LABEL_NODE_STATUS[metrics::ConnectedNodeStatus::Total as usize]
+				])
+				.set(self.connected_nodes.len() as u64);
+			m.current_connected
+				.with_label_values(&[
+					metrics::LABEL_NODE_STATUS[metrics::ConnectedNodeStatus::Forwarding as usize]
+				])
+				.set(self.nb_connected_forward_routing as u64);
+			m.current_connected
+				.with_label_values(&[
+					metrics::LABEL_NODE_STATUS[metrics::ConnectedNodeStatus::Receiving as usize]
+				])
+				.set(self.nb_connected_receive_routing as u64);
+			m.current_connected
+				.with_label_values(&[
+					metrics::LABEL_NODE_STATUS[metrics::ConnectedNodeStatus::External as usize]
+				])
+				.set(self.nb_connected_external as u64);
+		});
+	}
+
+	fn add_connected_peer(&mut self, peer_id: MixPeerId) {
+		debug!(target: "mixnet", "Connected to mixnet {:?}", peer_id);
+		if let Some(_) = self.connected_nodes.get_mut(&peer_id) {
+			return
+		}
+		if !self.connected_nodes.contains_key(&peer_id) {
+			let kind = if self.is_routing(&peer_id) {
+				if !self.routing {
+					self.nb_connected_external += 1;
+					ConnectedKind::External
+				} else if self.routing_to(&self.local_id, &peer_id) {
+					self.nb_connected_forward_routing += 1;
+					if self.routing_to(&peer_id, &self.local_id) {
+						self.nb_connected_receive_routing += 1;
+						ConnectedKind::RoutingReceiveForward
+					} else {
+						ConnectedKind::RoutingForward
+					}
+				} else if self.routing_to(&peer_id, &self.local_id) {
+					self.nb_connected_receive_routing += 1;
+					ConnectedKind::RoutingReceive
+				} else {
+					self.nb_connected_external += 1;
+					ConnectedKind::External
+				}
+			} else {
+				self.nb_connected_external += 1;
+				ConnectedKind::External
+			};
+			self.connected_nodes.insert(peer_id, kind);
+			self.copy_connected_info_to_metrics();
+			if let Some(info) = self.should_connect_pending.get_mut(&peer_id) {
+				if info.1 == true {
+					info.1 = false;
+					self.refresh_connection_table();
+				}
 			}
 		}
 	}
 
 	fn add_disconnected_peer(&mut self, peer_id: &MixPeerId) {
 		debug!(target: "mixnet", "Disconnected from mixnet {:?}", peer_id);
-		let _ = self.connected_nodes.remove(peer_id);
+		if let Some(kind) = self.connected_nodes.remove(peer_id) {
+			match kind {
+				ConnectedKind::External => {
+					self.nb_connected_external -= 1;
+				},
+				ConnectedKind::RoutingReceive => {
+					self.nb_connected_receive_routing -= 1;
+				},
+				ConnectedKind::RoutingForward => {
+					self.nb_connected_forward_routing -= 1;
+				},
+				ConnectedKind::RoutingReceiveForward => {
+					self.nb_connected_forward_routing -= 1;
+					self.nb_connected_receive_routing -= 1;
+				},
+			}
+			self.copy_connected_info_to_metrics();
+		}
 		if let Some(info) = self.should_connect_pending.get_mut(peer_id) {
 			if info.1 == false {
 				info.1 = true;
@@ -1092,7 +1223,7 @@ impl Topology for AuthorityTopology {
 			.filter(|(id, _key)| from != *id)
 			.filter(|(id, _key)| to != *id)
 			.filter(|(id, _key)| &self.local_id != *id)
-			.filter(|(id, _key)| self.connected_nodes.contains(*id))
+			.filter(|(id, _key)| self.connected_nodes.contains_key(*id))
 			.filter_map(|(k, _v)| {
 				self.authorities_tables
 					.get(k)
@@ -1162,7 +1293,7 @@ impl Topology for AuthorityTopology {
 	/// Return `None` if peer is unknown to the topology.
 	fn neighbors(&self, _from: &MixPeerId) -> Option<Vec<(MixPeerId, MixPublicKey)>> {
 		// unused, random_paths directly implement.
-		// TODO remove from mixnet crate??
+		// TODO implement!!
 		unimplemented!()
 	}
 
@@ -1294,9 +1425,9 @@ impl Topology for AuthorityTopology {
 		self.authorities.contains_key(id)
 	}
 
-	fn connected(&mut self, peer_id: MixPeerId, key: MixPublicKey) {
+	fn connected(&mut self, peer_id: MixPeerId, _: MixPublicKey) {
 		debug!(target: "mixnet", "Connected from internal");
-		self.add_connected_peer(peer_id, key)
+		self.add_connected_peer(peer_id)
 	}
 
 	fn disconnect(&mut self, peer_id: &MixPeerId) {
@@ -1304,9 +1435,24 @@ impl Topology for AuthorityTopology {
 		self.add_disconnected_peer(&peer_id);
 	}
 
-	fn allowed_external(&self, _id: &MixPeerId) -> Option<(usize, usize)> {
-		// 10% TODO also limit nb connection (on check_handshake success)
-		Some((1, 10))
+	fn bandwidth_external(&self, _id: &MixPeerId) -> Option<(usize, usize)> {
+		// TODO can cache this result (Option<Option<(usize, usize))
+
+		// Equal bandwidth amongst connected peers.
+		let nb_forward = self.nb_connected_forward_routing;
+		let nb_receive = self.nb_connected_receive_routing;
+		// TODO add parameter to indicate if for a new peer or an existing one.
+		let nb_external = self.nb_connected_external + 1;
+
+		let forward_bandwidth = ((EXTERNAL_BANDWIDTH.0 + EXTERNAL_BANDWIDTH.1) *
+			nb_forward * self.target_bytes_per_seconds) /
+			EXTERNAL_BANDWIDTH.1;
+		let receive_bandwidth = nb_receive * self.target_bytes_per_seconds;
+
+		let available_bandwidth = forward_bandwidth - receive_bandwidth;
+		let available_per_external = available_bandwidth / nb_external;
+
+		Some((available_per_external, self.target_bytes_per_seconds))
 	}
 
 	fn handshake_size(&self) -> usize {
@@ -1332,6 +1478,7 @@ impl Topology for AuthorityTopology {
 		use sp_application_crypto::RuntimePublic;
 		if key.verify(&message, &signature) {
 			if !self.accept_peer(&self.local_id, &peer_id) {
+				self.metrics.as_ref().map(|m| m.invalid_handshake.inc());
 				return None
 			}
 			if self.is_routing(&peer_id) {
@@ -1344,8 +1491,10 @@ impl Topology for AuthorityTopology {
 				// we drop others connection.
 			}
 			let pk = MixPublicKey::from(pk);
+			self.metrics.as_ref().map(|m| m.valid_handshake.inc());
 			Some((peer_id, pk))
 		} else {
+			self.metrics.as_ref().map(|m| m.invalid_handshake.inc());
 			None
 		}
 	}
@@ -1371,8 +1520,372 @@ impl Topology for AuthorityTopology {
 			},
 			_ => (),
 		}
-		log::error!(target: "mixnet", "Missing imonline key for handshake.");
+		error!(target: "mixnet", "Missing imonline key for handshake.");
 		None
+	}
+
+	fn accept_peer(&self, local_id: &MixPeerId, peer_id: &MixPeerId) -> bool {
+		let accepted = self.routing_to(local_id, peer_id) ||
+			self.routing_to(peer_id, local_id) ||
+			(self.nb_connected_external < self.max_external.unwrap_or(usize::MAX) &&
+				self.bandwidth_external(peer_id).is_some());
+		if !accepted {
+			self.metrics.as_ref().map(|m| m.rejected_external.inc());
+		}
+		accepted
+	}
+
+	fn collect_windows_stats(&self) -> bool {
+		self.metrics.is_some()
+	}
+
+	fn window_stats(&self, stats: &mixnet::WindowStats) {
+		if let Some(metrics) = self.metrics.as_ref() {
+			let nb_window = stats.window - stats.last_window;
+			if nb_window == 0 {
+				return
+			}
+			metrics.number_of_window.inc();
+			for _ in 1..nb_window {
+				metrics.number_of_skipped_window.inc();
+			}
+			let max_paquets = stats.sum_connected.max_peer_paquet_queue_size as u64;
+			if metrics.max_packet_queue_for_peer.get() < max_paquets {
+				metrics.max_packet_queue_for_peer.set(max_paquets);
+			}
+			let total_peer_paquets = stats.sum_connected.peer_paquet_queue_size;
+			if self.nb_connected_forward_routing > 0 {
+				let peer_paquets =
+					total_peer_paquets as f64 / self.nb_connected_forward_routing as f64;
+				let peer_paquets = peer_paquets / nb_window as f64;
+				metrics.avg_packet_queue_size_for_peer.set(peer_paquets);
+				for _ in 0..nb_window {
+					metrics.avg_packet_queue_size_for_peer_histo.observe(peer_paquets);
+				}
+			} else {
+				metrics.avg_packet_queue_size_for_peer.set(0.0);
+			}
+			metrics.set_window_packets(
+				stats.number_received_valid,
+				nb_window,
+				PacketsKind::Received,
+				PacketsResult::Success,
+			);
+			metrics.set_window_packets(
+				stats.number_received_invalid,
+				nb_window,
+				PacketsKind::Received,
+				PacketsResult::Failure,
+			);
+			metrics.set_window_packets(
+				stats.number_from_external_received_valid,
+				nb_window,
+				PacketsKind::ReceivedExternal,
+				PacketsResult::Success,
+			);
+			metrics.set_window_packets(
+				stats.number_from_external_received_invalid,
+				nb_window,
+				PacketsKind::ReceivedExternal,
+				PacketsResult::Failure,
+			);
+			metrics.set_window_packets(
+				stats.sum_connected.number_forwarded_success,
+				nb_window,
+				PacketsKind::Forward,
+				PacketsResult::Success,
+			);
+			metrics.set_window_packets(
+				stats.sum_connected.number_forwarded_failed,
+				nb_window,
+				PacketsKind::Forward,
+				PacketsResult::Failure,
+			);
+			metrics.set_window_packets(
+				stats.sum_connected.number_from_external_forwarded_success,
+				nb_window,
+				PacketsKind::ForwardExternal,
+				PacketsResult::Success,
+			);
+			metrics.set_window_packets(
+				stats.sum_connected.number_from_external_forwarded_failed,
+				nb_window,
+				PacketsKind::ForwardExternal,
+				PacketsResult::Failure,
+			);
+			metrics.set_window_packets(
+				stats.sum_connected.number_from_self_send_success,
+				nb_window,
+				PacketsKind::FromSelf,
+				PacketsResult::Success,
+			);
+			metrics.set_window_packets(
+				stats.sum_connected.number_from_self_send_failed,
+				nb_window,
+				PacketsKind::FromSelf,
+				PacketsResult::Failure,
+			);
+			metrics.set_window_packets(
+				stats.sum_connected.number_surbs_reply_success,
+				nb_window,
+				PacketsKind::SurbsReply,
+				PacketsResult::Success,
+			);
+			metrics.set_window_packets(
+				stats.sum_connected.number_surbs_reply_failed,
+				nb_window,
+				PacketsKind::SurbsReply,
+				PacketsResult::Failure,
+			);
+			metrics.set_window_packets(
+				stats.sum_connected.number_cover_send_success,
+				nb_window,
+				PacketsKind::Cover,
+				PacketsResult::Success,
+			);
+			metrics.set_window_packets(
+				stats.sum_connected.number_cover_send_failed,
+				nb_window,
+				PacketsKind::Cover,
+				PacketsResult::Failure,
+			);
+		}
+	}
+}
+
+mod metrics {
+	use log::trace;
+	use mixnet::MixPeerId;
+	use prometheus_endpoint::{
+		exponential_buckets, register, Counter, Gauge, GaugeVec, Histogram, HistogramOpts,
+		HistogramVec, Opts, PrometheusError, Registry, F64, U64,
+	};
+
+	/// Handle to metrics update.
+	pub struct MetricsHandle {
+		// TODO number of actual message received (from here).
+		// TODO something to check packet delayed (here ~70 cover per window, how many packets)
+		pub mixnet_info: Gauge<U64>,
+		pub current_connected: GaugeVec<U64>,
+		pub last_window_packets: GaugeVec<U64>,
+		pub last_window_packets_histo: HistogramVec,
+		pub valid_handshake: Counter<U64>,
+		pub max_packet_queue_for_peer: Gauge<U64>,
+		pub avg_packet_queue_size_for_peer: Gauge<F64>,
+		// a bit redundant with gauge, should remove later.
+		pub avg_packet_queue_size_for_peer_histo: Histogram,
+		pub invalid_handshake: Counter<U64>,
+		// only to compare with number of skipped window,
+		// otherwhise it is a uptime.
+		pub number_of_window: Counter<U64>,
+		pub number_of_skipped_window: Counter<U64>,
+		// This may make little sense, just
+		// keeping an eye on it, should remove later.
+		pub rejected_external: Counter<U64>,
+		registry: Registry,
+	}
+
+	pub enum ConnectedNodeStatus {
+		Total = 0,
+		Forwarding = 1,
+		Receiving = 2,
+		External = 3,
+	}
+
+	pub const LABEL_NODE_STATUS: &[&str] = &["total", "forwarding", "receiving", "external"];
+
+	#[derive(Clone, Copy)]
+	pub enum PacketsKind {
+		Received = 0,
+		ReceivedExternal = 1,
+		Forward = 2,
+		ForwardExternal = 3,
+		FromSelf = 4,
+		SurbsReply = 5,
+		Cover = 6,
+	}
+
+	const LABEL_PACKET_KINDS: &[&str] = &[
+		"received",
+		"received from external",
+		"forwarded",
+		"forwarded from external",
+		"send from self",
+		"send as surbs reply",
+		"send cover message",
+	];
+
+	#[derive(Clone, Copy)]
+	pub enum PacketsResult {
+		Success = 0,
+		Failure = 1,
+	}
+
+	const LABEL_PACKET_RESULTS: &[&str] = &["success", "failure"];
+
+	/// Register all metrics to endpoint and return handle.
+	pub fn register_metrics(
+		registry: Registry,
+		peer_id: &MixPeerId,
+	) -> Result<MetricsHandle, PrometheusError> {
+		trace!(target: "mixnet", "Registering metrics");
+		let mixnet_info = register(
+			Gauge::<U64>::with_opts(
+				Opts::new("substrate_mixnet_peer_id", "Current mixnet id for a always one value")
+					.const_label(
+						"id",
+						format!("{:?}", sp_core::hexdisplay::HexDisplay::from(peer_id)),
+					),
+			)?,
+			&registry,
+		)?;
+		mixnet_info.set(1);
+		let rejected_external = register(
+			Counter::<U64>::new(
+				"substrate_mixnet_rejected_external",
+				"Number of external connection refused",
+			)?,
+			&registry,
+		)?;
+		let number_of_window = register(
+			Counter::<U64>::new("substrate_mixnet_windows", "Number of windows observed")?,
+			&registry,
+		)?;
+		let number_of_skipped_window = register(
+			Counter::<U64>::new("substrate_mixnet_windows_skipped", "Number of windows skipped")?,
+			&registry,
+		)?;
+		let valid_handshake = register(
+			Counter::<U64>::new("substrate_mixnet_valid_handshake", "Number of handshake valid")?,
+			&registry,
+		)?;
+		let invalid_handshake = register(
+			Counter::<U64>::new(
+				"substrate_mixnet_rejected_handshake",
+				"Number of handshake invalid",
+			)?,
+			&registry,
+		)?;
+
+		let current_connected = register(
+			GaugeVec::new(
+				Opts::new("substrate_mixnet_number_connected", "Current number of connected nodes"),
+				&["status"],
+			)?,
+			&registry,
+		)?;
+
+		let last_window_packets = register(
+			GaugeVec::new(
+				Opts::new(
+					"substrate_mixnet_last_window_packets",
+					"Last observed number of packet send in a window",
+				),
+				&["kind", "result"],
+			)?,
+			&registry,
+		)?;
+		let last_window_packets_histo = register(
+			HistogramVec::new(
+				HistogramOpts::new(
+					"substrate_mixnet_last_window_packets_histo",
+					"Histogram of last observed number of packet send in a window",
+				)
+				.buckets(exponential_buckets(1.0, 2.0, 10).unwrap_or(vec![1.0])),
+				&["kind", "result"],
+			)?,
+			&registry,
+		)?;
+
+		for label in LABEL_NODE_STATUS {
+			current_connected.with_label_values(&[label]).set(0);
+		}
+		let max_packet_queue_for_peer = register(
+			Gauge::new(
+				"substrate_mixnet_max_paquet_queue_for_peer",
+				"Bigger queue of packet observed for a connection",
+			)?,
+			&registry,
+		)?;
+		let avg_packet_queue_size_for_peer = register(
+			Gauge::new(
+				"substrate_mixnet_paquet_queue_for_peer",
+				"Packet queue size observed for a connection (avg).",
+			)?,
+			&registry,
+		)?;
+		let avg_packet_queue_size_for_peer_histo = register(
+			Histogram::with_opts(
+				HistogramOpts::new(
+					"substrate_mixnet_paquet_queue_size_histogram",
+					"Histogram of observed packet size at end of windows",
+				)
+				.buckets(exponential_buckets(1.0, 2.0, 10).unwrap_or(vec![1.0])),
+			)?,
+			&registry,
+		)?;
+
+		Ok(MetricsHandle {
+			mixnet_info,
+			current_connected,
+			rejected_external,
+			valid_handshake,
+			max_packet_queue_for_peer,
+			avg_packet_queue_size_for_peer,
+			avg_packet_queue_size_for_peer_histo,
+			invalid_handshake,
+			last_window_packets,
+			last_window_packets_histo,
+			number_of_skipped_window,
+			number_of_window,
+			registry,
+		})
+	}
+
+	impl MetricsHandle {
+		/// Change metrics containing id, this is slown and a misuse of metrics, but does not happen
+		/// often.
+		pub fn change_id(&mut self, new_peer_id: &MixPeerId) -> Result<(), PrometheusError> {
+			self.registry.unregister(Box::new(self.mixnet_info.clone()))?;
+			self.mixnet_info = register(
+				Gauge::<U64>::with_opts(
+					Opts::new(
+						"substrate_mixnet_peer_id",
+						"Current mixnet id for a always one value",
+					)
+					.const_label(
+						"id",
+						format!("{:?}", sp_core::hexdisplay::HexDisplay::from(new_peer_id)),
+					),
+				)?,
+				&self.registry,
+			)?;
+			self.mixnet_info.set(1);
+			Ok(())
+		}
+
+		/// Add a new number of packet for window.
+		pub fn set_window_packets(
+			&self,
+			nb_packets: usize,
+			nb_window: usize,
+			kind: PacketsKind,
+			result: PacketsResult,
+		) {
+			let nb_packets = nb_packets / nb_window;
+			self.last_window_packets
+				.with_label_values(&[
+					LABEL_PACKET_KINDS[kind as usize],
+					LABEL_PACKET_RESULTS[result as usize],
+				])
+				.set(nb_packets as u64);
+			self.last_window_packets_histo
+				.with_label_values(&[
+					LABEL_PACKET_KINDS[kind as usize],
+					LABEL_PACKET_RESULTS[result as usize],
+				])
+				.observe(nb_packets as f64);
+		}
 	}
 }
 
