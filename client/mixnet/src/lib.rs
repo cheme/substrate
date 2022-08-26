@@ -1290,10 +1290,22 @@ impl Topology for AuthorityTopology {
 
 	/// For a given peer return a list of peers it is supposed to be connected to.
 	/// Return `None` if peer is unknown to the topology.
-	fn neighbors(&self, _from: &MixPeerId) -> Option<Vec<(MixPeerId, MixPublicKey)>> {
+	fn neighbors(&self, from: &MixPeerId) -> Option<Vec<(MixPeerId, MixPublicKey)>> {
+		if !self.is_routing(from) {
+			return None
+		}
 		// unused, random_paths directly implement.
-		// TODO remove from mixnet crate??
-		unimplemented!()
+		Some(
+			self.routing_table
+				.connected_to
+				.iter()
+				.filter_map(|k| {
+					self.authorities_tables
+						.get(k)
+						.map(|table| (k.clone(), table.public_key.0.clone()))
+				})
+				.collect(),
+		)
 	}
 
 	fn routing_to(&self, from: &MixPeerId, to: &MixPeerId) -> bool {
