@@ -569,9 +569,8 @@ pub fn new_full_base(
 		);
 	}
 
-<<<<<<< HEAD
 	// warn need to start after grandpa or imonline to access key.
-	if let Some((authority_set, channels_to_network, local_id)) = mixnet_worker {
+	if let Some((authority_set, channels_to_network, local_id, metrics)) = mixnet_worker {
 		let dht_event_stream =
 			Box::new(Box::pin(network.event_stream("mixnet").filter_map(|e| async move {
 				match e {
@@ -580,9 +579,6 @@ pub fn new_full_base(
 				}
 			})));
 
-=======
-	if let Some((authority_set, channels_to_network, local_id, metrics)) = mixnet_worker {
->>>>>>> mixnet3
 		if let Some(mixnet_worker) = sc_mixnet::MixnetWorker::new(
 			channels_to_network,
 			&local_id,
