@@ -32,12 +32,9 @@ use codec::{Compact, Decode, Encode, Input, Output};
 use futures::{future, FutureExt, StreamExt};
 use futures_timer::Delay;
 use log::{debug, error, trace, warn};
-<<<<<<< HEAD
 use sc_authority_discovery::{ExpIncInterval, NetworkProvider};
-=======
 use metrics::{PacketsKind, PacketsResult};
 use prometheus_endpoint::Registry as PrometheusRegistry;
->>>>>>> mixnet3
 use sc_client_api::{BlockchainEvents, FinalityNotification, UsageProvider};
 use sc_network::{DhtEvent, MixnetCommand, PeerId as NetworkPeerId};
 use sc_utils::mpsc::tracing_unbounded;
@@ -69,17 +66,15 @@ const UNSYNCH_FINALIZED_MARGIN: u32 = 10;
 /// we switch back to synching state.
 const DELAY_NO_FINALISATION_S: u64 = 60;
 
-<<<<<<< HEAD
 /// Maximum number of in-flight DHT lookups at any given point in time.
 const MAX_IN_FLIGHT_LOOKUPS: usize = 8;
-=======
+
 /// Maximum number of external node.
 const MAX_EXTERNAL: usize = 10;
 
 /// Percent of additional bandwidth allowed for external
 /// node message reception.
 const EXTERNAL_BANDWIDTH: (usize, usize) = (1, 10);
->>>>>>> mixnet3
 
 /// Mixnet running worker.
 pub struct MixnetWorker<B: BlockT, C, N> {
@@ -98,8 +93,6 @@ pub struct MixnetWorker<B: BlockT, C, N> {
 	// External command.
 	command_stream: futures::channel::mpsc::Receiver<MixnetCommand>,
 	key_store: Arc<dyn SyncCryptoStore>,
-<<<<<<< HEAD
-	default_limit_config: Option<usize>,
 
 	// DHT related fields. TODO rename dht_...
 	network: Arc<N>,
@@ -113,8 +106,6 @@ pub struct MixnetWorker<B: BlockT, C, N> {
 	in_flight_lookups: HashMap<sc_network::KademliaKey, AuthorityId>,
 	current_authorities_keys: Vec<(sc_network::KademliaKey, AuthorityId)>,
 	pending_lookup_at: Option<usize>,
-=======
->>>>>>> mixnet3
 }
 
 type WorkerChannels = (mixnet::WorkerChannels, futures::channel::mpsc::Receiver<MixnetCommand>);
@@ -195,9 +186,6 @@ where
 
 		let finality_stream = client.finality_notification_stream();
 
-<<<<<<< HEAD
-		let topology = AuthorityTopology::new(
-=======
 		let metrics = if let Some(metrics) = metrics {
 			Some(
 				metrics::register_metrics(metrics, &mixnet_config.local_id)
@@ -209,8 +197,8 @@ where
 		} else {
 			None
 		};
-		let topology = AuthorityStar::new(
->>>>>>> mixnet3
+
+		let topology = AuthorityTopology::new(
 			mixnet_config.local_id.clone(),
 			NetworkPeerId::from_public_key(&network_identity.public()),
 			mixnet_config.public_key.clone(),
@@ -237,8 +225,6 @@ where
 			state,
 			command_stream: inner_channels.1,
 			key_store,
-<<<<<<< HEAD
-			default_limit_config,
 			network,
 			dht_event_rx,
 			in_flight_lookups: HashMap::new(),
@@ -257,8 +243,6 @@ where
 			),
 			current_authorities_keys: Default::default(),
 			pending_lookup_at: None,
-=======
->>>>>>> mixnet3
 		})
 	}
 
@@ -498,12 +482,8 @@ where
 		topology.routing_table.revision = Compact(1); // TODO load from persistence in case it is first call here (may be ongoing session
 											  // of a restarted node).
 		debug!(target: "mixnet", "Change authorities {:?}", set);
-<<<<<<< HEAD
-		let mut old_authority = std::mem::take(&mut topology.authorities);
-		old_authority.remove(&topology.local_id);
+		topology.authorities.clear();
 
-=======
->>>>>>> mixnet3
 		topology.routing = false;
 
 		self.current_authorities_keys.clear();
@@ -520,16 +500,6 @@ where
 			if let Some(key) = topology.sessions.get(&auth_pub_pair) {
 				let mut peer_id = [0u8; 32];
 				peer_id.copy_from_slice(&key.1[..]);
-<<<<<<< HEAD
-				if old_authority.remove(&peer_id).is_none() {
-					remove_limit.push(peer_id.clone());
-				}
-=======
-				// derive from grandpa one
-				let mut p = [0u8; 32];
-				p.copy_from_slice(auth.as_ref());
-				let public_key = mixnet::public_from_ed25519(p);
->>>>>>> mixnet3
 
 				if self.authority_id.as_ref() == Some(&auth) {
 					debug!(target: "mixnet", "Insert self {:?}", peer_id);
@@ -538,7 +508,11 @@ where
 					topology.routing = true;
 					// Use ImOnline for the current session.
 					let new_id = (current_local_id != peer_id).then(|| {
-<<<<<<< HEAD
+						topology.metrics.as_mut().map(|m| {
+							if let Err(e) = m.change_id(&peer_id) {
+								error!(target: "mixnet", "Error changing local id in metrics {:?}", e);
+							}
+						});
 						topology.local_id = peer_id.clone();
 						peer_id.clone()
 					});
@@ -552,34 +526,11 @@ where
 						topology.routing_table.public_key.0 = new_key.0.clone();
 						new_key
 					});
-=======
-						topology.metrics.as_mut().map(|m| {
-							if let Err(e) = m.change_id(&peer_id) {
-								error!(target: "mixnet", "Error changing local id in metrics {:?}", e);
-							}
-						});
-						topology.local_id = peer_id.clone();
-						peer_id.clone()
-					});
-					let new_key = (current_public_key != public_key)
-						.then(|| {
-							let secret_key = SyncCryptoStore::mixnet_secret_from_ed25519(
-								&*self.key_store,
-								key_types::GRANDPA,
-								&auth.into(),
-							)
-							.ok()?;
-							topology.node_public_key = public_key.clone();
-
-							Some((public_key.clone(), secret_key))
-						})
-						.flatten();
 					if new_id.is_some() && new_key.is_none() {
 						error!(
 							"peer id derived from public key, one cannot change without the other"
 						);
 					}
->>>>>>> mixnet3
 					if new_id.is_some() || new_key.is_some() {
 						restart = Some((new_id, new_key));
 					}
@@ -591,7 +542,6 @@ where
 				error!(target: "mixnet", "Missing imonline key for authority {:?}, not adding it to topology.", auth);
 			}
 		}
-<<<<<<< HEAD
 		topology.should_connect_to = AuthorityTable::should_connect_to(
 			&topology.local_id,
 			&topology.authorities,
@@ -601,7 +551,6 @@ where
 			topology.should_connect_pending.insert(id.clone(), (index, true));
 		}
 		debug!(target: "mixnet", "should connect to {:?}", topology.should_connect_to);
-=======
 
 		let connected = std::mem::take(&mut topology.connected_nodes);
 		topology.nb_connected_forward_routing = 0;
@@ -612,7 +561,6 @@ where
 			topology.add_connected_peer(peer_id, key);
 		}
 
->>>>>>> mixnet3
 		if let Some((id, key)) = restart {
 			debug!(target: "mixnet", "Restarting");
 			self.worker.restart(id, key);
@@ -736,7 +684,6 @@ where
 ///
 /// When sending a message, the message can only reach nodes
 /// that are part of the topology.
-<<<<<<< HEAD
 pub struct AuthorityTopology {
 	// MixPeerId is ImOnline key.
 	local_id: MixPeerId,
@@ -744,13 +691,23 @@ pub struct AuthorityTopology {
 	key_store: Arc<dyn SyncCryptoStore>,
 	// true when we are in authorities set.
 	routing: bool,
+	nb_connected_forward_routing: usize,
+	nb_connected_receive_routing: usize,
+	nb_connected_external: usize,
 	// Authorities, including self (if an authority).
 	authorities: BTreeMap<MixPeerId, AuthorityId>,
 	// The connected nodes (for first hop use `authorities` joined `connected_nodes`).
 	// (note it is from handshake and note updated from routing tables).
-	connected_nodes: HashSet<MixPeerId>,
+	connected_nodes: HashMap<MixPeerId, ConnectedKind>,
 	// Current session mapping of Grandpa key to IMonline key.
 	sessions: HashMap<CryptoTypePublicPair, CryptoTypePublicPair>,
+
+	target_bytes_per_seconds: usize,
+
+	// limit to external connection
+	max_external: Option<usize>,
+
+	metrics: Option<metrics::MetricsHandle>,
 
 	routing_table: AuthorityTable,
 	last_signed: (Vec<u8>, SetId, u32),
@@ -888,30 +845,6 @@ impl AuthorityTable {
 		}
 		result
 	}
-=======
-pub struct AuthorityStar {
-	local_id: MixPeerId,
-	network_id: PeerId,
-	node_public_key: MixPublicKey,
-	key_store: Arc<dyn SyncCryptoStore>,
-	// true when we are in authorities set.
-	routing: bool,
-	nb_connected_forward_routing: usize,
-	nb_connected_receive_routing: usize,
-	nb_connected_external: usize,
-	// All authorities are considered connected (when building message except first hop).
-	authorities: BTreeMap<MixPeerId, MixPublicKey>,
-	// The connected nodes (for first hop use `authorities` joined `connected_nodes`).
-	connected_nodes: HashMap<MixPeerId, (MixPublicKey, ConnectedKind)>,
-	// Current session mapping of Grandpa key to IMonline key.
-	sessions: HashMap<CryptoTypePublicPair, CryptoTypePublicPair>,
-
-	target_bytes_per_seconds: usize,
-
-	// limit to external connection
-	max_external: Option<usize>,
-
-	metrics: Option<metrics::MetricsHandle>,
 }
 
 enum ConnectedKind {
@@ -919,7 +852,6 @@ enum ConnectedKind {
 	RoutingForward,
 	RoutingReceive,
 	RoutingReceiveForward,
->>>>>>> mixnet3
 }
 
 #[derive(Clone)]
@@ -932,11 +864,7 @@ impl AuthorityTopology {
 	/// Instantiate a new topology.
 	pub fn new(
 		local_id: MixPeerId,
-<<<<<<< HEAD
 		network_id: NetworkPeerId,
-=======
-		network_id: PeerId,
->>>>>>> mixnet3
 		node_public_key: MixPublicKey,
 		key_store: Arc<dyn SyncCryptoStore>,
 		config: &Config,
