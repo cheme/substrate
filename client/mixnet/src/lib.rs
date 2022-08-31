@@ -80,7 +80,7 @@ struct TopoConfig;
 impl TopoConfigT for TopoConfig {
 	type Version = AuthorityTableVersion;
 
-	const DISTRIBUTE_ROUTES: bool = false;
+	const DISTRIBUTE_ROUTES: bool = true;
 
 	const LOW_MIXNET_THRESHOLD: usize = 5;
 
@@ -217,9 +217,9 @@ where
 		};
 
 		let topology = AuthorityTopology::new(
-			mixnet_config.local_id.clone(),
+			mixnet_config.local_id,
 			NetworkPeerId::from_public_key(&network_identity.public()),
-			mixnet_config.public_key.clone(),
+			mixnet_config.public_key,
 			key_store.clone(),
 			&mixnet_config,
 			metrics,
@@ -270,7 +270,7 @@ where
 		self.in_flight_lookups.clear();
 
 		while self.in_flight_lookups.len() < std::cmp::min(MAX_IN_FLIGHT_LOOKUPS, nb_authorities) {
-			if let Some(at) = self.pending_lookup_at.clone() {
+			if let Some(at) = self.pending_lookup_at {
 				let (hash, authority_id) = match self.current_authorities_keys.get(at) {
 					Some(authority) => authority,
 					None => {
@@ -493,7 +493,7 @@ where
 
 		self.fetch_new_session_keys(at, session);
 		self.update_own_public_key_within_authority_set(&set);
-		let current_local_id = self.worker.local_id().clone();
+		let current_local_id = *self.worker.local_id();
 		let topology = &mut self.worker.mixnet_mut().topology;
 		debug!(target: "mixnet", "Change authorities {:?}", set);
 		let mut routing_set = Vec::with_capacity(set.len());
@@ -523,8 +523,8 @@ where
 								error!(target: "mixnet", "Error changing local id in metrics {:?}", e);
 							}
 						});
-						topology.local_id = peer_id.clone();
-						peer_id.clone()
+						topology.local_id = peer_id;
+						peer_id
 					});
 					// change session key on new ImOnline id.
 					// TODO may do it more often (not doing it keeps
@@ -551,7 +551,7 @@ where
 
 		let new_self = restart
 			.as_ref()
-			.map(|(new_id, new_key)| (new_id.clone(), new_key.as_ref().map(|pair| pair.0.clone())));
+			.map(|(new_id, new_key)| (*new_id, new_key.as_ref().map(|pair| pair.0)));
 
 		let new_version = AuthorityTableVersion { session, revision: Compact(1) };
 		topology
@@ -780,8 +780,8 @@ impl AuthorityTopology {
 		metrics: Option<metrics::MetricsHandle>,
 	) -> Self {
 		let topo = TopologyHashTable::new(
-			local_id.clone(),
-			node_public_key.clone(),
+			local_id,
+			node_public_key,
 			config,
 			TopoConfig::DEFAULT_PARAMETERS.clone(),
 			AuthorityTableVersion {
@@ -967,7 +967,7 @@ impl mixnet::traits::Handshake for AuthorityTopology {
 		let signature = sp_application_crypto::sr25519::Signature(signature);
 		let mut message = self.network_id.to_bytes().to_vec();
 		message.extend_from_slice(&pk[..]);
-		let key = sp_application_crypto::sr25519::Public(peer_id.clone());
+		let key = sp_application_crypto::sr25519::Public(peer_id);
 		debug!(target: "mixnet", "check handshake: {:?}, {:?}, {:?} from {:?}", peer_id, message, signature, _from);
 		use sp_application_crypto::RuntimePublic;
 		if key.verify(&message, &signature) {
