@@ -326,7 +326,7 @@ where
 	fn publish_topology(&mut self, only_if_changed: bool) {
 		debug!(target: "mixnet", "In Publish topology.");
 		let topology = &mut self.worker.mixnet_mut().topology;
-		if !topology.is_routing(&topology.local_id) {
+		if !topology.is_routing(topology.topo.local_id()) {
 			debug!(target: "mixnet", "Skip pub, not routing.");
 			return
 		}
@@ -523,7 +523,6 @@ where
 								error!(target: "mixnet", "Error changing local id in metrics {:?}", e);
 							}
 						});
-						topology.local_id = peer_id;
 						peer_id
 					});
 					// change session key on new ImOnline id.
@@ -682,8 +681,6 @@ where
 /// When sending a message, the message can only reach nodes
 /// that are part of the topology.
 pub struct AuthorityTopology {
-	// MixPeerId is ImOnline key.
-	local_id: MixPeerId, // TODO use the one from topo
 	network_id: NetworkPeerId,
 	key_store: Arc<dyn SyncCryptoStore>,
 
@@ -780,6 +777,7 @@ impl AuthorityTopology {
 		metrics: Option<metrics::MetricsHandle>,
 	) -> Self {
 		let topo = TopologyHashTable::new(
+			// MixPeerId is ImOnline key.
 			local_id,
 			node_public_key,
 			config,
@@ -793,7 +791,6 @@ impl AuthorityTopology {
 		);
 
 		AuthorityTopology {
-			local_id,
 			network_id,
 			sessions: HashMap::new(),
 			topo,
@@ -971,7 +968,7 @@ impl mixnet::traits::Handshake for AuthorityTopology {
 		debug!(target: "mixnet", "check handshake: {:?}, {:?}, {:?} from {:?}", peer_id, message, signature, _from);
 		use sp_application_crypto::RuntimePublic;
 		if key.verify(&message, &signature) {
-			if !self.accept_peer(&self.local_id, &peer_id) {
+			if !self.accept_peer(self.topo.local_id(), &peer_id) {
 				self.metrics.as_ref().map(|m| m.invalid_handshake.inc());
 				return None
 			}
@@ -994,19 +991,19 @@ impl mixnet::traits::Handshake for AuthorityTopology {
 	}
 
 	fn handshake(&mut self, with: &NetworkPeerId, public_key: &MixPublicKey) -> Option<Vec<u8>> {
-		let mut result = self.local_id.to_vec();
+		let mut result = self.topo.local_id().to_vec();
 		result.extend_from_slice(&public_key.as_bytes()[..]);
 		let mut message = with.to_bytes().to_vec();
 		message.extend_from_slice(&public_key.as_bytes()[..]);
 		match SyncCryptoStore::sign_with(
 			&*self.key_store,
 			key_types::IM_ONLINE,
-			&CryptoTypePublicPair(sp_core::sr25519::CRYPTO_ID, self.local_id.to_vec()),
+			&CryptoTypePublicPair(sp_core::sr25519::CRYPTO_ID, self.topo.local_id().to_vec()),
 			&message[..],
 		) {
 			Ok(Some(signature)) => {
 				result.extend_from_slice(&signature[..]);
-				trace!(target: "mixnet", "create handshake: {:?}, {:?}, {:?} with {:?}", self.local_id, message, signature, with);
+				trace!(target: "mixnet", "create handshake: {:?}, {:?}, {:?} with {:?}", self.topo.local_id(), message, signature, with);
 				return Some(result)
 			},
 			Err(e) => {
@@ -1338,18 +1335,18 @@ impl AuthorityTopology {
 				self.last_signed.2 < self.topo.routing_table.version.revision.0)
 		{
 			has_changed = true;
-			let mut to_sign = self.local_id.to_vec();
+			let mut to_sign = self.topo.local_id().to_vec();
 			EncodableAuthorityTable(&self.topo.routing_table).encode_to(&mut to_sign);
 			match SyncCryptoStore::sign_with(
 				&*self.key_store,
 				key_types::IM_ONLINE,
-				&CryptoTypePublicPair(sp_core::sr25519::CRYPTO_ID, self.local_id.to_vec()),
+				&CryptoTypePublicPair(sp_core::sr25519::CRYPTO_ID, self.topo.local_id().to_vec()),
 				&to_sign[..],
 			) {
 				Ok(Some(signature)) => {
-					trace!(target: "mixnet", "Signing done: {:?} {:?} {:?}", self.local_id.to_vec(), signature, to_sign);
+					trace!(target: "mixnet", "Signing done: {:?} {:?} {:?}", self.topo.local_id().to_vec(), signature, to_sign);
 					to_sign.extend_from_slice(&signature[..]);
-					trace!(target: "mixnet", "create signed routing: {:?}", self.local_id);
+					trace!(target: "mixnet", "create signed routing: {:?}", self.topo.local_id());
 					self.last_signed.0 = to_sign;
 					self.last_signed.1 = self.topo.routing_table.version.session;
 					self.last_signed.2 = self.topo.routing_table.version.revision.0;
