@@ -968,7 +968,7 @@ impl mixnet::traits::Handshake for AuthorityTopology {
 		debug!(target: "mixnet", "check handshake: {:?}, {:?}, {:?} from {:?}", peer_id, message, signature, _from);
 		use sp_application_crypto::RuntimePublic;
 		if key.verify(&message, &signature) {
-			if !self.accept_peer(self.topo.local_id(), &peer_id) {
+			if !self.accept_peer(&peer_id) {
 				self.metrics.as_ref().map(|m| m.invalid_handshake.inc());
 				return None
 			}
@@ -1078,8 +1078,8 @@ impl Topology for AuthorityTopology {
 		self.topo.bandwidth_external(peer_id)
 	}
 
-	fn accept_peer(&self, local_id: &MixPeerId, peer_id: &MixPeerId) -> bool {
-		let accepted = self.topo.accept_peer(local_id, peer_id);
+	fn accept_peer(&self, peer_id: &MixPeerId) -> bool {
+		let accepted = self.topo.accept_peer(peer_id);
 		if !accepted {
 			self.metrics.as_ref().map(|m| m.rejected_external.inc());
 		}
@@ -1325,14 +1325,15 @@ mod metrics {
 
 impl AuthorityTopology {
 	fn publish_table(&mut self) -> (&Vec<u8>, bool) {
+		let routing_table = self.topo.local_routing_table();
 		let mut has_changed = false;
-		if self.last_signed.1 < self.topo.routing_table.version.session ||
-			(self.last_signed.1 == self.topo.routing_table.version.session &&
-				self.last_signed.2 < self.topo.routing_table.version.revision.0)
+		if self.last_signed.1 < routing_table.version.session ||
+			(self.last_signed.1 == routing_table.version.session &&
+				self.last_signed.2 < routing_table.version.revision.0)
 		{
 			has_changed = true;
 			let mut to_sign = self.topo.local_id().to_vec();
-			EncodableAuthorityTable(&self.topo.routing_table).encode_to(&mut to_sign);
+			EncodableAuthorityTable(routing_table).encode_to(&mut to_sign);
 			match SyncCryptoStore::sign_with(
 				&*self.key_store,
 				key_types::IM_ONLINE,
@@ -1344,8 +1345,8 @@ impl AuthorityTopology {
 					to_sign.extend_from_slice(&signature[..]);
 					trace!(target: "mixnet", "create signed routing: {:?}", self.topo.local_id());
 					self.last_signed.0 = to_sign;
-					self.last_signed.1 = self.topo.routing_table.version.session;
-					self.last_signed.2 = self.topo.routing_table.version.revision.0;
+					self.last_signed.1 = routing_table.version.session;
+					self.last_signed.2 = routing_table.version.revision.0;
 				},
 				Err(e) => {
 					error!(target: "mixnet", "Table signing error: {:?}", e);
