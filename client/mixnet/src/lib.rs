@@ -326,7 +326,7 @@ where
 	fn publish_topology(&mut self, only_if_changed: bool) {
 		debug!(target: "mixnet", "In Publish topology.");
 		let topology = &mut self.worker.mixnet_mut().topology;
-		if !topology.is_routing(topology.topo.local_id()) {
+		if !topology.can_route(topology.topo.local_id()) {
 			debug!(target: "mixnet", "Skip pub, not routing.");
 			return
 		}
@@ -972,7 +972,7 @@ impl mixnet::traits::Handshake for AuthorityTopology {
 				self.metrics.as_ref().map(|m| m.invalid_handshake.inc());
 				return None
 			}
-			if self.is_routing(&peer_id) {
+			if self.can_route(&peer_id) {
 				// TODO this should be checking routing table from other peer and see peers
 				// connected to multiple others so we wait for their connection or ping them.
 				// TODO One could still for big difference in the priority list try to check if
@@ -1060,8 +1060,8 @@ impl Topology for AuthorityTopology {
 		)
 	}
 
-	fn is_routing(&self, id: &MixPeerId) -> bool {
-		self.topo.is_routing(id)
+	fn can_route(&self, id: &MixPeerId) -> bool {
+		self.topo.can_route(id)
 	}
 
 	fn connected(&mut self, peer_id: MixPeerId, key: MixPublicKey) {
@@ -1370,10 +1370,7 @@ impl AuthorityTopology {
 		signature.copy_from_slice(&payload[payload.len() - 64..]);
 		let signature = sp_application_crypto::sr25519::Signature(signature);
 
-		//let authority_id = if let Some(auth) = self.authorities.get(&with) {
-		if !self.topo.is_routing(&with) {
-			//			auth.clone()
-			//		} else {
+		if !self.topo.can_route(&with) {
 			trace!(target: "mixnet", "No authority found for with: {:?}, dropping table.", with);
 			return
 		};
