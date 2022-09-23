@@ -49,6 +49,11 @@ pub enum WasmExecutionMethod {
 	Compiled {
 		/// The instantiation strategy to use.
 		instantiation_strategy: sc_executor_wasmtime::InstantiationStrategy,
+		/// Should we run in debug mode.
+		/// Notice that by default substrate wasm
+		/// are not directly debuggable because stripped of debugging
+		/// infos.
+		debug_mode: bool,
 	},
 }
 
@@ -316,7 +321,7 @@ where
 			.map(|runtime| -> Arc<dyn WasmModule> { Arc::new(runtime) })
 		},
 		#[cfg(feature = "wasmtime")]
-		WasmExecutionMethod::Compiled { instantiation_strategy } =>
+		WasmExecutionMethod::Compiled { instantiation_strategy, debug_mode } =>
 			sc_executor_wasmtime::create_runtime::<H>(
 				blob,
 				sc_executor_wasmtime::Config {
@@ -330,6 +335,7 @@ where
 						parallel_compilation: true,
 						max_memory_size: None,
 					},
+					debug_mode,
 				},
 			)
 			.map(|runtime| -> Arc<dyn WasmModule> { Arc::new(runtime) }),

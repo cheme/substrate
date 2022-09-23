@@ -57,6 +57,9 @@ pub enum WasmExecutionMethod {
 	Interpreted,
 	/// Uses a compiled runtime.
 	Compiled,
+	/// Uses a compiled runtime.
+	/// Enable debug mode.
+	CompiledDebug,
 }
 
 impl std::fmt::Display for WasmExecutionMethod {
@@ -64,6 +67,7 @@ impl std::fmt::Display for WasmExecutionMethod {
 		match self {
 			Self::Interpreted => write!(f, "Interpreted"),
 			Self::Compiled => write!(f, "Compiled"),
+			Self::CompiledDebug => write!(f, "CompiledDebug"),
 		}
 	}
 }
@@ -83,6 +87,15 @@ impl std::str::FromStr for WasmExecutionMethod {
 			{
 				Err("`Compiled` variant requires the `wasmtime` feature to be enabled".into())
 			}
+		} else if s.eq_ignore_ascii_case("compiled-debug") {
+			#[cfg(feature = "wasmtime")]
+			{
+				Ok(Self::CompiledDebug)
+			}
+			#[cfg(not(feature = "wasmtime"))]
+			{
+				Err("`CompiledDebug` variant requires the `wasmtime` feature to be enabled".into())
+			}
 		} else {
 			Err(format!("Unknown variant `{}`, known variants: {:?}", s, Self::variants()))
 		}
@@ -92,7 +105,7 @@ impl std::str::FromStr for WasmExecutionMethod {
 impl WasmExecutionMethod {
 	/// Returns all the variants of this enum to be shown in the cli.
 	pub fn variants() -> &'static [&'static str] {
-		let variants = &["interpreted-i-know-what-i-do", "compiled"];
+		let variants = &["interpreted-i-know-what-i-do", "compiled", "compiled-debug"];
 		if cfg!(feature = "wasmtime") {
 			variants
 		} else {
@@ -110,7 +123,7 @@ pub fn execution_method_from_cli(
 	match execution_method {
 		WasmExecutionMethod::Interpreted => sc_service::config::WasmExecutionMethod::Interpreted,
 		#[cfg(feature = "wasmtime")]
-		WasmExecutionMethod::Compiled => sc_service::config::WasmExecutionMethod::Compiled {
+		WasmExecutionMethod::Compiled | WasmExecutionMethod::CompiledDebug => sc_service::config::WasmExecutionMethod::Compiled {
 			instantiation_strategy: match _instantiation_strategy {
 				WasmtimeInstantiationStrategy::PoolingCopyOnWrite =>
 					sc_service::config::WasmtimeInstantiationStrategy::PoolingCopyOnWrite,
@@ -123,9 +136,10 @@ pub fn execution_method_from_cli(
 				WasmtimeInstantiationStrategy::LegacyInstanceReuse =>
 					sc_service::config::WasmtimeInstantiationStrategy::LegacyInstanceReuse,
 			},
+			debug_mode: matches!(execution_method, WasmExecutionMethod::CompiledDebug),
 		},
 		#[cfg(not(feature = "wasmtime"))]
-		WasmExecutionMethod::Compiled => panic!(
+		WasmExecutionMethod::Compiled | WasmExecutionMethod::CompiledDebug => panic!(
 			"Substrate must be compiled with \"wasmtime\" feature for compiled Wasm execution"
 		),
 	}

@@ -556,6 +556,9 @@ pub struct Config {
 
 	/// Tuning of various semantics of the wasmtime executor.
 	pub semantics: Semantics,
+
+	/// Run in debug mode.
+	pub debug_mode: bool,
 }
 
 enum CodeSupplyMode<'a> {
@@ -636,6 +639,7 @@ where
 			);
 		}
 	}
+	wasmtime_config.debug_info(config.debug_mode);
 
 	let engine = Engine::new(&wasmtime_config)
 		.map_err(|e| WasmError::Other(format!("cannot create the wasmtime engine: {:#}", e)))?;

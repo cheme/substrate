@@ -395,13 +395,13 @@ impl BenchDb {
 			blocks_pruning: sc_client_db::BlocksPruning::All,
 		};
 		let task_executor = TaskExecutor::new();
-
 		let backend = sc_service::new_db_backend(db_config).expect("Should not fail");
 		let client = sc_service::new_client(
 			backend.clone(),
 			NativeElseWasmExecutor::new(
 				WasmExecutionMethod::Compiled {
 					instantiation_strategy: WasmtimeInstantiationStrategy::PoolingCopyOnWrite,
+					debug_mode: true,
 				},
 				None,
 				8,
