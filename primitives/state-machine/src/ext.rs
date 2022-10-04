@@ -206,6 +206,27 @@ where
 		result
 	}
 
+	fn transient_storage(&self, key: &[u8]) -> Option<StorageValue> {
+		let _guard = guard();
+		let result = self.overlay.transient_storage(key).map(|x| x.map(|x| x.to_vec())).flatten();
+		// NOTE: be careful about touching the key names – used outside substrate!
+		trace!(
+			target: "state",
+			method = "TransientGet",
+			ext_id = %HexDisplay::from(&self.id.to_le_bytes()),
+			key = %HexDisplay::from(&key),
+			result = ?result.as_ref().map(HexDisplay::from),
+			result_encoded = %HexDisplay::from(
+				&result
+					.as_ref()
+					.map(|v| EncodeOpaqueValue(v.clone()))
+					.encode()
+			),
+		);
+
+		result
+	}
+
 	fn storage_hash(&self, key: &[u8]) -> Option<Vec<u8>> {
 		let _guard = guard();
 		let result = self
@@ -387,6 +408,13 @@ where
 		}
 	}
 
+	fn next_transient_storage_key(&self, key: &[u8]) -> Option<StorageKey> {
+		let _guard = guard();
+		self.overlay
+			.transient_iter_after(key)
+			.find_map(|k| k.1.value().as_ref().map(|_| k.0.to_vec()))
+	}
+
 	fn place_storage(&mut self, key: StorageKey, value: Option<StorageValue>) {
 		let _guard = guard();
 		if is_child_storage_key(&key) {
@@ -431,6 +459,25 @@ where
 
 		self.mark_dirty();
 		self.overlay.set_child_storage(child_info, key, value);
+	}
+
+	fn place_transient_storage(&mut self, key: StorageKey, value: Option<StorageValue>) {
+		let _guard = guard();
+		trace!(
+			target: "state",
+			method = "TransientPut",
+			ext_id = %HexDisplay::from(&self.id.to_le_bytes()),
+			key = %HexDisplay::from(&key),
+			value = ?value.as_ref().map(HexDisplay::from),
+			value_encoded = %HexDisplay::from(
+				&value
+					.as_ref()
+					.map(|v| EncodeOpaqueValue(v.clone()))
+					.encode()
+			),
+		);
+
+		self.overlay.set_transient_storage(key, value);
 	}
 
 	fn kill_child_storage(

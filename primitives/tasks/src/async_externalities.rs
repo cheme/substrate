@@ -72,6 +72,10 @@ impl Externalities for AsyncExternalities {
 		panic!("`storage`: should not be used in async externalities!")
 	}
 
+	fn transient_storage(&self, _key: &[u8]) -> Option<StorageValue> {
+		panic!("`transient_storage`: should not be used in async externalities!")
+	}
+
 	fn storage_hash(&self, _key: &[u8]) -> Option<Vec<u8>> {
 		panic!("`storage_hash`: should not be used in async externalities!")
 	}
@@ -92,6 +96,10 @@ impl Externalities for AsyncExternalities {
 		panic!("`next_child_storage_key`: should not be used in async externalities!")
 	}
 
+	fn next_transient_storage_key(&self, _key: &[u8]) -> Option<StorageKey> {
+		panic!("`next_transient_storage_key`: should not be used in async externalities!")
+	}
+
 	fn place_storage(&mut self, _key: StorageKey, _maybe_value: Option<StorageValue>) {
 		panic!("`place_storage`: should not be used in async externalities!")
 	}
@@ -103,6 +111,10 @@ impl Externalities for AsyncExternalities {
 		_value: Option<StorageValue>,
 	) {
 		panic!("`place_child_storage`: should not be used in async externalities!")
+	}
+
+	fn place_transient_storage(&mut self, _key: StorageKey, _maybe_value: Option<StorageValue>) {
+		panic!("`place_transient_storage`: should not be used in async externalities!")
 	}
 
 	fn kill_child_storage(

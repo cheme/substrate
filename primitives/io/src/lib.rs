@@ -323,6 +323,35 @@ pub trait Storage {
 	}
 }
 
+/// Interface for accessing the transient storage from within the runtime.
+#[runtime_interface]
+pub trait TransientStorage {
+	/// Returns the data for `key` in the storage or `None` if the key can not be found.
+	fn get(&self, key: &[u8]) -> Option<bytes::Bytes> {
+		self.transient_storage(key).map(|s| bytes::Bytes::from(s.to_vec()))
+	}
+
+	/// Set `key` to `value` in the storage.
+	fn set(&mut self, key: &[u8], value: &[u8]) {
+		self.place_transient_storage(key.to_vec(), Some(value.to_vec()));
+	}
+
+	/// Clear the storage of the given `key` and its value.
+	fn clear(&mut self, key: &[u8]) {
+		self.place_transient_storage(key.to_vec(), None)
+	}
+
+	/// Check whether the given `key` exists in storage.
+	fn exists(&self, key: &[u8]) -> bool {
+		self.exists_transient_storage(key)
+	}
+
+	/// Get the next key in storage after the given one in lexicographic order.
+	fn next_key(&mut self, key: &[u8]) -> Option<Vec<u8>> {
+		self.next_transient_storage_key(key)
+	}
+}
+
 /// Interface for accessing the child storage for default child trie,
 /// from within the runtime.
 #[runtime_interface]

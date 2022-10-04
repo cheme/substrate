@@ -103,6 +103,9 @@ pub trait Externalities: ExtensionStore {
 	/// Returns an `Option` that holds the SCALE encoded hash.
 	fn child_storage(&self, child_info: &ChildInfo, key: &[u8]) -> Option<Vec<u8>>;
 
+	/// Read transient storage.
+	fn transient_storage(&self, key: &[u8]) -> Option<Vec<u8>>;
+
 	/// Set storage entry `key` of current contract being called (effective immediately).
 	fn set_storage(&mut self, key: Vec<u8>, value: Vec<u8>) {
 		self.place_storage(key, Some(value));
@@ -134,11 +137,19 @@ pub trait Externalities: ExtensionStore {
 		self.child_storage(child_info, key).is_some()
 	}
 
+	/// Whether a transient storage entry exists.
+	fn exists_transient_storage(&self, key: &[u8]) -> bool {
+		self.transient_storage(key).is_some()
+	}
+
 	/// Returns the key immediately following the given key, if it exists.
 	fn next_storage_key(&self, key: &[u8]) -> Option<Vec<u8>>;
 
 	/// Returns the key immediately following the given key, if it exists, in child storage.
 	fn next_child_storage_key(&self, child_info: &ChildInfo, key: &[u8]) -> Option<Vec<u8>>;
+
+	/// Returns the transient key immediately following the given key, if it exists.
+	fn next_transient_storage_key(&self, key: &[u8]) -> Option<Vec<u8>>;
 
 	/// Clear an entire child storage.
 	///
@@ -190,6 +201,10 @@ pub trait Externalities: ExtensionStore {
 
 	/// Set or clear a child storage entry.
 	fn place_child_storage(&mut self, child_info: &ChildInfo, key: Vec<u8>, value: Option<Vec<u8>>);
+
+	/// Set or clear a storage entry (`key`) of current contract being called (effective
+	/// immediately).
+	fn place_transient_storage(&mut self, key: Vec<u8>, value: Option<Vec<u8>>);
 
 	/// Get the trie root of the current storage map.
 	///

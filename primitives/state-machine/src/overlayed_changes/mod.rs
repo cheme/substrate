@@ -94,6 +94,8 @@ pub struct OverlayedChanges {
 	top: OverlayedChangeSet,
 	/// Child storage changes. The map key is the child storage key without the common prefix.
 	children: Map<StorageKey, (OverlayedChangeSet, ChildInfo)>,
+	/// Transient storage changes.
+	transient: OverlayedChangeSet,
 	/// Offchain related changes.
 	offchain: OffchainOverlayedChanges,
 	/// Transaction index changes,
@@ -234,6 +236,18 @@ impl OverlayedChanges {
 		})
 	}
 
+	/// Returns a double-Option: None if the key is unknown (i.e. and the query should be referred
+	/// to the backend); Some(None) if the key has been deleted. Some(Some(...)) for a key whose
+	/// value has been set.
+	pub fn transient_storage(&self, key: &[u8]) -> Option<Option<&[u8]>> {
+		self.transient.get(key).map(|x| {
+			let value = x.value();
+			let size_read = value.map(|x| x.len() as u64).unwrap_or(0);
+			self.stats.tally_read_modified(size_read);
+			value.map(AsRef::as_ref)
+		})
+	}
+
 	/// Returns mutable reference to current value.
 	/// If there is no value in the overlay, the given callback is used to initiate the value.
 	/// Warning this function registers a change, so the mutable reference MUST be modified.
@@ -269,6 +283,15 @@ impl OverlayedChanges {
 		let size_write = val.as_ref().map(|x| x.len() as u64).unwrap_or(0);
 		self.stats.tally_write_overlay(size_write);
 		self.top.set(key, val, self.extrinsic_index());
+	}
+
+	/// Set a new value for the specified key.
+	///
+	/// Can be rolled back or committed when called inside a transaction.
+	pub fn set_transient_storage(&mut self, key: StorageKey, val: Option<StorageValue>) {
+		let size_write = val.as_ref().map(|x| x.len() as u64).unwrap_or(0);
+		self.stats.tally_write_overlay(size_write);
+		self.transient.set(key, val, self.extrinsic_index());
 	}
 
 	/// Set a new value for the specified key and child.
@@ -353,6 +376,7 @@ impl OverlayedChanges {
 	/// Changes made without any open transaction are committed immediately.
 	pub fn start_transaction(&mut self) {
 		self.top.start_transaction();
+		self.transient.start_transaction();
 		for (_, (changeset, _)) in self.children.iter_mut() {
 			changeset.start_transaction();
 		}
@@ -365,6 +389,7 @@ impl OverlayedChanges {
 	/// there is no open transaction that can be rolled back.
 	pub fn rollback_transaction(&mut self) -> Result<(), NoOpenTransaction> {
 		self.top.rollback_transaction()?;
+		self.transient.rollback_transaction()?;
 		retain_map(&mut self.children, |_, (changeset, _)| {
 			changeset
 				.rollback_transaction()
@@ -384,6 +409,7 @@ impl OverlayedChanges {
 	/// is no open transaction that can be committed.
 	pub fn commit_transaction(&mut self) -> Result<(), NoOpenTransaction> {
 		self.top.commit_transaction()?;
+		self.transient.commit_transaction()?;
 		for (_, (changeset, _)) in self.children.iter_mut() {
 			changeset
 				.commit_transaction()
@@ -402,6 +428,7 @@ impl OverlayedChanges {
 	/// Calling this while already inside the runtime will return an error.
 	pub fn enter_runtime(&mut self) -> Result<(), AlreadyInRuntime> {
 		self.top.enter_runtime()?;
+		self.transient.enter_runtime()?;
 		for (_, (changeset, _)) in self.children.iter_mut() {
 			changeset
 				.enter_runtime()
@@ -420,6 +447,7 @@ impl OverlayedChanges {
 	/// Calling this while outside the runtime will return an error.
 	pub fn exit_runtime(&mut self) -> Result<(), NotInRuntime> {
 		self.top.exit_runtime()?;
+		self.transient.exit_runtime()?;
 		for (_, (changeset, _)) in self.children.iter_mut() {
 			changeset
 				.exit_runtime()
@@ -602,6 +630,15 @@ impl OverlayedChanges {
 	/// alongside its value.
 	pub fn iter_after(&self, key: &[u8]) -> impl Iterator<Item = (&[u8], &OverlayedValue)> {
 		self.top.changes_after(key)
+	}
+
+	/// Returns an iterator over the keys (in lexicographic order) following `key` (excluding `key`)
+	/// alongside its value.
+	pub fn transient_iter_after(
+		&self,
+		key: &[u8],
+	) -> impl Iterator<Item = (&[u8], &OverlayedValue)> {
+		self.transient.changes_after(key)
 	}
 
 	/// Returns an iterator over the keys (in lexicographic order) following `key` (excluding `key`)

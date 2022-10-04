@@ -94,6 +94,10 @@ where
 			.expect("Backed failed for storage in ReadOnlyExternalities")
 	}
 
+	fn transient_storage(&self, _key: &[u8]) -> Option<StorageValue> {
+		None
+	}
+
 	fn storage_hash(&self, key: &[u8]) -> Option<Vec<u8>> {
 		self.backend
 			.storage_hash(key)
@@ -126,6 +130,10 @@ where
 			.expect("Backed failed for next_child_storage_key in ReadOnlyExternalities")
 	}
 
+	fn next_transient_storage_key(&self, _key: &[u8]) -> Option<StorageKey> {
+		None
+	}
+
 	fn place_storage(&mut self, _key: StorageKey, _maybe_value: Option<StorageValue>) {
 		unimplemented!("place_storage not supported in ReadOnlyExternalities")
 	}
@@ -137,6 +145,10 @@ where
 		_value: Option<StorageValue>,
 	) {
 		unimplemented!("place_child_storage not supported in ReadOnlyExternalities")
+	}
+
+	fn place_transient_storage(&mut self, _key: StorageKey, _maybe_value: Option<StorageValue>) {
+		unimplemented!("place_transient_storage not supported in ReadOnlyExternalities")
 	}
 
 	fn kill_child_storage(

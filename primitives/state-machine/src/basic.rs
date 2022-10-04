@@ -164,6 +164,10 @@ impl Externalities for BasicExternalities {
 		self.overlay.storage(key).and_then(|v| v.map(|v| v.to_vec()))
 	}
 
+	fn transient_storage(&self, key: &[u8]) -> Option<StorageValue> {
+		self.overlay.transient_storage(key).and_then(|v| v.map(|v| v.to_vec()))
+	}
+
 	fn storage_hash(&self, key: &[u8]) -> Option<Vec<u8>> {
 		self.storage(key).map(|v| Blake2Hasher::hash(&v).encode())
 	}
@@ -178,6 +182,12 @@ impl Externalities for BasicExternalities {
 
 	fn next_storage_key(&self, key: &[u8]) -> Option<StorageKey> {
 		self.overlay.iter_after(key).find_map(|(k, v)| v.value().map(|_| k.to_vec()))
+	}
+
+	fn next_transient_storage_key(&self, key: &[u8]) -> Option<StorageKey> {
+		self.overlay
+			.transient_iter_after(key)
+			.find_map(|(k, v)| v.value().map(|_| k.to_vec()))
 	}
 
 	fn next_child_storage_key(&self, child_info: &ChildInfo, key: &[u8]) -> Option<StorageKey> {
@@ -202,6 +212,10 @@ impl Externalities for BasicExternalities {
 		value: Option<StorageValue>,
 	) {
 		self.overlay.set_child_storage(child_info, key, value);
+	}
+
+	fn place_transient_storage(&mut self, key: StorageKey, maybe_value: Option<StorageValue>) {
+		self.overlay.set_transient_storage(key, maybe_value)
 	}
 
 	fn kill_child_storage(
