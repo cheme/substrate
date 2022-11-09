@@ -72,10 +72,10 @@ where
 		);
 		let child_info = ChildInfo::new_parent_sized(&key.0);
 
-		let keys = client.child_storage_keys(&block, &child_info, &empty_key)?;
+		let keys = client.child_storage_keys(hash, &child_info, &empty_key)?;
 		let mut pairs = StorageMap::new();
 		keys.into_iter().try_for_each(|k| {
-			if let Some(value) = client.child_storage(&block, &child_info, &k)? {
+			if let Some(value) = client.child_storage(hash, &child_info, &k)? {
 				pairs.insert(k.0, value.0);
 			}
 
