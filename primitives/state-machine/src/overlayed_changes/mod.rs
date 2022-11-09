@@ -748,17 +748,22 @@ impl From<sp_core::storage::Storage> for OverlayedChanges {
 				.children_default
 				.into_iter()
 				.map(|(k, v)| (k, (v.data.into(), v.child_info)))
+				.chain(
+					storage
+						.children_sized
+						.into_iter()
+						.map(|(k, v)| (k, (v.data.into(), v.child_info))),
+				)
 				.collect(),
-			children_sized: storage
-				.children_sized
-				.into_iter()
-				.map(|(k, v)| (k, (v.data.into(), v.child_info)))
-				.collect(),
-			children_mmr: storage
+			mmr: storage
 				.children_mmr
 				.into_iter()
 				.map(|(k, v)| (k, (v.data.into(), v.child_info)))
 				.collect(),
+			offchain: Default::default(),
+			collect_extrinsics: Default::default(),
+			transaction_index_ops: Default::default(),
+			stats: Default::default(),
 		}
 	}
 }

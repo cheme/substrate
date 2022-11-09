@@ -30,7 +30,9 @@ use sp_core::{
 	Blake2Hasher,
 };
 use sp_externalities::{Extension, Extensions, MultiRemovalResults};
-use sp_trie::{empty_trie_root, HashKey, LayoutV0, LayoutV1, TrieConfiguration};
+use sp_trie::{
+	empty_child_trie_root, empty_trie_root, HashKey, LayoutV0, LayoutV1, TrieConfiguration,
+};
 use std::{
 	any::{Any, TypeId},
 	collections::BTreeMap,
@@ -62,22 +64,44 @@ impl BasicExternalities {
 
 	/// Consume self and returns inner storages
 	pub fn into_storages(self) -> Storage {
+		let mut children_default: std::collections::HashMap<Vec<u8>, StorageChild> =
+			Default::default();
+		let mut children_sized: std::collections::HashMap<Vec<u8>, StorageChild> =
+			Default::default();
+		self.overlay.children().for_each(|(iter, i)| {
+			let child = sp_core::storage::StorageChild {
+				data: iter
+					.filter_map(|(k, v)| v.value().map(|v| (k.to_vec(), v.to_vec())))
+					.collect(),
+				child_info: i.clone(),
+			};
+			match i.child_type() {
+				ChildType::ParentKeyId => {
+					children_default.insert(i.storage_key().to_vec(), child);
+				},
+				ChildType::ParentSized => {
+					children_sized.insert(i.storage_key().to_vec(), child);
+				},
+				_ => unreachable!(),
+			}
+		});
+
 		Storage {
 			top: self
 				.overlay
 				.changes()
 				.filter_map(|(k, v)| v.value().map(|v| (k.to_vec(), v.to_vec())))
 				.collect(),
-			children_default: self
+			children_default,
+			children_sized,
+			children_mmr: self
 				.overlay
-				.children()
+				.children_mmr()
 				.map(|(iter, i)| {
 					(
 						i.storage_key().to_vec(),
-						sp_core::storage::StorageChild {
-							data: iter
-								.filter_map(|(k, v)| v.value().map(|v| (k.to_vec(), v.to_vec())))
-								.collect(),
+						sp_core::storage::StorageMmr {
+							data: iter.cloned().collect(),
 							child_info: i.clone(),
 						},
 					)
@@ -136,26 +160,13 @@ impl PartialEq for BasicExternalities {
 					})
 					.collect::<BTreeMap<_, _>>() &&
 			self.overlay
-				.children_sized()
-				.map(|(iter, i)| (i, iter.map(|(k, v)| (k, v.value())).collect::<BTreeMap<_, _>>()))
-				.collect::<BTreeMap<_, _>>() ==
-				other
-					.overlay
-					.children_sized()
-					.map(|(iter, i)| {
-						(i, iter.map(|(k, v)| (k, v.value())).collect::<BTreeMap<_, _>>())
-					})
-					.collect::<BTreeMap<_, _>>() &&
-			self.overlay
 				.children_mmr()
-				.map(|(iter, i)| (i, iter.map(|(k, v)| (k, v.value())).collect::<BTreeMap<_, _>>()))
+				.map(|(iter, i)| (i, iter.cloned().collect::<Vec<_>>()))
 				.collect::<BTreeMap<_, _>>() ==
 				other
 					.overlay
 					.children_mmr()
-					.map(|(iter, i)| {
-						(i, iter.map(|(k, v)| (k, v.value())).collect::<BTreeMap<_, _>>())
-					})
+					.map(|(iter, i)| (i, iter.cloned().collect::<Vec<_>>()))
 					.collect::<BTreeMap<_, _>>()
 	}
 }
@@ -188,15 +199,15 @@ impl Externalities for BasicExternalities {
 	}
 
 	fn exists_storage(&self, key: &[u8]) -> bool {
-		self.inner.top.get(key).is_some()
+		self.overlay.storage(key).flatten().is_some()
 	}
 
 	fn value_size(&self, key: &[u8]) -> Option<u32> {
-		self.inner.top.get(key).map(|v| v.len() as u32)
+		self.overlay.storage(key).flatten().map(|v| v.len() as u32)
 	}
 
 	fn storage_hash(&self, key: &[u8]) -> Option<Vec<u8>> {
-		self.storage(key).map(|v| Blake2Hasher::hash(&v).encode())
+		self.overlay.storage(key).flatten().map(|v| Blake2Hasher::hash(v).encode())
 	}
 
 	fn child_storage(&self, child_info: &ChildInfo, key: &[u8]) -> Option<StorageValue> {
@@ -210,22 +221,18 @@ impl Externalities for BasicExternalities {
 	}
 
 	fn exists_child_storage(&self, child_info: &ChildInfo, key: &[u8]) -> bool {
-		self.inner
-			.children_default
-			.get(child_info.storage_key())
-			.map(|child| child.data.contains_key(key))
-			.unwrap_or(false)
+		self.overlay.child_storage(child_info, key).flatten().is_some()
 	}
 
 	fn child_value_size(&self, child_info: &ChildInfo, key: &[u8]) -> Option<u32> {
-		self.inner
-			.children_default
-			.get(child_info.storage_key())
-			.and_then(|child| child.data.get(key).map(|v| v.len() as u32))
+		self.overlay.child_storage(child_info, key).flatten().map(|v| v.len() as u32)
 	}
 
 	fn child_storage_hash(&self, child_info: &ChildInfo, key: &[u8]) -> Option<Vec<u8>> {
-		self.child_storage(child_info, key).map(|v| Blake2Hasher::hash(&v).encode())
+		self.overlay
+			.child_storage(child_info, key)
+			.flatten()
+			.map(|v| Blake2Hasher::hash(v).encode())
 	}
 
 	fn next_storage_key(&self, key: &[u8]) -> Option<StorageKey> {
@@ -257,20 +264,11 @@ impl Externalities for BasicExternalities {
 	}
 
 	fn push_storage(&mut self, child_info: &ChildInfo, value: StorageValue) {
-		let child_map = match child_info.child_type() {
-			ChildType::ParentKeyId => return,
-			ChildType::ParentSized => return,
-			ChildType::Mmr => &mut self.inner.children_mmr,
+		let fetch_size_mmr = || {
+			// no backend is 0
+			0
 		};
-
-		let child_map =
-			child_map
-				.entry(child_info.storage_key().to_vec())
-				.or_insert_with(|| StorageMmr {
-					data: Default::default(),
-					child_info: child_info.to_owned(),
-				});
-		child_map.data.push(value);
+		self.overlay.push_storage(child_info, value, fetch_size_mmr);
 	}
 
 	fn kill_child_storage(
@@ -362,9 +360,8 @@ impl Externalities for BasicExternalities {
 			ChildType::Mmr =>
 				return if let Some(child) = self.overlay.child_mmr_changes(child_info.storage_key())
 				{
-					let delta = child.data.iter().map(|v| v.as_ref());
 					crate::in_memory_backend::new_in_mem::<Blake2Hasher, HashKey<_>>()
-						.child_mmr_root(&child.child_info, delta)
+						.child_mmr_root(child_info, child.0)
 						.0
 				} else {
 					let root = sp_trie::mmr::empty_root::<Blake2Hasher>();

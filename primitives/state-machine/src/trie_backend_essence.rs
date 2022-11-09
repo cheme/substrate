@@ -34,10 +34,9 @@ use sp_trie::recorder::Recorder;
 use sp_trie::{
 	child_delta_trie_root, contains_child_trie, contains_trie, delta_trie_root,
 	empty_child_trie_root, read_child_trie_hash, read_child_trie_value, read_trie_value,
-	trie_types::{TrieDB, TrieDBBuilder, TrieDBParentSized, TrieError},
-	value_size_child_trie, value_size_trie, DBValue, KeySpacedDB, LayoutParentSized,
-	LayoutV1 as Layout, NodeCodec, Trie, TrieCache, TrieDBIterator, TrieDBKeyIterator,
-	TrieRecorder,
+	trie_types::{TrieDB, TrieDBBuilder, TrieDBBuilderParentSized, TrieDBParentSized, TrieError},
+	value_size_child_trie, value_size_trie, DBValue, KeySpacedDB, LayoutParentSized, NodeCodec,
+	NodeCodecWithSize, Trie, TrieCache, TrieDBIterator, TrieDBKeyIterator, TrieRecorder,
 };
 #[cfg(feature = "std")]
 use std::{collections::HashMap, sync::Arc};
@@ -193,6 +192,32 @@ impl<S: TrieBackendStorage<H>, H: Hasher, C: AsLocalTrieCache<H>> TrieBackendEss
 		callback(recorder, cache)
 	}
 
+	// TODO deduplicate
+	#[cfg(feature = "std")]
+	fn with_recorder_and_cache_sized<R>(
+		&self,
+		storage_root: Option<H::Out>,
+		callback: impl FnOnce(
+			Option<&mut dyn TrieRecorder<H::Out>>,
+			Option<&mut dyn TrieCache<NodeCodecWithSize<H>>>,
+		) -> R,
+	) -> R {
+		let storage_root = storage_root.unwrap_or_else(|| self.root);
+		let mut recorder = self.recorder.as_ref().map(|r| r.as_trie_recorder(storage_root));
+		let recorder = match recorder.as_mut() {
+			Some(recorder) => Some(recorder as &mut dyn TrieRecorder<H::Out>),
+			None => None,
+		};
+
+		let mut cache = self
+			.trie_node_cache
+			.as_ref()
+			.map(|c| c.as_local_trie_cache().as_trie_db_cache(storage_root));
+		let cache = cache.as_mut().map(|c| c as _);
+
+		callback(recorder, cache)
+	}
+
 	#[cfg(not(feature = "std"))]
 	fn with_recorder_and_cache<R>(
 		&self,
@@ -200,6 +225,18 @@ impl<S: TrieBackendStorage<H>, H: Hasher, C: AsLocalTrieCache<H>> TrieBackendEss
 		callback: impl FnOnce(
 			Option<&mut dyn TrieRecorder<H::Out>>,
 			Option<&mut dyn TrieCache<NodeCodec<H>>>,
+		) -> R,
+	) -> R {
+		callback(None, None)
+	}
+
+	#[cfg(not(feature = "std"))]
+	fn with_recorder_and_cache_sized<R>(
+		&self,
+		_: Option<H::Out>,
+		callback: impl FnOnce(
+			Option<&mut dyn TrieRecorder<H::Out>>,
+			Option<&mut dyn TrieCache<NodeCodecWithSize<H>>>,
 		) -> R,
 	) -> R {
 		callback(None, None)
@@ -245,6 +282,40 @@ impl<S: TrieBackendStorage<H>, H: Hasher, C: AsLocalTrieCache<H>> TrieBackendEss
 		result
 	}
 
+	// TODO factorized
+	#[cfg(feature = "std")]
+	fn with_recorder_and_cache_for_storage_root_sized<R>(
+		&self,
+		storage_root: Option<H::Out>,
+		callback: impl FnOnce(
+			Option<&mut dyn TrieRecorder<H::Out>>,
+			Option<&mut dyn TrieCache<NodeCodecWithSize<H>>>,
+		) -> (Option<H::Out>, R),
+	) -> R {
+		let storage_root = storage_root.unwrap_or_else(|| self.root);
+		let mut recorder = self.recorder.as_ref().map(|r| r.as_trie_recorder(storage_root));
+		let recorder = match recorder.as_mut() {
+			Some(recorder) => Some(recorder as &mut dyn TrieRecorder<H::Out>),
+			None => None,
+		};
+
+		let result = if let Some(local_cache) = self.trie_node_cache.as_ref() {
+			let mut cache = local_cache.as_local_trie_cache().as_trie_db_mut_cache();
+
+			let (new_root, r) = callback(recorder, Some(&mut cache));
+
+			if let Some(new_root) = new_root {
+				cache.merge_into(local_cache.as_local_trie_cache(), new_root);
+			}
+
+			r
+		} else {
+			callback(recorder, None).1
+		};
+
+		result
+	}
+
 	#[cfg(not(feature = "std"))]
 	fn with_recorder_and_cache_for_storage_root<R>(
 		&self,
@@ -252,6 +323,18 @@ impl<S: TrieBackendStorage<H>, H: Hasher, C: AsLocalTrieCache<H>> TrieBackendEss
 		callback: impl FnOnce(
 			Option<&mut dyn TrieRecorder<H::Out>>,
 			Option<&mut dyn TrieCache<NodeCodec<H>>>,
+		) -> (Option<H::Out>, R),
+	) -> R {
+		callback(None, None).1
+	}
+
+	#[cfg(not(feature = "std"))]
+	fn with_recorder_and_cache_for_storage_root_sized<R>(
+		&self,
+		_: Option<H::Out>,
+		callback: impl FnOnce(
+			Option<&mut dyn TrieRecorder<H::Out>>,
+			Option<&mut dyn TrieCache<NodeCodecWithSize<H>>>,
 		) -> (Option<H::Out>, R),
 	) -> R {
 		callback(None, None).1
@@ -343,14 +426,23 @@ where
 		}
 
 		match child_info.as_ref().map(|info| info.child_type()) {
-			Some(ChildType::ParentKeyId) | None => {
-				let trie = TrieDB::<H>::new(dyn_eph, root);
-				self.next_storage_key_from_root_inner::<Layout<H>>(trie, key)
-			},
-			Some(ChildType::ParentSized) => {
-				let trie = TrieDBParentSized::<H>::new(dyn_eph, root);
-				self.next_storage_key_from_root_inner::<LayoutParentSized<H>>(trie, key)
-			},
+			Some(ChildType::ParentKeyId) | None =>
+				self.with_recorder_and_cache(Some(*root), |recorder, cache| {
+					let trie = TrieDBBuilder::<H>::new(dyn_eph, root)
+						.with_optional_recorder(recorder)
+						.with_optional_cache(cache)
+						.build();
+
+					self.next_storage_key_from_root_inner::<Layout<H>>(trie, key)
+				}),
+			Some(ChildType::ParentSized) =>
+				self.with_recorder_and_cache_sized(Some(*root), |recorder, cache| {
+					let trie = TrieDBBuilderParentSized::<H>::new(dyn_eph, root)
+						.with_optional_recorder(recorder)
+						.with_optional_cache(cache)
+						.build();
+					self.next_storage_key_from_root_inner::<LayoutParentSized<H>>(trie, key)
+				}),
 			Some(ChildType::Mmr) => return Err(format!("Invalid mmr for next_key",).into()),
 		}
 	}
@@ -361,37 +453,30 @@ where
 		key: &[u8],
 	) -> Result<Option<StorageKey>> {
 		let mut iter = trie.key_iter().map_err(|e| format!("TrieDB iteration error: {}", e))?;
-		self.with_recorder_and_cache(Some(*root), |recorder, cache| {
-			let trie = TrieDBBuilder::<H>::new(dyn_eph, root)
-				.with_optional_recorder(recorder)
-				.with_optional_cache(cache)
-				.build();
+		let mut iter = trie.key_iter().map_err(|e| format!("TrieDB iteration error: {}", e))?;
 
-			let mut iter = trie.key_iter().map_err(|e| format!("TrieDB iteration error: {}", e))?;
+		// The key just after the one given in input, basically `key++0`.
+		// Note: We are sure this is the next key if:
+		// * size of key has no limit (i.e. we can always add 0 to the path),
+		// * and no keys can be inserted between `key` and `key++0` (this is ensured by sp-io).
+		let mut potential_next_key = Vec::with_capacity(key.len() + 1);
+		potential_next_key.extend_from_slice(key);
+		potential_next_key.push(0);
 
-			// The key just after the one given in input, basically `key++0`.
-			// Note: We are sure this is the next key if:
-			// * size of key has no limit (i.e. we can always add 0 to the path),
-			// * and no keys can be inserted between `key` and `key++0` (this is ensured by sp-io).
-			let mut potential_next_key = Vec::with_capacity(key.len() + 1);
-			potential_next_key.extend_from_slice(key);
-			potential_next_key.push(0);
+		iter.seek(&potential_next_key)
+			.map_err(|e| format!("TrieDB iterator seek error: {}", e))?;
 
-			iter.seek(&potential_next_key)
-				.map_err(|e| format!("TrieDB iterator seek error: {}", e))?;
+		let next_element = iter.next();
 
-			let next_element = iter.next();
+		let next_key = if let Some(next_element) = next_element {
+			let next_key =
+				next_element.map_err(|e| format!("TrieDB iterator next error: {}", e))?;
+			Some(next_key)
+		} else {
+			None
+		};
 
-			let next_key = if let Some(next_element) = next_element {
-				let next_key =
-					next_element.map_err(|e| format!("TrieDB iterator next error: {}", e))?;
-				Some(next_key)
-			} else {
-				None
-			};
-
-			Ok(next_key)
-		})
+		Ok(next_key)
 	}
 
 	/// Returns the hash value
@@ -444,7 +529,9 @@ where
 	pub fn exists_storage(&self, key: &[u8]) -> Result<bool> {
 		let map_e = |e| format!("Trie lookup error: {}", e);
 
-		contains_trie::<Layout<H>, _>(self, &self.root, key).map_err(map_e)
+		self.with_recorder_and_cache(None, |recorder, cache| {
+			contains_trie::<Layout<H>, _>(self, &self.root, key, recorder, cache).map_err(map_e)
+		})
 	}
 
 	/// Size of storage value if it exists. Depending on storage, this
@@ -452,7 +539,9 @@ where
 	pub fn value_size(&self, key: &[u8]) -> Result<Option<u32>> {
 		let map_e = |e| format!("Trie lookup error: {}", e);
 
-		value_size_trie::<Layout<H>, _>(self, &self.root, key).map_err(map_e)
+		self.with_recorder_and_cache(None, |recorder, cache| {
+			value_size_trie::<Layout<H>, _>(self, &self.root, key, recorder, cache).map_err(map_e)
+		})
 	}
 
 	/// Get the value of child storage at given key.
@@ -468,23 +557,33 @@ where
 
 		let map_e = |e| format!("Trie lookup error: {}", e);
 
-		self.with_recorder_and_cache(Some(child_root), |recorder, cache| {
-			match child_info.child_type() {
-				ChildType::ParentKeyId =>
-					read_child_trie_value::<Layout<H>, _>(child_info.keyspace(), self, &root, key)
-						.map_err(map_e),
-				ChildType::ParentSized => read_child_trie_value::<LayoutParentSized<H>, _>(
-					child_info.keyspace(),
-					self,
-					&root,
-					key,
-					recorder,
-					cache,
-				)
-				.map_err(map_e),
-				ChildType::Mmr => return Err(format!("Not key indexed child state",).into()),
-			}
-		})
+		match child_info.child_type() {
+			ChildType::ParentKeyId =>
+				self.with_recorder_and_cache(Some(child_root), |recorder, cache| {
+					read_child_trie_value::<Layout<H>, _>(
+						child_info.keyspace(),
+						self,
+						&child_root,
+						key,
+						recorder,
+						cache,
+					)
+					.map_err(map_e)
+				}),
+			ChildType::ParentSized =>
+				self.with_recorder_and_cache_sized(Some(child_root), |recorder, cache| {
+					read_child_trie_value::<LayoutParentSized<H>, _>(
+						child_info.keyspace(),
+						self,
+						&child_root,
+						key,
+						recorder,
+						cache,
+					)
+					.map_err(map_e)
+				}),
+			ChildType::Mmr => return Err(format!("Not key indexed child state",).into()),
+		}
 	}
 
 	pub fn child_storage_at(
@@ -514,24 +613,33 @@ where
 		};
 
 		let map_e = |e| format!("Trie lookup error: {}", e);
-
-		self.with_recorder_and_cache(Some(child_root), |recorder, cache| {
-			match child_info.child_type() {
-				ChildType::ParentKeyId =>
-					contains_child_trie::<Layout<H>, _>(child_info.keyspace(), self, &root, key)
-						.map_err(map_e),
-				ChildType::ParentSized => contains_child_trie::<LayoutParentSized<H>, _>(
-					child_info.keyspace(),
-					self,
-					&root,
-					key,
-					recorder,
-					cache,
-				)
-				.map_err(map_e),
-				ChildType::Mmr => Err(format!("Not for mmr",).into()),
-			}
-		})
+		match child_info.child_type() {
+			ChildType::ParentKeyId =>
+				self.with_recorder_and_cache(Some(root), |recorder, cache| {
+					contains_child_trie::<Layout<H>, _>(
+						child_info.keyspace(),
+						self,
+						&root,
+						key,
+						recorder,
+						cache,
+					)
+					.map_err(map_e)
+				}),
+			ChildType::ParentSized =>
+				self.with_recorder_and_cache_sized(Some(root), |recorder, cache| {
+					contains_child_trie::<LayoutParentSized<H>, _>(
+						child_info.keyspace(),
+						self,
+						&root,
+						key,
+						recorder,
+						cache,
+					)
+					.map_err(map_e)
+				}),
+			ChildType::Mmr => Err(format!("Not for mmr",).into()),
+		}
 	}
 
 	/// Size of storage value if it exists. Depending on storage, this
@@ -543,24 +651,33 @@ where
 		};
 
 		let map_e = |e| format!("Trie lookup error: {}", e);
-
-		self.with_recorder_and_cache(Some(child_root), |recorder, cache| {
-			match child_info.child_type() {
-				ChildType::ParentKeyId =>
-					value_size_child_trie::<Layout<H>, _>(child_info.keyspace(), self, &root, key)
-						.map_err(map_e),
-				ChildType::ParentSized => value_size_child_trie::<LayoutParentSized<H>, _>(
-					child_info.keyspace(),
-					self,
-					&root,
-					key,
-					recorder,
-					cache,
-				)
-				.map_err(map_e),
-				ChildType::Mmr => Err(format!("Not for mmr",).into()),
-			}
-		})
+		match child_info.child_type() {
+			ChildType::ParentKeyId =>
+				self.with_recorder_and_cache(Some(root), |recorder, cache| {
+					value_size_child_trie::<Layout<H>, _>(
+						child_info.keyspace(),
+						self,
+						&root,
+						key,
+						recorder,
+						cache,
+					)
+					.map_err(map_e)
+				}),
+			ChildType::ParentSized =>
+				self.with_recorder_and_cache_sized(Some(root), |recorder, cache| {
+					value_size_child_trie::<LayoutParentSized<H>, _>(
+						child_info.keyspace(),
+						self,
+						&root,
+						key,
+						recorder,
+						cache,
+					)
+					.map_err(map_e)
+				}),
+			ChildType::Mmr => Err(format!("Not for mmr",).into()),
+		}
 	}
 
 	/// Retrieve all entries keys of storage and call `f` for each of those keys.
@@ -745,7 +862,7 @@ where
 		allow_missing_nodes: bool,
 	) -> Result<bool> {
 		match child_info.as_ref().map(|info| info.child_type()) {
-			Some(ChildType::ParentKeyId) | None => self.trie_iter_inner2::<F, Layout<H>>(
+			Some(ChildType::ParentKeyId) | None => self.trie_iter_inner2::<F>(
 				root,
 				prefix,
 				f,
@@ -753,7 +870,7 @@ where
 				start_at,
 				allow_missing_nodes,
 			),
-			Some(ChildType::ParentSized) => self.trie_iter_inner2::<F, LayoutParentSized<H>>(
+			Some(ChildType::ParentSized) => self.trie_iter_inner2_sized::<F>(
 				root,
 				prefix,
 				f,
@@ -765,7 +882,7 @@ where
 		}
 	}
 
-	fn trie_iter_inner2<F, L>(
+	fn trie_iter_inner2<F>(
 		&self,
 		root: &H::Out,
 		prefix: Option<&[u8]>,
@@ -776,12 +893,70 @@ where
 	) -> Result<bool>
 	where
 		F: FnMut(Vec<u8>, Vec<u8>) -> bool,
-		L: sp_trie::TrieLayout<Hash = H>,
 	{
-		let mut iter = move |db| -> sp_std::result::Result<bool, Box<sp_trie::TrieError<L>>> {
-			self.with_recorder_and_cache(Some(*root), |recorder, cache| {
-				//let trie = sp_trie::TrieDB::<L>::new(db, root);
-				let trie = TrieDBBuilder::<H>::new(db, root)
+		let mut iter =
+			move |db| -> sp_std::result::Result<bool, Box<sp_trie::TrieError<Layout<H>>>> {
+				self.with_recorder_and_cache(Some(*root), |recorder, cache| {
+					let trie = TrieDBBuilder::<H>::new(db, root)
+						.with_optional_recorder(recorder)
+						.with_optional_cache(cache)
+						.build();
+
+					let prefix = prefix.unwrap_or(&[]);
+					let iterator = if let Some(start_at) = start_at {
+						TrieDBIterator::new_prefixed_then_seek(&trie, prefix, start_at)?
+					} else {
+						TrieDBIterator::new_prefixed(&trie, prefix)?
+					};
+					for x in iterator {
+						let (key, value) = x?;
+
+						debug_assert!(key.starts_with(prefix));
+
+						if !f(key, value) {
+							return Ok(false)
+						}
+					}
+
+					Ok(true)
+				})
+			};
+
+		let result = if let Some(child_info) = child_info {
+			let db = KeySpacedDB::new(self, child_info.keyspace());
+			iter(&db)
+		} else {
+			iter(self)
+		};
+		match result {
+			Ok(completed) => Ok(completed),
+			Err(e)
+				if matches!(*e, sp_trie::TrieError::<Layout<H>>::IncompleteDatabase(_)) &&
+					allow_missing_nodes =>
+				Ok(false),
+			Err(e) => Err(format!("TrieDB iteration error: {}", e)),
+		}
+	}
+
+	// TODO facto (requ facto with exp first)
+	fn trie_iter_inner2_sized<F>(
+		&self,
+		root: &H::Out,
+		prefix: Option<&[u8]>,
+		mut f: F,
+		child_info: Option<&ChildInfo>,
+		start_at: Option<&[u8]>,
+		allow_missing_nodes: bool,
+	) -> Result<bool>
+	where
+		F: FnMut(Vec<u8>, Vec<u8>) -> bool,
+	{
+		let mut iter = move |db| -> sp_std::result::Result<
+			bool,
+			Box<sp_trie::TrieError<LayoutParentSized<H>>>,
+		> {
+			self.with_recorder_and_cache_sized(Some(*root), |recorder, cache| {
+				let trie = TrieDBBuilderParentSized::<H>::new(db, root)
 					.with_optional_recorder(recorder)
 					.with_optional_cache(cache)
 					.build();
@@ -815,8 +990,10 @@ where
 		match result {
 			Ok(completed) => Ok(completed),
 			Err(e)
-				if matches!(*e, sp_trie::TrieError::<L>::IncompleteDatabase(_)) &&
-					allow_missing_nodes =>
+				if matches!(
+					*e,
+					sp_trie::TrieError::<LayoutParentSized<H>>::IncompleteDatabase(_)
+				) && allow_missing_nodes =>
 				Ok(false),
 			Err(e) => Err(format!("TrieDB iteration error: {}", e)),
 		}
@@ -923,46 +1100,69 @@ where
 			},
 		};
 
-		let new_child_root =
-			self.with_recorder_and_cache_for_storage_root(Some(child_root), |recorder, cache| {
-				let mut eph = Ephemeral::new(self.backend_storage(), &mut write_overlay);
-				match match (state_version, child_info.child_type()) {
-					(_, ChildType::Mmr) => unimplemented!("should return error"),
-					(StateVersion::V0, ChildType::ParentKeyId) =>
-						child_delta_trie_root::<sp_trie::LayoutV0<H>, _, _, _, _, _, _>(
-							child_info.keyspace(),
-							&mut eph,
-							root,
-							delta,
-							recorder,
-							cache,
-						),
-					(StateVersion::V1, ChildType::ParentKeyId) =>
-						child_delta_trie_root::<sp_trie::LayoutV1<H>, _, _, _, _, _, _>(
-							child_info.keyspace(),
-							&mut eph,
-							root,
-							delta,
-							recorder,
-							cache,
-						),
-					(_, ChildType::ParentSized) =>
-						child_delta_trie_root::<sp_trie::LayoutParentSized<H>, _, _, _, _, _, _>(
-							child_info.keyspace(),
-							&mut eph,
-							root,
-							delta,
-							recorder,
-							cache,
-						),
-				} {
+		let mut eph = Ephemeral::new(self.backend_storage(), &mut write_overlay);
+		let new_child_root = match (state_version, child_info.child_type()) {
+			(_, ChildType::Mmr) => unimplemented!("should return error"),
+			(StateVersion::V0, ChildType::ParentKeyId) => self
+				.with_recorder_and_cache_for_storage_root(Some(child_root), |recorder, cache| {
+					match child_delta_trie_root::<sp_trie::LayoutV0<H>, _, _, _, _, _, _>(
+						child_info.keyspace(),
+						&mut eph,
+						child_root,
+						delta,
+						recorder,
+						cache,
+					) {
+						Ok(ret) => (Some(ret), ret),
+						Err(e) => {
+							warn!(target: "trie", "Failed to write to trie: {}", e);
+							(None, child_root)
+						},
+					}
+				}),
+			(StateVersion::V1, ChildType::ParentKeyId) => self
+				.with_recorder_and_cache_for_storage_root(Some(child_root), |recorder, cache| {
+					match child_delta_trie_root::<sp_trie::LayoutV1<H>, _, _, _, _, _, _>(
+						child_info.keyspace(),
+						&mut eph,
+						child_root,
+						delta,
+						recorder,
+						cache,
+					) {
+						Ok(ret) => (Some(ret), ret),
+						Err(e) => {
+							warn!(target: "trie", "Failed to write to trie: {}", e);
+							(None, child_root)
+						},
+					}
+				}),
+			(_, ChildType::ParentSized) => self.with_recorder_and_cache_for_storage_root_sized(
+				Some(child_root),
+				|recorder, cache| match child_delta_trie_root::<
+					sp_trie::LayoutParentSized<H>,
+					_,
+					_,
+					_,
+					_,
+					_,
+					_,
+				>(
+					child_info.keyspace(),
+					&mut eph,
+					child_root,
+					delta,
+					recorder,
+					cache,
+				) {
 					Ok(ret) => (Some(ret), ret),
 					Err(e) => {
 						warn!(target: "trie", "Failed to write to trie: {}", e);
 						(None, child_root)
 					},
-				}
-			});
+				},
+			),
+		};
 
 		let is_default = new_child_root == default_root;
 

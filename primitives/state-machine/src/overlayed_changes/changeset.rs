@@ -182,6 +182,14 @@ impl From<sp_core::storage::StorageMap> for OverlayedMap<StorageKey, Option<Stor
 	}
 }
 
+impl From<Vec<Vec<u8>>> for OverlayedChangeSetMmr {
+	fn from(storage: Vec<Vec<u8>>) -> Self {
+		let mut changes = OverlayedList::default();
+		changes.changes = storage;
+		Self { changes, offset: 0 }
+	}
+}
+
 impl Default for ExecutionMode {
 	fn default() -> Self {
 		Self::Client
