@@ -279,7 +279,7 @@ where
 	H: Hasher,
 {
 	const ESCAPE_HEADER: Option<u8> = Some(trie_constants::ESCAPE_COMPACT_HEADER);
-	type Error = Error;
+	type Error = Error<H::Out>;
 	type HashOut = H::Out;
 
 	fn hashed_null_node() -> <H as Hasher>::Out {
@@ -381,20 +381,20 @@ where
 		&[trie_constants::EMPTY_TRIE]
 	}
 
-	fn leaf_node(partial: Partial, value: Value) -> Vec<u8> {
+	fn leaf_node(partial: impl Iterator<Item = u8>, number_nibble: usize, value: Value) -> Vec<u8> {
 		let contains_hash = matches!(&value, Value::Node(..));
 		let mut output = if contains_hash {
-			partial_encode(partial, NodeKind::HashedValueLeaf)
+			partial_from_iterator_encode(partial, number_nibble, NodeKind::HashedValueLeaf)
 		} else {
-			partial_encode(partial, NodeKind::Leaf)
+			partial_from_iterator_encode(partial, number_nibble, NodeKind::Leaf)
 		};
 		match value {
 			Value::Inline(value) => {
 				Compact(value.len() as u32).encode_to(&mut output);
 				output.extend_from_slice(value);
 			},
-			Value::Node(_, None, _) => unreachable!(),
-			Value::Node(hash, Some(size), _) => {
+			Value::Node(_, None) => unreachable!(),
+			Value::Node(hash, Some(size)) => {
 				debug_assert!(hash.len() == H::LENGTH);
 				Compact(size as u32).encode_to(&mut output);
 				output.extend_from_slice(hash);
@@ -442,8 +442,8 @@ where
 				Compact(value.len() as u32).encode_to(&mut output);
 				output.extend_from_slice(value);
 			},
-			Some(Value::Node(_, None, _)) => unreachable!(),
-			Some(Value::Node(hash, Some(size), _)) => {
+			Some(Value::Node(_, None)) => unreachable!(),
+			Some(Value::Node(hash, Some(size))) => {
 				debug_assert!(hash.len() == H::LENGTH);
 				Compact(size as u32).encode_to(&mut output);
 				output.extend_from_slice(hash);

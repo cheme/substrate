@@ -29,9 +29,9 @@ use sp_std::{collections::vec_deque::VecDeque, vec, vec::Vec};
 pub type DBValue = Vec<u8>;
 
 pub struct MmrDB<'db, H: Hasher> {
-	db: &'db dyn HashDBRef<H, DBValue>,
-	root: &'db H::Out,
-	number_element: u64,
+	pub db: &'db dyn HashDBRef<H, DBValue>,
+	pub root: &'db H::Out,
+	pub number_element: u64,
 }
 
 pub fn empty_root<H: Hasher>() -> H::Out {
@@ -74,6 +74,99 @@ where
 }
 
 impl<'db, H: Hasher> MmrDB<'db, H> {
+	// TODO move to MMr non mut
+	// Warning this is most probably bugged
+	pub fn encode_compact(&self) -> Result<Vec<Vec<u8>>, &'static str> {
+		// Some dummy format with one byte as enum, non optimal
+		let mut stack = Vec::new();
+		let mut result = Vec::new();
+		let mut hash = H::Out::default();
+		let hash_len = hash.as_ref().len();
+		// TODO corner case single value?
+		// (node, depth, went_left)
+		let mut node =
+			(self.db.get(self.root, Default::default()).ok_or("Missing mmr root")?, 0, false);
+		let mut descend = true;
+
+		let max_depth = 64 - (self.number_element - 1).leading_zeros();
+		loop {
+			if descend {
+				if node.1 == max_depth {
+					// value
+					let mut node = node.0.clone();
+					node.insert(0, 4);
+					result.push(node);
+					descend = false;
+				} else {
+					match node.0.len() {
+						x if 2 * hash_len == x => {
+							hash.as_mut().copy_from_slice(&node.0[..hash_len]);
+							if let Some(child) = self.db.get(&hash, Default::default()) {
+								let mut s = vec![1];
+								s.extend_from_slice(&node.0[hash_len..]);
+								stack.push((s, node.1, node.2)); // left
+								node = (child, node.1 + 1, true)
+							} else {
+								hash.as_mut().copy_from_slice(&node.0[hash_len..]);
+								if let Some(child) = self.db.get(&hash, Default::default()) {
+									let mut s = vec![0];
+									s.extend_from_slice(&node.0[..hash_len]);
+									stack.push((s, node.1, node.2)); // right only
+									let mut new_depth = node.1 + 1;
+									if !node.2 {
+										while new_depth < max_depth &&
+											(self.number_element - 1) &
+												(1 << (max_depth - 1 - new_depth)) == 0
+										{
+											new_depth += 1;
+										}
+									}
+									node = (child, new_depth, node.2);
+								} else {
+									unreachable!("no child in node, node should not be here");
+								}
+							}
+						},
+						_ => {
+							unreachable!("would be catch in depth check");
+						},
+					}
+				}
+			} else {
+				if let Some(node_stacked) = stack.pop() {
+					match node_stacked.0.len() {
+						x if hash_len + 1 == x && node_stacked.0[0] == 1 => {
+							hash.as_mut().copy_from_slice(&node_stacked.0[1..]);
+							if let Some(child) = self.db.get(&hash, Default::default()) {
+								stack.push((vec![2], node_stacked.1, node_stacked.2)); // 2 for both child
+								let mut new_depth = node_stacked.1 + 1;
+								if !node_stacked.2 {
+									while new_depth < max_depth &&
+										(self.number_element - 1) &
+											(1 << (max_depth - 1 - new_depth)) == 0
+									{
+										new_depth += 1;
+									}
+								}
+								node = (child, new_depth, node_stacked.2);
+								descend = true;
+							} else {
+								// just no child continue unstack
+								result.push(node_stacked.0);
+							}
+						},
+						_ => {
+							result.push(node_stacked.0);
+						},
+					}
+				} else {
+					break
+				}
+			}
+		}
+		Ok(result)
+	}
+
 	pub fn get(&self, index: u64) -> Option<DBValue> {
 		if index < self.number_element {
 			let num_peaks = self.number_element.count_ones();
@@ -204,99 +297,6 @@ impl<'db, H: Hasher> MmrDBMut<'db, H> {
 		}
 		*self.root = with;
 		self.peaks.clear();
-	}
-
-	// TODO move to MMr non mut
-	// Warning this is most probably bugged
-	pub fn encode_compact(&self) -> Result<Vec<Vec<u8>>, &'static str> {
-		// Some dummy format with one byte as enum, non optimal
-		let mut stack = Vec::new();
-		let mut result = Vec::new();
-		let mut hash = H::Out::default();
-		let hash_len = hash.as_ref().len();
-		// TODO corner case single value?
-		// (node, depth, went_left)
-		let mut node =
-			(self.db.get(self.root, Default::default()).ok_or("Missing mmr root")?, 0, false);
-		let mut descend = true;
-
-		let max_depth = 64 - (self.number_element - 1).leading_zeros();
-		loop {
-			if descend {
-				if node.1 == max_depth {
-					// value
-					let mut node = node.0.clone();
-					node.insert(0, 4);
-					result.push(node);
-					descend = false;
-				} else {
-					match node.0.len() {
-						x if 2 * hash_len == x => {
-							hash.as_mut().copy_from_slice(&node.0[..hash_len]);
-							if let Some(child) = self.db.get(&hash, Default::default()) {
-								let mut s = vec![1];
-								s.extend_from_slice(&node.0[hash_len..]);
-								stack.push((s, node.1, node.2)); // left
-								node = (child, node.1 + 1, true)
-							} else {
-								hash.as_mut().copy_from_slice(&node.0[hash_len..]);
-								if let Some(child) = self.db.get(&hash, Default::default()) {
-									let mut s = vec![0];
-									s.extend_from_slice(&node.0[..hash_len]);
-									stack.push((s, node.1, node.2)); // right only
-									let mut new_depth = node.1 + 1;
-									if !node.2 {
-										while new_depth < max_depth &&
-											(self.number_element - 1) &
-												(1 << (max_depth - 1 - new_depth)) == 0
-										{
-											new_depth += 1;
-										}
-									}
-									node = (child, new_depth, node.2);
-								} else {
-									unreachable!("no child in node, node should not be here");
-								}
-							}
-						},
-						_ => {
-							unreachable!("would be catch in depth check");
-						},
-					}
-				}
-			} else {
-				if let Some(node_stacked) = stack.pop() {
-					match node_stacked.0.len() {
-						x if hash_len + 1 == x && node_stacked.0[0] == 1 => {
-							hash.as_mut().copy_from_slice(&node_stacked.0[1..]);
-							if let Some(child) = self.db.get(&hash, Default::default()) {
-								stack.push((vec![2], node_stacked.1, node_stacked.2)); // 2 for both child
-								let mut new_depth = node_stacked.1 + 1;
-								if !node_stacked.2 {
-									while new_depth < max_depth &&
-										(self.number_element - 1) &
-											(1 << (max_depth - 1 - new_depth)) == 0
-									{
-										new_depth += 1;
-									}
-								}
-								node = (child, new_depth, node_stacked.2);
-								descend = true;
-							} else {
-								// just no child continue unstack
-								result.push(node_stacked.0);
-							}
-						},
-						_ => {
-							result.push(node_stacked.0);
-						},
-					}
-				} else {
-					break
-				}
-			}
-		}
-		Ok(result)
 	}
 
 	pub fn decode_compact<'a, DB>(

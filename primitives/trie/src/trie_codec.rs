@@ -42,7 +42,7 @@ pub enum Error<H, CodecError> {
 	#[cfg_attr(feature = "std", error("Trie error: {0:?}"))]
 	TrieError(Box<trie_db::TrieError<H, CodecError>>),
 	#[cfg_attr(feature = "std", error("Parent sized trie error: {0:?}"))]
-	ParentSizedChildTrieError(Box<trie_db::TrieError<H, crate::error::Error>>),
+	ParentSizedChildTrieError(Box<trie_db::TrieError<H, crate::error::Error<H>>>),
 	#[cfg_attr(feature = "std", error("Mmr child state error: {0:?}"))]
 	MmrChildError(&'static str),
 }
@@ -325,16 +325,11 @@ where
 		}
 	}
 	for (mut mmr_root, number_element) in mmrs {
-		if !HashDBT::<L::Hash, _>::contains(&partial_db, &mmr_root, EMPTY_PREFIX) {
+		if !HashDBT::<L::Hash, _>::contains(partial_db, &mmr_root, EMPTY_PREFIX) {
 			// just skip
 			continue
 		}
-		let mmr = crate::mmr::MmrDBMut {
-			peaks: Default::default(),
-			db: &mut partial_db,
-			root: &mut mmr_root,
-			number_element,
-		};
+		let mmr = crate::mmr::MmrDB { db: partial_db, root: &mmr_root, number_element };
 		let child_proof = mmr.encode_compact().map_err(|e| Error::MmrChildError(e))?;
 		compact_proof.extend(child_proof);
 	}

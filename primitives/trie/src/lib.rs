@@ -246,7 +246,8 @@ pub mod trie_types {
 	/// Builder for creating a [`TrieDB`].
 	pub type TrieDBBuilder<'a, 'cache, H> = super::TrieDBBuilder<'a, 'cache, LayoutV1<H>>;
 	/// Builder for creating a [`TrieDBParentSized`].
-	pub type TrieDBBuilder<'a, 'cache, H> = super::TrieDBBuilder<'a, 'cache, LayoutParentSized<H>>;
+	pub type TrieDBBuilderParentSized<'a, 'cache, H> =
+		super::TrieDBBuilder<'a, 'cache, LayoutParentSized<H>>;
 	/// Persistent trie database write-access interface for the a given hasher.
 	pub type TrieDBMutV0<'a, H> = super::TrieDBMut<'a, LayoutV0<H>>;
 	/// Builder for creating a [`TrieDBMutV0`].
@@ -464,7 +465,7 @@ where
 	root.as_mut().copy_from_slice(root_data.as_ref());
 
 	let mut db = KeySpacedDBMut::new(db, keyspace);
-	delta_trie_root::<L, _, _, _, _, _>(&mut db, root, delta)
+	delta_trie_root::<L, _, _, _, _, _>(&mut db, root, delta, recorder, cache)
 }
 
 /// Read a value from the child trie.
@@ -527,7 +528,6 @@ where
 		.with_optional_recorder(recorder)
 		.with_optional_cache(cache)
 		.build()
-		.contains(key)
 		.get_hash(key)
 }
 
@@ -549,7 +549,6 @@ where
 		.with_optional_recorder(recorder)
 		.with_optional_cache(cache)
 		.build()
-		.contains(key)
 		.get_size(key)?
 		.map(|s| s as u32))
 }
