@@ -22,7 +22,7 @@
 
 use crate::{CompactProof, HashDBT, StorageProof, TrieConfiguration, TrieHash, EMPTY_PREFIX};
 use sp_core::storage::{well_known_keys, ChildType, PrefixedStorageKey};
-use sp_std::{boxed::Box, vec::Vec};
+use sp_std::{boxed::Box, vec::Vec, vec};
 use trie_db::{CError, Trie};
 
 /// Error for trie node decoding.
