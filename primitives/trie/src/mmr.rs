@@ -48,6 +48,7 @@ where
 	H: Hasher,
 	DB: hash_db::HashDBRef<H, DBValue>,
 {
+	unimplemented!("TODO require recorder as parameter!!");
 	MmrDB { db: &*db, root, number_element }.get(at)
 }
 
@@ -68,6 +69,7 @@ where
 		mmr.push(v.borrow()).ok_or("error calculating root")?;
 	}
 	mmr.commit();
+	unimplemented!("TODO require recorder as parameter!!");
 	Ok((mmr.number_element, root))
 }
 

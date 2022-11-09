@@ -57,7 +57,7 @@ pub struct NotInRuntime;
 /// Describes in which mode the node is currently executing.
 #[derive(Debug, Clone, Copy)]
 pub enum ExecutionMode {
-	/// Exeuting in client mode: Removal of all transactions possible.
+	/// Executing in client mode: Removal of all transactions possible.
 	Client,
 	/// Executing in runtime mode: Transactions started by the client are protected.
 	Runtime,
@@ -103,7 +103,7 @@ pub struct OverlayedChangeSetMmr {
 
 /// Holds a set of changes with the ability modify them using nested transactions.
 #[derive(Debug, Clone)]
-pub struct OverlayedMap<K: Ord + Hash, V> {
+pub struct OverlayedMap<K, V> {
 	/// Stores the changes that this overlay constitutes.
 	changes: BTreeMap<K, OverlayedEntry<V>>,
 	/// Stores which keys are dirty per transaction. Needed in order to determine which
@@ -118,7 +118,7 @@ pub struct OverlayedMap<K: Ord + Hash, V> {
 	execution_mode: ExecutionMode,
 }
 
-impl<K: Ord + Hash, V> Default for OverlayedMap<K, V> {
+impl<K, V> Default for OverlayedMap<K, V> {
 	fn default() -> Self {
 		Self {
 			changes: BTreeMap::new(),
@@ -153,6 +153,31 @@ impl<V> Default for OverlayedList<V> {
 			indexes,
 			num_client_transactions: Default::default(),
 			execution_mode: Default::default(),
+		}
+	}
+}
+
+#[cfg(feature = "std")]
+impl From<sp_core::storage::StorageMap> for OverlayedMap<StorageKey, Option<StorageValue>> {
+	fn from(storage: sp_core::storage::StorageMap) -> Self {
+		Self {
+			changes: storage
+				.into_iter()
+				.map(|(k, v)| {
+					(
+						k,
+						OverlayedEntry {
+							transactions: SmallVec::from_iter([InnerValue {
+								value: Some(v),
+								extrinsics: Default::default(),
+							}]),
+						},
+					)
+				})
+				.collect(),
+			dirty_keys: Default::default(),
+			num_client_transactions: 0,
+			execution_mode: ExecutionMode::Client,
 		}
 	}
 }

@@ -22,7 +22,7 @@
 
 use crate::{CompactProof, HashDBT, StorageProof, TrieConfiguration, TrieHash, EMPTY_PREFIX};
 use sp_core::storage::{well_known_keys, ChildType, PrefixedStorageKey};
-use sp_std::{boxed::Box, vec, vec::Vec};
+use sp_std::{boxed::Box, vec::Vec};
 use trie_db::{CError, Trie};
 
 /// Error for trie node decoding.
@@ -84,7 +84,7 @@ where
 	let mut mmrs = Vec::new();
 	{
 		// fetch child trie roots
-		let trie = crate::TrieDB::<L>::new(db, &top_root);
+		let trie = crate::TrieDBBuilder::<L>::new(db, &top_root).build();
 
 		let mut iter = trie.iter()?;
 
@@ -222,18 +222,18 @@ where
 /// Then parse all child trie root and compress main trie content first
 /// then all child trie contents.
 /// Child trie are ordered by the order of their roots in the top trie.
-pub fn encode_compact<L>(
-	proof: StorageProof,
-	root: TrieHash<L>,
+pub fn encode_compact<L, DB>(
+	partial_db: &DB,
+	root: &TrieHash<L>,
 ) -> Result<CompactProof, Error<TrieHash<L>, CError<L>>>
 where
 	L: TrieConfiguration,
+	DB: HashDBT<L::Hash, trie_db::DBValue> + hash_db::HashDBRef<L::Hash, trie_db::DBValue>,
 {
 	let mut child_tries = Vec::new();
 	let mut mmrs = Vec::new();
-	let mut partial_db = proof.into_memory_db();
 	let mut compact_proof = {
-		let trie = crate::TrieDB::<L>::new(&partial_db, &root);
+		let trie = crate::TrieDBBuilder::<L>::new(partial_db, root).build();
 
 		let mut iter = trie.iter()?;
 
@@ -294,7 +294,7 @@ where
 			compact_proof.push(vec![crate::trie_constants::ESCAPE_COMPACT_HEADER]);
 		}
 		last_child = Some(child_type);
-		if !HashDBT::<L::Hash, _>::contains(&partial_db, &child_root, EMPTY_PREFIX) {
+		if !HashDBT::<L::Hash, _>::contains(partial_db, &child_root, EMPTY_PREFIX) {
 			// child proof are allowed to be missing (unused root can be included
 			// due to trie structure modification).
 			last_skipped = true;
@@ -304,16 +304,17 @@ where
 
 		match child_type {
 			ChildType::ParentKeyId => {
-				let trie = crate::TrieDB::<L>::new(&partial_db, &child_root);
+				let trie = crate::TrieDBBuilder::<L>::new(partial_db, &child_root).build();
 				let child_proof = trie_db::encode_compact::<L>(&trie)?;
 
 				compact_proof.extend(child_proof);
 			},
 			ChildType::ParentSized => {
-				let trie = crate::TrieDB::<crate::LayoutParentSized<L::Hash>>::new(
-					&partial_db,
+				let trie = crate::TrieDBBuilder::<crate::LayoutParentSized<L::Hash>>::new(
+					partial_db,
 					&child_root,
-				);
+				)
+				.build();
 				let child_proof =
 					trie_db::encode_compact::<crate::LayoutParentSized<L::Hash>>(&trie)
 						.map_err(|e| Error::ParentSizedChildTrieError(e))?;
