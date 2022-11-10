@@ -354,6 +354,10 @@ where
 
 	/// Access the root of the child storage in its parent trie
 	fn child_root(&self, child_info: &ChildInfo) -> Result<Option<H::Out>> {
+		// non persistent
+		if matches!(child_info.child_type(), ChildType::BTree | ChildType::Mmr) {
+			return Ok(None)
+		}
 		#[cfg(feature = "std")]
 		{
 			if let Some(result) = self.cache.read().child_root.get(child_info.storage_key()) {
@@ -435,15 +439,10 @@ where
 
 					self.next_storage_key_from_root_inner::<Layout<H>>(trie, key)
 				}),
-			Some(ChildType::ParentSized) =>
-				self.with_recorder_and_cache_sized(Some(*root), |recorder, cache| {
-					let trie = TrieDBBuilderParentSized::<H>::new(dyn_eph, root)
-						.with_optional_recorder(recorder)
-						.with_optional_cache(cache)
-						.build();
-					self.next_storage_key_from_root_inner::<LayoutParentSized<H>>(trie, key)
-				}),
-			Some(ChildType::Mmr) => return Err(format!("Invalid mmr for next_key",).into()),
+			Some(ChildType::BTree) =>
+				return Err(format!("No essence for a transient storage.",).into()),
+			Some(ChildType::Mmr) =>
+				return Err(format!("No essence for a transient storage.",).into()),
 		}
 	}
 
@@ -570,19 +569,10 @@ where
 					)
 					.map_err(map_e)
 				}),
-			ChildType::ParentSized =>
-				self.with_recorder_and_cache_sized(Some(child_root), |recorder, cache| {
-					read_child_trie_value::<LayoutParentSized<H>, _>(
-						child_info.keyspace(),
-						self,
-						&child_root,
-						key,
-						recorder,
-						cache,
-					)
-					.map_err(map_e)
-				}),
-			ChildType::Mmr => return Err(format!("Not key indexed child state",).into()),
+			ChildType::BTree | ChildType::Mmr => {
+				// non persistent
+				Ok(None)
+			},
 		}
 	}
 
@@ -598,7 +588,7 @@ where
 
 		match child_info.child_type() {
 			ChildType::ParentKeyId => Err(format!("Not mmr child state",).into()),
-			ChildType::ParentSized => Err(format!("Not mmr child state",).into()),
+			ChildType::BTree => Err(format!("Not mmr child state",).into()),
 			ChildType::Mmr =>
 				Ok(sp_trie::mmr::read_child_trie_value::<H, _>(self, &root, nb_element, at)),
 		}
@@ -626,19 +616,10 @@ where
 					)
 					.map_err(map_e)
 				}),
-			ChildType::ParentSized =>
-				self.with_recorder_and_cache_sized(Some(root), |recorder, cache| {
-					contains_child_trie::<LayoutParentSized<H>, _>(
-						child_info.keyspace(),
-						self,
-						&root,
-						key,
-						recorder,
-						cache,
-					)
-					.map_err(map_e)
-				}),
-			ChildType::Mmr => Err(format!("Not for mmr",).into()),
+			ChildType::BTree | ChildType::Mmr => {
+				// non persistent
+				Ok(false)
+			},
 		}
 	}
 
@@ -664,19 +645,10 @@ where
 					)
 					.map_err(map_e)
 				}),
-			ChildType::ParentSized =>
-				self.with_recorder_and_cache_sized(Some(root), |recorder, cache| {
-					value_size_child_trie::<LayoutParentSized<H>, _>(
-						child_info.keyspace(),
-						self,
-						&root,
-						key,
-						recorder,
-						cache,
-					)
-					.map_err(map_e)
-				}),
-			ChildType::Mmr => Err(format!("Not for mmr",).into()),
+			ChildType::BTree | ChildType::Mmr => {
+				// non persistent
+				Ok(None)
+			},
 		}
 	}
 
@@ -789,14 +761,10 @@ where
 				child_info,
 				maybe_start_at,
 			),
-			Some(ChildType::ParentSized) => self.trie_iter_key_inner2::<_, LayoutParentSized<H>>(
-				root,
-				maybe_prefix,
-				f,
-				child_info,
-				maybe_start_at,
-			),
-			Some(ChildType::Mmr) => (),
+			Some(ChildType::BTree) | Some(ChildType::Mmr) => {
+				// non persistent
+				()
+			},
 		}
 	}
 
@@ -870,15 +838,10 @@ where
 				start_at,
 				allow_missing_nodes,
 			),
-			Some(ChildType::ParentSized) => self.trie_iter_inner2_sized::<F>(
-				root,
-				prefix,
-				f,
-				child_info,
-				start_at,
-				allow_missing_nodes,
-			),
-			Some(ChildType::Mmr) => Err(format!("Not for mmr",).into()),
+			Some(ChildType::BTree) | Some(ChildType::Mmr) => {
+				// non persistent
+				Ok(true)
+			},
 		}
 	}
 
@@ -933,67 +896,6 @@ where
 			Err(e)
 				if matches!(*e, sp_trie::TrieError::<Layout<H>>::IncompleteDatabase(_)) &&
 					allow_missing_nodes =>
-				Ok(false),
-			Err(e) => Err(format!("TrieDB iteration error: {}", e)),
-		}
-	}
-
-	// TODO facto (requ facto with exp first)
-	fn trie_iter_inner2_sized<F>(
-		&self,
-		root: &H::Out,
-		prefix: Option<&[u8]>,
-		mut f: F,
-		child_info: Option<&ChildInfo>,
-		start_at: Option<&[u8]>,
-		allow_missing_nodes: bool,
-	) -> Result<bool>
-	where
-		F: FnMut(Vec<u8>, Vec<u8>) -> bool,
-	{
-		let mut iter = move |db| -> sp_std::result::Result<
-			bool,
-			Box<sp_trie::TrieError<LayoutParentSized<H>>>,
-		> {
-			self.with_recorder_and_cache_sized(Some(*root), |recorder, cache| {
-				let trie = TrieDBBuilderParentSized::<H>::new(db, root)
-					.with_optional_recorder(recorder)
-					.with_optional_cache(cache)
-					.build();
-
-				let prefix = prefix.unwrap_or(&[]);
-				let iterator = if let Some(start_at) = start_at {
-					TrieDBIterator::new_prefixed_then_seek(&trie, prefix, start_at)?
-				} else {
-					TrieDBIterator::new_prefixed(&trie, prefix)?
-				};
-				for x in iterator {
-					let (key, value) = x?;
-
-					debug_assert!(key.starts_with(prefix));
-
-					if !f(key, value) {
-						return Ok(false)
-					}
-				}
-
-				Ok(true)
-			})
-		};
-
-		let result = if let Some(child_info) = child_info {
-			let db = KeySpacedDB::new(self, child_info.keyspace());
-			iter(&db)
-		} else {
-			iter(self)
-		};
-		match result {
-			Ok(completed) => Ok(completed),
-			Err(e)
-				if matches!(
-					*e,
-					sp_trie::TrieError::<LayoutParentSized<H>>::IncompleteDatabase(_)
-				) && allow_missing_nodes =>
 				Ok(false),
 			Err(e) => Err(format!("TrieDB iteration error: {}", e)),
 		}
@@ -1137,31 +1039,27 @@ where
 						},
 					}
 				}),
-			(_, ChildType::ParentSized) => self.with_recorder_and_cache_for_storage_root_sized(
-				Some(child_root),
-				|recorder, cache| match child_delta_trie_root::<
-					sp_trie::LayoutParentSized<H>,
-					_,
-					_,
-					_,
-					_,
-					_,
-					_,
-				>(
+			(_, ChildType::BTree) =>
+			// TODO cache root for next call also write
+			// overlay is useless computation here ->
+			// TODO use a different function?
+			// TODO also check merkle type
+			// TODO it s own method that error on failure?
+			// This shall not fail consider panic
+				match child_delta_trie_root::<sp_trie::LayoutV1<H>, _, _, _, _, _, _>(
 					child_info.keyspace(),
 					&mut eph,
 					child_root,
 					delta,
-					recorder,
-					cache,
+					None,
+					None,
 				) {
-					Ok(ret) => (Some(ret), ret),
+					Ok(ret) => ret,
 					Err(e) => {
-						warn!(target: "trie", "Failed to write to trie: {}", e);
-						(None, child_root)
+						warn!(target: "trie", "Failed to merklized to trie: {}", e);
+						child_root
 					},
 				},
-			),
 		};
 
 		let is_default = new_child_root == default_root;

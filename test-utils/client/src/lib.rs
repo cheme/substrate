@@ -221,7 +221,7 @@ impl<Block: BlockT, ExecutorDispatch, Backend, G: GenesisInit>
 							},
 						);
 					},
-					ChildType::ParentSized => {
+					ChildType::BTree => {
 						storage.children_sized.insert(
 							key,
 							StorageChild {

@@ -44,7 +44,7 @@ pub fn get<T: Decode + Sized>(child_info: &ChildInfo, key: &[u8]) -> Option<T> {
 				})
 			})
 		},
-		ChildType::ParentSized => {
+		ChildType::BTree => {
 			let storage_key = child_info.storage_key();
 			sp_io::parent_sized_child_storage::get(storage_key, key).and_then(|v| {
 				Decode::decode(&mut &v[..]).map(Some).unwrap_or_else(|_| {
@@ -67,7 +67,7 @@ pub fn get<T: Decode + Sized>(child_info: &ChildInfo, key: &[u8]) -> Option<T> {
 pub fn get_at<T: Decode + Sized>(child_info: &ChildInfo, at: u64) -> Option<T> {
 	match child_info.child_type() {
 		ChildType::ParentKeyId => None,
-		ChildType::ParentSized => None,
+		ChildType::BTree => None,
 		ChildType::Mmr => {
 			let storage_key = child_info.storage_key();
 			sp_io::mmr_child_storage::get(storage_key, at).and_then(|v| {
@@ -114,7 +114,7 @@ pub fn put<T: Encode>(child_info: &ChildInfo, key: &[u8], value: &T) {
 		ChildType::ParentKeyId => value.using_encoded(|slice| {
 			sp_io::default_child_storage::set(child_info.storage_key(), key, slice)
 		}),
-		ChildType::ParentSized => value.using_encoded(|slice| {
+		ChildType::BTree => value.using_encoded(|slice| {
 			sp_io::parent_sized_child_storage::set(child_info.storage_key(), key, slice)
 		}),
 		ChildType::Mmr => (),
@@ -125,7 +125,7 @@ pub fn put<T: Encode>(child_info: &ChildInfo, key: &[u8], value: &T) {
 pub fn push<T: Encode>(child_info: &ChildInfo, value: &T) {
 	match child_info.child_type() {
 		ChildType::ParentKeyId => (),
-		ChildType::ParentSized => (),
+		ChildType::BTree => (),
 		ChildType::Mmr => value
 			.using_encoded(|slice| sp_io::mmr_child_storage::push(child_info.storage_key(), slice)),
 	}
@@ -167,7 +167,7 @@ pub fn exists(child_info: &ChildInfo, key: &[u8]) -> bool {
 	match child_info.child_type() {
 		ChildType::ParentKeyId =>
 			sp_io::default_child_storage::exists(child_info.storage_key(), key),
-		ChildType::ParentSized =>
+		ChildType::BTree =>
 			sp_io::parent_sized_child_storage::exists(child_info.storage_key(), key),
 		ChildType::Mmr => false,
 	}
@@ -197,7 +197,7 @@ pub fn kill_storage(child_info: &ChildInfo, limit: Option<u32>) -> KillStorageRe
 	match child_info.child_type() {
 		ChildType::ParentKeyId =>
 			sp_io::default_child_storage::storage_kill(child_info.storage_key(), limit),
-		ChildType::ParentSized =>
+		ChildType::BTree =>
 			sp_io::parent_sized_child_storage::storage_kill(child_info.storage_key(), limit),
 		ChildType::Mmr => unimplemented!(),
 	}
@@ -246,7 +246,7 @@ pub fn clear_storage(
 	let r = match child_info.child_type() {
 		ChildType::ParentKeyId =>
 			sp_io::default_child_storage::storage_kill(child_info.storage_key(), maybe_limit),
-		ChildType::ParentSized =>
+		ChildType::BTree =>
 			sp_io::parent_sized_child_storage::storage_kill(child_info.storage_key(), maybe_limit),
 		ChildType::Mmr => unimplemented!("cursor wrong type but could fit u64 in it"),
 	};
@@ -264,7 +264,7 @@ pub fn kill(child_info: &ChildInfo, key: &[u8]) {
 		ChildType::ParentKeyId => {
 			sp_io::default_child_storage::clear(child_info.storage_key(), key);
 		},
-		ChildType::ParentSized => {
+		ChildType::BTree => {
 			sp_io::parent_sized_child_storage::clear(child_info.storage_key(), key);
 		},
 		ChildType::Mmr => (),
@@ -275,8 +275,7 @@ pub fn kill(child_info: &ChildInfo, key: &[u8]) {
 pub fn get_raw(child_info: &ChildInfo, key: &[u8]) -> Option<Vec<u8>> {
 	match child_info.child_type() {
 		ChildType::ParentKeyId => sp_io::default_child_storage::get(child_info.storage_key(), key),
-		ChildType::ParentSized =>
-			sp_io::parent_sized_child_storage::get(child_info.storage_key(), key),
+		ChildType::BTree => sp_io::parent_sized_child_storage::get(child_info.storage_key(), key),
 		ChildType::Mmr => None,
 	}
 }
@@ -286,7 +285,7 @@ pub fn put_raw(child_info: &ChildInfo, key: &[u8], value: &[u8]) {
 	match child_info.child_type() {
 		ChildType::ParentKeyId =>
 			sp_io::default_child_storage::set(child_info.storage_key(), key, value),
-		ChildType::ParentSized =>
+		ChildType::BTree =>
 			sp_io::parent_sized_child_storage::set(child_info.storage_key(), key, value),
 		ChildType::Mmr => (),
 	}
@@ -297,7 +296,7 @@ pub fn root(child_info: &ChildInfo, version: StateVersion) -> Vec<u8> {
 	match child_info.child_type() {
 		ChildType::ParentKeyId =>
 			sp_io::default_child_storage::root(child_info.storage_key(), version),
-		ChildType::ParentSized =>
+		ChildType::BTree =>
 			sp_io::parent_sized_child_storage::root(child_info.storage_key(), version),
 		ChildType::Mmr => sp_io::mmr_child_storage::root(child_info.storage_key()),
 	}
@@ -310,7 +309,7 @@ pub fn len(child_info: &ChildInfo, key: &[u8]) -> Option<u32> {
 			let mut buffer = [0; 0];
 			sp_io::default_child_storage::read(child_info.storage_key(), key, &mut buffer, 0)
 		},
-		ChildType::ParentSized => {
+		ChildType::BTree => {
 			let mut buffer = [0; 0];
 			sp_io::parent_sized_child_storage::read(child_info.storage_key(), key, &mut buffer, 0)
 		},

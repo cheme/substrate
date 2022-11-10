@@ -61,41 +61,6 @@ where
 		children_default.insert(key.0, StorageChild { child_info, data: pairs });
 	}
 
-	while let Some(pos) = top_storage
-		.iter()
-		.position(|(k, _)| k.0.starts_with(well_known_keys::SIZED_PARENT_CHILD_STORAGE_KEY_PREFIX))
-	{
-		let (key, _) = top_storage.swap_remove(pos);
-
-		let key = StorageKey(
-			key.0[well_known_keys::SIZED_PARENT_CHILD_STORAGE_KEY_PREFIX.len()..].to_vec(),
-		);
-		let child_info = ChildInfo::new_parent_sized(&key.0);
-
-		let keys = client.child_storage_keys(hash, &child_info, &empty_key)?;
-		let mut pairs = StorageMap::new();
-		keys.into_iter().try_for_each(|k| {
-			if let Some(value) = client.child_storage(hash, &child_info, &k)? {
-				pairs.insert(k.0, value.0);
-			}
-
-			Ok::<_, Error>(())
-		})?;
-
-		children_sized.insert(key.0, StorageChild { child_info, data: pairs });
-
-		while let Some(pos) = top_storage
-			.iter()
-			.position(|(k, _)| k.0.starts_with(well_known_keys::MMR_CHILD_STORAGE_KEY_PREFIX))
-		{
-			let (key, _) = top_storage.swap_remove(pos);
-
-			let _key =
-				StorageKey(key.0[well_known_keys::MMR_CHILD_STORAGE_KEY_PREFIX.len()..].to_vec());
-			unimplemented!("read all mmr content and add to vec like raw state");
-		}
-	}
-
 	let top = top_storage.into_iter().map(|(k, v)| (k.0, v.0)).collect();
 	Ok(Storage { top, children_default, children_sized, children_mmr: Default::default() })
 }

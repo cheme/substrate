@@ -79,8 +79,13 @@ impl BasicExternalities {
 				ChildType::ParentKeyId => {
 					children_default.insert(i.storage_key().to_vec(), child);
 				},
-				ChildType::ParentSized => {
-					children_sized.insert(i.storage_key().to_vec(), child);
+				ChildType::BTree => {
+					// TODO audit usage here: transient should generally
+					// not be in storage (unless that is what is passed
+					// to client, then sure but only when we get Mode::Archive.
+					// mark as unimplemented for now
+					unimplemented!();
+					//children_sized.insert(i.storage_key().to_vec(), child);
 				},
 				_ => unreachable!(),
 			}
@@ -356,7 +361,7 @@ impl Externalities for BasicExternalities {
 	) -> Vec<u8> {
 		let child_map = match child_info.child_type() {
 			ChildType::ParentKeyId => (),
-			ChildType::ParentSized => (),
+			ChildType::BTree => (),
 			ChildType::Mmr =>
 				return if let Some(child) = self.overlay.child_mmr_changes(child_info.storage_key())
 				{

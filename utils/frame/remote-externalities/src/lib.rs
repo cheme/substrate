@@ -578,11 +578,13 @@ where
 				Some((ChildType::ParentKeyId, storage_key)) => {
 					child_kv.push((ChildInfo::new_default(&storage_key), child_kv_inner));
 				},
-				Some((ChildType::ParentSized, storage_key)) => {
-					child_kv.push((ChildInfo::new_parent_sized(&storage_key), child_kv_inner));
+				Some((ChildType::BTree, _storage_key)) => {
+					// transient, nothing to add.
+					// TODO restore master code here
 				},
 				Some((ChildType::Mmr, _storage_key)) => {
-					unimplemented!("No impl of mmr child storage for mmr");
+					// transient, nothing to add.
+					// TODO restore master code here
 				},
 				None => {
 					log::error!(target: LOG_TARGET, "invalid key: {:?}", prefixed_top_key);

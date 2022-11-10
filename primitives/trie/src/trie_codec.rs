@@ -22,7 +22,7 @@
 
 use crate::{CompactProof, HashDBT, StorageProof, TrieConfiguration, TrieHash, EMPTY_PREFIX};
 use sp_core::storage::{well_known_keys, ChildType, PrefixedStorageKey};
-use sp_std::{boxed::Box, vec::Vec, vec};
+use sp_std::{boxed::Box, vec, vec::Vec};
 use trie_db::{CError, Trie};
 
 /// Error for trie node decoding.
@@ -41,8 +41,8 @@ pub enum Error<H, CodecError> {
 	InvalidChildRoot(Vec<u8>, Vec<u8>),
 	#[cfg_attr(feature = "std", error("Trie error: {0:?}"))]
 	TrieError(Box<trie_db::TrieError<H, CodecError>>),
-	#[cfg_attr(feature = "std", error("Parent sized trie error: {0:?}"))]
-	ParentSizedChildTrieError(Box<trie_db::TrieError<H, crate::error::Error<H>>>),
+	#[cfg_attr(feature = "std", error("Btree storage error: {0:?}"))]
+	BTreeStorageError(Box<trie_db::TrieError<H, crate::error::Error<H>>>),
 	#[cfg_attr(feature = "std", error("Mmr child state error: {0:?}"))]
 	MmrChildError(&'static str),
 }
@@ -163,13 +163,8 @@ where
 						trie_db::decode_compact_from_iter::<L, _, _>(db, &mut nodes_iter)?;
 					previous_extracted_child_trie = Some(top_root);
 				},
-				ChildType::ParentSized => {
-					let (top_root, _) = trie_db::decode_compact_from_iter::<
-						crate::LayoutParentSized<L::Hash>,
-						_,
-						_,
-					>(db, &mut nodes_iter)
-					.map_err(|e| Error::ParentSizedChildTrieError(e))?;
+				ChildType::BTree => {
+					// not persistent TODO consider just reverting to master code
 					previous_extracted_child_trie = Some(top_root);
 				},
 				ChildType::Mmr => unreachable!("in mmrs"),
@@ -309,17 +304,9 @@ where
 
 				compact_proof.extend(child_proof);
 			},
-			ChildType::ParentSized => {
-				let trie = crate::TrieDBBuilder::<crate::LayoutParentSized<L::Hash>>::new(
-					partial_db,
-					&child_root,
-				)
-				.build();
-				let child_proof =
-					trie_db::encode_compact::<crate::LayoutParentSized<L::Hash>>(&trie)
-						.map_err(|e| Error::ParentSizedChildTrieError(e))?;
-
-				compact_proof.extend(child_proof);
+			ChildType::BTree => {
+				// noop, non persistant.
+				// TODO consider revert to master code
 			},
 			ChildType::Mmr => unreachable!("in mmrs"),
 		}

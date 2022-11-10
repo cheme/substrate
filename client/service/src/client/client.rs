@@ -618,15 +618,28 @@ where
 												data: Default::default(),
 												child_info: ChildInfo::new_default(storage_key),
 											}),
-										Some((ChildType::ParentSized, storage_key)) => storage
-											.children_sized
-											.entry(storage_key.to_vec())
-											.or_insert_with(|| StorageChild {
-												data: Default::default(),
-												child_info: ChildInfo::new_parent_sized(
-													storage_key,
-												),
-											}),
+										Some((ChildType::BTree, storage_key)) => {
+											// transient data is passed through import,
+											// could be change (but change should be deprecated
+											// maybe).
+											//
+											// TODO when injecting only write or process to
+											// external service when in pruning range?? -> that
+											// is difficult as we don't know the target (except
+											// sync from start when doing a warp sync).
+											// Could skip skip when import (only on start) and
+											// create when head is reached (mean executing block
+											// twice so only ok for small window).
+											storage
+												.children_sized
+												.entry(storage_key.to_vec())
+												.or_insert_with(|| StorageChild {
+													data: Default::default(),
+													child_info: ChildInfo::new_parent_sized(
+														storage_key,
+													),
+												})
+										},
 										Some((ChildType::Mmr, storage_key)) => {
 											let entry = storage
 												.children_mmr
@@ -1231,7 +1244,7 @@ where
 			match ChildType::from_prefixed_key(storage_key) {
 				Some((ChildType::ParentKeyId, storage_key)) =>
 					Ok(ChildInfo::new_default(storage_key)),
-				Some((ChildType::ParentSized, storage_key)) =>
+				Some((ChildType::BTree, storage_key)) =>
 					Ok(ChildInfo::new_parent_sized(storage_key)),
 				Some((ChildType::Mmr, _storage_key)) =>
 					unimplemented!("TODO probly start key u64 le"),

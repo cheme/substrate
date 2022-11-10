@@ -410,8 +410,14 @@ where
 			StateVersion::V0 => empty_child_trie_root::<LayoutV0<H>>(),
 			StateVersion::V1 => empty_child_trie_root::<LayoutV1<H>>(),
 		},
-		ChildType::ParentSized => empty_child_trie_root::<LayoutParentSized<H>>(),
-		ChildType::Mmr => sp_trie::mmr::empty_root::<H>(),
+		ChildType::BTree => {
+			unimplemented!("check merkle type from child info first");
+			empty_child_trie_root::<LayoutParentSized<H>>()
+		},
+		ChildType::Mmr => {
+			unimplemented!("check merkle type from child info first");
+			sp_trie::mmr::empty_root::<H>()
+		},
 	}
 }
 

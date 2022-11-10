@@ -855,9 +855,10 @@ mod execution {
 					Some(match ChildType::from_prefixed_key(storage_key) {
 						Some((ChildType::ParentKeyId, storage_key)) =>
 							ChildInfo::new_default(storage_key),
-						Some((ChildType::ParentSized, storage_key)) =>
-							ChildInfo::new_parent_sized(storage_key),
-						Some((ChildType::Mmr, _)) => return Err(Box::new("No range key for mmr.")),
+						Some((ChildType::BTree, _))
+						| Some((ChildType::Mmr, _)) => {
+							return Err(Box::new("Invalid range start child trie key, reserved for transient storage."))
+						},
 						None => return Err(Box::new("Invalid range start child trie key.")),
 					}),
 					2,
@@ -1291,11 +1292,7 @@ mod execution {
 					Some(match ChildType::from_prefixed_key(storage_key) {
 						Some((ChildType::ParentKeyId, storage_key)) =>
 							ChildInfo::new_default(storage_key),
-						Some((ChildType::ParentSized, storage_key)) =>
-							ChildInfo::new_parent_sized(storage_key),
-						// TODO not this break WarpSync: should equivalence u64 index with an
-						// u64 index and manage progress like it.
-						Some((ChildType::Mmr, _)) => return Err(Box::new("No range key for mmr.")),
+Some((ChildType::BTree, _)) | Some((ChildType::Mmr, _)) => return Err(Box::new("Invalid range start child trie key, reserved for transient storage.")),
 						None => return Err(Box::new("Invalid range start child trie key.")),
 					}),
 					2,

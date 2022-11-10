@@ -238,8 +238,10 @@ pub trait TestClientBuilderExt<B>: Sized {
 		assert!(!key.is_empty());
 		let child_map = match child_info.child_type() {
 			ChildType::ParentKeyId => &mut self.genesis_init_mut().extra_storage.children_default,
-			ChildType::ParentSized => &mut self.genesis_init_mut().extra_storage.children_sized,
-			ChildType::Mmr => unimplemented!(), // error actually
+			ChildType::BTree => &mut self.genesis_init_mut().extra_storage.children_sized,
+			ChildType::Mmr => unimplemented!(), /* error actually TODO this is needed for tests
+			                                     * (not
+			                                     * genesis obviously */
 		};
 		child_map
 			.entry(storage_key)
