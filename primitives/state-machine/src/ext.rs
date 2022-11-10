@@ -650,25 +650,15 @@ where
 		let storage_key = child_info.storage_key();
 		let prefixed_storage_key = child_info.prefixed_storage_key();
 
-		if let ChildInfo::Mmr(_) = child_info {
+		if let ChildInfo::Blob(_) = child_info {
 			let root = if let Some((changes, info)) = self.overlay.child_mmr_changes(storage_key) {
+				// TODO maybe backend implement storage root directly (hash type shoudl be in info
 				Some(self.backend.child_mmr_root(info, changes))
 			} else {
 				None
 			};
 
 			return if let Some((root, is_empty, _)) = root {
-				// We store update in the overlay in order to be able to use
-				// 'self.storage_transaction' cache. This is brittle as it rely on Ext only querying
-				// the trie backend for storage root.
-				// A better design would be to manage 'child_storage_transaction' in a
-				// similar way as 'storage_transaction' but for each child trie.
-				if is_empty {
-					self.overlay.set_storage(prefixed_storage_key.into_inner(), None);
-				} else {
-					self.overlay.set_storage(prefixed_storage_key.into_inner(), Some(root.clone()));
-				}
-
 				trace!(
 					target: "state",
 					method = "ChildStorageRoot",
@@ -681,6 +671,7 @@ where
 				root
 			} else {
 				// empty overlay
+				// TODO just hash of empty bytes.
 				let root = self
 					.storage(prefixed_storage_key.as_slice())
 					.and_then(|k| Decode::decode(&mut &k[..]).ok())

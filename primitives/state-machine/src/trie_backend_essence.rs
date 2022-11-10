@@ -355,7 +355,7 @@ where
 	/// Access the root of the child storage in its parent trie
 	fn child_root(&self, child_info: &ChildInfo) -> Result<Option<H::Out>> {
 		// non persistent
-		if matches!(child_info.child_type(), ChildType::BTree | ChildType::Mmr) {
+		if matches!(child_info.child_type(), ChildType::BTree | ChildType::Blob) {
 			return Ok(None)
 		}
 		#[cfg(feature = "std")]
@@ -439,9 +439,7 @@ where
 
 					self.next_storage_key_from_root_inner::<Layout<H>>(trie, key)
 				}),
-			Some(ChildType::BTree) =>
-				return Err(format!("No essence for a transient storage.",).into()),
-			Some(ChildType::Mmr) =>
+			Some(ChildType::BTree) | Some(ChildType::Blob) =>
 				return Err(format!("No essence for a transient storage.",).into()),
 		}
 	}
@@ -569,7 +567,7 @@ where
 					)
 					.map_err(map_e)
 				}),
-			ChildType::BTree | ChildType::Mmr => {
+			ChildType::BTree | ChildType::Blob => {
 				// non persistent
 				Ok(None)
 			},
@@ -589,8 +587,7 @@ where
 		match child_info.child_type() {
 			ChildType::ParentKeyId => Err(format!("Not mmr child state",).into()),
 			ChildType::BTree => Err(format!("Not mmr child state",).into()),
-			ChildType::Mmr =>
-				Ok(sp_trie::mmr::read_child_trie_value::<H, _>(self, &root, nb_element, at)),
+			ChildType::Blob => unimplemented!("TODO transform to blob"),
 		}
 	}
 
@@ -616,7 +613,7 @@ where
 					)
 					.map_err(map_e)
 				}),
-			ChildType::BTree | ChildType::Mmr => {
+			ChildType::BTree | ChildType::Blob => {
 				// non persistent
 				Ok(false)
 			},
@@ -645,7 +642,7 @@ where
 					)
 					.map_err(map_e)
 				}),
-			ChildType::BTree | ChildType::Mmr => {
+			ChildType::BTree | ChildType::Blob => {
 				// non persistent
 				Ok(None)
 			},
@@ -761,7 +758,7 @@ where
 				child_info,
 				maybe_start_at,
 			),
-			Some(ChildType::BTree) | Some(ChildType::Mmr) => {
+			Some(ChildType::BTree) | Some(ChildType::Blob) => {
 				// non persistent
 				()
 			},
@@ -838,7 +835,7 @@ where
 				start_at,
 				allow_missing_nodes,
 			),
-			Some(ChildType::BTree) | Some(ChildType::Mmr) => {
+			Some(ChildType::BTree) | Some(ChildType::Blob) => {
 				// non persistent
 				Ok(true)
 			},
@@ -1004,7 +1001,7 @@ where
 
 		let mut eph = Ephemeral::new(self.backend_storage(), &mut write_overlay);
 		let new_child_root = match (state_version, child_info.child_type()) {
-			(_, ChildType::Mmr) => unimplemented!("should return error"),
+			(_, ChildType::Blob) => unimplemented!("use child info hash variant and hash"),
 			(StateVersion::V0, ChildType::ParentKeyId) => self
 				.with_recorder_and_cache_for_storage_root(Some(child_root), |recorder, cache| {
 					match child_delta_trie_root::<sp_trie::LayoutV0<H>, _, _, _, _, _, _>(
@@ -1067,6 +1064,7 @@ where
 		(new_child_root, is_default, write_overlay)
 	}
 
+	// TODO remove
 	pub fn child_mmr_root<'a>(
 		&self,
 		child_info: &ChildInfo,
@@ -1076,8 +1074,8 @@ where
 		H::Out: Ord,
 	{
 		match child_info.child_type() {
-			ChildType::Mmr => (),
-			_ => unimplemented!("should return error"),
+			ChildType::Blob => (),
+			_ => unimplemented!("should return error, and be unreachable"),
 		}
 
 		let default_root = sp_trie::mmr::empty_root::<H>();

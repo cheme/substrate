@@ -362,13 +362,15 @@ impl Externalities for BasicExternalities {
 		let child_map = match child_info.child_type() {
 			ChildType::ParentKeyId => (),
 			ChildType::BTree => (),
-			ChildType::Mmr =>
+			ChildType::Blob =>
 				return if let Some(child) = self.overlay.child_mmr_changes(child_info.storage_key())
 				{
+					// TODO
 					crate::in_memory_backend::new_in_mem::<Blake2Hasher, HashKey<_>>()
 						.child_mmr_root(child_info, child.0)
 						.0
 				} else {
+					// TODO
 					let root = sp_trie::mmr::empty_root::<Blake2Hasher>();
 					(0u64, root).encode()
 				},

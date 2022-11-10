@@ -695,27 +695,6 @@ mod execution {
 		}
 	}
 
-	/// KeyValue state from mamr values iterator.
-	pub struct MmrsToKeyValueStates<I>(I); // TODO any use??
-
-	impl<I> From<MmrsToKeyValueStates<I>> for KeyValueStates
-	where
-		I: IntoIterator<Item = (Vec<u8>, (Vec<Vec<u8>>, Vec<Vec<u8>>))>,
-	{
-		fn from(b: MmrsToKeyValueStates<I>) -> Self {
-			let mut result = Vec::new();
-			for (state_root, (values, storage_paths)) in b.0.into_iter() {
-				result.push(KeyValueStorageLevel {
-					state_root,
-					key_values: Default::default(),
-					values,
-					parent_storage_keys: storage_paths,
-				})
-			}
-			KeyValueStates(result)
-		}
-	}
-
 	impl KeyValueStates {
 		/// Return total number of key values in states.
 		pub fn len(&self) -> usize {
@@ -856,7 +835,7 @@ mod execution {
 						Some((ChildType::ParentKeyId, storage_key)) =>
 							ChildInfo::new_default(storage_key),
 						Some((ChildType::BTree, _))
-						| Some((ChildType::Mmr, _)) => {
+						| Some((ChildType::Blob, _)) => {
 							return Err(Box::new("Invalid range start child trie key, reserved for transient storage."))
 						},
 						None => return Err(Box::new("Invalid range start child trie key.")),
@@ -1292,7 +1271,7 @@ mod execution {
 					Some(match ChildType::from_prefixed_key(storage_key) {
 						Some((ChildType::ParentKeyId, storage_key)) =>
 							ChildInfo::new_default(storage_key),
-Some((ChildType::BTree, _)) | Some((ChildType::Mmr, _)) => return Err(Box::new("Invalid range start child trie key, reserved for transient storage.")),
+Some((ChildType::BTree, _)) | Some((ChildType::Blob, _)) => return Err(Box::new("Invalid range start child trie key, reserved for transient storage.")),
 						None => return Err(Box::new("Invalid range start child trie key.")),
 					}),
 					2,

@@ -630,23 +630,22 @@ where
 											// Could skip skip when import (only on start) and
 											// create when head is reached (mean executing block
 											// twice so only ok for small window).
+											// TODO same for type Blob
 											storage
 												.children_sized
 												.entry(storage_key.to_vec())
 												.or_insert_with(|| StorageChild {
 													data: Default::default(),
-													child_info: ChildInfo::new_parent_sized(
-														storage_key,
-													),
+													child_info: ChildInfo::new_btree(storage_key),
 												})
 										},
-										Some((ChildType::Mmr, storage_key)) => {
+										Some((ChildType::Blob, storage_key)) => {
 											let entry = storage
 												.children_mmr
 												.entry(storage_key.to_vec())
 												.or_insert_with(|| StorageMmr {
 													data: Default::default(),
-													child_info: ChildInfo::new_mmr(storage_key),
+													child_info: ChildInfo::new_blob(storage_key),
 												});
 											debug_assert!(state.key_values.is_empty());
 											for value in state.values.iter() {
@@ -1244,11 +1243,11 @@ where
 			match ChildType::from_prefixed_key(storage_key) {
 				Some((ChildType::ParentKeyId, storage_key)) =>
 					Ok(ChildInfo::new_default(storage_key)),
-				Some((ChildType::BTree, storage_key)) =>
-					Ok(ChildInfo::new_parent_sized(storage_key)),
-				Some((ChildType::Mmr, _storage_key)) =>
-					unimplemented!("TODO probly start key u64 le"),
-				None => Err(Error::Backend("Invalid child storage key.".to_string())),
+				// TODO have a function to fetch transient content
+				// (btree could be here but awkward as this is meant
+				// to be state at block start).
+				Some((ChildType::BTree, _)) | Some((ChildType::Blob, _)) | None =>
+					Err(Error::Backend("Invalid child storage key.".to_string())),
 			}
 		};
 		let mut current_child = if start_key.len() == 2 {

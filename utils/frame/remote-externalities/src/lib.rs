@@ -582,7 +582,7 @@ where
 					// transient, nothing to add.
 					// TODO restore master code here
 				},
-				Some((ChildType::Mmr, _storage_key)) => {
+				Some((ChildType::Blob, _storage_key)) => {
 					// transient, nothing to add.
 					// TODO restore master code here
 				},

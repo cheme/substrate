@@ -230,7 +230,7 @@ impl<Block: BlockT, ExecutorDispatch, Backend, G: GenesisInit>
 							},
 						);
 					},
-					ChildType::Mmr => {
+					ChildType::Blob => {
 						storage.children_mmr.insert(
 							key,
 							StorageMmr {

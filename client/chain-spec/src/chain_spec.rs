@@ -102,22 +102,7 @@ impl<G: RuntimeGenesis> GenesisSource<G> {
 					})
 					.collect();
 
-				let children_sized = storage
-					.children_sized
-					.iter()
-					.map(|(k, child)| {
-						(
-							StorageKey(k.clone()),
-							child
-								.data
-								.iter()
-								.map(|(k, v)| (StorageKey(k.clone()), StorageData(v.clone())))
-								.collect(),
-						)
-					})
-					.collect();
-
-				Ok(Genesis::Raw(RawGenesis { top, children_default, children_sized }))
+				Ok(Genesis::Raw(RawGenesis { top, children_default }))
 			},
 		}
 	}
@@ -127,11 +112,7 @@ impl<G: RuntimeGenesis, E> BuildStorage for ChainSpec<G, E> {
 	fn build_storage(&self) -> Result<Storage, String> {
 		match self.genesis.resolve()? {
 			Genesis::Runtime(gc) => gc.build_storage(),
-			Genesis::Raw(RawGenesis {
-				top: map,
-				children_default: children_map,
-				children_sized,
-			}) => Ok(Storage {
+			Genesis::Raw(RawGenesis { top: map, children_default: children_map }) => Ok(Storage {
 				top: map.into_iter().map(|(k, v)| (k.0, v.0)).collect(),
 				children_default: children_map
 					.into_iter()
@@ -146,20 +127,8 @@ impl<G: RuntimeGenesis, E> BuildStorage for ChainSpec<G, E> {
 						)
 					})
 					.collect(),
-				children_sized: children_sized
-					.into_iter()
-					.map(|(storage_key, child_content)| {
-						let child_info = ChildInfo::new_parent_sized(storage_key.0.as_slice());
-						(
-							storage_key.0,
-							StorageChild {
-								data: child_content.into_iter().map(|(k, v)| (k.0, v.0)).collect(),
-								child_info,
-							},
-						)
-					})
-					.collect(),
-				children_mmr: Default::default(),
+				children_sized: Default::default(), // transient
+				children_mmr: Default::default(),   // transient
 			}),
 			// The `StateRootHash` variant exists as a way to keep note that other clients support
 			// it, but Substrate itself isn't capable of loading chain specs with just a hash at the
@@ -183,9 +152,6 @@ pub struct RawGenesis {
 	pub top: GenesisStorage,
 	#[serde(default)]
 	pub children_default: BTreeMap<StorageKey, GenesisStorage>,
-	#[serde(default)]
-	pub children_sized: BTreeMap<StorageKey, GenesisStorage>,
-	// TODO mmr init state
 }
 
 #[derive(Serialize, Deserialize)]
@@ -397,22 +363,8 @@ impl<G: RuntimeGenesis, E: serde::Serialize + Clone + 'static> ChainSpec<G, E> {
 						)
 					})
 					.collect();
-				let children_sized = storage
-					.children_sized
-					.into_iter()
-					.map(|(sk, child)| {
-						(
-							StorageKey(sk),
-							child
-								.data
-								.into_iter()
-								.map(|(k, v)| (StorageKey(k), StorageData(v)))
-								.collect(),
-						)
-					})
-					.collect();
 
-				Genesis::Raw(RawGenesis { top, children_default, children_sized })
+				Genesis::Raw(RawGenesis { top, children_default })
 			},
 			(_, genesis) => genesis,
 		};

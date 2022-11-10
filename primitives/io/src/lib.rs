@@ -522,7 +522,7 @@ pub trait ParentSizedChildStorage {
 	/// Parameter `storage_key` is the unprefixed location of the root of the child trie in the
 	/// parent trie. Result is `None` if the value for `key` in the child storage can not be found.
 	fn get(&self, storage_key: &[u8], key: &[u8]) -> Option<Vec<u8>> {
-		let child_info = ChildInfo::new_parent_sized(storage_key);
+		let child_info = ChildInfo::new_btree(storage_key);
 		self.child_storage(&child_info, key).map(|s| s.to_vec())
 	}
 
@@ -540,7 +540,7 @@ pub trait ParentSizedChildStorage {
 		value_out: &mut [u8],
 		value_offset: u32,
 	) -> Option<u32> {
-		let child_info = ChildInfo::new_parent_sized(storage_key);
+		let child_info = ChildInfo::new_btree(storage_key);
 		self.child_storage(&child_info, key).map(|value| {
 			let value_offset = value_offset as usize;
 			let data = &value[value_offset.min(value.len())..];
@@ -554,7 +554,7 @@ pub trait ParentSizedChildStorage {
 	///
 	/// Set `key` to `value` in the child storage denoted by `storage_key`.
 	fn set(&mut self, storage_key: &[u8], key: &[u8], value: &[u8]) {
-		let child_info = ChildInfo::new_parent_sized(storage_key);
+		let child_info = ChildInfo::new_btree(storage_key);
 		self.set_child_storage(&child_info, key.to_vec(), value.to_vec());
 	}
 
@@ -562,7 +562,7 @@ pub trait ParentSizedChildStorage {
 	///
 	/// For the default child storage at `storage_key`, clear value at `key`.
 	fn clear(&mut self, storage_key: &[u8], key: &[u8]) {
-		let child_info = ChildInfo::new_parent_sized(storage_key);
+		let child_info = ChildInfo::new_btree(storage_key);
 		self.clear_child_storage(&child_info, key);
 	}
 
@@ -570,7 +570,7 @@ pub trait ParentSizedChildStorage {
 	///
 	/// See `Storage` module `clear_prefix` documentation for `limit` usage.
 	fn storage_kill(&mut self, storage_key: &[u8], _limit: Option<u32>) {
-		let child_info = ChildInfo::new_parent_sized(storage_key);
+		let child_info = ChildInfo::new_btree(storage_key);
 		let _ = self.kill_child_storage(&child_info, None, None);
 	}
 
@@ -579,7 +579,7 @@ pub trait ParentSizedChildStorage {
 	/// See `Storage` module `clear_prefix` documentation for `limit` usage.
 	#[version(2)]
 	fn storage_kill(&mut self, storage_key: &[u8], limit: Option<u32>) -> bool {
-		let child_info = ChildInfo::new_parent_sized(storage_key);
+		let child_info = ChildInfo::new_btree(storage_key);
 		let r = self.kill_child_storage(&child_info, limit, None);
 		r.maybe_cursor.is_none()
 	}
@@ -589,7 +589,7 @@ pub trait ParentSizedChildStorage {
 	/// See `Storage` module `clear_prefix` documentation for `limit` usage.
 	#[version(3)]
 	fn storage_kill(&mut self, storage_key: &[u8], limit: Option<u32>) -> KillStorageResult {
-		let child_info = ChildInfo::new_parent_sized(storage_key);
+		let child_info = ChildInfo::new_btree(storage_key);
 		self.kill_child_storage(&child_info, limit, None).into()
 	}
 
@@ -603,7 +603,7 @@ pub trait ParentSizedChildStorage {
 		maybe_limit: Option<u32>,
 		maybe_cursor: Option<Vec<u8>>,
 	) -> MultiRemovalResults {
-		let child_info = ChildInfo::new_parent_sized(storage_key);
+		let child_info = ChildInfo::new_btree(storage_key);
 		self.kill_child_storage(&child_info, maybe_limit, maybe_cursor.as_ref().map(|x| &x[..]))
 			.into()
 	}
@@ -612,7 +612,7 @@ pub trait ParentSizedChildStorage {
 	///
 	/// Check whether the given `key` exists in parent sized child defined at `storage_key`.
 	fn exists(&self, storage_key: &[u8], key: &[u8]) -> bool {
-		let child_info = ChildInfo::new_parent_sized(storage_key);
+		let child_info = ChildInfo::new_btree(storage_key);
 		self.exists_child_storage(&child_info, key)
 	}
 
@@ -620,7 +620,7 @@ pub trait ParentSizedChildStorage {
 	///
 	/// Check size of value for the given `key` in parent sized child defined at `storage_key`.
 	fn size(&self, storage_key: &[u8], key: &[u8]) -> Option<u32> {
-		let child_info = ChildInfo::new_parent_sized(storage_key);
+		let child_info = ChildInfo::new_btree(storage_key);
 		self.child_value_size(&child_info, key)
 	}
 
@@ -628,7 +628,7 @@ pub trait ParentSizedChildStorage {
 	///
 	/// Clear the child storage of each key-value pair where the key starts with the given `prefix`.
 	fn clear_prefix(&mut self, storage_key: &[u8], prefix: &[u8]) {
-		let child_info = ChildInfo::new_parent_sized(storage_key);
+		let child_info = ChildInfo::new_btree(storage_key);
 		let _ = self.clear_child_prefix(&child_info, prefix, None, None);
 	}
 
@@ -642,7 +642,7 @@ pub trait ParentSizedChildStorage {
 		prefix: &[u8],
 		limit: Option<u32>,
 	) -> KillStorageResult {
-		let child_info = ChildInfo::new_parent_sized(storage_key);
+		let child_info = ChildInfo::new_btree(storage_key);
 		self.clear_child_prefix(&child_info, prefix, limit, None).into()
 	}
 
@@ -657,7 +657,7 @@ pub trait ParentSizedChildStorage {
 		maybe_limit: Option<u32>,
 		maybe_cursor: Option<Vec<u8>>,
 	) -> MultiRemovalResults {
-		let child_info = ChildInfo::new_parent_sized(storage_key);
+		let child_info = ChildInfo::new_btree(storage_key);
 		self.clear_child_prefix(
 			&child_info,
 			prefix,
@@ -674,7 +674,7 @@ pub trait ParentSizedChildStorage {
 	///
 	/// Returns a `Vec<u8>` that holds the SCALE encoded hash.
 	fn root(&mut self, storage_key: &[u8]) -> Vec<u8> {
-		let child_info = ChildInfo::new_parent_sized(storage_key);
+		let child_info = ChildInfo::new_btree(storage_key);
 		self.child_storage_root(&child_info, StateVersion::V0)
 	}
 
@@ -686,7 +686,7 @@ pub trait ParentSizedChildStorage {
 	/// Returns a `Vec<u8>` that holds the SCALE encoded hash.
 	#[version(2)]
 	fn root(&mut self, storage_key: &[u8], version: StateVersion) -> Vec<u8> {
-		let child_info = ChildInfo::new_parent_sized(storage_key);
+		let child_info = ChildInfo::new_btree(storage_key);
 		self.child_storage_root(&child_info, version)
 	}
 
@@ -694,7 +694,7 @@ pub trait ParentSizedChildStorage {
 	///
 	/// Get the next key in storage after the given one in lexicographic order in child storage.
 	fn next_key(&mut self, storage_key: &[u8], key: &[u8]) -> Option<Vec<u8>> {
-		let child_info = ChildInfo::new_parent_sized(storage_key);
+		let child_info = ChildInfo::new_btree(storage_key);
 		self.next_child_storage_key(&child_info, key)
 	}
 }
@@ -842,7 +842,7 @@ pub trait MmrChildStorage {
 	/// Parameter `storage_key` is the unprefixed location of the root of the child trie in the
 	/// parent trie. Result is `None` if the value for `key` in the child storage can not be found.
 	fn get(&self, storage_key: &[u8], at: u64) -> Option<Vec<u8>> {
-		let child_info = ChildInfo::new_mmr(storage_key);
+		let child_info = ChildInfo::new_blob(storage_key);
 		self.child_storage_at(&child_info, at).map(|s| s.to_vec())
 	}
 
@@ -850,7 +850,7 @@ pub trait MmrChildStorage {
 	///
 	/// Set `key` to `value` in the child storage denoted by `storage_key`.
 	fn push(&mut self, storage_key: &[u8], value: &[u8]) {
-		let child_info = ChildInfo::new_mmr(storage_key);
+		let child_info = ChildInfo::new_blob(storage_key);
 		self.push_storage(&child_info, value.to_vec());
 	}
 
@@ -861,7 +861,7 @@ pub trait MmrChildStorage {
 	///
 	/// Returns a `Vec<u8>` that holds the SCALE encoded hash.
 	fn root(&mut self, storage_key: &[u8]) -> Vec<u8> {
-		let child_info = ChildInfo::new_mmr(storage_key);
+		let child_info = ChildInfo::new_blob(storage_key);
 		self.child_storage_root(&child_info, StateVersion::V1)
 	}
 }

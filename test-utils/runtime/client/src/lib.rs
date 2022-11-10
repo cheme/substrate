@@ -239,9 +239,12 @@ pub trait TestClientBuilderExt<B>: Sized {
 		let child_map = match child_info.child_type() {
 			ChildType::ParentKeyId => &mut self.genesis_init_mut().extra_storage.children_default,
 			ChildType::BTree => &mut self.genesis_init_mut().extra_storage.children_sized,
-			ChildType::Mmr => unimplemented!(), /* error actually TODO this is needed for tests
-			                                     * (not
-			                                     * genesis obviously */
+			ChildType::Blob => unimplemented!(), /* error actually TODO this is needed for tests
+			                                      * (not
+			                                      * genesis obviously
+			                                      * as this is just for test, we can just
+			                                      * ignore the key and use the value as is.
+			                                      */
 		};
 		child_map
 			.entry(storage_key)

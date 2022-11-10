@@ -414,7 +414,7 @@ where
 			unimplemented!("check merkle type from child info first");
 			empty_child_trie_root::<LayoutParentSized<H>>()
 		},
-		ChildType::Mmr => {
+		ChildType::Blob => {
 			unimplemented!("check merkle type from child info first");
 			sp_trie::mmr::empty_root::<H>()
 		},

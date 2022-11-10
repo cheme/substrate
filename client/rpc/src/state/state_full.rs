@@ -490,9 +490,7 @@ where
 				let child_info = match ChildType::from_prefixed_key(&storage_key) {
 					Some((ChildType::ParentKeyId, storage_key)) =>
 						ChildInfo::new_default(storage_key),
-					Some((ChildType::BTree, storage_key)) =>
-						ChildInfo::new_parent_sized(storage_key),
-					Some((ChildType::Mmr, _)) | None =>
+					Some((ChildType::BTree, _)) | Some((ChildType::Blob, _)) | None =>
 						return Err(sp_blockchain::Error::InvalidChildStorageKey),
 				};
 				self.client
@@ -518,9 +516,7 @@ where
 				let child_info = match ChildType::from_prefixed_key(&storage_key) {
 					Some((ChildType::ParentKeyId, storage_key)) =>
 						ChildInfo::new_default(storage_key),
-					Some((ChildType::BTree, storage_key)) =>
-						ChildInfo::new_parent_sized(storage_key),
-					Some((ChildType::Mmr, _)) | None =>
+					Some((ChildType::BTree, _)) | Some((ChildType::Blob, _)) | None =>
 						return Err(sp_blockchain::Error::InvalidChildStorageKey),
 				};
 				self.client.child_storage_keys(block, &child_info, &prefix)
@@ -541,9 +537,7 @@ where
 				let child_info = match ChildType::from_prefixed_key(&storage_key) {
 					Some((ChildType::ParentKeyId, storage_key)) =>
 						ChildInfo::new_default(storage_key),
-					Some((ChildType::BTree, storage_key)) =>
-						ChildInfo::new_parent_sized(storage_key),
-					Some((ChildType::Mmr, _)) | None =>
+					Some((ChildType::BTree, _)) | Some((ChildType::Blob, _)) | None =>
 						return Err(sp_blockchain::Error::InvalidChildStorageKey),
 				};
 				self.client.child_storage_keys_iter(
@@ -568,9 +562,7 @@ where
 				let child_info = match ChildType::from_prefixed_key(&storage_key) {
 					Some((ChildType::ParentKeyId, storage_key)) =>
 						ChildInfo::new_default(storage_key),
-					Some((ChildType::BTree, storage_key)) =>
-						ChildInfo::new_parent_sized(storage_key),
-					Some((ChildType::Mmr, _)) | None =>
+					Some((ChildType::BTree, _)) | Some((ChildType::Blob, _)) | None =>
 						return Err(sp_blockchain::Error::InvalidChildStorageKey),
 				};
 				self.client.child_storage(block, &child_info, &key)
@@ -587,9 +579,7 @@ where
 		let child_info = match ChildType::from_prefixed_key(&storage_key) {
 			Some((ChildType::ParentKeyId, storage_key)) =>
 				Arc::new(ChildInfo::new_default(storage_key)),
-			Some((ChildType::BTree, storage_key)) =>
-				Arc::new(ChildInfo::new_parent_sized(storage_key)),
-			Some((ChildType::Mmr, _)) | None =>
+			Some((ChildType::BTree, _)) | Some((ChildType::Blob, _)) | None =>
 				return Err(client_err(sp_blockchain::Error::InvalidChildStorageKey)),
 		};
 		let block = self.block_or_best(block).map_err(client_err)?;
@@ -613,9 +603,7 @@ where
 				let child_info = match ChildType::from_prefixed_key(&storage_key) {
 					Some((ChildType::ParentKeyId, storage_key)) =>
 						ChildInfo::new_default(storage_key),
-					Some((ChildType::BTree, storage_key)) =>
-						ChildInfo::new_parent_sized(storage_key),
-					Some((ChildType::Mmr, _)) | None =>
+					Some((ChildType::BTree, _)) | Some((ChildType::Blob, _)) | None =>
 						return Err(sp_blockchain::Error::InvalidChildStorageKey),
 				};
 				self.client.child_storage_hash(block, &child_info, &key)

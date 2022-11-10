@@ -1313,8 +1313,8 @@ fn test_read_child_storage() {
 
 fn test_read_write_mmr_storage() {
 	use frame_support::storage::child;
-	const STORAGE_KEY: &[u8] = b"mmr_unique_id_1";
-	let child_info = sp_core::storage::ChildInfo::new_mmr(STORAGE_KEY);
+	const STORAGE_KEY: &[u8] = b"blob_unique_id_1";
+	let child_info = sp_core::storage::ChildInfo::new_blob(STORAGE_KEY);
 	let init: Option<u64> = child::get_at(&child_info, 0);
 	assert_eq!(init, None);
 	child::push(&child_info, &1u64);

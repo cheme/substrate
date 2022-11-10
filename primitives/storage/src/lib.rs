@@ -229,7 +229,7 @@ pub mod well_known_keys {
 	pub const BTREE_STORAGE_KEY_PREFIX: &'static [u8] = b":child_storage:sized_value:";
 
 	/// Prefix of the sized value child storage keys in the top trie.
-	pub const MMR_CHILD_STORAGE_KEY_PREFIX: &'static [u8] = b":child_storage:mmr:";
+	pub const BLOB_STORAGE_KEY_PREFIX: &'static [u8] = b":child_storage:mmr:";
 
 	/// Whether a key is a default child storage key.
 	///
@@ -269,23 +269,32 @@ pub mod well_known_keys {
 /// Threshold size to start using trie value nodes in state.
 pub const TRIE_VALUE_NODE_THRESHOLD: u32 = 33;
 
+/// Transient storage name.
+pub type Name = Vec<u8>;
+
 /// Information related to a child state.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "std", derive(PartialEq, Eq, Hash, PartialOrd, Ord, Encode, Decode))]
 pub enum ChildInfo {
 	/// This is the one used by default.
 	ParentKeyId(ChildTrieParentKeyId),
-	/// BTree storage info. TODO switch to transient struct info
-	BTree(ChildTrieParentKeyId),
-	/// Blob storage. TODO switch to transient struct info
-	Mmr(ChildTrieParentKeyId),
+	/// BTree storage info.
+	BTree(Name, transient::Mode, transient::Root32Structure), /* TODO ignore Root32Structure in
+	                                                           * eq, */
+	// hash and ord + TODO in their own
+	// struct
+	/// Blob storage.
+	Blob(Name, transient::Mode, transient::Hash32Algorithm), /* TODO ignore Hash32Structure in
+	                                                          * eq,
+	                                                          * hash and ord + TODO in their
+	                                                          * own
+	                                                          * struct */
 }
 
 impl ChildInfo {
-	/// Child info for child trie with size stored in parent node.
-	pub fn new_parent_sized(storage_key: &[u8]) -> Self {
-		let data = storage_key.to_vec();
-		ChildInfo::BTree(ChildTrieParentKeyId { data })
+	/// Child info for a btree storage.
+	pub fn new_btree(name: &[u8], mode: transient::Mode, algo: transient::Root32Structure) -> Self {
+		ChildInfo::BTree(name.to_vec(), mode, algo)
 	}
 
 	/// Instantiates child information for a default child trie
@@ -301,12 +310,11 @@ impl ChildInfo {
 		ChildInfo::ParentKeyId(ChildTrieParentKeyId { data: storage_key })
 	}
 
-	/// Instantiates child information for a default child trie
-	/// of kind `ChildType::Mmr`, using an unprefixed parent
+	/// Instantiates child information for a storage
+	/// of kind `ChildType::Blob`, using an unprefixed parent
 	/// storage key.
-	pub fn new_mmr(storage_key: &[u8]) -> Self {
-		let data = storage_key.to_vec();
-		ChildInfo::Mmr(ChildTrieParentKeyId { data })
+	pub fn new_blob(name: &[u8], mode: transient::Mode, algo: transient::Hash32Algorithm) -> Self {
+		ChildInfo::Blob(name.to_vec(), mode, algo)
 	}
 
 	/// Try to update with another instance, return false if both instance
@@ -314,8 +322,22 @@ impl ChildInfo {
 	pub fn try_update(&mut self, other: &ChildInfo) -> bool {
 		match self {
 			ChildInfo::ParentKeyId(child_trie) => child_trie.try_update(other),
-			ChildInfo::BTree(child_trie) => child_trie.try_update(other),
-			ChildInfo::Mmr(child_trie) => child_trie.try_update(other),
+			ChildInfo::BTree(name, mode, root) =>
+				if let ChildInfo::BTree(o_name, o_mode, o_root) = other {
+					// root method can differ
+					*root = o_root.clone();
+					name == o_name && mode == o_mode
+				} else {
+					false
+				},
+			ChildInfo::Blob(name, mode, root) =>
+				if let ChildInfo::Blob(o_name, o_mode, o_root) = other {
+					// hash method can differ (changing to change next call to storage root).
+					*root = o_root.clone();
+					name == o_name && mode == o_mode
+				} else {
+					false
+				},
 		}
 	}
 
@@ -326,7 +348,7 @@ impl ChildInfo {
 		match self {
 			ChildInfo::ParentKeyId(..) => self.storage_key(),
 			ChildInfo::BTree(..) => self.storage_key(),
-			ChildInfo::Mmr(..) => self.storage_key(),
+			ChildInfo::Blob(..) => self.storage_key(),
 		}
 	}
 
@@ -336,8 +358,8 @@ impl ChildInfo {
 	pub fn storage_key(&self) -> &[u8] {
 		match self {
 			ChildInfo::ParentKeyId(ChildTrieParentKeyId { data }) => &data[..],
-			ChildInfo::BTree(ChildTrieParentKeyId { data }) => &data[..],
-			ChildInfo::Mmr(ChildTrieParentKeyId { data }) => &data[..],
+			ChildInfo::BTree(data, ..) => &data[..],
+			ChildInfo::Blob(data, ..) => &data[..],
 		}
 	}
 
@@ -347,10 +369,8 @@ impl ChildInfo {
 		match self {
 			ChildInfo::ParentKeyId(ChildTrieParentKeyId { data }) =>
 				ChildType::ParentKeyId.new_prefixed_key(data.as_slice()),
-			ChildInfo::BTree(ChildTrieParentKeyId { data }) =>
-				ChildType::BTree.new_prefixed_key(data.as_slice()),
-			ChildInfo::Mmr(ChildTrieParentKeyId { data }) =>
-				ChildType::Mmr.new_prefixed_key(data.as_slice()),
+			ChildInfo::BTree(data, ..) => ChildType::BTree.new_prefixed_key(data.as_slice()),
+			ChildInfo::Blob(data, ..) => ChildType::Blob.new_prefixed_key(data.as_slice()),
 		}
 	}
 
@@ -362,12 +382,12 @@ impl ChildInfo {
 				ChildType::ParentKeyId.do_prefix_key(&mut data);
 				PrefixedStorageKey(data)
 			},
-			ChildInfo::BTree(ChildTrieParentKeyId { mut data }) => {
+			ChildInfo::BTree(mut data, ..) => {
 				ChildType::BTree.do_prefix_key(&mut data);
 				PrefixedStorageKey(data)
 			},
-			ChildInfo::Mmr(ChildTrieParentKeyId { mut data }) => {
-				ChildType::Mmr.do_prefix_key(&mut data);
+			ChildInfo::Blob(mut data, ..) => {
+				ChildType::Blob.do_prefix_key(&mut data);
 				PrefixedStorageKey(data)
 			},
 		}
@@ -378,7 +398,7 @@ impl ChildInfo {
 		match self {
 			ChildInfo::ParentKeyId(..) => ChildType::ParentKeyId,
 			ChildInfo::BTree(..) => ChildType::BTree,
-			ChildInfo::Mmr(..) => ChildType::Mmr,
+			ChildInfo::Blob(..) => ChildType::Blob,
 		}
 	}
 }
@@ -404,25 +424,55 @@ pub enum ChildType {
 	///
 	/// An unused prefix `BTREE_STORAGE_KEY_PREFIX` is reserved.
 	BTree = 2,
-	/// Variant of child trie containing integer indexed push only mmr.
-	Mmr = 3,
+	/// Transient byte array of content.
+	///
+	/// An unused prefix `BLOB_STORAGE_KEY_PREFIX` is reserved.
+	Blob = 3,
 }
 
 /// Transient storage specific structure and data.
 /// Transient storage are storage that do not persist
 /// their state between blocks.
 pub mod transient {
+	use codec::{Decode, Encode};
+
 	/// `Mode` define if transient storage should keep
 	/// storage accessible.
 	/// Accessible storage may be pruned as any storage.
-	#[derive(codec::Encode, codec::Decode)]
-	enum Mode {
+	#[derive(PartialEq, Eq, Debug, Clone)]
+	#[cfg_attr(feature = "std", derive(Hash, PartialOrd, Ord, Encode, Decode))]
+	pub enum Mode {
 		/// Storage can be drop.
-		#[codec(index = 0)]
+		#[cfg_attr(feature = "std", codec(index = 0))]
 		Drop,
 		/// Storage should be accessible.
-		#[codec(index = 1)]
+		#[cfg_attr(feature = "std", codec(index = 1))]
 		Archive,
+	}
+
+	/// Hashing algorithm for transient blob.
+	#[derive(PartialEq, Eq, Debug, Clone)]
+	#[cfg_attr(feature = "std", derive(Hash, PartialOrd, Ord, Encode, Decode))]
+	pub enum Hash32Algorithm {
+		/// Storage can be drop.
+		#[cfg_attr(feature = "std", codec(index = 0))]
+		Blake2b256,
+		/* TODO +proof from rpc		/// Storage should be accessible.
+				#[codec(index = 1)]
+				Blake3,
+		*/
+	}
+
+	/// Hashing algorithm for transient blob.
+	#[derive(PartialEq, Eq, Debug, Clone)]
+	#[cfg_attr(feature = "std", derive(Hash, PartialOrd, Ord, Encode, Decode))]
+	pub enum Root32Structure {
+		/// Substrate default.
+		/// The patricia base 16 merkle trie with
+		/// state version 1 encoding.
+		#[cfg_attr(feature = "std", codec(index = 0))]
+		SubstrateDefault,
+		// TODO some binary trie one(s)
 	}
 }
 
@@ -448,7 +498,7 @@ impl ChildType {
 		};
 		match_type(storage_key, ChildType::ParentKeyId)
 			.or_else(|| match_type(storage_key, ChildType::BTree))
-			.or_else(|| match_type(storage_key, ChildType::Mmr))
+			.or_else(|| match_type(storage_key, ChildType::Blob))
 	}
 
 	/// Produce a prefixed key for a given child type.
@@ -477,7 +527,7 @@ impl ChildType {
 		match self {
 			&ChildType::ParentKeyId => well_known_keys::DEFAULT_CHILD_STORAGE_KEY_PREFIX,
 			&ChildType::BTree => well_known_keys::BTREE_STORAGE_KEY_PREFIX,
-			&ChildType::Mmr => well_known_keys::MMR_CHILD_STORAGE_KEY_PREFIX,
+			&ChildType::Blob => well_known_keys::BLOB_STORAGE_KEY_PREFIX,
 		}
 	}
 }
@@ -502,8 +552,7 @@ impl ChildTrieParentKeyId {
 	fn try_update(&mut self, other: &ChildInfo) -> bool {
 		match other {
 			ChildInfo::ParentKeyId(other) => self.data[..] == other.data[..],
-			ChildInfo::BTree(other) => self.data[..] == other.data[..],
-			ChildInfo::Mmr(other) => self.data[..] == other.data[..],
+			ChildInfo::BTree(..) | ChildInfo::Blob(..) => false,
 		}
 	}
 }

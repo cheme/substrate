@@ -43,8 +43,9 @@ pub enum Error<H, CodecError> {
 	TrieError(Box<trie_db::TrieError<H, CodecError>>),
 	#[cfg_attr(feature = "std", error("Btree storage error: {0:?}"))]
 	BTreeStorageError(Box<trie_db::TrieError<H, crate::error::Error<H>>>),
-	#[cfg_attr(feature = "std", error("Mmr child state error: {0:?}"))]
-	MmrChildError(&'static str),
+	// TODO assert if use
+	#[cfg_attr(feature = "std", error("Blob storage error: {0:?}"))]
+	BlobStorageError(&'static str),
 }
 
 impl<H, CodecError> From<Box<trie_db::TrieError<H, CodecError>>> for Error<H, CodecError> {
@@ -81,7 +82,6 @@ where
 	}
 
 	let mut child_tries = Vec::new();
-	let mut mmrs = Vec::new();
 	{
 		// fetch child trie roots
 		let trie = crate::TrieDBBuilder::<L>::new(db, &top_root).build();
@@ -95,17 +95,9 @@ where
 					Some(Ok((key, value))) => {
 						let prefixed_key = PrefixedStorageKey::new_ref(&key);
 						match ChildType::from_prefixed_key(prefixed_key) {
-							Some((ChildType::Mmr, _unprefixed)) => {
-								let mut root = TrieHash::<L>::default();
-								// still in a proof so prevent panic
-								if root.as_mut().len() != value.as_slice().len() + 8 {
-									return Err(Error::InvalidChildRoot(key, value))
-								}
-								root.as_mut().copy_from_slice(&value[8..]);
-								let mut nb_encoded = [0u8; 8];
-								nb_encoded.copy_from_slice(&value[..8]);
-								let nb_elt = u64::from_le_bytes(nb_encoded);
-								mmrs.push((root, nb_elt));
+							Some((ChildType::Blob, unprefixed)) |
+							Some((ChildType::BTree, unprefixed)) => {
+								// reserved non persistent, skip
 							},
 							Some((child_type, _unprefixed)) => {
 								// we expect all default child trie root to be correctly encoded.
@@ -163,11 +155,10 @@ where
 						trie_db::decode_compact_from_iter::<L, _, _>(db, &mut nodes_iter)?;
 					previous_extracted_child_trie = Some(top_root);
 				},
-				ChildType::BTree => {
+				ChildType::Blob | ChildType::BTree => {
 					// not persistent TODO consider just reverting to master code
 					previous_extracted_child_trie = Some(top_root);
 				},
-				ChildType::Mmr => unreachable!("in mmrs"),
 			}
 		}
 
@@ -177,22 +168,6 @@ where
 		// TODO this is not true anymore as we cannot mistake a child type.
 		// -> Should change code to not allow it.
 		if Some(child_root) == previous_extracted_child_trie {
-			previous_extracted_child_trie = None;
-		}
-	}
-
-	for (mmr_root, nb_elt) in mmrs.into_iter() {
-		if previous_extracted_child_trie.is_none() && nodes_iter.peek().is_some() {
-			previous_extracted_child_trie = Some(
-				crate::mmr::MmrDBMut::decode_compact(db, nb_elt, &mut nodes_iter)
-					.map_err(Error::MmrChildError)?,
-			);
-		}
-
-		// we do not early exit on root mismatch but try the
-		// other read from proof (some child root may be
-		// in proof without actual child content).
-		if Some(mmr_root) == previous_extracted_child_trie {
 			previous_extracted_child_trie = None;
 		}
 	}
@@ -226,7 +201,6 @@ where
 	DB: HashDBT<L::Hash, trie_db::DBValue> + hash_db::HashDBRef<L::Hash, trie_db::DBValue>,
 {
 	let mut child_tries = Vec::new();
-	let mut mmrs = Vec::new();
 	let mut compact_proof = {
 		let trie = crate::TrieDBBuilder::<L>::new(partial_db, root).build();
 
@@ -239,19 +213,9 @@ where
 					Some(Ok((key, value))) => {
 						let prefixed_key = PrefixedStorageKey::new_ref(&key);
 						match ChildType::from_prefixed_key(prefixed_key) {
-							Some((ChildType::Mmr, _unprefixed)) => {
-								let mut root = TrieHash::<L>::default();
-								if root.as_mut().len() != value.as_slice().len() + 8 {
-									return Err(Error::InvalidChildRoot(
-										key.to_vec(),
-										value.to_vec(),
-									))
-								}
-								root.as_mut().copy_from_slice(&value[8..]);
-								let mut nb_encoded = [0u8; 8];
-								nb_encoded.copy_from_slice(&value[..8]);
-								let nb_elt = u64::from_le_bytes(nb_encoded);
-								mmrs.push((root, nb_elt));
+							Some((ChildType::Blob, _unprefixed)) |
+							Some((ChildType::BTree, _unprefixed)) => {
+								// non persistent, ignore
 							},
 							Some((child_type, _unprefixed)) => {
 								let mut root = TrieHash::<L>::default();
@@ -304,21 +268,11 @@ where
 
 				compact_proof.extend(child_proof);
 			},
-			ChildType::BTree => {
+			ChildType::BTree | ChildType::Blob => {
 				// noop, non persistant.
 				// TODO consider revert to master code
 			},
-			ChildType::Mmr => unreachable!("in mmrs"),
 		}
-	}
-	for (mut mmr_root, number_element) in mmrs {
-		if !HashDBT::<L::Hash, _>::contains(partial_db, &mmr_root, EMPTY_PREFIX) {
-			// just skip
-			continue
-		}
-		let mmr = crate::mmr::MmrDB { db: partial_db, root: &mmr_root, number_element };
-		let child_proof = mmr.encode_compact().map_err(|e| Error::MmrChildError(e))?;
-		compact_proof.extend(child_proof);
 	}
 
 	Ok(CompactProof { encoded_nodes: compact_proof })
