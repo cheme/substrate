@@ -650,7 +650,7 @@ where
 		let storage_key = child_info.storage_key();
 		let prefixed_storage_key = child_info.prefixed_storage_key();
 
-		if let ChildInfo::Blob(_) = child_info {
+		if let ChildInfo::Blob(..) = child_info {
 			let root = if let Some((changes, info)) = self.overlay.child_mmr_changes(storage_key) {
 				// TODO maybe backend implement storage root directly (hash type shoudl be in info
 				Some(self.backend.child_mmr_root(info, changes))

@@ -371,8 +371,8 @@ cfg_if! {
 				fn test_ecdsa_crypto() -> (ecdsa::AppSignature, ecdsa::AppPublic);
 				/// Run various tests against storage.
 				fn test_storage();
-				/// Run various tests against mmr storage.
-				fn test_mmr_storage();
+				/// Run various tests against transient blob storage.
+				fn test_blob_storage();
 				/// Check a witness.
 				fn test_witness(proof: StorageProof, root: crate::Hash);
 				/// Test that ensures that we can call a function that takes multiple
@@ -423,8 +423,8 @@ cfg_if! {
 				fn test_ecdsa_crypto() -> (ecdsa::AppSignature, ecdsa::AppPublic);
 				/// Run various tests against storage.
 				fn test_storage();
-				/// Run various tests against mmr storage.
-				fn test_mmr_storage();
+				/// Run various tests against blob storage.
+				fn test_blob_storage();
 				/// Check a witness.
 				fn test_witness(proof: StorageProof, root: crate::Hash);
 				/// Test that ensures that we can call a function that takes multiple
@@ -855,8 +855,8 @@ cfg_if! {
 					test_read_child_storage();
 				}
 
-				fn test_mmr_storage() {
-					test_read_write_mmr_storage();
+				fn test_blob_storage() {
+					test_read_write_blob_storage();
 				}
 
 				fn test_witness(proof: StorageProof, root: crate::Hash) {
@@ -1133,8 +1133,8 @@ cfg_if! {
 					test_read_child_storage();
 				}
 
-				fn test_mmr_storage() {
-					test_read_write_mmr_storage();
+				fn test_blob_storage() {
+					test_read_write_blob_storage();
 				}
 
 				fn test_witness(proof: StorageProof, root: crate::Hash) {
@@ -1311,10 +1311,14 @@ fn test_read_child_storage() {
 	assert_eq!(&v, &[0, 0, 0, 0]);
 }
 
-fn test_read_write_mmr_storage() {
+fn test_read_write_blob_storage() {
 	use frame_support::storage::child;
 	const STORAGE_KEY: &[u8] = b"blob_unique_id_1";
-	let child_info = sp_core::storage::ChildInfo::new_blob(STORAGE_KEY);
+	let child_info = sp_core::storage::ChildInfo::new_blob(
+		STORAGE_KEY,
+		sp_core::storage::transient::Mode::Drop,
+		sp_core::storage::transient::Hash32Algorithm::Blake2b256,
+	);
 	let init: Option<u64> = child::get_at(&child_info, 0);
 	assert_eq!(init, None);
 	child::push(&child_info, &1u64);
@@ -1411,7 +1415,7 @@ mod tests {
 	}
 
 	#[test]
-	fn test_mmr_storage() {
+	fn test_blob_storage() {
 		// can only run once (update)
 		let client = TestClientBuilder::new()
 			.set_execution_strategy(ExecutionStrategy::AlwaysWasm)
@@ -1419,7 +1423,7 @@ mod tests {
 		let runtime_api = client.runtime_api();
 		let block_id = BlockId::Number(client.chain_info().best_number);
 
-		runtime_api.test_mmr_storage(&block_id).unwrap();
+		runtime_api.test_blob_storage(&block_id).unwrap();
 	}
 
 	fn witness_backend() -> (sp_trie::MemoryDB<crate::Hashing>, crate::Hash) {

@@ -634,9 +634,15 @@ where
 											storage
 												.children_sized
 												.entry(storage_key.to_vec())
-												.or_insert_with(|| StorageChild {
+												.or_insert_with(|| {
+													StorageChild {
 													data: Default::default(),
-													child_info: ChildInfo::new_btree(storage_key),
+													child_info: ChildInfo::new_btree(
+														storage_key,
+														sp_core::storage::transient::Mode::Drop,
+														sp_core::storage::transient::Root32Structure::SubstrateDefault,
+													),
+												}
 												})
 										},
 										Some((ChildType::Blob, storage_key)) => {
@@ -645,7 +651,11 @@ where
 												.entry(storage_key.to_vec())
 												.or_insert_with(|| StorageMmr {
 													data: Default::default(),
-													child_info: ChildInfo::new_blob(storage_key),
+													child_info: ChildInfo::new_blob(
+														storage_key,
+														sp_core::storage::transient::Mode::Drop,
+														sp_core::storage::transient::Hash32Algorithm::Blake2b256,
+													),
 												});
 											debug_assert!(state.key_values.is_empty());
 											for value in state.values.iter() {
