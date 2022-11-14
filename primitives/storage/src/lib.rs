@@ -279,22 +279,19 @@ pub enum ChildInfo {
 	/// This is the one used by default.
 	ParentKeyId(ChildTrieParentKeyId),
 	/// BTree storage info.
-	BTree(Name, transient::Mode, transient::Root32Structure), /* TODO ignore Root32Structure in
-	                                                           * eq, */
-	// hash and ord + TODO in their own
-	// struct
+	BTree(Btree),
 	/// Blob storage.
-	Blob(Name, transient::Mode, transient::Hash32Algorithm), /* TODO ignore Hash32Structure in
-	                                                          * eq,
-	                                                          * hash and ord + TODO in their
-	                                                          * own
-	                                                          * struct */
+	Blob(Blob),
 }
 
 impl ChildInfo {
 	/// Child info for a btree storage.
-	pub fn new_btree(name: &[u8], mode: transient::Mode, algo: transient::Root32Structure) -> Self {
-		ChildInfo::BTree(name.to_vec(), mode, algo)
+	pub fn new_btree(
+		name: &[u8],
+		mode: Option<transient::Mode>,
+		structure: Option<transient::Root32Structure>,
+	) -> Self {
+		ChildInfo::BTree(Btree { name: name.to_vec(), mode, structure })
 	}
 
 	/// Instantiates child information for a default child trie
@@ -313,8 +310,12 @@ impl ChildInfo {
 	/// Instantiates child information for a storage
 	/// of kind `ChildType::Blob`, using an unprefixed parent
 	/// storage key.
-	pub fn new_blob(name: &[u8], mode: transient::Mode, algo: transient::Hash32Algorithm) -> Self {
-		ChildInfo::Blob(name.to_vec(), mode, algo)
+	pub fn new_blob(
+		name: &[u8],
+		mode: Option<transient::Mode>,
+		algorithm: Option<transient::Hash32Algorithm>,
+	) -> Self {
+		ChildInfo::Blob(Blob { name: name.to_vec(), mode, algorithm })
 	}
 
 	/// Try to update with another instance, return false if both instance
@@ -322,18 +323,28 @@ impl ChildInfo {
 	pub fn try_update(&mut self, other: &ChildInfo) -> bool {
 		match self {
 			ChildInfo::ParentKeyId(child_trie) => child_trie.try_update(other),
-			ChildInfo::BTree(name, mode, root) =>
-				if let ChildInfo::BTree(o_name, o_mode, o_root) = other {
+			ChildInfo::BTree(Btree { name, mode, structure }) =>
+				if let ChildInfo::BTree(Btree {
+					name: o_name,
+					mode: o_mode,
+					structure: o_structure,
+				}) = other
+				{
 					// root method can differ
-					*root = o_root.clone();
+					*structure = o_structure.clone();
 					name == o_name && mode == o_mode
 				} else {
 					false
 				},
-			ChildInfo::Blob(name, mode, root) =>
-				if let ChildInfo::Blob(o_name, o_mode, o_root) = other {
+			ChildInfo::Blob(Blob { name, mode, algorithm }) =>
+				if let ChildInfo::Blob(Blob {
+					name: o_name,
+					mode: o_mode,
+					algorithm: o_algorithm,
+				}) = other
+				{
 					// hash method can differ (changing to change next call to storage root).
-					*root = o_root.clone();
+					*algorithm = o_algorithm.clone();
 					name == o_name && mode == o_mode
 				} else {
 					false
@@ -358,8 +369,8 @@ impl ChildInfo {
 	pub fn storage_key(&self) -> &[u8] {
 		match self {
 			ChildInfo::ParentKeyId(ChildTrieParentKeyId { data }) => &data[..],
-			ChildInfo::BTree(data, ..) => &data[..],
-			ChildInfo::Blob(data, ..) => &data[..],
+			ChildInfo::BTree(btree) => &btree.name[..],
+			ChildInfo::Blob(blob) => &blob.name[..],
 		}
 	}
 
@@ -369,8 +380,8 @@ impl ChildInfo {
 		match self {
 			ChildInfo::ParentKeyId(ChildTrieParentKeyId { data }) =>
 				ChildType::ParentKeyId.new_prefixed_key(data.as_slice()),
-			ChildInfo::BTree(data, ..) => ChildType::BTree.new_prefixed_key(data.as_slice()),
-			ChildInfo::Blob(data, ..) => ChildType::Blob.new_prefixed_key(data.as_slice()),
+			ChildInfo::BTree(btree) => ChildType::BTree.new_prefixed_key(btree.name.as_slice()),
+			ChildInfo::Blob(blob) => ChildType::Blob.new_prefixed_key(blob.name.as_slice()),
 		}
 	}
 
@@ -382,13 +393,13 @@ impl ChildInfo {
 				ChildType::ParentKeyId.do_prefix_key(&mut data);
 				PrefixedStorageKey(data)
 			},
-			ChildInfo::BTree(mut data, ..) => {
-				ChildType::BTree.do_prefix_key(&mut data);
-				PrefixedStorageKey(data)
+			ChildInfo::BTree(mut btree) => {
+				ChildType::BTree.do_prefix_key(&mut btree.name);
+				PrefixedStorageKey(btree.name)
 			},
-			ChildInfo::Blob(mut data, ..) => {
-				ChildType::Blob.do_prefix_key(&mut data);
-				PrefixedStorageKey(data)
+			ChildInfo::Blob(mut blob) => {
+				ChildType::Blob.do_prefix_key(&mut blob.name);
+				PrefixedStorageKey(blob.name)
 			},
 		}
 	}
@@ -554,6 +565,70 @@ impl ChildTrieParentKeyId {
 			ChildInfo::ParentKeyId(other) => self.data[..] == other.data[..],
 			ChildInfo::BTree(..) | ChildInfo::Blob(..) => false,
 		}
+	}
+}
+
+/// BTree defining infos.
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "std", derive(PartialEq, Eq, Ord, Encode, Decode))]
+pub struct Btree {
+	/// Name of the transient storage.
+	pub name: Name,
+
+	/// Storage mode. This must be defined when
+	/// initializing a storage, could be omitted aferward.
+	pub mode: Option<transient::Mode>,
+
+	/// Structure to apply for root.
+	pub structure: Option<transient::Root32Structure>,
+}
+
+#[cfg(feature = "std")]
+impl sp_std::hash::Hash for Btree {
+	fn hash<H>(&self, state: &mut H)
+	where
+		H: sp_std::hash::Hasher,
+	{
+		self.name.hash(state)
+	}
+}
+
+#[cfg(feature = "std")]
+impl PartialOrd for Btree {
+	fn partial_cmp(&self, other: &Btree) -> Option<sp_std::cmp::Ordering> {
+		self.name.partial_cmp(&other.name)
+	}
+}
+
+/// Blob definining infos.
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "std", derive(PartialEq, Eq, Ord, Encode, Decode))]
+pub struct Blob {
+	/// Name of the transient storage.
+	pub name: Vec<u8>,
+
+	/// Storage mode. This must be defined when
+	/// initializing a storage, could be omitted aferward.
+	pub mode: Option<transient::Mode>,
+
+	/// Algorithm to apply for hashing.
+	pub algorithm: Option<transient::Hash32Algorithm>,
+}
+
+#[cfg(feature = "std")]
+impl sp_std::hash::Hash for Blob {
+	fn hash<H>(&self, state: &mut H)
+	where
+		H: sp_std::hash::Hasher,
+	{
+		self.name.hash(state)
+	}
+}
+
+#[cfg(feature = "std")]
+impl PartialOrd for Blob {
+	fn partial_cmp(&self, other: &Blob) -> Option<sp_std::cmp::Ordering> {
+		self.name.partial_cmp(&other.name)
 	}
 }
 

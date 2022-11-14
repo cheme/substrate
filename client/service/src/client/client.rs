@@ -639,8 +639,8 @@ where
 													data: Default::default(),
 													child_info: ChildInfo::new_btree(
 														storage_key,
-														sp_core::storage::transient::Mode::Drop,
-														sp_core::storage::transient::Root32Structure::SubstrateDefault,
+														Some(sp_core::storage::transient::Mode::Drop),
+														Some(sp_core::storage::transient::Root32Structure::SubstrateDefault),
 													),
 												}
 												})
@@ -654,8 +654,8 @@ where
 													data: Default::default(),
 													child_info: ChildInfo::new_blob(
 														storage_key,
-														sp_core::storage::transient::Mode::Drop,
-														sp_core::storage::transient::Hash32Algorithm::Blake2b256,
+														Some(sp_core::storage::transient::Mode::Drop),
+														Some(sp_core::storage::transient::Hash32Algorithm::Blake2b256),
 													),
 												}
 												});

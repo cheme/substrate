@@ -1316,8 +1316,8 @@ fn test_read_write_blob_storage() {
 	const STORAGE_KEY: &[u8] = b"blob_unique_id_1";
 	let child_info = sp_core::storage::ChildInfo::new_blob(
 		STORAGE_KEY,
-		sp_core::storage::transient::Mode::Drop,
-		sp_core::storage::transient::Hash32Algorithm::Blake2b256,
+		Some(sp_core::storage::transient::Mode::Drop),
+		Some(sp_core::storage::transient::Hash32Algorithm::Blake2b256),
 	);
 	let init: Option<u64> = child::read_blob(&child_info, 8, 0);
 	assert_eq!(init, None);

@@ -327,19 +327,35 @@ pub fn root(child_info: &ChildInfo, version: StateVersion) -> Vec<u8> {
 	match &child_info {
 		ChildInfo::ParentKeyId(..) =>
 			sp_io::default_child_storage::root(child_info.storage_key(), version),
-		ChildInfo::BTree(_, _, structure) =>
-			sp_io::btree_storage::root32(child_info.storage_key(), structure.clone().into())
-				.unwrap_or_else(|| match structure {
-					Root32Structure::SubstrateDefault =>
-						sp_io::trie::blake2_256_root(Default::default(), StateVersion::V1).0,
-				})
-				.into(),
-		ChildInfo::Blob(_, _, hasher) =>
-			sp_io::blob_storage::hash32(child_info.storage_key(), hasher.clone().into())
-				.unwrap_or_else(|| match hasher {
-					Hash32Algorithm::Blake2b256 => sp_io::hashing::blake2_256(&[]).into(),
-				})
-				.into(),
+		ChildInfo::BTree(btree) => btree
+			.structure
+			.clone()
+			.and_then(|structure| {
+				sp_io::btree_storage::root32(child_info.storage_key(), structure.into())
+			})
+			.unwrap_or_else(|| match btree.structure {
+				None => {
+					log::error!(
+						target: "runtime::storage",
+						"Incorrect root call, child info should define structure, using default substrate");
+					[0u8; 32] // TODO should
+					 // return false
+				},
+				Some(Root32Structure::SubstrateDefault) =>
+					sp_io::trie::blake2_256_root(Default::default(), StateVersion::V1).0,
+			})
+			.into(),
+		ChildInfo::Blob(blob) => blob
+			.algorithm
+			.clone()
+			.and_then(|algorithm| {
+				sp_io::blob_storage::hash32(child_info.storage_key(), algorithm.into())
+			})
+			.unwrap_or_else(|| match blob.algorithm {
+				None => [0u8; 32], // TODO return false instead of empty or void
+				Some(Hash32Algorithm::Blake2b256) => sp_io::hashing::blake2_256(&[]).into(),
+			})
+			.into(),
 	}
 }
 
