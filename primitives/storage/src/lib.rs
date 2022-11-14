@@ -439,8 +439,8 @@ pub mod transient {
 	/// `Mode` define if transient storage should keep
 	/// storage accessible.
 	/// Accessible storage may be pruned as any storage.
-	#[derive(PartialEq, Eq, Debug, Clone)]
-	#[cfg_attr(feature = "std", derive(Hash, PartialOrd, Ord, Encode, Decode))]
+	#[derive(PartialEq, Eq, Debug, Clone, Encode, Decode)]
+	#[cfg_attr(feature = "std", derive(Hash, PartialOrd, Ord))]
 	pub enum Mode {
 		/// Storage can be drop.
 		#[cfg_attr(feature = "std", codec(index = 0))]
@@ -451,8 +451,8 @@ pub mod transient {
 	}
 
 	/// Hashing algorithm for transient blob.
-	#[derive(PartialEq, Eq, Debug, Clone)]
-	#[cfg_attr(feature = "std", derive(Hash, PartialOrd, Ord, Encode, Decode))]
+	#[derive(PartialEq, Eq, Debug, Clone, Encode, Decode)]
+	#[cfg_attr(feature = "std", derive(Hash, PartialOrd, Ord))]
 	pub enum Hash32Algorithm {
 		/// Storage can be drop.
 		#[cfg_attr(feature = "std", codec(index = 0))]
@@ -464,8 +464,8 @@ pub mod transient {
 	}
 
 	/// Hashing algorithm for transient blob.
-	#[derive(PartialEq, Eq, Debug, Clone)]
-	#[cfg_attr(feature = "std", derive(Hash, PartialOrd, Ord, Encode, Decode))]
+	#[derive(PartialEq, Eq, Debug, Clone, Encode, Decode)]
+	#[cfg_attr(feature = "std", derive(Hash, PartialOrd, Ord))]
 	pub enum Root32Structure {
 		/// Substrate default.
 		/// The patricia base 16 merkle trie with

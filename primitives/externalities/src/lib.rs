@@ -31,7 +31,10 @@ use sp_std::{
 	vec::Vec,
 };
 
-use sp_storage::{ChildInfo, StateVersion, TrackedStorageKey};
+use sp_storage::{
+	transient::{Hash32Algorithm, Mode as TransientMode, Root32Structure},
+	ChildInfo, StateVersion, TrackedStorageKey,
+};
 
 pub use extensions::{Extension, ExtensionStore, Extensions};
 pub use scope_limited::{set_and_run_with_externalities, with_externalities};
@@ -319,6 +322,198 @@ pub trait Externalities: ExtensionStore {
 	///
 	/// Get all the keys that have been read or written to during the benchmark.
 	fn get_read_and_written_keys(&self) -> Vec<(Vec<u8>, u32, u32, bool)>;
+
+	/// Create a new empty blob.
+	/// Clear possibly existing blob.
+	fn blob_new(&mut self, name: &[u8], mode: TransientMode) {
+		unimplemented!("TODO rem def impl here");
+	}
+
+	/// Returns true iff the blob name is present in execution state.
+	fn blob_exists(&self, name: &[u8]) -> bool {
+		unimplemented!("TODO rem def impl here");
+	}
+
+	/// Delete blob if present, return false otherwise.
+	fn blob_delete(&mut self, name: &[u8]) -> bool {
+		unimplemented!("TODO rem def impl here");
+	}
+
+	/// Clone blob value under a different name.
+	/// If origin does not exist, this does nothing and return false.
+	/// If target does not exist, this does nothing and return false.
+	/// Target content is overwritten.
+	fn blob_clone(&mut self, name: &[u8], target_name: &[u8]) -> bool {
+		unimplemented!("TODO rem def impl here");
+	}
+
+	/// Move blob value under a different name.
+	/// If origin does not exist, this does nothing and return false.
+	/// If target exists, it is overwritten.
+	fn blob_rename(&mut self, name: &[u8], target_name: &[u8]) -> bool {
+		unimplemented!("TODO rem def impl here");
+	}
+
+	/// Get value bytes for the blob.
+	/// All bytes if `limit` is `None`, or up to `limit` bytes.
+	/// Read bytes starting at a given offset, if offset is out of range, return
+	/// an empty bytes vector.
+	/// Returns `None` if the blob does not exist.
+	/// // TODO try returning &[u8] since transient is in mem or Cow<'a, [u8]> for
+	/// case we write blob as file or other considerations.
+	fn blob_get(&self, name: &[u8], limit: Option<u32>, value_offset: u32) -> Option<Vec<u8>> {
+		unimplemented!("TODO rem def impl here");
+	}
+
+	/// Write value into a blob.
+	///
+	/// If data is present at offset, it is overwritten by new value.
+	/// If new value is written beyond blob size, the value is appended
+	/// to the blob.
+	///
+	/// If blob does not exist, the operation is ignored and false
+	/// is returned.
+	///
+	/// If offset is bigger than current blog size the operation is
+	/// ignored and false is returned.
+	///
+	/// If size of resulting blob is over u32::MAX bytes, this is ignored
+	/// and return false.
+	fn blob_set(&mut self, name: &[u8], value: &[u8], offset: u32) -> bool {
+		unimplemented!("TODO rem def impl here");
+	}
+
+	/// Truncate blob to a given size.
+	/// If blob is smaller or already this size, do nothing and return false.
+	/// If blob is missing return false.
+	fn blob_truncate(&mut self, name: &[u8], new_size: u32) -> bool {
+		unimplemented!("TODO rem def impl here");
+	}
+
+	/// Returns size of the blob for a given name, or `None` if the blob does not exist.
+	fn blob_len(&self, name: &[u8]) -> Option<u32> {
+		unimplemented!("TODO rem def impl here");
+	}
+
+	/// If blob exists, return it's hash for a given algorithm.
+	fn blob_hash32(&mut self, name: &[u8], algorithm: Hash32Algorithm) -> Option<[u8; 32]> {
+		unimplemented!("TODO rem def impl here");
+	}
+
+	/// Create a new empty transient map.
+	/// Clear possibly existing map.
+	fn map_new(&mut self, name: &[u8], mode: TransientMode) {
+		unimplemented!("TODO rem def impl here");
+	}
+
+	/// Returns true iff the map name is present in execution state.
+	fn map_exists(&self, name: &[u8]) -> bool {
+		unimplemented!("TODO rem def impl here");
+	}
+
+	/// Delete btree map if present or return false.
+	fn map_delete(&mut self, name: &[u8]) -> bool {
+		unimplemented!("TODO rem def impl here");
+	}
+
+	/// Clone btree map content under a different name.
+	/// If origin does not exist, this does nothing and return false.
+	/// If target does not exist, this does nothing and return false.
+	/// Target content is overwritten.
+	fn map_clone(&mut self, name: &[u8], target_name: &[u8]) -> bool {
+		unimplemented!("TODO rem def impl here");
+	}
+
+	/// Move btree map under a different name.
+	/// If origin does not exist, this does nothing and return false.
+	/// If target exists, it is overwritten.
+	fn map_rename(&mut self, name: &[u8], target_name: &[u8]) -> bool {
+		unimplemented!("TODO rem def impl here");
+	}
+
+	/// Inserts a single (key, value) pair into map name, and overwriting the item if it did.
+	///
+	/// If map do not exist this operatio is skipped and operation return false.
+	fn map_insert(&mut self, name: &[u8], key: &[u8], value: &[u8]) -> bool {
+		unimplemented!("TODO rem def impl here");
+	}
+
+	/// Removes the pair with the given key from the map name, if the map exists and contains the
+	/// item. Does nothing and return false otherwise.
+	fn map_remove_item(&mut self, name: &[u8], key: &[u8]) -> bool {
+		unimplemented!("TODO rem def impl here");
+	}
+
+	/// Returns true iff the map name existsa and contains key.
+	fn map_contains(&self, name: &[u8], key: &[u8]) -> bool {
+		unimplemented!("TODO rem def impl here");
+	}
+
+	/// Returns Some iff the map name exists and contains key.
+	/// If so, the inner value is that associated with key.
+	/// If limit is specified, only that many bytes are returned.
+	/// Offset start bytes are also skipped from return value.
+	fn map_item_get(
+		&self,
+		name: &[u8],
+		key: &[u8],
+		limit: Option<u32>,
+		offset: u32,
+	) -> Option<Vec<u8>> {
+		unimplemented!("TODO rem def impl here");
+	}
+
+	/// Returns Some iff the map name exists and contains key. If so, the inner value is the length
+	/// of the value associated with key.
+	fn map_item_len(&self, name: &[u8], key: &[u8]) -> Option<u32> {
+		unimplemented!("TODO rem def impl here");
+	}
+
+	/// Returns Some iff the map name exists and contains key. If so, the inner value is the value
+	/// associated with key when hashed with algorithm.
+	fn map_item_hash32(
+		&self,
+		name: &[u8],
+		key: &[u8],
+		algorithm: Hash32Algorithm,
+	) -> Option<[u8; 32]> {
+		unimplemented!("TODO rem def impl here");
+	}
+
+	/// Returns Some iff the map name exists, None otherwise. If Some, then the inner value is the
+	/// number of items in the map name.
+	fn map_count(&self, name: &[u8]) -> Option<u32> {
+		unimplemented!("TODO rem def impl here");
+	}
+
+	/// Calculates and returns the root of the data structure structure containing the items held in
+	/// the map name. Returns None if map name does not exist.
+	fn map_root32(&mut self, name: &[u8], structure: Root32Structure) -> Option<[u8; 32]> {
+		unimplemented!("TODO rem def impl here");
+	}
+
+	/// Returns up to the next count keys in map name immediately following key. If fewer items
+	/// exist after key than count, then only the remaining items are returned. If the map name does
+	/// not exist then None is returned.
+	fn map_next_keys(&self, name: &[u8], key: &[u8], count: u32) -> Option<Vec<Vec<u8>>> {
+		unimplemented!("TODO rem def impl here");
+	}
+
+	/// Returns Some of a Vec of all items in the map name, sorted; or None if the map name does not
+	/// exist.
+	fn map_dump(&self, name: &[u8]) -> Option<Vec<(Vec<u8>, Vec<u8>)>> {
+		unimplemented!("TODO rem def impl here");
+	}
+
+	/// Returns Some of a Vec of all pairs of keys and values in the map name hashed with algorithm
+	/// and in order of the (unhashed) key; or None if the map name does not exist.
+	fn map_dump_hashed(
+		&self,
+		name: &[u8],
+		algorithm: Hash32Algorithm,
+	) -> Option<Vec<([u8; 32], [u8; 32])>> {
+		unimplemented!("TODO rem def impl here");
+	}
 }
 
 /// Extension for the [`Externalities`] trait.

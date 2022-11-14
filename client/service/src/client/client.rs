@@ -649,13 +649,15 @@ where
 											let entry = storage
 												.children_mmr
 												.entry(storage_key.to_vec())
-												.or_insert_with(|| StorageMmr {
+												.or_insert_with(|| {
+													StorageMmr {
 													data: Default::default(),
 													child_info: ChildInfo::new_blob(
 														storage_key,
 														sp_core::storage::transient::Mode::Drop,
 														sp_core::storage::transient::Hash32Algorithm::Blake2b256,
 													),
+												}
 												});
 											debug_assert!(state.key_values.is_empty());
 											for value in state.values.iter() {

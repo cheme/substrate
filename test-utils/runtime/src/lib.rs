@@ -1319,22 +1319,22 @@ fn test_read_write_blob_storage() {
 		sp_core::storage::transient::Mode::Drop,
 		sp_core::storage::transient::Hash32Algorithm::Blake2b256,
 	);
-	let init: Option<u64> = child::get_at(&child_info, 0);
+	let init: Option<u64> = child::read_blob(&child_info, 8, 0);
 	assert_eq!(init, None);
 	child::push(&child_info, &1u64);
-	let init = child::get_at(&child_info, 0);
+	let init = child::read_blob(&child_info, 8, 0);
 	assert_eq!(init, Some(1u64));
-	let init: Option<u64> = child::get_at(&child_info, 1);
+	let init: Option<u64> = child::read_blob(&child_info, 8, 1);
 	assert_eq!(init, None);
 
 	sp_io::storage::start_transaction();
 	child::push(&child_info, &2u64);
 	child::push(&child_info, &3u64);
-	let init = child::get_at(&child_info, 2);
+	let init = child::read_blob(&child_info, 8, 2);
 	assert_eq!(init, Some(3u64));
 	sp_io::storage::rollback_transaction();
 
-	let init: Option<u64> = child::get_at(&child_info, 1);
+	let init: Option<u64> = child::read_blob(&child_info, 8, 1);
 	assert_eq!(init, None);
 	child::root(&child_info, Default::default());
 }

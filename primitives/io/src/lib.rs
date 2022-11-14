@@ -39,9 +39,6 @@ use sp_core::{
 	crypto::Pair,
 	hexdisplay::HexDisplay,
 	offchain::{OffchainDbExt, OffchainWorkerExt, TransactionPoolExt},
-	storage::transient::Hash32Algorithm,
-	storage::transient::Mode as TransientMode,
-	storage::transient::Root32Structure,
 	storage::ChildInfo,
 	traits::{RuntimeSpawnExt, TaskExecutorExt},
 };
@@ -55,7 +52,10 @@ use sp_core::{
 		HttpError, HttpRequestId, HttpRequestStatus, OpaqueNetworkState, StorageKind, Timestamp,
 	},
 	sr25519,
-	storage::StateVersion,
+	storage::{
+		transient::{Hash32Algorithm, Mode as TransientMode, Root32Structure},
+		StateVersion,
+	},
 	LogLevel, LogLevelFilter, OpaquePeerId, H256,
 };
 
@@ -516,256 +516,6 @@ pub trait DefaultChildStorage {
 	}
 }
 
-/// Interface for accessing the child storage for child trie with size stored in parent node,
-/// from within the runtime.
-#[runtime_interface]
-pub trait ParentSizedChildStorage {
-	/// Get a parent sized child storage value for a given key.
-	///
-	/// Parameter `storage_key` is the unprefixed location of the root of the child trie in the
-	/// parent trie. Result is `None` if the value for `key` in the child storage can not be found.
-	fn get(&self, storage_key: &[u8], key: &[u8]) -> Option<Vec<u8>> {
-		let child_info = ChildInfo::new_btree(
-			storage_key,
-			TransientMode::Drop,
-			Root32Structure::SubstrateDefault,
-		);
-		self.child_storage(&child_info, key).map(|s| s.to_vec())
-	}
-
-	/// Allocation efficient variant of `get`.
-	///
-	/// Get `key` from child storage, placing the value into `value_out` and return the number
-	/// of bytes that the entry in storage has beyond the offset or `None` if the storage entry
-	/// doesn't exist at all.
-	/// If `value_out` length is smaller than the returned length, only `value_out` length bytes
-	/// are copied into `value_out`.
-	fn read(
-		&self,
-		storage_key: &[u8],
-		key: &[u8],
-		value_out: &mut [u8],
-		value_offset: u32,
-	) -> Option<u32> {
-		let child_info = ChildInfo::new_btree(
-			storage_key,
-			TransientMode::Drop,
-			Root32Structure::SubstrateDefault,
-		);
-		self.child_storage(&child_info, key).map(|value| {
-			let value_offset = value_offset as usize;
-			let data = &value[value_offset.min(value.len())..];
-			let written = std::cmp::min(data.len(), value_out.len());
-			value_out[..written].copy_from_slice(&data[..written]);
-			data.len() as u32
-		})
-	}
-
-	/// Set a child storage value.
-	///
-	/// Set `key` to `value` in the child storage denoted by `storage_key`.
-	fn set(&mut self, storage_key: &[u8], key: &[u8], value: &[u8]) {
-		let child_info = ChildInfo::new_btree(
-			storage_key,
-			TransientMode::Drop,
-			Root32Structure::SubstrateDefault,
-		);
-		self.set_child_storage(&child_info, key.to_vec(), value.to_vec());
-	}
-
-	/// Clear a child storage key.
-	///
-	/// For the default child storage at `storage_key`, clear value at `key`.
-	fn clear(&mut self, storage_key: &[u8], key: &[u8]) {
-		let child_info = ChildInfo::new_btree(
-			storage_key,
-			TransientMode::Drop,
-			Root32Structure::SubstrateDefault,
-		);
-		self.clear_child_storage(&child_info, key);
-	}
-
-	/// Clear a child storage key.
-	///
-	/// See `Storage` module `clear_prefix` documentation for `limit` usage.
-	fn storage_kill(&mut self, storage_key: &[u8], _limit: Option<u32>) {
-		let child_info = ChildInfo::new_btree(
-			storage_key,
-			TransientMode::Drop,
-			Root32Structure::SubstrateDefault,
-		);
-		let _ = self.kill_child_storage(&child_info, None, None);
-	}
-
-	/// Clear a child storage key.
-	///
-	/// See `Storage` module `clear_prefix` documentation for `limit` usage.
-	#[version(2)]
-	fn storage_kill(&mut self, storage_key: &[u8], limit: Option<u32>) -> bool {
-		let child_info = ChildInfo::new_btree(
-			storage_key,
-			TransientMode::Drop,
-			Root32Structure::SubstrateDefault,
-		);
-		let r = self.kill_child_storage(&child_info, limit, None);
-		r.maybe_cursor.is_none()
-	}
-
-	/// Clear a child storage key.
-	///
-	/// See `Storage` module `clear_prefix` documentation for `limit` usage.
-	#[version(3)]
-	fn storage_kill(&mut self, storage_key: &[u8], limit: Option<u32>) -> KillStorageResult {
-		let child_info = ChildInfo::new_btree(
-			storage_key,
-			TransientMode::Drop,
-			Root32Structure::SubstrateDefault,
-		);
-		self.kill_child_storage(&child_info, limit, None).into()
-	}
-
-	/// Clear a child storage key.
-	///
-	/// See `Storage` module `clear_prefix` documentation for `limit` usage.
-	#[version(4, register_only)]
-	fn storage_kill(
-		&mut self,
-		storage_key: &[u8],
-		maybe_limit: Option<u32>,
-		maybe_cursor: Option<Vec<u8>>,
-	) -> MultiRemovalResults {
-		let child_info = ChildInfo::new_btree(
-			storage_key,
-			TransientMode::Drop,
-			Root32Structure::SubstrateDefault,
-		);
-		self.kill_child_storage(&child_info, maybe_limit, maybe_cursor.as_ref().map(|x| &x[..]))
-			.into()
-	}
-
-	/// Check a child storage key.
-	///
-	/// Check whether the given `key` exists in parent sized child defined at `storage_key`.
-	fn exists(&self, storage_key: &[u8], key: &[u8]) -> bool {
-		let child_info = ChildInfo::new_btree(
-			storage_key,
-			TransientMode::Drop,
-			Root32Structure::SubstrateDefault,
-		);
-		self.exists_child_storage(&child_info, key)
-	}
-
-	/// Check a child storage key.
-	///
-	/// Check size of value for the given `key` in parent sized child defined at `storage_key`.
-	fn size(&self, storage_key: &[u8], key: &[u8]) -> Option<u32> {
-		let child_info = ChildInfo::new_btree(
-			storage_key,
-			TransientMode::Drop,
-			Root32Structure::SubstrateDefault,
-		);
-		self.child_value_size(&child_info, key)
-	}
-
-	/// Clear child default key by prefix.
-	///
-	/// Clear the child storage of each key-value pair where the key starts with the given `prefix`.
-	fn clear_prefix(&mut self, storage_key: &[u8], prefix: &[u8]) {
-		let child_info = ChildInfo::new_btree(
-			storage_key,
-			TransientMode::Drop,
-			Root32Structure::SubstrateDefault,
-		);
-		let _ = self.clear_child_prefix(&child_info, prefix, None, None);
-	}
-
-	/// Clear the child storage of each key-value pair where the key starts with the given `prefix`.
-	///
-	/// See `Storage` module `clear_prefix` documentation for `limit` usage.
-	#[version(2)]
-	fn clear_prefix(
-		&mut self,
-		storage_key: &[u8],
-		prefix: &[u8],
-		limit: Option<u32>,
-	) -> KillStorageResult {
-		let child_info = ChildInfo::new_btree(
-			storage_key,
-			TransientMode::Drop,
-			Root32Structure::SubstrateDefault,
-		);
-		self.clear_child_prefix(&child_info, prefix, limit, None).into()
-	}
-
-	/// Clear the child storage of each key-value pair where the key starts with the given `prefix`.
-	///
-	/// See `Storage` module `clear_prefix` documentation for `limit` usage.
-	#[version(3, register_only)]
-	fn clear_prefix(
-		&mut self,
-		storage_key: &[u8],
-		prefix: &[u8],
-		maybe_limit: Option<u32>,
-		maybe_cursor: Option<Vec<u8>>,
-	) -> MultiRemovalResults {
-		let child_info = ChildInfo::new_btree(
-			storage_key,
-			TransientMode::Drop,
-			Root32Structure::SubstrateDefault,
-		);
-		self.clear_child_prefix(
-			&child_info,
-			prefix,
-			maybe_limit,
-			maybe_cursor.as_ref().map(|x| &x[..]),
-		)
-		.into()
-	}
-
-	/// Default child root calculation.
-	///
-	/// "Commit" all existing operations and compute the resulting child storage root.
-	/// The hashing algorithm is defined by the `Block`.
-	///
-	/// Returns a `Vec<u8>` that holds the SCALE encoded hash.
-	fn root(&mut self, storage_key: &[u8]) -> Vec<u8> {
-		let child_info = ChildInfo::new_btree(
-			storage_key,
-			TransientMode::Drop,
-			Root32Structure::SubstrateDefault,
-		);
-		self.child_storage_root(&child_info, StateVersion::V0)
-	}
-
-	/// Default child root calculation.
-	///
-	/// "Commit" all existing operations and compute the resulting child storage root.
-	/// The hashing algorithm is defined by the `Block`.
-	///
-	/// Returns a `Vec<u8>` that holds the SCALE encoded hash.
-	#[version(2)]
-	fn root(&mut self, storage_key: &[u8], version: StateVersion) -> Vec<u8> {
-		let child_info = ChildInfo::new_btree(
-			storage_key,
-			TransientMode::Drop,
-			Root32Structure::SubstrateDefault,
-		);
-		self.child_storage_root(&child_info, version)
-	}
-
-	/// Child storage key iteration.
-	///
-	/// Get the next key in storage after the given one in lexicographic order in child storage.
-	fn next_key(&mut self, storage_key: &[u8], key: &[u8]) -> Option<Vec<u8>> {
-		let child_info = ChildInfo::new_btree(
-			storage_key,
-			TransientMode::Drop,
-			Root32Structure::SubstrateDefault,
-		);
-		self.next_child_storage_key(&child_info, key)
-	}
-}
-
 /// Interface that provides trie related functionality.
 #[runtime_interface]
 pub trait Trie {
@@ -900,39 +650,246 @@ pub trait Trie {
 	}
 }
 
-/// Interface for accessing the child storage for mmr
-/// from within the runtime.
+/// Interface that provides transient blob related functionality.
+///
+/// Current api pass size as u32 and do not allow blob of size bigger than U32 max value.
+/// TODO an api like the one describe (blob append, blob edit, blob set without offset).
+/// TODO read and len can simply supersed blob get (can be written with it).
 #[runtime_interface]
-pub trait MmrChildStorage {
-	/// Get a default child storage value for a given index.
-	///
-	/// Parameter `storage_key` is the unprefixed location of the root of the child trie in the
-	/// parent trie. Result is `None` if the value for `key` in the child storage can not be found.
-	fn get(&self, storage_key: &[u8], at: u64) -> Option<Vec<u8>> {
-		let child_info =
-			ChildInfo::new_blob(storage_key, TransientMode::Drop, Hash32Algorithm::Blake2b256);
-		self.child_storage_at(&child_info, at).map(|s| s.to_vec())
+pub trait BlobStorage {
+	/// Create a new empty blob.
+	/// Clear possibly existing blob.
+	fn new(&mut self, name: &[u8], mode: Crossing<TransientMode>) {
+		self.blob_new(name, mode.0)
 	}
 
-	/// Push (append) a child storage value.
-	///
-	/// Set `key` to `value` in the child storage denoted by `storage_key`.
-	fn push(&mut self, storage_key: &[u8], value: &[u8]) {
-		let child_info =
-			ChildInfo::new_blob(storage_key, TransientMode::Drop, Hash32Algorithm::Blake2b256);
-		self.push_storage(&child_info, value.to_vec());
+	/// Returns true iff the blob name is present in execution state.
+	fn exists(&self, name: &[u8]) -> bool {
+		self.blob_exists(name)
 	}
 
-	/// Default child mrr root calculation.
+	/// Delete blob if present, return false otherwise.
+	fn delete(&mut self, name: &[u8]) -> bool {
+		self.blob_exists(name)
+	}
+
+	/// Clone blob value under a different name.
+	/// If origin does not exist, this does nothing and return false.
+	/// If target does not exist, this does nothing and return false.
+	/// Target content is overwritten.
+	fn clone(&mut self, name: &[u8], target_name: &[u8]) -> bool {
+		self.blob_clone(name, target_name)
+	}
+
+	/// Move blob value under a different name.
+	/// If origin does not exist, this does nothing and return false.
+	/// If target exists, it is overwritten.
+	fn rename(&mut self, name: &[u8], target_name: &[u8]) -> bool {
+		self.blob_rename(name, target_name)
+	}
+
+	/// Write value into a blob.
 	///
-	/// "Commit" all existing operations and compute the resulting child storage root.
-	/// The hashing algorithm is defined by the `Block`.
+	/// If data is present at offset, it is overwritten by new value.
+	/// If new value is written beyond blob size, the value is appended
+	/// to the blob.
 	///
-	/// Returns a `Vec<u8>` that holds the SCALE encoded hash.
-	fn root(&mut self, storage_key: &[u8]) -> Vec<u8> {
-		let child_info =
-			ChildInfo::new_blob(storage_key, TransientMode::Drop, Hash32Algorithm::Blake2b256);
-		self.child_storage_root(&child_info, StateVersion::V1)
+	/// If blob does not exist, the operation is ignored and false
+	/// is returned.
+	///
+	/// If offset is bigger than current blog size the operation is
+	/// ignored and false is returned.
+	///
+	/// If size of resulting blob is over u32::MAX bytes, this is ignored
+	/// and return false.
+	fn set(&mut self, name: &[u8], value: &[u8], offset: u32) -> bool {
+		self.blob_set(name, value, offset)
+	}
+
+	/// Truncate blob to a given size.
+	/// If blob is smaller or already this size, do nothing and return false.
+	/// If blob is missing return false.
+	fn truncate(&mut self, name: &[u8], new_size: u32) -> bool {
+		self.blob_truncate(name, new_size)
+	}
+
+	/// Try to fill `value_out` buffer with blob content.
+	/// Returns false if blob do not exist or buffer len is bigger than u32::MAX.
+	/// Return the number of read bytes otherwhise.
+	fn read(&self, name: &[u8], value_out: &mut [u8], value_offset: u32) -> Option<u32> {
+		let len = value_out.len();
+		if len > u32::MAX as usize {
+			return None
+		}
+		self.blob_get(name, Some(len as u32), value_offset).map(|value| {
+			let written = std::cmp::min(value.len(), value_out.len());
+			value_out[..written].copy_from_slice(&value[..written]);
+			written as u32
+		})
+	}
+
+	/// Get value for the blob.
+	/// Returns the full blob.
+	/// Returns `None` if the blob does not exist.
+	fn get(&self, name: &[u8]) -> Option<Vec<u8>> {
+		self.blob_get(name, None, 0)
+	}
+
+	/// Returns size of the blob for a given name, or `None` if the blob does not exist.
+	fn len(&self, name: &[u8]) -> Option<u32> {
+		self.blob_len(name)
+	}
+
+	/// If blob exists, return it's hash for a given algorithm.
+	fn hash32(&mut self, name: &[u8], algorithm: Crossing<Hash32Algorithm>) -> Option<[u8; 32]> {
+		self.blob_hash32(name, algorithm.0)
+	}
+}
+
+/// Interface for transient btreemap storage.
+///
+/// TODO I did change clone semantic to force calling map_new first
+/// and therefore allowing changing mode.
+/// TODO I also change semantic to not create automatically so we always
+/// provide a `mode` to the btree.
+/// TODO I did change slightly contains as it was a bit redundant with exist
+///
+/// TODO map_dump and map_dump_hash: not sure we need those, first can be from
+/// . Since it will always be slow operation, maybe we can just build it as an utility
+/// function that uses others host functions.
+///
+/// TODO did rename map_next_key to map_next_keys and also : iterating all state will require
+/// a map_get(&[]) first, I think it is fine.
+///
+/// Alternative would be default transient mode.
+#[runtime_interface]
+pub trait BtreeStorage {
+	/// Create a new empty transient map.
+	/// Clear possibly existing map.
+	fn new(&mut self, name: &[u8], mode: Crossing<TransientMode>) {
+		self.map_new(name, mode.0)
+	}
+
+	/// Returns true iff the map name is present in execution state.
+	fn exists(&self, name: &[u8]) -> bool {
+		self.map_exists(name)
+	}
+
+	/// Delete btree map if present or return false.
+	fn delete(&mut self, name: &[u8]) -> bool {
+		self.map_delete(name)
+	}
+
+	/// Clone btree map content under a different name.
+	/// If origin does not exist, this does nothing and return false.
+	/// If target does not exist, this does nothing and return false.
+	/// Target content is overwritten.
+	fn clone(&mut self, name: &[u8], target_name: &[u8]) -> bool {
+		self.map_clone(name, target_name)
+	}
+
+	/// Move btree map under a different name.
+	/// If origin does not exist, this does nothing and return false.
+	/// If target exists, it is overwritten.
+	fn rename(&mut self, name: &[u8], target_name: &[u8]) -> bool {
+		self.map_rename(name, target_name)
+	}
+
+	/// Inserts a single (key, value) pair into map name, and overwriting the item if it did.
+	///
+	/// If map do not exist this operatio is skipped and operation return false.
+	fn insert(&mut self, name: &[u8], key: &[u8], value: &[u8]) -> bool {
+		self.map_insert(name, key, value)
+	}
+
+	/// Removes the pair with the given key from the map name, if the map exists and contains the
+	/// item. Does nothing and return false otherwise.
+	fn remove_item(&mut self, name: &[u8], key: &[u8]) -> bool {
+		self.map_remove_item(name, key)
+	}
+
+	/// Returns true iff the map name existsa and contains key.
+	fn contains(&self, name: &[u8], key: &[u8]) -> bool {
+		self.map_contains(name, key)
+	}
+
+	/// Returns Some iff the map name exists and contains key.
+	/// If so, the inner value is that associated with key.
+	fn item_get(&self, name: &[u8], key: &[u8]) -> Option<Vec<u8>> {
+		self.map_item_get(name, key, None, 0)
+	}
+
+	/// If key exisit in map, try to fill `value_out` from a given offset, return the number of read
+	/// bytes or None if map did not exist.
+	/// Return None when buffer size is bigger than u32::MAX
+	fn item_read(
+		&self,
+		name: &[u8],
+		key: &[u8],
+		value_out: &mut [u8],
+		value_offset: u32,
+	) -> Option<u32> {
+		let len = value_out.len();
+		if len > u32::MAX as usize {
+			return None
+		}
+		self.map_item_get(name, key, Some(len as u32), value_offset).map(|value| {
+			let written = std::cmp::min(value.len(), value_out.len());
+			value_out[..written].copy_from_slice(&value[..written]);
+			written as u32
+		})
+	}
+
+	/// Returns Some iff the map name exists and contains key. If so, the inner value is the length
+	/// of the value associated with key.
+	fn item_len(&self, name: &[u8], key: &[u8]) -> Option<u32> {
+		self.map_item_len(name, key)
+	}
+
+	/// Returns Some iff the map name exists and contains key. If so, the inner value is the value
+	/// associated with key when hashed with algorithm.
+	fn item_hash32(
+		&self,
+		name: &[u8],
+		key: &[u8],
+		algorithm: Crossing<Hash32Algorithm>,
+	) -> Option<[u8; 32]> {
+		self.map_item_hash32(name, key, algorithm.0)
+	}
+
+	/// Returns Some iff the map name exists, None otherwise. If Some, then the inner value is the
+	/// number of items in the map name.
+	fn count(&self, name: &[u8]) -> Option<u32> {
+		self.map_count(name)
+	}
+
+	/// Calculates and returns the root of the data structure structure containing the items held in
+	/// the map name. Returns None if map name does not exist.
+	fn root32(&mut self, name: &[u8], structure: Crossing<Root32Structure>) -> Option<[u8; 32]> {
+		self.map_root32(name, structure.0)
+	}
+
+	/// Returns Some of a Vec of all items in the map name, sorted; or None if the map name does not
+	/// exist.
+	fn dump(&self, name: &[u8]) -> Option<Vec<(Vec<u8>, Vec<u8>)>> {
+		self.map_dump(name)
+	}
+
+	/// Returns Some of a Vec of all pairs of keys and values in the map name hashed with algorithm
+	/// and in order of the (unhashed) key; or None if the map name does not exist.
+	fn dump_hashed(
+		&self,
+		name: &[u8],
+		algorithm: Crossing<Hash32Algorithm>,
+	) -> Option<Vec<([u8; 32], [u8; 32])>> {
+		self.map_dump_hashed(name, algorithm.0)
+	}
+
+	/// Returns up to the next count keys in map name immediately following key. If fewer items
+	/// exist after key than count, then only the remaining items are returned. If the map name does
+	/// not exist then None is returned.
+	fn next_keys(&self, name: &[u8], key: &[u8], count: u32) -> Option<Vec<Vec<u8>>> {
+		self.map_next_keys(name, key, count)
 	}
 }
 
@@ -1729,6 +1686,12 @@ impl<T: Encode + Decode> PassBy for Crossing<T> {
 	type PassBy = sp_runtime_interface::pass_by::Codec<Self>;
 }
 
+impl<T: Encode + Decode> From<T> for Crossing<T> {
+	fn from(t: T) -> Crossing<T> {
+		Crossing(t)
+	}
+}
+
 impl<T: Encode + Decode> Crossing<T> {
 	/// Convert into the inner type
 	pub fn into_inner(self) -> T {
@@ -2056,8 +2019,8 @@ pub type TestExternalities = sp_state_machine::TestExternalities<sp_core::Blake2
 pub type SubstrateHostFunctions = (
 	storage::HostFunctions,
 	default_child_storage::HostFunctions,
-	parent_sized_child_storage::HostFunctions,
-	mmr_child_storage::HostFunctions,
+	blob_storage::HostFunctions,
+	btree_storage::HostFunctions,
 	misc::HostFunctions,
 	wasm_tracing::HostFunctions,
 	offchain::HostFunctions,
