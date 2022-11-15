@@ -507,15 +507,12 @@ where
 	) -> sp_blockchain::Result<Block::Hash> {
 		check_genesis_storage(&storage)?;
 
-		let child_delta =
-			storage.children_default.values().map(
-				|child_content| {
-					(
-						&child_content.child_info,
-						child_content.data.iter().map(|(k, v)| (k.as_ref(), Some(v.as_ref()))),
-					)
-				},
-			);
+		let child_delta = storage.children_default.values().map(|child_content| {
+			(
+				&child_content.child_info,
+				child_content.data.iter().map(|(k, v)| (k.as_ref(), Some(v.as_ref()))),
+			)
+		});
 
 		let (root, transaction) = self.old_state.full_storage_root(
 			storage.top.iter().map(|(k, v)| (k.as_ref(), Some(v.as_ref()))),

@@ -116,16 +116,12 @@ impl<B: BlockT> BenchmarkingState<B> {
 		state.add_whitelist_to_tracker();
 
 		state.reopen()?;
-		let child_delta =
-			genesis.children_default.values().map(
-				|child_content| {
-					(
-						&child_content.child_info,
-						child_content.data.iter().map(|(k, v)| (k.as_ref(), Some(v.as_ref()))),
-					)
-				},
-			);
-		let child_delta_mmr: std::iter::Empty<(_, std::iter::Empty<_>)> = std::iter::empty();
+		let child_delta = genesis.children_default.values().map(|child_content| {
+			(
+				&child_content.child_info,
+				child_content.data.iter().map(|(k, v)| (k.as_ref(), Some(v.as_ref()))),
+			)
+		});
 		let (root, transaction): (B::Hash, _) =
 			state.state.borrow_mut().as_mut().unwrap().full_storage_root(
 				genesis.top.iter().map(|(k, v)| (k.as_ref(), Some(v.as_ref()))),

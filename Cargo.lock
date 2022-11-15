@@ -10494,6 +10494,7 @@ dependencies = [
  "array-bytes",
  "async-trait",
  "futures",
+ "log",
  "parity-scale-codec",
  "sc-client-api",
  "sc-client-db",
@@ -10565,6 +10566,7 @@ name = "substrate-test-runtime-client"
 version = "2.0.0"
 dependencies = [
  "futures",
+ "log",
  "parity-scale-codec",
  "sc-block-builder",
  "sc-client-api",

@@ -158,13 +158,10 @@ where
 		let mut inner: HashMap<Option<ChildInfo>, BTreeMap<StorageKey, StorageValue>> = inners
 			.children_default
 			.into_values()
-			.chain(inners.btree_storages.into_values())
 			.map(|c| (Some(c.child_info), c.data))
 			.collect();
 		inner.insert(None, inners.top);
-		let mut result: Self = (inner, state_version).into();
-		unimplemented!("TODO mmr here");
-		result
+		(inner, state_version).into()
 	}
 }
 

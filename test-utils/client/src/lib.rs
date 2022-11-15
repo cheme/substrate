@@ -34,7 +34,7 @@ pub use sp_keyring::{
 	ed25519::Keyring as Ed25519Keyring, sr25519::Keyring as Sr25519Keyring, AccountKeyring,
 };
 pub use sp_keystore::{SyncCryptoStore, SyncCryptoStorePtr};
-pub use sp_runtime::{Storage, StorageChild, Storageblob};
+pub use sp_runtime::{Storage, StorageBlob, StorageBtree, StorageChild};
 pub use sp_state_machine::ExecutionStrategy;
 
 use futures::{future::Future, stream::StreamExt};
@@ -207,44 +207,29 @@ impl<Block: BlockT, ExecutorDispatch, Backend, G: GenesisInit>
 		Backend: sc_client_api::backend::Backend<Block>,
 		<Backend as sc_client_api::backend::Backend<Block>>::OffchainStorage: 'static,
 	{
-		let storage = {
-			let mut storage = self.genesis_init.genesis_storage();
-			// Add some child storage keys.
-			for (key, child_content) in self.child_storage_extension {
-				match child_content.child_info.child_type() {
-					ChildType::ParentKeyId => {
-						storage.children_default.insert(
-							key,
-							StorageChild {
-								data: child_content.data.into_iter().collect(),
-								child_info: child_content.child_info,
-							},
-						);
-					},
-					ChildType::BTree => {
-						storage.btree_storages.insert(
-							key,
-							StorageChild {
-								data: child_content.data.into_iter().collect(),
-								child_info: child_content.child_info,
-							},
-						);
-					},
-					ChildType::Blob => {
-						storage.blob_storages.insert(
-							key,
-							StorageBlob {
-								info: unimplemented!(), //child_content.child_info,
-								data: unimplemented!("TODO new storage extension for mmr"),
-								hash: unimplemented!(),
-							},
-						);
-					},
+		let storage =
+			{
+				let mut storage = self.genesis_init.genesis_storage();
+				// Add some child storage keys.
+				for (key, child_content) in self.child_storage_extension {
+					match child_content.child_info.child_type() {
+						ChildType::ParentKeyId => {
+							storage.children_default.insert(
+								key,
+								StorageChild {
+									data: child_content.data.into_iter().collect(),
+									child_info: child_content.child_info,
+								},
+							);
+						},
+						ChildType::Blob | ChildType::BTree => {
+							log::warn!("Trying to insert transient storage in test state, ignoring content.");
+						},
+					}
 				}
-			}
 
-			storage
-		};
+				storage
+			};
 
 		let client = client::Client::new(
 			self.backend.clone(),

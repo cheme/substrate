@@ -840,15 +840,12 @@ impl<Block: BlockT> BlockImportOperation<Block> {
 			return Err(sp_blockchain::Error::InvalidState)
 		}
 
-		let child_delta =
-			storage.children_default.values().map(
-				|child_content| {
-					(
-						&child_content.child_info,
-						child_content.data.iter().map(|(k, v)| (&k[..], Some(&v[..]))),
-					)
-				},
-			);
+		let child_delta = storage.children_default.values().map(|child_content| {
+			(
+				&child_content.child_info,
+				child_content.data.iter().map(|(k, v)| (&k[..], Some(&v[..]))),
+			)
+		});
 
 		let (root, transaction) = self.old_state.full_storage_root(
 			storage.top.iter().map(|(k, v)| (&k[..], Some(&v[..]))),

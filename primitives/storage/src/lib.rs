@@ -186,7 +186,7 @@ pub struct Storage {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct StorageBlob {
 	/// Ordered data, start and data, no overlap.
-	pub data: Vec<(usize, Vec<u8>)>,
+	pub data: Option<Vec<u8>>,
 	/// Associated info.
 	pub info: Blob,
 	/// Last calculated hash matching
@@ -340,29 +340,15 @@ impl ChildInfo {
 	pub fn try_update(&mut self, other: &ChildInfo) -> bool {
 		match self {
 			ChildInfo::ParentKeyId(child_trie) => child_trie.try_update(other),
-			ChildInfo::BTree(Btree { name, mode, structure }) =>
-				if let ChildInfo::BTree(Btree {
-					name: o_name,
-					mode: o_mode,
-					structure: o_structure,
-				}) = other
-				{
-					// root method can differ
-					*structure = o_structure.clone();
-					name == o_name && mode == o_mode
+			ChildInfo::Blob(blob) =>
+				if let ChildInfo::Blob(other) = other {
+					blob.try_update(other)
 				} else {
 					false
 				},
-			ChildInfo::Blob(Blob { name, mode, algorithm }) =>
-				if let ChildInfo::Blob(Blob {
-					name: o_name,
-					mode: o_mode,
-					algorithm: o_algorithm,
-				}) = other
-				{
-					// hash method can differ (changing to change next call to storage root).
-					*algorithm = o_algorithm.clone();
-					name == o_name && mode == o_mode
+			ChildInfo::BTree(btree) =>
+				if let ChildInfo::BTree(other) = other {
+					btree.try_update(other)
 				} else {
 					false
 				},
@@ -577,7 +563,7 @@ pub struct ChildTrieParentKeyId {
 impl ChildTrieParentKeyId {
 	/// Try to update with another instance, return false if both instance
 	/// are not compatible.
-	fn try_update(&mut self, other: &ChildInfo) -> bool {
+	pub fn try_update(&mut self, other: &ChildInfo) -> bool {
 		match other {
 			ChildInfo::ParentKeyId(other) => self.data[..] == other.data[..],
 			ChildInfo::BTree(..) | ChildInfo::Blob(..) => false,
@@ -617,6 +603,18 @@ impl PartialOrd for Btree {
 	}
 }
 
+impl Btree {
+	/// Try to update with another instance, return false if both instance
+	/// are not compatible.
+	pub fn try_update(&mut self, other: &Btree) -> bool {
+		let Btree { name, mode, structure } = self;
+		let Btree { name: o_name, mode: o_mode, structure: o_structure } = other;
+		// root method can differ
+		*structure = o_structure.clone();
+		name == o_name && mode == o_mode
+	}
+}
+
 /// Blob definining infos.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "std", derive(PartialEq, Eq, Ord, Encode, Decode))]
@@ -630,6 +628,19 @@ pub struct Blob {
 
 	/// Algorithm to apply for hashing.
 	pub algorithm: Option<transient::Hash32Algorithm>,
+}
+
+impl Blob {
+	/// Try to update with another instance, return false if both instance
+	/// are not compatible.
+	fn try_update(&mut self, other: &Blob) -> bool {
+		let Blob { name, mode, algorithm } = self;
+
+		let Blob { name: o_name, mode: o_mode, algorithm: o_algorithm } = other;
+		// hash method can differ (changing to change next call to storage root).
+		*algorithm = o_algorithm.clone();
+		name == o_name && mode == o_mode
+	}
 }
 
 #[cfg(feature = "std")]

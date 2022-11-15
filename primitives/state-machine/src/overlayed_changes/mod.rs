@@ -27,7 +27,10 @@ use hash_db::Hasher;
 pub use offchain::OffchainOverlayedChanges;
 use sp_core::{
 	offchain::OffchainOverlayedChange,
-	storage::{well_known_keys::EXTRINSIC_INDEX, ChildInfo, StateVersion, Blob as BlobInfo, Btree as BtreeInfo, Name, transient::Hash32Algorithm},
+	storage::{
+		transient::Hash32Algorithm, well_known_keys::EXTRINSIC_INDEX, Blob as BlobInfo,
+		Btree as BtreeInfo, ChildInfo, Name, StateVersion,
+	},
 };
 #[cfg(feature = "std")]
 use sp_externalities::{Extension, Extensions};
@@ -361,8 +364,8 @@ impl OverlayedChanges {
 		*/
 	}
 
-	/// TODO a fn to change/set child info (for setting hashing for instance). Or only for caching?? ->
-	/// then cache with root -> then no use having it in BtreeInfo -> TODO rem from btreeinfo
+	/// TODO a fn to change/set child info (for setting hashing for instance). Or only for caching??
+	/// -> then cache with root -> then no use having it in BtreeInfo -> TODO rem from btreeinfo
 	/// (try_update does not make much sense).
 
 	/// Clear child storage of given storage key.
@@ -545,12 +548,7 @@ impl OverlayedChanges {
 				(impl Iterator<Item = (StorageKey, Option<StorageValue>)>, ChildInfo),
 			),
 		>,
-		impl Iterator<
-			Item = (
-				BtreeInfo,
-				impl Iterator<Item = (StorageKey, Option<StorageValue>)>,
-			),
-		>,
+		impl Iterator<Item = (BtreeInfo, impl Iterator<Item = (StorageKey, Option<StorageValue>)>)>,
 		impl Iterator<Item = (BlobInfo, Blob, Option<[u8; 32]>)>,
 	) {
 		use sp_std::mem::take;
@@ -617,9 +615,7 @@ impl OverlayedChanges {
 		&self,
 		name: &[u8],
 	) -> Option<(impl Iterator<Item = (&StorageKey, &OverlayedValue)>, &BtreeInfo)> {
-		self.btrees
-			.get(name)
-			.map(|(overlay, info)| (overlay.changes(), info))
+		self.btrees.get(name).map(|(overlay, info)| (overlay.changes(), info))
 	}
 
 	/// Get an optional iterator over all blob changes stored under the supplied key.
@@ -685,7 +681,7 @@ impl OverlayedChanges {
 			child_storage_changes: child_storage_changes
 				.map(|(sk, it)| (sk, it.0.collect()))
 				.collect(),
-				// TODO hash from changes
+			// TODO hash from changes
 			btrees_changes: btrees_changes.map(|(info, it)| (info, it.collect(), None)).collect(),
 			blobs_changes: blobs_changes.map(|(info, blob, hash)| (info, blob, hash)).collect(),
 			offchain_storage_changes,
@@ -737,8 +733,7 @@ impl OverlayedChanges {
 			(info, changes.map(|(k, v)| (&k[..], v.value().map(|v| &v[..]))))
 		});
 
-		let (root, transaction) =
-			backend.full_storage_root(delta, child_delta, state_version);
+		let (root, transaction) = backend.full_storage_root(delta, child_delta, state_version);
 
 		cache.transaction = Some(transaction);
 		cache.transaction_storage_root = Some(root);
@@ -799,12 +794,17 @@ impl From<sp_core::storage::Storage> for OverlayedChanges {
 			btrees: storage
 				.btree_storages
 				.into_iter()
-				.map(|(k, v)| (k, (v.data.into(), v.child_info, None)))
+				// TODO overlay also with btree infos and root
+				// TODO add btree info in overlayedchangeset?
+				.map(|(k, v)| (k, (v.data.into(), v.info)))
 				.collect(),
 			blobs: storage
 				.blob_storages
 				.into_iter()
-				.map(|(k, v)| (k, (v.data.into_iter().map(|v| v.1).collect().into(), v.info)))
+				.map(|(k, v)| {
+					let overlay_set = unimplemented!("from data and root and info");
+					(k, (overlay_set, v.info))
+				})
 				.collect(),
 			offchain: Default::default(),
 			collect_extrinsics: Default::default(),

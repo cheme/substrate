@@ -24,7 +24,7 @@ use log::warn;
 use sp_core::{
 	storage::{
 		well_known_keys::is_child_storage_key, ChildInfo, ChildType, StateVersion, Storage,
-		StorageChild, StorageBlob, TrackedStorageKey,
+		StorageBlob, StorageBtree, StorageChild, TrackedStorageKey,
 	},
 	traits::Externalities,
 	Blake2Hasher,
@@ -66,10 +66,10 @@ impl BasicExternalities {
 	pub fn into_storages(self) -> Storage {
 		let mut children_default: std::collections::HashMap<Vec<u8>, StorageChild> =
 			Default::default();
-		let mut btree_storages: std::collections::HashMap<Vec<u8>, StorageChild> =
+		let mut btree_storages: std::collections::HashMap<Vec<u8>, StorageBtree> =
 			Default::default();
 		self.overlay.children().for_each(|(iter, i)| {
-			let child = sp_core::storage::StorageChild {
+			let child = StorageChild {
 				data: iter
 					.filter_map(|(k, v)| v.value().map(|v| (k.to_vec(), v.to_vec())))
 					.collect(),
@@ -356,8 +356,7 @@ impl Externalities for BasicExternalities {
 			ChildType::ParentKeyId => (),
 			ChildType::BTree => (),
 			ChildType::Blob =>
-				return if let Some(child) = self.overlay.blob_changes(child_info.storage_key())
-				{
+				return if let Some(child) = self.overlay.blob_changes(child_info.storage_key()) {
 					// TODO
 					crate::in_memory_backend::new_in_mem::<Blake2Hasher, HashKey<_>>()
 						.child_mmr_root(child_info, child.0)

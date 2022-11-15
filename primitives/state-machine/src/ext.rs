@@ -656,13 +656,15 @@ where
 
 		if let ChildInfo::Blob(..) = child_info {
 			// TODO root calc from overlay
-			let root: Option<(Vec<u8>, bool)> = if let Some((changes, info, hash)) = self.overlay.blob_changes(storage_key) {
+			let root: Option<(Vec<u8>, bool)> = if let Some((changes, info, hash)) =
+				self.overlay.blob_changes(storage_key)
+			{
 				if let Some(hash) = hash {
-					return hash.into();
+					return hash.into()
 				}
 				// TODO maybe backend implement storage root directly (hash type shoudl be in info
 				unimplemented!("hash of blob and cache it in overlay");
-				//Some(self.backend.child_mmr_root(info, changes))
+			//Some(self.backend.child_mmr_root(info, changes))
 			} else {
 				None
 			};

@@ -59,8 +59,8 @@ use sp_consensus::{BlockOrigin, BlockStatus, Error as ConsensusError};
 
 use sc_utils::mpsc::{tracing_unbounded, TracingUnboundedSender};
 use sp_core::storage::{
-	well_known_keys, ChildInfo, ChildType, PrefixedStorageKey, Storage, StorageChild, StorageData,
-	StorageKey, StorageBlob,
+	well_known_keys, ChildInfo, ChildType, PrefixedStorageKey, Storage, StorageBlob, StorageBtree,
+	StorageChild, StorageData, StorageKey,
 };
 #[cfg(feature = "test-helpers")]
 use sp_keystore::SyncCryptoStorePtr;
@@ -610,73 +610,70 @@ where
 							} else {
 								for parent_storage in state.parent_storage_keys {
 									let storage_key = PrefixedStorageKey::new_ref(&parent_storage);
-									let entry = match ChildType::from_prefixed_key(&storage_key) {
-										Some((ChildType::ParentKeyId, storage_key)) => storage
-											.children_default
-											.entry(storage_key.to_vec())
-											.or_insert_with(|| StorageChild {
-												data: Default::default(),
-												child_info: ChildInfo::new_default(storage_key),
-											}),
+									match ChildType::from_prefixed_key(&storage_key) {
+										Some((ChildType::ParentKeyId, storage_key)) => {
+											let entry = storage
+												.children_default
+												.entry(storage_key.to_vec())
+												.or_insert_with(|| StorageChild {
+													data: Default::default(),
+													child_info: ChildInfo::new_default(storage_key),
+												});
+											for (key, value) in state.key_values.into_iter() {
+												entry.data.insert(key, value);
+											}
+											break
+										},
 										Some((ChildType::BTree, storage_key)) => {
-											unreachable!("TODO move following code in a loop that
-											is not from state");
-											// transient data is passed through import,
-											// could be change (but change should be deprecated
-											// maybe).
-											//
-											// TODO when injecting only write or process to
-											// external service when in pruning range?? -> that
-											// is difficult as we don't know the target (except
-											// sync from start when doing a warp sync).
-											// Could skip skip when import (only on start) and
-											// create when head is reached (mean executing block
-											// twice so only ok for small window).
-											// TODO same for type Blob
-											storage
+											// TODO currently we don't warp synch this kind of info
+											// so this code is a filler.
+											let entry = storage
 												.btree_storages
 												.entry(storage_key.to_vec())
 												.or_insert_with(|| {
-													StorageChild {
-													data: Default::default(),
-													child_info: ChildInfo::new_btree(
-														storage_key,
-														Some(sp_core::storage::transient::Mode::Drop),
-														Some(sp_core::storage::transient::Root32Structure::SubstrateDefault),
-													),
-												}
-												})
+													StorageBtree {
+														data: Default::default(),
+														info: sp_core::storage::Btree {
+															name: storage_key.to_vec(),
+															// only archive make sense to sync
+															mode: Some(sp_core::storage::transient::Mode::Archive),
+															structure: None,
+														},
+														root: None,
+													}
+												});
+											debug_assert!(state.blob.is_none());
+											for (key, value) in state.key_values.into_iter() {
+												entry.data.insert(key, value);
+											}
+											break
 										},
-										// TODO should not have this in state -> move to import from storage
 										Some((ChildType::Blob, storage_key)) => {
+											// TODO currently we don't warp synch this kind of info
+											// so this code is a filler.
 											let entry = storage
 												.blob_storages
 												.entry(storage_key.to_vec())
-												.or_insert_with(||
+												.or_insert_with(|| {
 													StorageBlob {
-	data: Default::default,
-	info: sp_core::storage::Blob { name: storage_key.to_vec(),
-
-														mode: Some(sp_core::storage::transient::Mode::Drop),
-														algorithm: Some(sp_core::storage::transient::Hash32Algorithm::Blake2b256),
-	},
-	hash: None,
+														data: Default::default(),
+															info: sp_core::storage::Blob { name: storage_key.to_vec(),
+															// only archive make sense to sync
+															mode: Some(sp_core::storage::transient::Mode::Archive),
+															algorithm: None,
+														},
+														hash: None,
 													}
-												);
+												});
 											debug_assert!(state.key_values.is_empty());
-											for value in state.values.iter() {
-												entry.data.push(value.clone());
-											}
-											continue
+											entry.data = state.blob;
+											break
 										},
 										None =>
 											return Err(Error::Backend(
 												"Invalid child storage key.".to_string(),
 											)),
 									};
-									for (key, value) in state.key_values.iter() {
-										entry.data.insert(key.clone(), value.clone());
-									}
 								}
 							}
 						}
@@ -692,6 +689,7 @@ where
 							warn!("Error importing state: State root mismatch.");
 							return Err(Error::InvalidStateRoot)
 						}
+						// TODO inject/persist blob and btree or just skip their import
 						None
 					},
 				};
@@ -1285,7 +1283,7 @@ where
 			KeyValueStorageLevel {
 				state_root: Vec::new(),
 				key_values: Vec::new(),
-				values: Vec::new(),
+				blob: None,
 				parent_storage_keys: Vec::new(),
 			},
 			false,
@@ -1345,7 +1343,7 @@ where
 					KeyValueStorageLevel {
 						state_root: child_root,
 						key_values: entries,
-						values: Default::default(),
+						blob: None,
 						parent_storage_keys: Vec::new(),
 					},
 					complete,

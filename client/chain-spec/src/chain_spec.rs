@@ -128,7 +128,7 @@ impl<G: RuntimeGenesis, E> BuildStorage for ChainSpec<G, E> {
 					})
 					.collect(),
 				btree_storages: Default::default(), // transient
-				blob_storages: Default::default(),   // transient
+				blob_storages: Default::default(),  // transient
 			}),
 			// The `StateRootHash` variant exists as a way to keep note that other clients support
 			// it, but Substrate itself isn't capable of loading chain specs with just a hash at the

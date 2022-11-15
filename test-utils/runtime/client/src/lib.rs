@@ -238,13 +238,10 @@ pub trait TestClientBuilderExt<B>: Sized {
 		assert!(!key.is_empty());
 		let child_map = match child_info.child_type() {
 			ChildType::ParentKeyId => &mut self.genesis_init_mut().extra_storage.children_default,
-			ChildType::BTree => &mut self.genesis_init_mut().extra_storage.btree_storages,
-			ChildType::Blob => unimplemented!(), /* error actually TODO this is needed for tests
-			                                      * (not
-			                                      * genesis obviously
-			                                      * as this is just for test, we can just
-			                                      * ignore the key and use the value as is.
-			                                      */
+			ChildType::Blob | ChildType::BTree => {
+				log::warn!("Skipping transient storage for genesis.");
+				return self;
+			},
 		};
 		child_map
 			.entry(storage_key)

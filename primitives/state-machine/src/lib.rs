@@ -673,8 +673,8 @@ mod execution {
 		pub parent_storage_keys: Vec<Vec<u8>>,
 		/// Pair of key and values from this state.
 		pub key_values: Vec<(Vec<u8>, Vec<u8>)>,
-		/// Pair of pushed values (not compatible with key_values usage).
-		pub values: Vec<Vec<u8>>,
+		/// Simple blob as storage.
+		pub blob: Option<Vec<u8>>,
 	}
 
 	impl<I> From<I> for KeyValueStates
@@ -687,7 +687,7 @@ mod execution {
 				result.push(KeyValueStorageLevel {
 					state_root,
 					key_values,
-					values: Default::default(),
+					blob: Default::default(),
 					parent_storage_keys: storage_paths,
 				})
 			}
@@ -1232,7 +1232,7 @@ mod execution {
 		let mut result = vec![KeyValueStorageLevel {
 			state_root: Default::default(),
 			key_values: Default::default(),
-			values: Default::default(),
+			blob: Default::default(),
 			parent_storage_keys: Default::default(),
 		}];
 		if start_at.len() > MAX_NESTED_TRIE_DEPTH {
@@ -1262,7 +1262,7 @@ mod execution {
 				result.push(KeyValueStorageLevel {
 					state_root: state_root.clone(),
 					key_values: Default::default(),
-					values: Default::default(),
+					blob: Default::default(),
 					parent_storage_keys: Default::default(),
 				});
 
