@@ -361,6 +361,7 @@ pub trait Externalities: ExtensionStore {
 	/// Returns `None` if the blob does not exist.
 	/// // TODO try returning &[u8] since transient is in mem or Cow<'a, [u8]> for
 	/// case we write blob as file or other considerations.
+	/// TODO could be replace by child get
 	fn blob_get(&self, name: &[u8], limit: Option<u32>, value_offset: u32) -> Option<Vec<u8>> {
 		unimplemented!("TODO rem def impl here");
 	}
@@ -396,6 +397,7 @@ pub trait Externalities: ExtensionStore {
 	}
 
 	/// If blob exists, return it's hash for a given algorithm.
+	/// TODO could be replace by update child info, then child_storage_root call.
 	fn blob_hash32(&mut self, name: &[u8], algorithm: Hash32Algorithm) -> Option<[u8; 32]> {
 		unimplemented!("TODO rem def impl here");
 	}

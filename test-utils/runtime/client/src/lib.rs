@@ -143,7 +143,7 @@ impl substrate_test_client::GenesisInit for GenesisParameters {
 			let prefixed_storage_key = child_content.child_info.prefixed_storage_key();
 			(prefixed_storage_key.into_inner(), state_root.encode())
 		});
-		let child_roots_dummy = storage.children_sized.iter().map(|(_sk, _child_content)| {
+		let child_roots_dummy = storage.btree_storages.iter().map(|(_sk, _child_content)| {
 			unimplemented!(
 				"TODO add fn trie_root_dummy to runtime/src/traits, would mean
 		another two host function"
@@ -238,7 +238,7 @@ pub trait TestClientBuilderExt<B>: Sized {
 		assert!(!key.is_empty());
 		let child_map = match child_info.child_type() {
 			ChildType::ParentKeyId => &mut self.genesis_init_mut().extra_storage.children_default,
-			ChildType::BTree => &mut self.genesis_init_mut().extra_storage.children_sized,
+			ChildType::BTree => &mut self.genesis_init_mut().extra_storage.btree_storages,
 			ChildType::Blob => unimplemented!(), /* error actually TODO this is needed for tests
 			                                      * (not
 			                                      * genesis obviously

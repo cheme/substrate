@@ -508,7 +508,7 @@ where
 		check_genesis_storage(&storage)?;
 
 		let child_delta =
-			storage.children_default.values().chain(storage.children_sized.values()).map(
+			storage.children_default.values().map(
 				|child_content| {
 					(
 						&child_content.child_info,
@@ -517,14 +517,9 @@ where
 				},
 			);
 
-		let child_delta_mmr = storage.children_mmr.values().map(|child_content| {
-			(&child_content.child_info, child_content.data.iter().map(|v| v.as_ref()))
-		});
-
 		let (root, transaction) = self.old_state.full_storage_root(
 			storage.top.iter().map(|(k, v)| (k.as_ref(), Some(v.as_ref()))),
 			child_delta,
-			child_delta_mmr,
 			state_version,
 		);
 

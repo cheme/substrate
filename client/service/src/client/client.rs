@@ -60,7 +60,7 @@ use sp_consensus::{BlockOrigin, BlockStatus, Error as ConsensusError};
 use sc_utils::mpsc::{tracing_unbounded, TracingUnboundedSender};
 use sp_core::storage::{
 	well_known_keys, ChildInfo, ChildType, PrefixedStorageKey, Storage, StorageChild, StorageData,
-	StorageKey, StorageMmr,
+	StorageKey, StorageBlob,
 };
 #[cfg(feature = "test-helpers")]
 use sp_keystore::SyncCryptoStorePtr;
@@ -619,6 +619,8 @@ where
 												child_info: ChildInfo::new_default(storage_key),
 											}),
 										Some((ChildType::BTree, storage_key)) => {
+											unreachable!("TODO move following code in a loop that
+											is not from state");
 											// transient data is passed through import,
 											// could be change (but change should be deprecated
 											// maybe).
@@ -632,7 +634,7 @@ where
 											// twice so only ok for small window).
 											// TODO same for type Blob
 											storage
-												.children_sized
+												.btree_storages
 												.entry(storage_key.to_vec())
 												.or_insert_with(|| {
 													StorageChild {
@@ -645,20 +647,22 @@ where
 												}
 												})
 										},
+										// TODO should not have this in state -> move to import from storage
 										Some((ChildType::Blob, storage_key)) => {
 											let entry = storage
-												.children_mmr
+												.blob_storages
 												.entry(storage_key.to_vec())
-												.or_insert_with(|| {
-													StorageMmr {
-													data: Default::default(),
-													child_info: ChildInfo::new_blob(
-														storage_key,
-														Some(sp_core::storage::transient::Mode::Drop),
-														Some(sp_core::storage::transient::Hash32Algorithm::Blake2b256),
-													),
-												}
-												});
+												.or_insert_with(||
+													StorageBlob {
+	data: Default::default,
+	info: sp_core::storage::Blob { name: storage_key.to_vec(),
+
+														mode: Some(sp_core::storage::transient::Mode::Drop),
+														algorithm: Some(sp_core::storage::transient::Hash32Algorithm::Blake2b256),
+	},
+	hash: None,
+													}
+												);
 											debug_assert!(state.key_values.is_empty());
 											for value in state.values.iter() {
 												entry.data.push(value.clone());

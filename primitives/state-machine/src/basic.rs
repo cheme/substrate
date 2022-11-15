@@ -24,7 +24,7 @@ use log::warn;
 use sp_core::{
 	storage::{
 		well_known_keys::is_child_storage_key, ChildInfo, ChildType, StateVersion, Storage,
-		StorageChild, StorageMmr, TrackedStorageKey,
+		StorageChild, StorageBlob, TrackedStorageKey,
 	},
 	traits::Externalities,
 	Blake2Hasher,
@@ -66,7 +66,7 @@ impl BasicExternalities {
 	pub fn into_storages(self) -> Storage {
 		let mut children_default: std::collections::HashMap<Vec<u8>, StorageChild> =
 			Default::default();
-		let mut children_sized: std::collections::HashMap<Vec<u8>, StorageChild> =
+		let mut btree_storages: std::collections::HashMap<Vec<u8>, StorageChild> =
 			Default::default();
 		self.overlay.children().for_each(|(iter, i)| {
 			let child = sp_core::storage::StorageChild {
@@ -85,7 +85,7 @@ impl BasicExternalities {
 					// to client, then sure but only when we get Mode::Archive.
 					// mark as unimplemented for now
 					unimplemented!();
-					//children_sized.insert(i.storage_key().to_vec(), child);
+					//btree_storages.insert(i.storage_key().to_vec(), child);
 				},
 				_ => unreachable!(),
 			}
@@ -98,16 +98,17 @@ impl BasicExternalities {
 				.filter_map(|(k, v)| v.value().map(|v| (k.to_vec(), v.to_vec())))
 				.collect(),
 			children_default,
-			children_sized,
-			children_mmr: self
+			btree_storages,
+			blob_storages: self
 				.overlay
-				.children_mmr()
+				.blob_storages()
 				.map(|(iter, i)| {
 					(
-						i.storage_key().to_vec(),
-						sp_core::storage::StorageMmr {
-							data: iter.cloned().collect(),
-							child_info: i.clone(),
+						i.name.clone(),
+						sp_core::storage::StorageBlob {
+							data: unimplemented!(),
+							info: i.clone(),
+							hash: unimplemented!(),
 						},
 					)
 				})
@@ -165,12 +166,12 @@ impl PartialEq for BasicExternalities {
 					})
 					.collect::<BTreeMap<_, _>>() &&
 			self.overlay
-				.children_mmr()
+				.blob_storages()
 				.map(|(iter, i)| (i, iter.cloned().collect::<Vec<_>>()))
 				.collect::<BTreeMap<_, _>>() ==
 				other
 					.overlay
-					.children_mmr()
+					.blob_storages()
 					.map(|(iter, i)| (i, iter.cloned().collect::<Vec<_>>()))
 					.collect::<BTreeMap<_, _>>()
 	}
@@ -339,14 +340,6 @@ impl Externalities for BasicExternalities {
 				top.insert(child_info.prefixed_storage_key().into_inner(), child_root);
 			}
 		}
-		for child_info in self.overlay.children_mmr().map(|d| d.1.clone()).collect::<Vec<_>>() {
-			let child_root = self.child_storage_root(&child_info, state_version);
-			if empty_hash[..] == child_root[..] {
-				top.remove(child_info.prefixed_storage_key().as_slice());
-			} else {
-				top.insert(child_info.prefixed_storage_key().into_inner(), child_root);
-			}
-		}
 
 		match state_version {
 			StateVersion::V0 => LayoutV0::<Blake2Hasher>::trie_root(top).as_ref().into(),
@@ -363,7 +356,7 @@ impl Externalities for BasicExternalities {
 			ChildType::ParentKeyId => (),
 			ChildType::BTree => (),
 			ChildType::Blob =>
-				return if let Some(child) = self.overlay.child_mmr_changes(child_info.storage_key())
+				return if let Some(child) = self.overlay.blob_changes(child_info.storage_key())
 				{
 					// TODO
 					crate::in_memory_backend::new_in_mem::<Blake2Hasher, HashKey<_>>()
@@ -493,8 +486,8 @@ mod tests {
 					child_info: child_info.to_owned(),
 				}
 			],
-			children_sized: map![],
-			children_mmr: map![],
+			btree_storages: map![],
+			blob_storages: map![],
 		});
 
 		assert_eq!(ext.child_storage(child_info, b"doe"), Some(b"reindeer".to_vec()));
@@ -525,8 +518,8 @@ mod tests {
 					child_info: child_info.to_owned(),
 				}
 			],
-			children_sized: map![],
-			children_mmr: map![],
+			btree_storages: map![],
+			blob_storages: map![],
 		});
 
 		let res = ext.kill_child_storage(child_info, None, None);
@@ -539,7 +532,7 @@ mod tests {
 		let storage = BasicExternalities::new_empty().into_storages();
 		assert!(storage.top.is_empty());
 		assert!(storage.children_default.is_empty());
-		assert!(storage.children_sized.is_empty());
-		assert!(storage.children_mmr.is_empty());
+		assert!(storage.btree_storages.is_empty());
+		assert!(storage.blob_storages.is_empty());
 	}
 }

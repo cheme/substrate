@@ -117,7 +117,7 @@ impl<B: BlockT> BenchmarkingState<B> {
 
 		state.reopen()?;
 		let child_delta =
-			genesis.children_default.values().chain(genesis.children_sized.values()).map(
+			genesis.children_default.values().map(
 				|child_content| {
 					(
 						&child_content.child_info,
@@ -130,7 +130,6 @@ impl<B: BlockT> BenchmarkingState<B> {
 			state.state.borrow_mut().as_mut().unwrap().full_storage_root(
 				genesis.top.iter().map(|(k, v)| (k.as_ref(), Some(v.as_ref()))),
 				child_delta,
-				child_delta_mmr,
 				state_version,
 			);
 		state.genesis = transaction.clone().drain();

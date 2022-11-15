@@ -650,15 +650,24 @@ where
 		let storage_key = child_info.storage_key();
 		let prefixed_storage_key = child_info.prefixed_storage_key();
 
+		if let ChildInfo::BTree(..) = child_info {
+			unimplemented!("TODO (same as parent but no put storage root cache in overlay");
+		}
+
 		if let ChildInfo::Blob(..) = child_info {
-			let root = if let Some((changes, info)) = self.overlay.child_mmr_changes(storage_key) {
+			// TODO root calc from overlay
+			let root: Option<(Vec<u8>, bool)> = if let Some((changes, info, hash)) = self.overlay.blob_changes(storage_key) {
+				if let Some(hash) = hash {
+					return hash.into();
+				}
 				// TODO maybe backend implement storage root directly (hash type shoudl be in info
-				Some(self.backend.child_mmr_root(info, changes))
+				unimplemented!("hash of blob and cache it in overlay");
+				//Some(self.backend.child_mmr_root(info, changes))
 			} else {
 				None
 			};
 
-			return if let Some((root, is_empty, _)) = root {
+			return if let Some((root, is_empty)) = root {
 				trace!(
 					target: "state",
 					method = "ChildStorageRoot",
@@ -1043,8 +1052,8 @@ mod tests {
 					vec![40] => vec![40]
 				],
 				children_default: map![],
-				children_sized: map![],
-				children_mmr: map![],
+				btree_storages: map![],
+				blob_storages: map![],
 			},
 			StateVersion::default(),
 		)
@@ -1092,8 +1101,8 @@ mod tests {
 					vec![30] => vec![30]
 				],
 				children_default: map![],
-				children_sized: map![],
-				children_mmr: map![],
+				btree_storages: map![],
+				blob_storages: map![],
 			},
 			StateVersion::default(),
 		)
@@ -1128,8 +1137,8 @@ mod tests {
 						child_info: child_info.to_owned(),
 					}
 				],
-				children_sized: map![],
-				children_mmr: map![],
+				btree_storages: map![],
+				blob_storages: map![],
 			},
 			StateVersion::default(),
 		)
@@ -1178,8 +1187,8 @@ mod tests {
 						child_info: child_info.to_owned(),
 					}
 				],
-				children_sized: map![],
-				children_mmr: map![],
+				btree_storages: map![],
+				blob_storages: map![],
 			},
 			StateVersion::default(),
 		)
@@ -1220,8 +1229,8 @@ mod tests {
 						child_info: child_info.to_owned(),
 					}
 				],
-				children_sized: map![],
-				children_mmr: map![],
+				btree_storages: map![],
+				blob_storages: map![],
 			},
 			StateVersion::default(),
 		)

@@ -34,7 +34,7 @@ pub use sp_keyring::{
 	ed25519::Keyring as Ed25519Keyring, sr25519::Keyring as Sr25519Keyring, AccountKeyring,
 };
 pub use sp_keystore::{SyncCryptoStore, SyncCryptoStorePtr};
-pub use sp_runtime::{Storage, StorageChild, StorageMmr};
+pub use sp_runtime::{Storage, StorageChild, Storageblob};
 pub use sp_state_machine::ExecutionStrategy;
 
 use futures::{future::Future, stream::StreamExt};
@@ -222,7 +222,7 @@ impl<Block: BlockT, ExecutorDispatch, Backend, G: GenesisInit>
 						);
 					},
 					ChildType::BTree => {
-						storage.children_sized.insert(
+						storage.btree_storages.insert(
 							key,
 							StorageChild {
 								data: child_content.data.into_iter().collect(),
@@ -231,11 +231,12 @@ impl<Block: BlockT, ExecutorDispatch, Backend, G: GenesisInit>
 						);
 					},
 					ChildType::Blob => {
-						storage.children_mmr.insert(
+						storage.blob_storages.insert(
 							key,
-							StorageMmr {
-								child_info: child_content.child_info,
+							StorageBlob {
+								info: unimplemented!(), //child_content.child_info,
 								data: unimplemented!("TODO new storage extension for mmr"),
+								hash: unimplemented!(),
 							},
 						);
 					},

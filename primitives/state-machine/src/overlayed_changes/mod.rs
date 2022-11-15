@@ -27,7 +27,7 @@ use hash_db::Hasher;
 pub use offchain::OffchainOverlayedChanges;
 use sp_core::{
 	offchain::OffchainOverlayedChange,
-	storage::{well_known_keys::EXTRINSIC_INDEX, ChildInfo, StateVersion},
+	storage::{well_known_keys::EXTRINSIC_INDEX, ChildInfo, StateVersion, Blob as BlobInfo, Btree as BtreeInfo, Name, transient::Hash32Algorithm},
 };
 #[cfg(feature = "std")]
 use sp_externalities::{Extension, Extensions};
@@ -53,14 +53,23 @@ pub type StorageKey = Vec<u8>;
 /// Storage value.
 pub type StorageValue = Vec<u8>;
 
+/// Blob value.
+pub type Blob = Vec<u8>;
+
 /// In memory array of storage values.
 pub type StorageCollection = Vec<(StorageKey, Option<StorageValue>)>;
 
 /// In memory arrays of storage values for multiple child tries.
 pub type ChildStorageCollection = Vec<(StorageKey, StorageCollection)>;
 
-/// In memory changes for Mmr (push only
-pub type ChildMmrCollection = Vec<(StorageKey, Vec<StorageValue>)>;
+/// Hash can be cache.
+pub type CachedHash = Option<[u8; 32]>;
+
+/// In memory changes for btrees.
+pub type BtreesCollection = Vec<(BtreeInfo, StorageCollection, CachedHash)>;
+
+/// In memory changes for blobs.
+pub type BlobsCollection = Vec<(BlobInfo, Blob, CachedHash)>;
 
 /// In memory array of storage values.
 pub type OffchainChangesCollection = Vec<((Vec<u8>, Vec<u8>), OffchainOverlayedChange)>;
@@ -97,8 +106,12 @@ pub struct OverlayedChanges {
 	top: OverlayedChangeSet,
 	/// Child storage changes. The map key is the child storage key without the common prefix.
 	children: Map<StorageKey, (OverlayedChangeSet, ChildInfo)>,
-	/// Child mmr changes. The map key is the child storage key without the common prefix.
-	mmr: Map<StorageKey, (OverlayedChangeSetMmr, ChildInfo)>,
+	/// Btrees changes. The map key is the child storage key without the common prefix.
+	/// TODO BtreeInfo in changeset (also cache root
+	btrees: Map<Name, (OverlayedChangeSet, BtreeInfo)>,
+	/// Blobs changes. The map key is the child storage key without the common prefix.
+	/// TODO BlobInfo in changeset (also cache root
+	blobs: Map<Name, (OverlayedChangeSetMmr, BlobInfo)>,
 	/// Offchain related changes.
 	offchain: OffchainOverlayedChanges,
 	/// Transaction index changes,
@@ -141,8 +154,10 @@ pub struct StorageChanges<Transaction, H: Hasher> {
 	pub main_storage_changes: StorageCollection,
 	/// All changes to the child storages.
 	pub child_storage_changes: ChildStorageCollection,
-	/// All changes to the child mmr storages.
-	pub child_mmr_changes: ChildMmrCollection,
+	/// All changes to the btree storages.
+	pub btrees_changes: BtreesCollection,
+	/// All changes to the blob storages.
+	pub blobs_changes: BlobsCollection,
 	/// Offchain state changes to write to the offchain database.
 	pub offchain_storage_changes: OffchainChangesCollection,
 	/// A transaction for the backend that contains all changes from
@@ -209,7 +224,8 @@ impl<Transaction: Default, H: Hasher> Default for StorageChanges<Transaction, H>
 		Self {
 			main_storage_changes: Default::default(),
 			child_storage_changes: Default::default(),
-			child_mmr_changes: Default::default(),
+			btrees_changes: Default::default(),
+			blobs_changes: Default::default(),
 			offchain_storage_changes: Default::default(),
 			transaction: Default::default(),
 			transaction_storage_root: Default::default(),
@@ -274,7 +290,7 @@ impl OverlayedChanges {
 	/// to the backend); Some(None) if the key has been deleted. Some(Some(...)) for a key whose
 	/// value has been set.
 	pub fn child_storage_at(&self, child_info: &ChildInfo, at: u64) -> Option<Option<&[u8]>> {
-		let map = self.mmr.get(child_info.storage_key())?;
+		let map = self.blobs.get(child_info.storage_key())?;
 		if at < map.0.offset {
 			return None
 		}
@@ -321,6 +337,7 @@ impl OverlayedChanges {
 	/// Push a new value in the specified child (if support appending).
 	///
 	/// Can be rolled back or committed when called inside a transaction.
+	/// TODO correct api (offset does not exist (non persistent)).
 	pub fn push_storage(
 		&mut self,
 		child_info: &ChildInfo,
@@ -329,19 +346,24 @@ impl OverlayedChanges {
 	) {
 		let size_write = val.len() as u64;
 		self.stats.tally_write_overlay(size_write);
+		unimplemented!("TODO");
+		/*
 		let storage_key = child_info.storage_key().to_vec();
 		let top = &self.top;
-		let (changeset, info) = self.mmr.entry(storage_key).or_insert_with(|| {
+		let (changeset, info) = self.blobs.entry(storage_key).or_insert_with(|| {
 			let changes = top.spawn_child_list();
-			// QUESTION this should be lazy but require switching proto of get
-			// to mutable so here access directy which is incorrect.
 			let offset = fetch_offset();
 			(OverlayedChangeSetMmr { changes, offset }, child_info.clone())
 		});
 		let updatable = info.try_update(child_info);
 		debug_assert!(updatable);
 		changeset.changes.push(val);
+		*/
 	}
+
+	/// TODO a fn to change/set child info (for setting hashing for instance). Or only for caching?? ->
+	/// then cache with root -> then no use having it in BtreeInfo -> TODO rem from btreeinfo
+	/// (try_update does not make much sense).
 
 	/// Clear child storage of given storage key.
 	///
@@ -403,7 +425,7 @@ impl OverlayedChanges {
 		for (_, (changeset, _)) in self.children.iter_mut() {
 			changeset.start_transaction();
 		}
-		for (_, (changeset, _)) in self.mmr.iter_mut() {
+		for (_, (changeset, _)) in self.blobs.iter_mut() {
 			changeset.changes.start_transaction();
 		}
 		self.offchain.overlay_mut().start_transaction();
@@ -421,7 +443,7 @@ impl OverlayedChanges {
 				.expect("Top and children changesets are started in lockstep; qed");
 			!changeset.is_empty()
 		});
-		retain_map(&mut self.mmr, |_, (changeset, _)| {
+		retain_map(&mut self.blobs, |_, (changeset, _)| {
 			changeset
 				.changes
 				.rollback_transaction()
@@ -446,7 +468,7 @@ impl OverlayedChanges {
 				.commit_transaction()
 				.expect("Top and children changesets are started in lockstep; qed");
 		}
-		for (_, (changeset, _)) in self.mmr.iter_mut() {
+		for (_, (changeset, _)) in self.blobs.iter_mut() {
 			changeset
 				.changes
 				.commit_transaction()
@@ -470,7 +492,7 @@ impl OverlayedChanges {
 				.enter_runtime()
 				.expect("Top and children changesets are entering runtime in lockstep; qed")
 		}
-		for (_, (changeset, _)) in self.mmr.iter_mut() {
+		for (_, (changeset, _)) in self.blobs.iter_mut() {
 			changeset
 				.changes
 				.enter_runtime()
@@ -494,7 +516,7 @@ impl OverlayedChanges {
 				.exit_runtime()
 				.expect("Top and children changesets are entering runtime in lockstep; qed");
 		}
-		for (_, (changeset, _)) in self.mmr.iter_mut() {
+		for (_, (changeset, _)) in self.blobs.iter_mut() {
 			changeset
 				.changes
 				.exit_runtime()
@@ -523,7 +545,13 @@ impl OverlayedChanges {
 				(impl Iterator<Item = (StorageKey, Option<StorageValue>)>, ChildInfo),
 			),
 		>,
-		impl Iterator<Item = (StorageKey, (impl Iterator<Item = StorageValue>, ChildInfo))>,
+		impl Iterator<
+			Item = (
+				BtreeInfo,
+				impl Iterator<Item = (StorageKey, Option<StorageValue>)>,
+			),
+		>,
+		impl Iterator<Item = (BlobInfo, Blob, Option<[u8; 32]>)>,
 	) {
 		use sp_std::mem::take;
 		(
@@ -531,9 +559,17 @@ impl OverlayedChanges {
 			take(&mut self.children)
 				.into_iter()
 				.map(|(key, (val, info))| (key, (val.drain_commited(), info))),
-			take(&mut self.mmr)
+			take(&mut self.btrees)
 				.into_iter()
-				.map(|(key, (val, info))| (key, (val.changes.drain_commited(), info))),
+				.map(|(_key, (val, info))| (info, val.drain_commited())),
+			take(&mut self.blobs)
+				.into_iter()
+				// TODO hash from overlay instead of None
+				.map(|(_key, (val, info))| {
+					let blob: Blob = Vec::new(); // TODO val.changes.commited_blob();
+					let hash: Option<[u8; 32]> = None; // TODO val.changes.cached_hash();
+					(info, blob, hash)
+				}),
 		)
 	}
 
@@ -557,10 +593,10 @@ impl OverlayedChanges {
 	}
 
 	/// Get an iterator over all child changes as seen by the current transaction.
-	pub fn children_mmr(
+	pub fn blob_storages(
 		&self,
-	) -> impl Iterator<Item = (impl Iterator<Item = &Vec<u8>>, &ChildInfo)> {
-		self.mmr.iter().map(|(_, v)| (v.0.changes.changes.iter(), &v.1))
+	) -> impl Iterator<Item = (impl Iterator<Item = &Vec<u8>>, &BlobInfo)> {
+		self.blobs.iter().map(|(_, v)| (v.0.changes.changes.iter(), &v.1))
 	}
 
 	/// Get an iterator over all top changes as been by the current transaction.
@@ -576,14 +612,25 @@ impl OverlayedChanges {
 		self.children.get(key).map(|(overlay, info)| (overlay.changes(), info))
 	}
 
-	/// Get an optional iterator over all child changes stored under the supplied key.
-	pub fn child_mmr_changes(
+	/// Get an optional iterator over all btree changes stored under the supplied key.
+	pub fn btree_changes(
 		&self,
-		key: &[u8],
-	) -> Option<(impl Iterator<Item = &[u8]>, &ChildInfo)> {
-		self.mmr
-			.get(key)
-			.map(|(overlay, info)| (overlay.changes.changes.iter().map(AsRef::as_ref), info))
+		name: &[u8],
+	) -> Option<(impl Iterator<Item = (&StorageKey, &OverlayedValue)>, &BtreeInfo)> {
+		self.btrees
+			.get(name)
+			.map(|(overlay, info)| (overlay.changes(), info))
+	}
+
+	/// Get an optional iterator over all blob changes stored under the supplied key.
+	pub fn blob_changes(
+		&self,
+		name: &[u8],
+	) -> Option<(impl Iterator<Item = &[u8]>, &BlobInfo, Option<[u8; 32]>)> {
+		self.blobs
+			.get(name)
+			// TODO hash form overlay
+			.map(|(overlay, info)| (overlay.changes.changes.iter().map(AsRef::as_ref), info, None))
 	}
 
 	/// Get an list of all index operations.
@@ -626,7 +673,7 @@ impl OverlayedChanges {
 			.and_then(|t| cache.transaction_storage_root.take().map(|tr| (t, tr)))
 			.expect("Transaction was be generated as part of `storage_root`; qed");
 
-		let (main_storage_changes, child_storage_changes, child_mmr_changes) =
+		let (main_storage_changes, child_storage_changes, btrees_changes, blobs_changes) =
 			self.drain_committed();
 		let offchain_storage_changes = self.offchain_drain_committed().collect();
 
@@ -638,7 +685,9 @@ impl OverlayedChanges {
 			child_storage_changes: child_storage_changes
 				.map(|(sk, it)| (sk, it.0.collect()))
 				.collect(),
-			child_mmr_changes: child_mmr_changes.map(|(sk, it)| (sk, it.0.collect())).collect(),
+				// TODO hash from changes
+			btrees_changes: btrees_changes.map(|(info, it)| (info, it.collect(), None)).collect(),
+			blobs_changes: blobs_changes.map(|(info, blob, hash)| (info, blob, hash)).collect(),
 			offchain_storage_changes,
 			transaction,
 			transaction_storage_root,
@@ -687,11 +736,9 @@ impl OverlayedChanges {
 		let child_delta = self.children().map(|(changes, info)| {
 			(info, changes.map(|(k, v)| (&k[..], v.value().map(|v| &v[..]))))
 		});
-		let child_delta_mmr =
-			self.children_mmr().map(|(changes, info)| (info, changes.map(|v| &v[..])));
 
 		let (root, transaction) =
-			backend.full_storage_root(delta, child_delta, child_delta_mmr, state_version);
+			backend.full_storage_root(delta, child_delta, state_version);
 
 		cache.transaction = Some(transaction);
 		cache.transaction_storage_root = Some(root);
@@ -748,17 +795,16 @@ impl From<sp_core::storage::Storage> for OverlayedChanges {
 				.children_default
 				.into_iter()
 				.map(|(k, v)| (k, (v.data.into(), v.child_info)))
-				.chain(
-					storage
-						.children_sized
-						.into_iter()
-						.map(|(k, v)| (k, (v.data.into(), v.child_info))),
-				)
 				.collect(),
-			mmr: storage
-				.children_mmr
+			btrees: storage
+				.btree_storages
 				.into_iter()
-				.map(|(k, v)| (k, (v.data.into(), v.child_info)))
+				.map(|(k, v)| (k, (v.data.into(), v.child_info, None)))
+				.collect(),
+			blobs: storage
+				.blob_storages
+				.into_iter()
+				.map(|(k, v)| (k, (v.data.into_iter().map(|v| v.1).collect().into(), v.info)))
 				.collect(),
 			offchain: Default::default(),
 			collect_extrinsics: Default::default(),

@@ -1229,8 +1229,8 @@ mod mock {
 					.collect::<Vec<_>>(),
 			)
 			.collect(),
-			children_sized: Default::default(),
-			children_mmr: Default::default(),
+			btree_storages: Default::default(),
+			blob_storages: Default::default(),
 		};
 
 		if with_pallets {

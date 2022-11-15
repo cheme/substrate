@@ -162,6 +162,7 @@ pub struct StorageChild {
 	pub data: StorageMap,
 	/// Associated child info for a child
 	/// trie.
+	/// TODO change to the one for default
 	pub child_info: ChildInfo,
 }
 
@@ -174,21 +175,36 @@ pub struct Storage {
 	/// Children trie storage data. Key does not include prefix, only for the `default` trie kind,
 	/// of `ChildType::ParentKeyId` type.
 	pub children_default: std::collections::HashMap<Vec<u8>, StorageChild>,
-	/// Changes for child trie with size.
-	pub children_sized: std::collections::HashMap<Vec<u8>, StorageChild>,
-	/// Changes for mmr (in append order).
-	pub children_mmr: std::collections::HashMap<Vec<u8>, StorageMmr>,
+	/// Changes for btree storages.
+	pub btree_storages: std::collections::HashMap<Name, StorageBtree>,
+	/// Changes for blobs.
+	pub blob_storages: std::collections::HashMap<Name, StorageBlob>,
 }
 
-/// Child mmr storage data (push only).
+/// Blob storage data.
 #[cfg(feature = "std")]
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct StorageMmr {
-	/// Child data for storage.
-	pub data: Vec<Vec<u8>>,
-	/// Associated child info for a child
-	/// state.
-	pub child_info: ChildInfo,
+pub struct StorageBlob {
+	/// Ordered data, start and data, no overlap.
+	pub data: Vec<(usize, Vec<u8>)>,
+	/// Associated info.
+	pub info: Blob,
+	/// Last calculated hash matching
+	/// info hash.
+	pub hash: Option<[u8; 32]>,
+}
+
+/// Child trie storage data.
+#[cfg(feature = "std")]
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct StorageBtree {
+	/// Btree data for storage.
+	pub data: StorageMap,
+	/// Associated info.
+	pub info: Btree,
+	/// Last calculated root matching
+	/// info algorithm.
+	pub root: Option<[u8; 32]>,
 }
 
 /// Storage change set
@@ -226,10 +242,10 @@ pub mod well_known_keys {
 	/// Prefix of the btree storage keys in the top trie.
 	/// This is currently unused and just a reserved value in case
 	/// non btree storage support persisted state in the future.
-	pub const BTREE_STORAGE_KEY_PREFIX: &'static [u8] = b":child_storage:sized_value:";
+	pub const BTREE_STORAGE_KEY_PREFIX: &'static [u8] = b":child_storage:btree:";
 
 	/// Prefix of the sized value child storage keys in the top trie.
-	pub const BLOB_STORAGE_KEY_PREFIX: &'static [u8] = b":child_storage:mmr:";
+	pub const BLOB_STORAGE_KEY_PREFIX: &'static [u8] = b":child_storage:blob:";
 
 	/// Whether a key is a default child storage key.
 	///
@@ -279,6 +295,7 @@ pub enum ChildInfo {
 	/// This is the one used by default.
 	ParentKeyId(ChildTrieParentKeyId),
 	/// BTree storage info.
+	/// TODO rename to Btree (no upercase T)
 	BTree(Btree),
 	/// Blob storage.
 	Blob(Blob),

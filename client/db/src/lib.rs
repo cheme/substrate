@@ -841,7 +841,7 @@ impl<Block: BlockT> BlockImportOperation<Block> {
 		}
 
 		let child_delta =
-			storage.children_default.values().chain(storage.children_sized.values()).map(
+			storage.children_default.values().map(
 				|child_content| {
 					(
 						&child_content.child_info,
@@ -850,14 +850,9 @@ impl<Block: BlockT> BlockImportOperation<Block> {
 				},
 			);
 
-		let child_delta_mmr = storage.children_mmr.values().map(|child_content| {
-			(&child_content.child_info, child_content.data.iter().map(|v| &v[..]))
-		});
-
 		let (root, transaction) = self.old_state.full_storage_root(
 			storage.top.iter().map(|(k, v)| (&k[..], Some(&v[..]))),
 			child_delta,
-			child_delta_mmr,
 			state_version,
 		);
 
@@ -2605,8 +2600,8 @@ pub(crate) mod tests {
 				Storage {
 					top: storage.into_iter().collect(),
 					children_default: Default::default(),
-					children_sized: Default::default(),
-					children_mmr: Default::default(),
+					btree_storages: Default::default(),
+					blob_storages: Default::default(),
 				},
 				state_version,
 			)
@@ -2685,8 +2680,8 @@ pub(crate) mod tests {
 				Storage {
 					top: Default::default(),
 					children_default: Default::default(),
-					children_sized: Default::default(),
-					children_mmr: Default::default(),
+					btree_storages: Default::default(),
+					blob_storages: Default::default(),
 				},
 				state_version,
 			)
@@ -3155,8 +3150,8 @@ pub(crate) mod tests {
 				Storage {
 					top: storage.into_iter().collect(),
 					children_default: Default::default(),
-					children_sized: Default::default(),
-					children_mmr: Default::default(),
+					btree_storages: Default::default(),
+					blob_storages: Default::default(),
 				},
 				state_version,
 			)
