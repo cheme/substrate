@@ -162,11 +162,6 @@ pub trait Storage {
 		self.exists_storage(key)
 	}
 
-	/// Check whether the given `key` exists in storage.
-	fn size(&self, key: &[u8]) -> Option<u32> {
-		self.value_size(key)
-	}
-
 	/// Clear the storage of each key-value pair where the key starts with the given `prefix`.
 	fn clear_prefix(&mut self, prefix: &[u8]) {
 		let _ = Externalities::clear_prefix(*self, prefix, None, None);
@@ -435,12 +430,6 @@ pub trait DefaultChildStorage {
 		self.exists_child_storage(&child_info, key)
 	}
 
-	/// Check whether the given `key` exists in child storage.
-	fn size(&self, storage_key: &[u8], key: &[u8]) -> Option<u32> {
-		let child_info = ChildInfo::new_default(storage_key);
-		self.child_value_size(&child_info, key)
-	}
-
 	/// Clear child default key by prefix.
 	///
 	/// Clear the child storage of each key-value pair where the key starts with the given `prefix`.
@@ -675,7 +664,6 @@ pub trait BlobStorage {
 
 	/// Clone blob value under a different name.
 	/// If origin does not exist, this does nothing and return false.
-	/// If target does not exist, this does nothing and return false.
 	/// Target content is overwritten.
 	fn clone(&mut self, name: &[u8], target_name: &[u8]) -> bool {
 		self.blob_clone(name, target_name)
@@ -782,7 +770,6 @@ pub trait BtreeStorage {
 
 	/// Clone btree map content under a different name.
 	/// If origin does not exist, this does nothing and return false.
-	/// If target does not exist, this does nothing and return false.
 	/// Target content is overwritten.
 	fn clone(&mut self, name: &[u8], target_name: &[u8]) -> bool {
 		self.map_clone(name, target_name)

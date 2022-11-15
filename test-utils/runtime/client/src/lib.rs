@@ -240,7 +240,7 @@ pub trait TestClientBuilderExt<B>: Sized {
 			ChildType::ParentKeyId => &mut self.genesis_init_mut().extra_storage.children_default,
 			ChildType::Blob | ChildType::BTree => {
 				log::warn!("Skipping transient storage for genesis.");
-				return self;
+				return self
 			},
 		};
 		child_map

@@ -76,10 +76,6 @@ impl Externalities for AsyncExternalities {
 		panic!("`exists_storage`: should not be used in async externalities!")
 	}
 
-	fn value_size(&self, _key: &[u8]) -> Option<u32> {
-		panic!("`value_size`: should not be used in async externalities!")
-	}
-
 	fn storage_hash(&self, _key: &[u8]) -> Option<Vec<u8>> {
 		panic!("`storage_hash`: should not be used in async externalities!")
 	}
@@ -94,10 +90,6 @@ impl Externalities for AsyncExternalities {
 
 	fn exists_child_storage(&self, _child_info: &ChildInfo, _key: &[u8]) -> bool {
 		panic!("`exists_child_storage`: should not be used in async externalities!")
-	}
-
-	fn child_value_size(&self, _child_info: &ChildInfo, _key: &[u8]) -> Option<u32> {
-		panic!("`child_value_size`: should not be used in async externalities!")
 	}
 
 	fn child_storage_hash(&self, _child_info: &ChildInfo, _key: &[u8]) -> Option<Vec<u8>> {

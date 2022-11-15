@@ -307,19 +307,6 @@ impl<B: BlockT> StateBackend<HashFor<B>> for BenchmarkingState<B> {
 			.child_storage(child_info, key)
 	}
 
-	fn child_storage_at(
-		&self,
-		child_info: &ChildInfo,
-		at: u64,
-	) -> Result<Option<Vec<u8>>, Self::Error> {
-		// TODO add accessed at??
-		self.state
-			.borrow()
-			.as_ref()
-			.ok_or_else(state_err)?
-			.child_storage_at(child_info, at)
-	}
-
 	fn child_storage_hash(
 		&self,
 		child_info: &ChildInfo,
@@ -338,11 +325,6 @@ impl<B: BlockT> StateBackend<HashFor<B>> for BenchmarkingState<B> {
 		self.state.borrow().as_ref().ok_or_else(state_err)?.exists_storage(key)
 	}
 
-	fn value_size(&self, key: &[u8]) -> Result<Option<u32>, Self::Error> {
-		self.add_read_key(None, key);
-		self.state.borrow().as_ref().ok_or_else(state_err)?.value_size(key)
-	}
-
 	fn exists_child_storage(
 		&self,
 		child_info: &ChildInfo,
@@ -354,19 +336,6 @@ impl<B: BlockT> StateBackend<HashFor<B>> for BenchmarkingState<B> {
 			.as_ref()
 			.ok_or_else(state_err)?
 			.exists_child_storage(child_info, key)
-	}
-
-	fn child_value_size(
-		&self,
-		child_info: &ChildInfo,
-		key: &[u8],
-	) -> Result<Option<u32>, Self::Error> {
-		self.add_read_key(Some(child_info.storage_key()), key);
-		self.state
-			.borrow()
-			.as_ref()
-			.ok_or_else(state_err)?
-			.child_value_size(child_info, key)
 	}
 
 	fn next_storage_key(&self, key: &[u8]) -> Result<Option<Vec<u8>>, Self::Error> {
@@ -458,22 +427,14 @@ impl<B: BlockT> StateBackend<HashFor<B>> for BenchmarkingState<B> {
 		child_info: &ChildInfo,
 		delta: impl Iterator<Item = (&'a [u8], Option<&'a [u8]>)>,
 		state_version: StateVersion,
-	) -> (Vec<u8>, bool, Self::Transaction) {
+	) -> (B::Hash, bool, Self::Transaction)
+	where
+		B::Hash: Ord,
+	{
 		self.state
 			.borrow()
 			.as_ref()
 			.map_or(Default::default(), |s| s.child_storage_root(child_info, delta, state_version))
-	}
-
-	fn child_mmr_root<'a>(
-		&self,
-		child_info: &ChildInfo,
-		delta: impl Iterator<Item = &'a [u8]>,
-	) -> (Vec<u8>, bool, Self::Transaction) {
-		self.state
-			.borrow()
-			.as_ref()
-			.map_or(Default::default(), |s| s.child_mmr_root(child_info, delta))
 	}
 
 	fn pairs(&self) -> Vec<(Vec<u8>, Vec<u8>)> {

@@ -244,14 +244,6 @@ where
 		self.essence.storage(key)
 	}
 
-	fn exists_storage(&self, key: &[u8]) -> Result<bool, Self::Error> {
-		self.essence.exists_storage(key)
-	}
-
-	fn value_size(&self, key: &[u8]) -> Result<Option<u32>, Self::Error> {
-		self.essence.value_size(key)
-	}
-
 	fn child_storage_hash(
 		&self,
 		child_info: &ChildInfo,
@@ -266,30 +258,6 @@ where
 		key: &[u8],
 	) -> Result<Option<StorageValue>, Self::Error> {
 		self.essence.child_storage(child_info, key)
-	}
-
-	fn child_storage_at(
-		&self,
-		child_info: &ChildInfo,
-		at: u64,
-	) -> Result<Option<StorageValue>, Self::Error> {
-		self.essence.child_storage_at(child_info, at)
-	}
-
-	fn exists_child_storage(
-		&self,
-		child_info: &ChildInfo,
-		key: &[u8],
-	) -> Result<bool, Self::Error> {
-		self.essence.exists_child_storage(child_info, key)
-	}
-
-	fn child_value_size(
-		&self,
-		child_info: &ChildInfo,
-		key: &[u8],
-	) -> Result<Option<u32>, Self::Error> {
-		self.essence.child_value_size(child_info, key)
 	}
 
 	fn next_storage_key(&self, key: &[u8]) -> Result<Option<StorageKey>, Self::Error> {
@@ -367,25 +335,15 @@ where
 		child_info: &ChildInfo,
 		delta: impl Iterator<Item = (&'a [u8], Option<&'a [u8]>)>,
 		state_version: StateVersion,
-	) -> (Vec<u8>, bool, Self::Transaction)
+	) -> (H::Out, bool, Self::Transaction)
 	where
-		H::Out: Encode,
+		H::Out: Ord,
 	{
-		let (root, is_default, transaction) =
-			self.essence.child_storage_root(child_info, delta, state_version);
-		(root.encode(), is_default, transaction)
-	}
-
-	fn child_mmr_root<'a>(
-		&self,
-		child_info: &ChildInfo,
-		delta: impl Iterator<Item = &'a [u8]>,
-	) -> (Vec<u8>, bool, Self::Transaction)
-	where
-		H::Out: Encode,
-	{
-		let (size, root, is_default, transaction) = self.essence.child_mmr_root(child_info, delta);
-		((size, root).encode(), is_default, transaction)
+		match child_info.child_type() {
+			ChildType::ParentKeyId =>
+				self.essence.child_storage_root(child_info, delta, state_version),
+			ChildType::Blob | ChildType::BTree => unreachable!("No backend for transient storage"),
+		}
 	}
 
 	fn register_overlay_stats(&self, _stats: &crate::stats::StateMachineStats) {}

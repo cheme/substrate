@@ -251,10 +251,7 @@ where
 		let result = self
 			.overlay
 			.child_storage_at(child_info, at)
-			.map(|x| x.map(|x| x.to_vec()))
-			.unwrap_or_else(|| {
-				self.backend.child_storage_at(child_info, at).expect(EXT_NOT_ALLOWED_TO_FAIL)
-			});
+			.and_then(|x| x.map(|x| x.to_vec()));
 
 		trace!(
 			target: "state",
@@ -308,24 +305,6 @@ where
 		result
 	}
 
-	fn value_size(&self, key: &[u8]) -> Option<u32> {
-		let _guard = guard();
-		let result = match self.overlay.storage(key) {
-			Some(x) => x.map(|value| value.len() as u32),
-			_ => self.backend.value_size(key).expect(EXT_NOT_ALLOWED_TO_FAIL),
-		};
-
-		trace!(
-			target: "state",
-			method = "Size",
-			ext_id = %HexDisplay::from(&self.id.to_le_bytes()),
-			key = %HexDisplay::from(&key),
-			?result,
-		);
-
-		result
-	}
-
 	fn exists_child_storage(&self, child_info: &ChildInfo, key: &[u8]) -> bool {
 		let _guard = guard();
 
@@ -344,25 +323,6 @@ where
 			child_info = %HexDisplay::from(&child_info.storage_key()),
 			key = %HexDisplay::from(&key),
 			%result,
-		);
-		result
-	}
-
-	fn child_value_size(&self, child_info: &ChildInfo, key: &[u8]) -> Option<u32> {
-		let _guard = guard();
-
-		let result = match self.overlay.child_storage(child_info, key) {
-			Some(x) => x.map(|v| v.len() as u32),
-			_ => self.backend.child_value_size(child_info, key).expect(EXT_NOT_ALLOWED_TO_FAIL),
-		};
-
-		trace!(
-			target: "state",
-			method = "ChildSize",
-			ext_id = %HexDisplay::from(&self.id.to_le_bytes()),
-			child_info = %HexDisplay::from(&child_info.storage_key()),
-			key = %HexDisplay::from(&key),
-			?result,
 		);
 		result
 	}

@@ -33,7 +33,7 @@ use sp_std::{
 
 use sp_storage::{
 	transient::{Hash32Algorithm, Mode as TransientMode, Root32Structure},
-	ChildInfo, StateVersion, TrackedStorageKey,
+	Blob as BlobInfo, Btree as BtreeInfo, ChildInfo, StateVersion, TrackedStorageKey,
 };
 
 pub use extensions::{Extension, ExtensionStore, Extensions};
@@ -136,16 +136,17 @@ pub trait Externalities: ExtensionStore {
 	}
 
 	/// Whether a storage entry exists.
-	fn exists_storage(&self, key: &[u8]) -> bool;
-
-	/// Size of a value if it exists.
-	fn value_size(&self, key: &[u8]) -> Option<u32>;
+	fn exists_storage(&self, key: &[u8]) -> bool {
+		self.storage(key).is_some()
+	}
 
 	/// Whether a child storage entry exists.
-	fn exists_child_storage(&self, child_info: &ChildInfo, key: &[u8]) -> bool;
+	fn exists_child_storage(&self, child_info: &ChildInfo, key: &[u8]) -> bool {
+		self.child_storage(child_info, key).is_some()
+	}
 
-	/// Child storage entry value size if it exists.
-	fn child_value_size(&self, child_info: &ChildInfo, key: &[u8]) -> Option<u32>;
+	/// Get size of a value. TODO for map_item_len or not really needed
+	//fn child_value_size(&self, child_info: &ChildInfo, key: &[u8]) -> Option<u32>;
 
 	/// Returns the key immediately following the given key, if it exists.
 	fn next_storage_key(&self, key: &[u8]) -> Option<Vec<u8>>;
@@ -164,6 +165,8 @@ pub trait Externalities: ExtensionStore {
 	///
 	/// As long as `maybe_cursor` is passed from the result of the previous call, then the number of
 	/// iterations done will only ever be one more than the number of keys removed.
+	///
+	/// For transient storages, `maybe_limit` and `maybe_cursor` are ignored.
 	///
 	/// # Note
 	///
@@ -323,35 +326,87 @@ pub trait Externalities: ExtensionStore {
 	/// Get all the keys that have been read or written to during the benchmark.
 	fn get_read_and_written_keys(&self) -> Vec<(Vec<u8>, u32, u32, bool)>;
 
+	/// Change a storage storage definition. If no storage exists a new empty one is created.
+	///
+	/// Return false if ignored (eg for default child trie).
+	fn update_storage_info(&mut self, info: ChildInfo, clear_existing: bool) -> bool {
+		unimplemented!()
+	}
+
+	/// Get info for a given storage key.
+	fn storage_exists(&self, info: &ChildInfo) -> bool {
+		unimplemented!()
+	}
+
+	/// Copy a storage current content and definition under a different name.
+	/// Overwrite target if a target exists.
+	///
+	/// Return false if source do not exist.
+	/// Return false if storage do not support this operation.
+	fn storage_clone(&mut self, info: &ChildInfo, target_name: &[u8]) -> bool {
+		unimplemented!()
+	}
+
+	/// Move a storage current content and definition under a different name.
+	/// Overwrite target if a target exists.
+	///
+	/// Return false if source do not exist.
+	/// Return false if storage do not support this operation.
+	fn storage_move(&mut self, info: &ChildInfo, target_name: &[u8]) -> bool {
+		unimplemented!()
+	}
+
 	/// Create a new empty blob.
 	/// Clear possibly existing blob.
 	fn blob_new(&mut self, name: &[u8], mode: TransientMode) {
-		unimplemented!("TODO rem def impl here");
+		// TODO rem func and move to io
+		self.update_storage_info(
+			ChildInfo::Blob(BlobInfo { name: name.to_vec(), mode: Some(mode), algorithm: None }),
+			true,
+		);
 	}
 
 	/// Returns true iff the blob name is present in execution state.
 	fn blob_exists(&self, name: &[u8]) -> bool {
-		unimplemented!("TODO rem def impl here");
+		self.storage_exists(&ChildInfo::Blob(BlobInfo {
+			name: name.to_vec(),
+			mode: None,
+			algorithm: None,
+		}))
 	}
 
 	/// Delete blob if present, return false otherwise.
 	fn blob_delete(&mut self, name: &[u8]) -> bool {
-		unimplemented!("TODO rem def impl here");
+		if self.blob_exists(name) {
+			self.kill_child_storage(
+				&ChildInfo::Blob(BlobInfo { name: name.to_vec(), mode: None, algorithm: None }),
+				None,
+				None,
+			);
+			true
+		} else {
+			false
+		}
 	}
 
 	/// Clone blob value under a different name.
 	/// If origin does not exist, this does nothing and return false.
-	/// If target does not exist, this does nothing and return false.
 	/// Target content is overwritten.
 	fn blob_clone(&mut self, name: &[u8], target_name: &[u8]) -> bool {
-		unimplemented!("TODO rem def impl here");
+		self.storage_clone(
+			&ChildInfo::Blob(BlobInfo { name: name.to_vec(), mode: None, algorithm: None }),
+			target_name,
+		)
 	}
 
 	/// Move blob value under a different name.
 	/// If origin does not exist, this does nothing and return false.
 	/// If target exists, it is overwritten.
 	fn blob_rename(&mut self, name: &[u8], target_name: &[u8]) -> bool {
-		unimplemented!("TODO rem def impl here");
+		self.storage_move(
+			&ChildInfo::Blob(BlobInfo { name: name.to_vec(), mode: None, algorithm: None }),
+			target_name,
+		)
 	}
 
 	/// Get value bytes for the blob.
@@ -405,32 +460,54 @@ pub trait Externalities: ExtensionStore {
 	/// Create a new empty transient map.
 	/// Clear possibly existing map.
 	fn map_new(&mut self, name: &[u8], mode: TransientMode) {
-		unimplemented!("TODO rem def impl here");
+		// TODO rem func and move to io
+		self.update_storage_info(
+			ChildInfo::BTree(BtreeInfo { name: name.to_vec(), mode: Some(mode), structure: None }),
+			true,
+		);
 	}
 
 	/// Returns true iff the map name is present in execution state.
 	fn map_exists(&self, name: &[u8]) -> bool {
-		unimplemented!("TODO rem def impl here");
+		self.storage_exists(&ChildInfo::BTree(BtreeInfo {
+			name: name.to_vec(),
+			mode: None,
+			structure: None,
+		}))
 	}
 
 	/// Delete btree map if present or return false.
 	fn map_delete(&mut self, name: &[u8]) -> bool {
-		unimplemented!("TODO rem def impl here");
+		if self.map_exists(name) {
+			self.kill_child_storage(
+				&ChildInfo::BTree(BtreeInfo { name: name.to_vec(), mode: None, structure: None }),
+				None,
+				None,
+			);
+			true
+		} else {
+			false
+		}
 	}
 
 	/// Clone btree map content under a different name.
 	/// If origin does not exist, this does nothing and return false.
-	/// If target does not exist, this does nothing and return false.
 	/// Target content is overwritten.
 	fn map_clone(&mut self, name: &[u8], target_name: &[u8]) -> bool {
-		unimplemented!("TODO rem def impl here");
+		self.storage_clone(
+			&ChildInfo::BTree(BtreeInfo { name: name.to_vec(), mode: None, structure: None }),
+			target_name,
+		)
 	}
 
 	/// Move btree map under a different name.
 	/// If origin does not exist, this does nothing and return false.
 	/// If target exists, it is overwritten.
 	fn map_rename(&mut self, name: &[u8], target_name: &[u8]) -> bool {
-		unimplemented!("TODO rem def impl here");
+		self.storage_move(
+			&ChildInfo::BTree(BtreeInfo { name: name.to_vec(), mode: None, structure: None }),
+			target_name,
+		)
 	}
 
 	/// Inserts a single (key, value) pair into map name, and overwriting the item if it did.

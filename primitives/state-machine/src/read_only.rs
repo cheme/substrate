@@ -100,12 +100,6 @@ where
 			.expect("Backed failed for storage in ReadOnlyExternalities")
 	}
 
-	fn value_size(&self, key: &[u8]) -> Option<u32> {
-		self.backend
-			.value_size(key)
-			.expect("Backed failed for storage in ReadOnlyExternalities")
-	}
-
 	fn storage_hash(&self, key: &[u8]) -> Option<Vec<u8>> {
 		self.backend
 			.storage_hash(key)
@@ -120,20 +114,13 @@ where
 	}
 
 	fn child_storage_at(&self, child_info: &ChildInfo, at: u64) -> Option<StorageValue> {
-		self.backend
-			.child_storage_at(child_info, at)
-			.expect("Backed failed for child_storage in ReadOnlyExternalities")
+		// only transient
+		None
 	}
 
 	fn exists_child_storage(&self, child_info: &ChildInfo, key: &[u8]) -> bool {
 		self.backend
 			.exists_child_storage(child_info, key)
-			.expect("Backed failed for storage in ReadOnlyExternalities")
-	}
-
-	fn child_value_size(&self, child_info: &ChildInfo, key: &[u8]) -> Option<u32> {
-		self.backend
-			.child_value_size(child_info, key)
 			.expect("Backed failed for storage in ReadOnlyExternalities")
 	}
 

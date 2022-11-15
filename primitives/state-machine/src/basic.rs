@@ -204,14 +204,6 @@ impl Externalities for BasicExternalities {
 		self.overlay.storage(key).and_then(|v| v.map(|v| v.to_vec()))
 	}
 
-	fn exists_storage(&self, key: &[u8]) -> bool {
-		self.overlay.storage(key).flatten().is_some()
-	}
-
-	fn value_size(&self, key: &[u8]) -> Option<u32> {
-		self.overlay.storage(key).flatten().map(|v| v.len() as u32)
-	}
-
 	fn storage_hash(&self, key: &[u8]) -> Option<Vec<u8>> {
 		self.overlay.storage(key).flatten().map(|v| Blake2Hasher::hash(v).encode())
 	}
@@ -224,14 +216,6 @@ impl Externalities for BasicExternalities {
 		self.overlay
 			.child_storage_at(child_info, at)
 			.and_then(|v| v.map(|v| v.to_vec()))
-	}
-
-	fn exists_child_storage(&self, child_info: &ChildInfo, key: &[u8]) -> bool {
-		self.overlay.child_storage(child_info, key).flatten().is_some()
-	}
-
-	fn child_value_size(&self, child_info: &ChildInfo, key: &[u8]) -> Option<u32> {
-		self.overlay.child_storage(child_info, key).flatten().map(|v| v.len() as u32)
 	}
 
 	fn child_storage_hash(&self, child_info: &ChildInfo, key: &[u8]) -> Option<Vec<u8>> {
@@ -354,17 +338,21 @@ impl Externalities for BasicExternalities {
 	) -> Vec<u8> {
 		let child_map = match child_info.child_type() {
 			ChildType::ParentKeyId => (),
-			ChildType::BTree => (),
+			ChildType::BTree =>
+				return if let Some(child) = self.overlay.btree_changes(child_info.storage_key()) {
+					// TODO function shared for it in overlay with update of cached hash
+					unimplemented!("TODO")
+				} else {
+					// TODO change function proto to return None??
+					unimplemented!("TODO")
+				},
 			ChildType::Blob =>
 				return if let Some(child) = self.overlay.blob_changes(child_info.storage_key()) {
-					// TODO
-					crate::in_memory_backend::new_in_mem::<Blake2Hasher, HashKey<_>>()
-						.child_mmr_root(child_info, child.0)
-						.0
+					// TODO function shared for it in overlay with update of cached hash
+					unimplemented!("TODO")
 				} else {
-					// TODO
-					let root = sp_trie::mmr::empty_root::<Blake2Hasher>();
-					(0u64, root).encode()
+					// TODO change function proto to return None??
+					unimplemented!("TODO")
 				},
 		};
 
@@ -375,9 +363,9 @@ impl Externalities for BasicExternalities {
 				.child_storage_root(&child_info, delta, state_version)
 				.0
 		} else {
-			crate::trie_backend::empty_child_trie_root::<Blake2Hasher>(child_info, state_version)
-				.encode()
+			empty_child_trie_root::<LayoutV1<Blake2Hasher>>()
 		}
+		.encode()
 	}
 
 	fn storage_start_transaction(&mut self) {
