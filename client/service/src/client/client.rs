@@ -624,7 +624,7 @@ where
 											}
 											break
 										},
-										Some((ChildType::BTree, storage_key)) => {
+										Some((ChildType::Btree, storage_key)) => {
 											// TODO currently we don't warp synch this kind of info
 											// so this code is a filler.
 											let entry = storage
@@ -1260,7 +1260,7 @@ where
 				// TODO have a function to fetch transient content
 				// (btree could be here but awkward as this is meant
 				// to be state at block start).
-				Some((ChildType::BTree, _)) | Some((ChildType::Blob, _)) | None =>
+				Some((ChildType::Btree, _)) | Some((ChildType::Blob, _)) | None =>
 					Err(Error::Backend("Invalid child storage key.".to_string())),
 			}
 		};

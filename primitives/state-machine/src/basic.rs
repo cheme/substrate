@@ -79,7 +79,7 @@ impl BasicExternalities {
 				ChildType::ParentKeyId => {
 					children_default.insert(i.storage_key().to_vec(), child);
 				},
-				ChildType::BTree => {
+				ChildType::Btree => {
 					// TODO audit usage here: transient should generally
 					// not be in storage (unless that is what is passed
 					// to client, then sure but only when we get Mode::Archive.
@@ -338,7 +338,7 @@ impl Externalities for BasicExternalities {
 	) -> Vec<u8> {
 		let child_map = match child_info.child_type() {
 			ChildType::ParentKeyId => (),
-			ChildType::BTree =>
+			ChildType::Btree =>
 				return if let Some(child) = self.overlay.btree_changes(child_info.storage_key()) {
 					// TODO function shared for it in overlay with update of cached hash
 					unimplemented!("TODO")

@@ -96,7 +96,7 @@ where
 						let prefixed_key = PrefixedStorageKey::new_ref(&key);
 						match ChildType::from_prefixed_key(prefixed_key) {
 							Some((ChildType::Blob, unprefixed)) |
-							Some((ChildType::BTree, unprefixed)) => {
+							Some((ChildType::Btree, unprefixed)) => {
 								// reserved non persistent, skip
 							},
 							Some((child_type, _unprefixed)) => {
@@ -155,7 +155,7 @@ where
 						trie_db::decode_compact_from_iter::<L, _, _>(db, &mut nodes_iter)?;
 					previous_extracted_child_trie = Some(top_root);
 				},
-				ChildType::Blob | ChildType::BTree => {
+				ChildType::Blob | ChildType::Btree => {
 					// not persistent TODO consider just reverting to master code
 					previous_extracted_child_trie = Some(top_root);
 				},
@@ -214,7 +214,7 @@ where
 						let prefixed_key = PrefixedStorageKey::new_ref(&key);
 						match ChildType::from_prefixed_key(prefixed_key) {
 							Some((ChildType::Blob, _unprefixed)) |
-							Some((ChildType::BTree, _unprefixed)) => {
+							Some((ChildType::Btree, _unprefixed)) => {
 								// non persistent, ignore
 							},
 							Some((child_type, _unprefixed)) => {
@@ -268,7 +268,7 @@ where
 
 				compact_proof.extend(child_proof);
 			},
-			ChildType::BTree | ChildType::Blob => {
+			ChildType::Btree | ChildType::Blob => {
 				// noop, non persistant.
 				// TODO consider revert to master code
 			},

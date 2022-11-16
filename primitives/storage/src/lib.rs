@@ -383,7 +383,7 @@ impl ChildInfo {
 		match self {
 			ChildInfo::ParentKeyId(ChildTrieParentKeyId { data }) =>
 				ChildType::ParentKeyId.new_prefixed_key(data.as_slice()),
-			ChildInfo::BTree(btree) => ChildType::BTree.new_prefixed_key(btree.name.as_slice()),
+			ChildInfo::BTree(btree) => ChildType::Btree.new_prefixed_key(btree.name.as_slice()),
 			ChildInfo::Blob(blob) => ChildType::Blob.new_prefixed_key(blob.name.as_slice()),
 		}
 	}
@@ -397,7 +397,7 @@ impl ChildInfo {
 				PrefixedStorageKey(data)
 			},
 			ChildInfo::BTree(mut btree) => {
-				ChildType::BTree.do_prefix_key(&mut btree.name);
+				ChildType::Btree.do_prefix_key(&mut btree.name);
 				PrefixedStorageKey(btree.name)
 			},
 			ChildInfo::Blob(mut blob) => {
@@ -411,7 +411,7 @@ impl ChildInfo {
 	pub fn child_type(&self) -> ChildType {
 		match self {
 			ChildInfo::ParentKeyId(..) => ChildType::ParentKeyId,
-			ChildInfo::BTree(..) => ChildType::BTree,
+			ChildInfo::BTree(..) => ChildType::Btree,
 			ChildInfo::Blob(..) => ChildType::Blob,
 		}
 	}
@@ -437,7 +437,7 @@ pub enum ChildType {
 	/// Storage of it's content is client specific but a `transient::Mode` hint can be set.
 	///
 	/// An unused prefix `BTREE_STORAGE_KEY_PREFIX` is reserved.
-	BTree = 2,
+	Btree = 2,
 	/// Transient byte array of content.
 	///
 	/// An unused prefix `BLOB_STORAGE_KEY_PREFIX` is reserved.
@@ -511,7 +511,7 @@ impl ChildType {
 			}
 		};
 		match_type(storage_key, ChildType::ParentKeyId)
-			.or_else(|| match_type(storage_key, ChildType::BTree))
+			.or_else(|| match_type(storage_key, ChildType::Btree))
 			.or_else(|| match_type(storage_key, ChildType::Blob))
 	}
 
@@ -540,7 +540,7 @@ impl ChildType {
 	pub fn parent_prefix(&self) -> &'static [u8] {
 		match self {
 			&ChildType::ParentKeyId => well_known_keys::DEFAULT_CHILD_STORAGE_KEY_PREFIX,
-			&ChildType::BTree => well_known_keys::BTREE_STORAGE_KEY_PREFIX,
+			&ChildType::Btree => well_known_keys::BTREE_STORAGE_KEY_PREFIX,
 			&ChildType::Blob => well_known_keys::BLOB_STORAGE_KEY_PREFIX,
 		}
 	}

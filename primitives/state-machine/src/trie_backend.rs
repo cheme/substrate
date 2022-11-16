@@ -342,7 +342,7 @@ where
 		match child_info.child_type() {
 			ChildType::ParentKeyId =>
 				self.essence.child_storage_root(child_info, delta, state_version),
-			ChildType::Blob | ChildType::BTree => unreachable!("No backend for transient storage"),
+			ChildType::Blob | ChildType::Btree => unreachable!("No backend for transient storage"),
 		}
 	}
 
@@ -368,7 +368,7 @@ where
 			StateVersion::V0 => empty_child_trie_root::<LayoutV0<H>>(),
 			StateVersion::V1 => empty_child_trie_root::<LayoutV1<H>>(),
 		},
-		ChildType::BTree => {
+		ChildType::Btree => {
 			unimplemented!("check merkle type from child info first");
 			empty_child_trie_root::<LayoutV1<H>>()
 		},

@@ -21,7 +21,7 @@ use crate::{Backend, StorageKey, StorageValue};
 use codec::Encode;
 use hash_db::Hasher;
 use sp_core::{
-	storage::{ChildInfo, StateVersion, TrackedStorageKey, ChildType},
+	storage::{ChildInfo, ChildType, StateVersion, TrackedStorageKey},
 	traits::Externalities,
 };
 use sp_externalities::MultiRemovalResults;
@@ -245,10 +245,9 @@ where
 			// default child storage are viewed as always existing
 			// with empty root.
 			ChildType::ParentKeyId => true,
-			ChildType::BTree| ChildType::Blob => false,
+			ChildType::Btree | ChildType::Blob => false,
 		}
 	}
-
 }
 
 impl<'a, H: Hasher, B: 'a + Backend<H>> sp_externalities::ExtensionStore

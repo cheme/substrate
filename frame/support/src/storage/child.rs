@@ -47,7 +47,7 @@ pub fn get<T: Decode + Sized>(child_info: &ChildInfo, key: &[u8]) -> Option<T> {
 				})
 			})
 		},
-		ChildType::BTree => {
+		ChildType::Btree => {
 			let storage_key = child_info.storage_key();
 			sp_io::btree_storage::item_get(storage_key, key).and_then(|v| {
 				Decode::decode(&mut &v[..]).map(Some).unwrap_or_else(|_| {
@@ -74,7 +74,7 @@ pub fn read_blob<T: Decode + Sized>(
 ) -> Option<T> {
 	match child_info.child_type() {
 		ChildType::ParentKeyId => None,
-		ChildType::BTree => None,
+		ChildType::Btree => None,
 		ChildType::Blob => {
 			let storage_key = child_info.storage_key();
 			let mut buf = vec![0u8; entry_size as usize];
@@ -126,7 +126,7 @@ pub fn put<T: Encode>(child_info: &ChildInfo, key: &[u8], value: &T) {
 		ChildType::ParentKeyId => value.using_encoded(|slice| {
 			sp_io::default_child_storage::set(child_info.storage_key(), key, slice)
 		}),
-		ChildType::BTree => value.using_encoded(|slice| {
+		ChildType::Btree => value.using_encoded(|slice| {
 			sp_io::btree_storage::insert(child_info.storage_key(), key, slice);
 		}),
 		ChildType::Blob => (),
@@ -137,7 +137,7 @@ pub fn put<T: Encode>(child_info: &ChildInfo, key: &[u8], value: &T) {
 pub fn push<T: Encode>(child_info: &ChildInfo, value: &T) -> bool {
 	match child_info.child_type() {
 		ChildType::ParentKeyId => false,
-		ChildType::BTree => false,
+		ChildType::Btree => false,
 		ChildType::Blob => value.using_encoded(|slice| {
 			if let Some(at) = sp_io::blob_storage::len(child_info.storage_key()) {
 				sp_io::blob_storage::set(child_info.storage_key(), slice, at)
@@ -184,7 +184,7 @@ pub fn exists(child_info: &ChildInfo, key: &[u8]) -> bool {
 	match child_info.child_type() {
 		ChildType::ParentKeyId =>
 			sp_io::default_child_storage::exists(child_info.storage_key(), key),
-		ChildType::BTree => sp_io::btree_storage::contains(child_info.storage_key(), key),
+		ChildType::Btree => sp_io::btree_storage::contains(child_info.storage_key(), key),
 		ChildType::Blob => false,
 	}
 }
@@ -213,7 +213,7 @@ pub fn kill_storage(child_info: &ChildInfo, limit: Option<u32>) -> KillStorageRe
 	match child_info.child_type() {
 		ChildType::ParentKeyId =>
 			sp_io::default_child_storage::storage_kill(child_info.storage_key(), limit),
-		ChildType::BTree =>
+		ChildType::Btree =>
 			if limit.is_some() {
 				KillStorageResult::SomeRemaining(0)
 			} else {
@@ -267,7 +267,7 @@ pub fn clear_storage(
 	let r = match child_info.child_type() {
 		ChildType::ParentKeyId =>
 			sp_io::default_child_storage::storage_kill(child_info.storage_key(), maybe_limit),
-		ChildType::BTree => {
+		ChildType::Btree => {
 			let maybe_cursor = maybe_cursor.map(Vec::from);
 			if maybe_limit.is_none() && maybe_cursor.is_none() {
 				if let Some(s) = sp_io::btree_storage::count(child_info.storage_key()) {
@@ -294,7 +294,7 @@ pub fn kill(child_info: &ChildInfo, key: &[u8]) {
 		ChildType::ParentKeyId => {
 			sp_io::default_child_storage::clear(child_info.storage_key(), key);
 		},
-		ChildType::BTree => {
+		ChildType::Btree => {
 			sp_io::btree_storage::remove_item(child_info.storage_key(), key);
 		},
 		ChildType::Blob => (),
@@ -305,7 +305,7 @@ pub fn kill(child_info: &ChildInfo, key: &[u8]) {
 pub fn get_raw(child_info: &ChildInfo, key: &[u8]) -> Option<Vec<u8>> {
 	match child_info.child_type() {
 		ChildType::ParentKeyId => sp_io::default_child_storage::get(child_info.storage_key(), key),
-		ChildType::BTree => sp_io::btree_storage::item_get(child_info.storage_key(), key),
+		ChildType::Btree => sp_io::btree_storage::item_get(child_info.storage_key(), key),
 		ChildType::Blob => None,
 	}
 }
@@ -315,7 +315,7 @@ pub fn put_raw(child_info: &ChildInfo, key: &[u8], value: &[u8]) {
 	match child_info.child_type() {
 		ChildType::ParentKeyId =>
 			sp_io::default_child_storage::set(child_info.storage_key(), key, value),
-		ChildType::BTree => {
+		ChildType::Btree => {
 			sp_io::btree_storage::insert(child_info.storage_key(), key, value);
 		},
 		ChildType::Blob => (),
@@ -366,7 +366,7 @@ pub fn len(child_info: &ChildInfo, key: &[u8]) -> Option<u32> {
 			let mut buffer = [0; 0];
 			sp_io::default_child_storage::read(child_info.storage_key(), key, &mut buffer, 0)
 		},
-		ChildType::BTree => {
+		ChildType::Btree => {
 			let mut buffer = [0; 0];
 			sp_io::btree_storage::item_read(child_info.storage_key(), key, &mut buffer, 0)
 		},

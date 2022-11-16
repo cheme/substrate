@@ -578,7 +578,7 @@ where
 				Some((ChildType::ParentKeyId, storage_key)) => {
 					child_kv.push((ChildInfo::new_default(&storage_key), child_kv_inner));
 				},
-				Some((ChildType::BTree, _storage_key)) => {
+				Some((ChildType::Btree, _storage_key)) => {
 					// transient, nothing to add.
 					// TODO restore master code here
 				},

@@ -222,7 +222,7 @@ impl<Block: BlockT, ExecutorDispatch, Backend, G: GenesisInit>
 								},
 							);
 						},
-						ChildType::Blob | ChildType::BTree => {
+						ChildType::Blob | ChildType::Btree => {
 							log::warn!("Trying to insert transient storage in test state, ignoring content.");
 						},
 					}

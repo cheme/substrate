@@ -257,7 +257,7 @@ where
 			Some((ChildType::ParentKeyId, storage_key)) => Ok(ChildInfo::new_default(storage_key)),
 			// TODO do some proof over a given storage root, would be a different
 			// api.
-			Some((ChildType::BTree, _)) | Some((ChildType::Blob, _)) =>
+			Some((ChildType::Btree, _)) | Some((ChildType::Blob, _)) =>
 				Err(sp_blockchain::Error::InvalidChildStorageKey),
 			None => Err(sp_blockchain::Error::InvalidChildStorageKey),
 		};

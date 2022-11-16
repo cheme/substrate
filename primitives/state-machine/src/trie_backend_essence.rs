@@ -271,7 +271,7 @@ where
 	/// Access the root of the child storage in its parent trie
 	fn child_root(&self, child_info: &ChildInfo) -> Result<Option<H::Out>> {
 		// non persistent
-		if matches!(child_info.child_type(), ChildType::BTree | ChildType::Blob) {
+		if matches!(child_info.child_type(), ChildType::Btree | ChildType::Blob) {
 			return Ok(None)
 		}
 		#[cfg(feature = "std")]
@@ -763,7 +763,7 @@ where
 						},
 					}
 				}),
-			(_, ChildType::BTree) =>
+			(_, ChildType::Btree) =>
 			// TODO cache root for next call also write
 			// overlay is useless computation here ->
 			// TODO use a different function?

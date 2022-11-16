@@ -834,7 +834,7 @@ mod execution {
 					Some(match ChildType::from_prefixed_key(storage_key) {
 						Some((ChildType::ParentKeyId, storage_key)) =>
 							ChildInfo::new_default(storage_key),
-						Some((ChildType::BTree, _))
+						Some((ChildType::Btree, _))
 						| Some((ChildType::Blob, _)) => {
 							return Err(Box::new("Invalid range start child trie key, reserved for transient storage."))
 						},
@@ -1271,7 +1271,7 @@ mod execution {
 					Some(match ChildType::from_prefixed_key(storage_key) {
 						Some((ChildType::ParentKeyId, storage_key)) =>
 							ChildInfo::new_default(storage_key),
-Some((ChildType::BTree, _)) | Some((ChildType::Blob, _)) => return Err(Box::new("Invalid range start child trie key, reserved for transient storage.")),
+Some((ChildType::Btree, _)) | Some((ChildType::Blob, _)) => return Err(Box::new("Invalid range start child trie key, reserved for transient storage.")),
 						None => return Err(Box::new("Invalid range start child trie key.")),
 					}),
 					2,

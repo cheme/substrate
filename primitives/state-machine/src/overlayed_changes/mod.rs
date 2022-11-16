@@ -29,7 +29,7 @@ use sp_core::{
 	offchain::OffchainOverlayedChange,
 	storage::{
 		transient::Hash32Algorithm, well_known_keys::EXTRINSIC_INDEX, Blob as BlobInfo,
-		Btree as BtreeInfo, ChildInfo, Name, StateVersion, ChildType,
+		Btree as BtreeInfo, ChildInfo, ChildType, Name, StateVersion,
 	},
 };
 #[cfg(feature = "std")]
@@ -786,7 +786,7 @@ impl OverlayedChanges {
 			// default child storage are viewed as always existing
 			// with empty root.
 			ChildType::ParentKeyId => true,
-			ChildType::BTree => unimplemented!(),
+			ChildType::Btree => unimplemented!(),
 			ChildType::Blob => unimplemented!(),
 		}
 	}
