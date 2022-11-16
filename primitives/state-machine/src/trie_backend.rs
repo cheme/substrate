@@ -31,7 +31,7 @@ use sp_core::storage::{ChildInfo, ChildType, StateVersion};
 use sp_std::vec::Vec;
 #[cfg(feature = "std")]
 use sp_trie::{cache::LocalTrieCache, recorder::Recorder, MemoryDB, StorageProof};
-use sp_trie::{LayoutParentSized, LayoutV0, LayoutV1};
+use sp_trie::{LayoutV0, LayoutV1};
 
 /// Dummy type to be used in `no_std`.
 ///
@@ -370,11 +370,10 @@ where
 		},
 		ChildType::BTree => {
 			unimplemented!("check merkle type from child info first");
-			empty_child_trie_root::<LayoutParentSized<H>>()
+			empty_child_trie_root::<LayoutV1<H>>()
 		},
 		ChildType::Blob => {
 			unimplemented!("check merkle type from child info first");
-			sp_trie::mmr::empty_root::<H>()
 		},
 	}
 }

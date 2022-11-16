@@ -29,7 +29,7 @@ use sp_core::{
 	offchain::OffchainOverlayedChange,
 	storage::{
 		transient::Hash32Algorithm, well_known_keys::EXTRINSIC_INDEX, Blob as BlobInfo,
-		Btree as BtreeInfo, ChildInfo, Name, StateVersion,
+		Btree as BtreeInfo, ChildInfo, Name, StateVersion, ChildType,
 	},
 };
 #[cfg(feature = "std")]
@@ -778,6 +778,17 @@ impl OverlayedChanges {
 	/// Add transaction index operation.
 	pub fn add_transaction_index(&mut self, op: IndexOperation) {
 		self.transaction_index_ops.push(op)
+	}
+
+	/// Check if a storage was initialized.
+	pub fn storage_exists(&self, info: &ChildInfo) -> bool {
+		match info.child_type() {
+			// default child storage are viewed as always existing
+			// with empty root.
+			ChildType::ParentKeyId => true,
+			ChildType::BTree => unimplemented!(),
+			ChildType::Blob => unimplemented!(),
+		}
 	}
 }
 

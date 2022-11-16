@@ -641,23 +641,19 @@ where
 
 				root
 			} else {
-				// empty overlay
-				// TODO just hash of empty bytes.
-				let root = self
-					.storage(prefixed_storage_key.as_slice())
-					.and_then(|k| Decode::decode(&mut &k[..]).ok())
-					.unwrap_or_else(|| (0u64, sp_trie::mmr::empty_root::<H>()));
-
-				trace!(
+				// no blob initialized.
+				unimplemented!(
+					"TODO change to return None or do hash empty but this
+					conflict with no blob"
+				);
+				/*trace!(
 					target: "state",
 					method = "ChildStorageRoot",
 					ext_id = %HexDisplay::from(&self.id.to_le_bytes()),
 					child_info = %HexDisplay::from(&storage_key),
 					storage_root = %HexDisplay::from(&root.1.as_ref()),
 					cached = false,
-				);
-
-				root.encode()
+				);*/
 			}
 		}
 
@@ -837,6 +833,11 @@ where
 
 	fn get_read_and_written_keys(&self) -> Vec<(Vec<u8>, u32, u32, bool)> {
 		self.backend.get_read_and_written_keys()
+	}
+
+	fn storage_exists(&self, info: &ChildInfo) -> bool {
+		// At this point no storage requires to check backend.
+		self.overlay.storage_exists(info)
 	}
 }
 

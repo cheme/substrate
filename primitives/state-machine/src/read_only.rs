@@ -21,7 +21,7 @@ use crate::{Backend, StorageKey, StorageValue};
 use codec::Encode;
 use hash_db::Hasher;
 use sp_core::{
-	storage::{ChildInfo, StateVersion, TrackedStorageKey},
+	storage::{ChildInfo, StateVersion, TrackedStorageKey, ChildType},
 	traits::Externalities,
 };
 use sp_externalities::MultiRemovalResults;
@@ -239,6 +239,16 @@ where
 	fn get_read_and_written_keys(&self) -> Vec<(Vec<u8>, u32, u32, bool)> {
 		unimplemented!("get_read_and_written_keys is not supported in ReadOnlyExternalities")
 	}
+
+	fn storage_exists(&self, info: &ChildInfo) -> bool {
+		match info.child_type() {
+			// default child storage are viewed as always existing
+			// with empty root.
+			ChildType::ParentKeyId => true,
+			ChildType::BTree| ChildType::Blob => false,
+		}
+	}
+
 }
 
 impl<'a, H: Hasher, B: 'a + Backend<H>> sp_externalities::ExtensionStore

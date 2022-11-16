@@ -22,7 +22,6 @@
 #[cfg(feature = "std")]
 pub mod cache;
 mod error;
-pub mod mmr;
 mod node_codec;
 mod node_header;
 #[cfg(feature = "std")]
@@ -39,7 +38,7 @@ use hash_db::{Hasher, Prefix};
 /// Various re-exports from the `memory-db` crate.
 pub use memory_db::{prefixed_key, HashKey, KeyFunction, PrefixedKey};
 /// The Substrate format implementation of `NodeCodec`.
-pub use node_codec::{NodeCodec, NodeCodecWithSize};
+pub use node_codec::NodeCodec;
 use sp_std::{borrow::Borrow, boxed::Box, marker::PhantomData, vec::Vec};
 pub use storage_proof::{CompactProof, StorageProof};
 /// Trie codec reexport, mainly child trie support
@@ -62,13 +61,6 @@ pub struct LayoutV0<H>(PhantomData<H>);
 
 /// substrate trie layout, with external value nodes.
 pub struct LayoutV1<H>(PhantomData<H>);
-
-/// substrate trie layout, with external value nodes and size
-/// in parent.
-pub struct LayoutWithSize<H>(sp_std::marker::PhantomData<H>);
-
-/// substrate trie layout for value sized child trie.
-pub type LayoutParentSized<H> = LayoutWithSize<H>;
 
 impl<H> TrieLayout for LayoutV0<H>
 where
@@ -154,48 +146,6 @@ where
 	}
 }
 
-impl<H> TrieLayout for LayoutWithSize<H>
-where
-	H: Hasher,
-{
-	const USE_EXTENSION: bool = false;
-	const ALLOW_EMPTY: bool = true;
-	const MAX_INLINE_VALUE: Option<u32> = Some(sp_core::storage::TRIE_VALUE_NODE_THRESHOLD);
-
-	type Hash = H;
-	type Codec = NodeCodecWithSize<Self::Hash>;
-}
-
-impl<H> TrieConfiguration for LayoutWithSize<H>
-where
-	H: Hasher,
-{
-	fn trie_root<I, A, B>(input: I) -> <Self::Hash as Hasher>::Out
-	where
-		I: IntoIterator<Item = (A, B)>,
-		A: AsRef<[u8]> + Ord,
-		B: AsRef<[u8]>,
-	{
-		trie_root::trie_root_no_extension::<H, TrieStream, _, _, _>(input, Self::MAX_INLINE_VALUE)
-	}
-
-	fn trie_root_unhashed<I, A, B>(input: I) -> Vec<u8>
-	where
-		I: IntoIterator<Item = (A, B)>,
-		A: AsRef<[u8]> + Ord,
-		B: AsRef<[u8]>,
-	{
-		trie_root::unhashed_trie_no_extension::<H, TrieStream, _, _, _>(
-			input,
-			Self::MAX_INLINE_VALUE,
-		)
-	}
-
-	fn encode_index(input: u32) -> Vec<u8> {
-		codec::Encode::encode(&codec::Compact(input))
-	}
-}
-
 #[cfg(not(feature = "memory-tracker"))]
 type MemTracker = memory_db::NoopTracker<trie_db::DBValue>;
 #[cfg(feature = "memory-tracker")]
@@ -241,26 +191,16 @@ pub mod trie_types {
 	///
 	/// Read only V1 and V0 are compatible, thus we always use V1.
 	pub type TrieDB<'a, 'cache, H> = super::TrieDB<'a, 'cache, LayoutV1<H>>;
-	/// Persistent trie database read-access interface for child with size child trie.
-	pub type TrieDBParentSized<'a, 'cache, H> = super::TrieDB<'a, 'cache, LayoutParentSized<H>>;
 	/// Builder for creating a [`TrieDB`].
 	pub type TrieDBBuilder<'a, 'cache, H> = super::TrieDBBuilder<'a, 'cache, LayoutV1<H>>;
-	/// Builder for creating a [`TrieDBParentSized`].
-	pub type TrieDBBuilderParentSized<'a, 'cache, H> =
-		super::TrieDBBuilder<'a, 'cache, LayoutParentSized<H>>;
 	/// Persistent trie database write-access interface for the a given hasher.
 	pub type TrieDBMutV0<'a, H> = super::TrieDBMut<'a, LayoutV0<H>>;
 	/// Builder for creating a [`TrieDBMutV0`].
 	pub type TrieDBMutBuilderV0<'a, H> = super::TrieDBMutBuilder<'a, LayoutV0<H>>;
 	/// Persistent trie database write-access interface for the a given hasher.
 	pub type TrieDBMutV1<'a, H> = super::TrieDBMut<'a, LayoutV1<H>>;
-	/// Persistent trie database write-access interface for the a given hasher
-	/// for dumym child trie.
-	pub type TrieDBMutParentSized<'a, H> = super::TrieDBMut<'a, LayoutParentSized<H>>;
 	/// Builder for creating a [`TrieDBMutV1`].
 	pub type TrieDBMutBuilderV1<'a, H> = super::TrieDBMutBuilder<'a, LayoutV1<H>>;
-	/// Builder for creating a [`TrieDBMutParentSized`].
-	pub type TrieDBMutBuilderParentSized<'a, H> = super::TrieDBMutBuilder<'a, LayoutParentSized<H>>;
 	/// Querying interface, as in `trie_db` but less generic.
 	pub type Lookup<'a, 'cache, H, Q> = trie_db::Lookup<'a, 'cache, LayoutV1<H>, Q>;
 	/// As in `trie_db`, but less generic, error type for the crate.
@@ -365,47 +305,6 @@ where
 		.get(key)
 }
 
-/// Does storage contains a value. Depending on storage, this
-/// may not access  the value.
-pub fn contains_trie<L, DB>(
-	db: &DB,
-	root: &TrieHash<L>,
-	key: &[u8],
-	recorder: Option<&mut dyn TrieRecorder<TrieHash<L>>>,
-	cache: Option<&mut dyn TrieCache<L::Codec>>,
-) -> Result<bool, Box<TrieError<L>>>
-where
-	L: TrieConfiguration,
-	DB: hash_db::HashDBRef<L::Hash, trie_db::DBValue>,
-{
-	TrieDBBuilder::<L>::new(db, root)
-		.with_optional_cache(cache)
-		.with_optional_recorder(recorder)
-		.build()
-		.contains(key)
-}
-
-/// Size of storage value if it exists. Depending on storage, this
-/// may not access  the value.
-pub fn value_size_trie<L, DB>(
-	db: &DB,
-	root: &TrieHash<L>,
-	key: &[u8],
-	recorder: Option<&mut dyn TrieRecorder<TrieHash<L>>>,
-	cache: Option<&mut dyn TrieCache<L::Codec>>,
-) -> Result<Option<u32>, Box<TrieError<L>>>
-where
-	L: TrieConfiguration,
-	DB: hash_db::HashDBRef<L::Hash, trie_db::DBValue>,
-{
-	Ok(TrieDBBuilder::<L>::new(db, root)
-		.with_optional_cache(cache)
-		.with_optional_recorder(recorder)
-		.build()
-		.get_size(key)?
-		.map(|s| s as u32))
-}
-
 /// Read a value from the trie with given Query.
 /// TODO add recorder and cache, this is a footgun
 pub fn read_trie_value_with<
@@ -489,28 +388,6 @@ where
 		.get(key)
 }
 
-/// Does storage contains a value. Depending on storage, this
-/// may not access  the value.
-pub fn contains_child_trie<L, DB>(
-	keyspace: &[u8],
-	db: &DB,
-	root: &TrieHash<L>,
-	key: &[u8],
-	recorder: Option<&mut dyn TrieRecorder<TrieHash<L>>>,
-	cache: Option<&mut dyn TrieCache<L::Codec>>,
-) -> Result<bool, Box<TrieError<L>>>
-where
-	L: TrieConfiguration,
-	DB: hash_db::HashDBRef<L::Hash, trie_db::DBValue>,
-{
-	let db = KeySpacedDB::new(&*db, keyspace);
-	TrieDBBuilder::<L>::new(&db, &root)
-		.with_optional_recorder(recorder)
-		.with_optional_cache(cache)
-		.build()
-		.contains(key)
-}
-
 /// Read a hash from the child trie.
 pub fn read_child_trie_hash<L: TrieConfiguration, DB>(
 	keyspace: &[u8],
@@ -523,34 +400,12 @@ pub fn read_child_trie_hash<L: TrieConfiguration, DB>(
 where
 	DB: hash_db::HashDBRef<L::Hash, trie_db::DBValue>,
 {
-	let db = KeySpacedDB::new(&*db, keyspace);
+	let db = KeySpacedDB::new(db, keyspace);
 	TrieDBBuilder::<L>::new(&db, &root)
 		.with_optional_recorder(recorder)
 		.with_optional_cache(cache)
 		.build()
 		.get_hash(key)
-}
-
-/// Size of storage value if it exists. Depending on storage, this
-/// may not access  the value.
-pub fn value_size_child_trie<L: TrieConfiguration, DB>(
-	keyspace: &[u8],
-	db: &DB,
-	root: &TrieHash<L>,
-	key: &[u8],
-	recorder: Option<&mut dyn TrieRecorder<TrieHash<L>>>,
-	cache: Option<&mut dyn TrieCache<L::Codec>>,
-) -> Result<Option<u32>, Box<TrieError<L>>>
-where
-	DB: hash_db::HashDBRef<L::Hash, trie_db::DBValue>,
-{
-	let db = KeySpacedDB::new(&*db, keyspace);
-	Ok(TrieDBBuilder::<L>::new(&db, &root)
-		.with_optional_recorder(recorder)
-		.with_optional_cache(cache)
-		.build()
-		.get_size(key)?
-		.map(|s| s as u32))
 }
 
 /// Read a value from the child trie with given query.

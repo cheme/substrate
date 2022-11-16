@@ -334,9 +334,7 @@ pub trait Externalities: ExtensionStore {
 	}
 
 	/// Get info for a given storage key.
-	fn storage_exists(&self, info: &ChildInfo) -> bool {
-		unimplemented!()
-	}
+	fn storage_exists(&self, info: &ChildInfo) -> bool;
 
 	/// Copy a storage current content and definition under a different name.
 	/// Overwrite target if a target exists.

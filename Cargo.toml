@@ -297,11 +297,6 @@ x25519-dalek = { opt-level = 3 }
 yamux = { opt-level = 3 }
 zeroize = { opt-level = 3 }
 
-[patch.crates-io]
-trie-db = { git = "https://github.com/cheme/trie", branch = "size_parent_node_new" }
-trie-bench = { git = "https://github.com/cheme/trie", branch = "size_parent_node_new" }
-hash-db = { git = "https://github.com/cheme/trie", branch = "size_parent_node_new" }
-
 [profile.release]
 # Substrate runtime requires unwinding.
 panic = "unwind"
