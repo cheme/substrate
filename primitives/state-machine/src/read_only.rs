@@ -248,6 +248,10 @@ where
 			ChildType::Btree | ChildType::Blob => false,
 		}
 	}
+
+	fn update_storage_info(&mut self, info: ChildInfo, clear_existing: bool) -> bool {
+		unimplemented!("update_storage_info is not supported in ReadOnlyExternalities")
+	}
 }
 
 impl<'a, H: Hasher, B: 'a + Backend<H>> sp_externalities::ExtensionStore

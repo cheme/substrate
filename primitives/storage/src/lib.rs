@@ -633,7 +633,7 @@ pub struct Blob {
 impl Blob {
 	/// Try to update with another instance, return false if both instance
 	/// are not compatible.
-	fn try_update(&mut self, other: &Blob) -> bool {
+	pub fn try_update(&mut self, other: &Blob) -> bool {
 		let Blob { name, mode, algorithm } = self;
 
 		let Blob { name: o_name, mode: o_mode, algorithm: o_algorithm } = other;

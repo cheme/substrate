@@ -329,9 +329,7 @@ pub trait Externalities: ExtensionStore {
 	/// Change a storage storage definition. If no storage exists a new empty one is created.
 	///
 	/// Return false if ignored (eg for default child trie).
-	fn update_storage_info(&mut self, info: ChildInfo, clear_existing: bool) -> bool {
-		unimplemented!()
-	}
+	fn update_storage_info(&mut self, info: ChildInfo, clear_existing: bool) -> bool;
 
 	/// Get info for a given storage key.
 	fn storage_exists(&self, info: &ChildInfo) -> bool;

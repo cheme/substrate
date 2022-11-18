@@ -408,6 +408,11 @@ impl Externalities for BasicExternalities {
 		// At this point no storage requires to check backend.
 		self.overlay.storage_exists(info)
 	}
+
+	fn update_storage_info(&mut self, info: ChildInfo, clear_existing: bool) -> bool {
+		// At this point no storage requires to clear on backend.
+		self.overlay.update_storage_info(info, clear_existing)
+	}
 }
 
 impl sp_externalities::ExtensionStore for BasicExternalities {

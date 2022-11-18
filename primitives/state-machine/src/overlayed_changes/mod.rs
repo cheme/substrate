@@ -822,13 +822,70 @@ impl OverlayedChanges {
 			// default child storage are viewed as always existing
 			// with empty root.
 			ChildInfo::ParentKeyId(_) => true,
-			ChildInfo::BTree(info) => {
-				unimplemented!()
-				/*self.btrees.get(info.name.as_slice())
+			ChildInfo::BTree(info) => self
+				.btrees
+				.get(info.name.as_slice())
 				.map(|btree| btree.1.value_ref().is_some())
-				.unwrap_or(false)*/
+				.unwrap_or(false),
+			ChildInfo::Blob(info) => self
+				.blobs
+				.get(info.name.as_slice())
+				.map(|blob| blob.1.value_ref().is_some())
+				.unwrap_or(false),
+		}
+	}
+
+	pub fn update_storage_info(&mut self, info: ChildInfo, clear_existing: bool) -> bool {
+		match info {
+			// No update info for default child storage,
+			// its existence is only related to its content.
+			ChildInfo::ParentKeyId(_) => false,
+			ChildInfo::BTree(info) => {
+				let extrinsic_index = self.extrinsic_index();
+				let entry = self
+					.btrees
+					.entry(info.name.clone())
+					.or_insert_with(|| (Default::default(), info.clone().into()));
+				// even if same content we register and
+				// update.
+				let previous_info = entry.1.modify_value(extrinsic_index);
+				if clear_existing {
+					entry.0.clear_where(|_, _| true, extrinsic_index);
+				}
+				if let Some(previous_info) = previous_info.as_mut() {
+					let success = previous_info.try_update(&info);
+					if !success {
+						crate::warn!("Try update failure should not happen.");
+					}
+					success
+				} else {
+					*previous_info = Some(info);
+					true
+				}
 			},
-			ChildInfo::Blob(info) => unimplemented!(),
+			ChildInfo::Blob(info) => {
+				let extrinsic_index = self.extrinsic_index();
+				let entry = self
+					.blobs
+					.entry(info.name.clone())
+					.or_insert_with(|| (Default::default(), info.clone().into()));
+				// even if same content we register and
+				// update.
+				let previous_info = entry.1.modify_value(extrinsic_index);
+				if clear_existing {
+					entry.0.clear(extrinsic_index);
+				}
+				if let Some(previous_info) = previous_info.as_mut() {
+					let success = previous_info.try_update(&info);
+					if !success {
+						crate::warn!("Try update failure should not happen.");
+					}
+					success
+				} else {
+					*previous_info = Some(info);
+					true
+				}
+			},
 		}
 	}
 }

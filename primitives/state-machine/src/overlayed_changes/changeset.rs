@@ -95,11 +95,10 @@ pub type OverlayedValue = OverlayedEntry<Option<StorageValue>>;
 pub type OverlayedChangeSet = OverlayedMap<StorageKey, Option<StorageValue>>;
 
 /// Change set for push only operation.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct OverlayedChangeSetMmr {
 	pub changes: OverlayedList<StorageValue>,
-	pub offset: u64, /* QUESTION : should be lazy loaded to have push then transaction
-	                  * drop not querying parent state. */
+	pub offset: u64,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -510,9 +509,15 @@ impl<I> OverlayedInfos<I> {
 	/// This should be use to change the value as it will
 	/// create a new overlay value if there is none for
 	/// current transaction.
-	pub fn value_mut(&mut self, at_extrinsic: Option<u32>) -> &mut Option<I> {
+	pub fn modify_value(&mut self, at_extrinsic: Option<u32>) -> &mut Option<I> {
 		if self.infos.transactions.is_empty() {
-			panic!("TODO consider adding, but in theory should not be empty: just default with one layer instead");
+			// we are in an empy uninitialize no transaction state, add one.
+			// TODO consider changing logic to always have this basis overlay
+			// for the sake of simplicity.
+			// TODO consider index based as we have external context.
+			self.infos
+				.transactions
+				.push(InnerValue { value: None, extrinsics: Default::default() });
 		}
 		if set_dirty_infos(&mut self.dirty_infos) {
 			// first write, add a layer
@@ -693,6 +698,12 @@ impl<V> OverlayedList<V> {
 
 	fn has_open_runtime_transactions(&self, num_client_transactions: usize) -> bool {
 		self.transaction_depth() > num_client_transactions
+	}
+}
+
+impl OverlayedChangeSetMmr {
+	pub(super) fn clear(&mut self, at_extrinsic: Option<u32>) {
+		unimplemented!()
 	}
 }
 
