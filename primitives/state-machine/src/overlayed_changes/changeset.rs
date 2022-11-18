@@ -183,7 +183,6 @@ impl From<sp_core::storage::StorageMap> for OverlayedMap<StorageKey, Option<Stor
 	}
 }
 
-#[cfg(feature = "std")]
 impl<I> From<I> for OverlayedInfos<I> {
 	fn from(info: I) -> Self {
 		Self {
@@ -348,6 +347,11 @@ impl<K: Ord + Hash + Clone, V> OverlayedMap<K, V> {
 		self.changes.iter()
 	}
 
+	/// Get a list of all changes as seen by current transaction.
+	pub fn changes_mut(&mut self) -> impl Iterator<Item = (&K, &mut OverlayedEntry<V>)> {
+		self.changes.iter_mut()
+	}
+
 	/// Get a list of all changes as seen by current transaction, consumes
 	/// the overlay.
 	pub fn into_changes(self) -> impl Iterator<Item = (K, OverlayedEntry<V>)> {
@@ -509,6 +513,7 @@ impl<I> OverlayedInfos<I> {
 	/// This should be use to change the value as it will
 	/// create a new overlay value if there is none for
 	/// current transaction.
+	#[must_use = "A change was registered, so this value MUST be modified."]
 	pub fn modify_value(&mut self, at_extrinsic: Option<u32>) -> &mut Option<I> {
 		if self.infos.transactions.is_empty() {
 			// we are in an empy uninitialize no transaction state, add one.
@@ -702,7 +707,7 @@ impl<V> OverlayedList<V> {
 }
 
 impl OverlayedChangeSetMmr {
-	pub(super) fn clear(&mut self, at_extrinsic: Option<u32>) {
+	pub(super) fn clear(&mut self, at_extrinsic: Option<u32>) -> u32 {
 		unimplemented!()
 	}
 }

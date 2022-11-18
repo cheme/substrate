@@ -665,6 +665,8 @@ pub trait BlobStorage {
 	/// Clone blob value under a different name.
 	/// If origin does not exist, this does nothing and return false.
 	/// Target content is overwritten.
+	///
+	/// Do nothing and return false if `target_name` is the same as origin `name`.
 	fn clone(&mut self, name: &[u8], target_name: &[u8]) -> bool {
 		self.blob_clone(name, target_name)
 	}
@@ -672,6 +674,8 @@ pub trait BlobStorage {
 	/// Move blob value under a different name.
 	/// If origin does not exist, this does nothing and return false.
 	/// If target exists, it is overwritten.
+	///
+	/// Do nothing and return true if `target_name` is the same as origin `name`.
 	fn rename(&mut self, name: &[u8], target_name: &[u8]) -> bool {
 		self.blob_rename(name, target_name)
 	}

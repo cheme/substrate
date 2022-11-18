@@ -844,6 +844,16 @@ where
 		// At this point no storage requires to clear on backend.
 		self.overlay.update_storage_info(info, clear_existing)
 	}
+
+	fn storage_clone(&mut self, info: &ChildInfo, target_name: &[u8]) -> bool {
+		// At this point no supported storage requires to clone backend.
+		self.overlay.storage_copy(info, target_name)
+	}
+
+	fn storage_move(&mut self, info: &ChildInfo, target_name: &[u8]) -> bool {
+		// At this point no supported storage requires to clone backend.
+		self.overlay.storage_move(info, target_name)
+	}
 }
 
 impl<'a, H, B> Ext<'a, H, B>

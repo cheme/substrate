@@ -339,18 +339,15 @@ pub trait Externalities: ExtensionStore {
 	///
 	/// Return false if source do not exist.
 	/// Return false if storage do not support this operation.
-	fn storage_clone(&mut self, info: &ChildInfo, target_name: &[u8]) -> bool {
-		unimplemented!()
-	}
+	fn storage_clone(&mut self, info: &ChildInfo, target_name: &[u8]) -> bool;
 
 	/// Move a storage current content and definition under a different name.
 	/// Overwrite target if a target exists.
 	///
 	/// Return false if source do not exist.
 	/// Return false if storage do not support this operation.
-	fn storage_move(&mut self, info: &ChildInfo, target_name: &[u8]) -> bool {
-		unimplemented!()
-	}
+	/// TODO consider single function for move and clone?
+	fn storage_move(&mut self, info: &ChildInfo, target_name: &[u8]) -> bool;
 
 	/// Create a new empty blob.
 	/// Clear possibly existing blob.
@@ -374,7 +371,7 @@ pub trait Externalities: ExtensionStore {
 	/// Delete blob if present, return false otherwise.
 	fn blob_delete(&mut self, name: &[u8]) -> bool {
 		if self.blob_exists(name) {
-			self.kill_child_storage(
+			let _ = self.kill_child_storage(
 				&ChildInfo::Blob(BlobInfo { name: name.to_vec(), mode: None, algorithm: None }),
 				None,
 				None,
@@ -475,7 +472,7 @@ pub trait Externalities: ExtensionStore {
 	/// Delete btree map if present or return false.
 	fn map_delete(&mut self, name: &[u8]) -> bool {
 		if self.map_exists(name) {
-			self.kill_child_storage(
+			let _ = self.kill_child_storage(
 				&ChildInfo::BTree(BtreeInfo { name: name.to_vec(), mode: None, structure: None }),
 				None,
 				None,

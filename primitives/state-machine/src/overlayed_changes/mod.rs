@@ -379,14 +379,38 @@ impl OverlayedChanges {
 		let extrinsic_index = self.extrinsic_index();
 		let storage_key = child_info.storage_key().to_vec();
 		let top = &self.top;
-		let (changeset, info) = self
-			.children
-			.entry(storage_key)
-			.or_insert_with(|| (top.spawn_child(), child_info.clone()));
-		let updatable = info.try_update(child_info);
-		debug_assert!(updatable);
-		changeset.clear_where(|_, _| true, extrinsic_index)
+		match child_info {
+			ChildInfo::ParentKeyId(_) => {
+				let (changeset, info) = self
+					.children
+					.entry(storage_key)
+					// could also return None here, but this does not impact
+					// this kind of child trie where empty trie is never stored.
+					.or_insert_with(|| (top.spawn_child(), child_info.clone()));
+				let updatable = info.try_update(child_info);
+				debug_assert!(updatable);
+				changeset.clear_where(|_, _| true, extrinsic_index)
+			},
+			ChildInfo::Blob(info) =>
+				if let Some(entry) = self.blobs.get_mut(&info.name) {
+					let info = entry.1.modify_value(extrinsic_index);
+					*info = None;
+					entry.0.clear(extrinsic_index)
+				} else {
+					0
+				},
+			ChildInfo::BTree(info) =>
+				if let Some(entry) = self.btrees.get_mut(&info.name) {
+					let info = entry.1.modify_value(extrinsic_index);
+					*info = None;
+					entry.0.clear_where(|_, _| true, extrinsic_index)
+				} else {
+					0
+				},
+		}
 	}
+
+	// TODO here move or copy
 
 	/// Removes all key-value pairs which keys share the given prefix.
 	///
@@ -835,6 +859,8 @@ impl OverlayedChanges {
 		}
 	}
 
+	/// Change info for a storage, reset storage data if `clear_existing` is set to `true`.
+	/// Return true if update happen (either the storage already exist or was created).
 	pub fn update_storage_info(&mut self, info: ChildInfo, clear_existing: bool) -> bool {
 		match info {
 			// No update info for default child storage,
@@ -853,9 +879,10 @@ impl OverlayedChanges {
 					entry.0.clear_where(|_, _| true, extrinsic_index);
 				}
 				if let Some(previous_info) = previous_info.as_mut() {
+					// TODO put in in a and_modify?? so only when existing entry?
 					let success = previous_info.try_update(&info);
 					if !success {
-						crate::warn!("Try update failure should not happen.");
+						crate::warn!(target: "runtime", "Try update failure should not happen.");
 					}
 					success
 				} else {
@@ -878,12 +905,131 @@ impl OverlayedChanges {
 				if let Some(previous_info) = previous_info.as_mut() {
 					let success = previous_info.try_update(&info);
 					if !success {
-						crate::warn!("Try update failure should not happen.");
+						crate::warn!(target: "runtime", "Try update failure should not happen.");
 					}
 					success
 				} else {
 					*previous_info = Some(info);
 					true
+				}
+			},
+		}
+	}
+
+	/// Copy current content of a storage to another one.
+	/// If target exists it is replaced by this new content.
+	pub fn storage_copy(&mut self, info: &ChildInfo, target_name: &[u8]) -> bool {
+		match info {
+			// Copy not supported.
+			ChildInfo::ParentKeyId(_) => false,
+			ChildInfo::BTree(info) => {
+				if &info.name == target_name {
+					return false
+				}
+				let extrinsic_index = self.extrinsic_index();
+				let Some(origin) = self.btrees.get(&info.name) else {
+					return false
+				};
+				let Some(info_origin) = origin.1.value_ref().clone() else {
+					return false
+				};
+
+				let origin = &origin.0 as *const OverlayedChangeSet;
+
+				let entry = self
+					.btrees
+					.entry(info.name.clone())
+					.and_modify(|entry| {
+						entry.0.clear_where(|_, _| true, extrinsic_index);
+					})
+					.or_insert_with(|| (Default::default(), info.clone().into()));
+
+				// even if same content we register and
+				// update.
+				let dest = entry.1.modify_value(extrinsic_index);
+				*dest = Some(info_origin);
+
+				// Access pointer to origin as we know btree
+				// implementation do not change this one when
+				// he create an entry.
+				let origin = unsafe { &*origin };
+				for (key, value) in origin.changes() {
+					if let Some(value) = value.value_ref() {
+						let dest = entry.0.modify(key.clone(), Default::default, extrinsic_index);
+						*dest = Some(value.clone());
+					}
+				}
+				true
+			},
+			ChildInfo::Blob(info) => {
+				if &info.name == target_name {
+					return false
+				}
+				let extrinsic_index = self.extrinsic_index();
+				let Some(origin) = self.blobs.get(&info.name) else {
+					return false
+				};
+				let Some(info_origin) = origin.1.value_ref().clone() else {
+					return false
+				};
+
+				let origin = &origin.0 as *const OverlayedChangeSetMmr;
+
+				let entry = self
+					.blobs
+					.entry(info.name.clone())
+					.and_modify(|entry| {
+						entry.0.clear(extrinsic_index);
+					})
+					.or_insert_with(|| (Default::default(), info.clone().into()));
+
+				// even if same content we register and
+				// update.
+				let dest = entry.1.modify_value(extrinsic_index);
+				*dest = Some(info_origin);
+
+				// Access pointer to origin as we know btree
+				// implementation do not change this one when
+				// he create an entry.
+				let origin = unsafe { &*origin };
+				for value in origin.changes.changes() {
+					entry.0.changes.push(value.clone());
+				}
+				true
+			},
+		}
+	}
+
+	/// Move a storage to a different name.
+	/// If target exists it is replaced by this new content.
+	pub fn storage_move(&mut self, info: &ChildInfo, target_name: &[u8]) -> bool {
+		match info {
+			// Move not supported.
+			ChildInfo::ParentKeyId(_) => false,
+			ChildInfo::BTree(btree) => {
+				if &btree.name == target_name {
+					return false
+				}
+				// we need to copy to keep transaction
+				// history of changes.
+				if self.storage_copy(info, target_name) {
+					let _ = self.clear_child_storage(info);
+					true
+				} else {
+					false
+				}
+			},
+			ChildInfo::Blob(blob) => {
+				if &blob.name == target_name {
+					return false
+				}
+				// we need to copy to keep transaction
+				// history of changes.
+				if self.storage_copy(info, target_name) {
+					let _ = self.clear_child_storage(info);
+					true
+				} else {
+					false
 				}
 			},
 		}
