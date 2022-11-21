@@ -59,6 +59,11 @@ pub struct TrackedStorageKey {
 	pub whitelisted: bool,
 }
 
+/// Blob are using internally for tracking changes 256 byte entry.
+/// Any change will have an allocation cost of 256 bytes.
+/// TODO discuss a good value for it. TODO multiple?
+pub const BLOB_CHUNK_SIZE: usize = 256;
+
 impl TrackedStorageKey {
 	/// Create a default `TrackedStorageKey`
 	pub fn new(key: Vec<u8>) -> Self {

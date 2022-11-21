@@ -27,6 +27,7 @@
 
 use sp_std::{
 	any::{Any, TypeId},
+	borrow::Cow,
 	boxed::Box,
 	vec::Vec,
 };
@@ -87,7 +88,10 @@ pub trait Externalities: ExtensionStore {
 	fn set_offchain_storage(&mut self, key: &[u8], value: Option<&[u8]>);
 
 	/// Read runtime storage.
-	fn storage(&self, key: &[u8]) -> Option<Vec<u8>>;
+	///
+	/// If a range is specified, only range of this value is returned.
+	/// When out of range, returned value is truncated.
+	fn storage(&self, key: &[u8], start: u32, limit: Option<u32>) -> Option<Vec<u8>>;
 
 	/// Get storage value hash.
 	///
@@ -103,13 +107,18 @@ pub trait Externalities: ExtensionStore {
 
 	/// Read child runtime storage.
 	///
-	/// Returns an `Option` that holds the SCALE encoded hash.
-	fn child_storage(&self, child_info: &ChildInfo, key: &[u8]) -> Option<Vec<u8>>;
-
-	/// Read child runtime indexed by position storage.
+	/// If a range is specified, only range of this value is returned.
+	/// When out of range, returned value is truncated.
 	///
-	/// Returns an `Option` that holds the SCALE encoded hash.
-	fn child_storage_at(&self, child_info: &ChildInfo, at: u64) -> Option<Vec<u8>>;
+	/// Returns an `Option` that holds the value or part of the value.
+	/// TODO switch to return Cow (one less clone from overlay)?
+	fn child_storage(
+		&self,
+		child_info: &ChildInfo,
+		key: &[u8],
+		start: u32,
+		limit: Option<u32>,
+	) -> Option<Vec<u8>>;
 
 	/// Set storage entry `key` of current contract being called (effective immediately).
 	fn set_storage(&mut self, key: Vec<u8>, value: Vec<u8>) {
@@ -137,12 +146,12 @@ pub trait Externalities: ExtensionStore {
 
 	/// Whether a storage entry exists.
 	fn exists_storage(&self, key: &[u8]) -> bool {
-		self.storage(key).is_some()
+		self.storage(key, 0, Some(0)).is_some()
 	}
 
 	/// Whether a child storage entry exists.
 	fn exists_child_storage(&self, child_info: &ChildInfo, key: &[u8]) -> bool {
-		self.child_storage(child_info, key).is_some()
+		self.child_storage(child_info, key, 0, Some(0)).is_some()
 	}
 
 	/// Get size of a value. TODO for map_item_len or not really needed
@@ -411,7 +420,9 @@ pub trait Externalities: ExtensionStore {
 	/// case we write blob as file or other considerations.
 	/// TODO could be replace by child get
 	fn blob_get(&self, name: &[u8], limit: Option<u32>, value_offset: u32) -> Option<Vec<u8>> {
-		unimplemented!("TODO rem def impl here");
+		// TODO info from name fn
+		let info = ChildInfo::Blob(BlobInfo { name: name.to_vec(), mode: None, algorithm: None });
+		self.child_storage(&info, &[], value_offset, limit)
 	}
 
 	/// Write value into a blob.
@@ -440,9 +451,7 @@ pub trait Externalities: ExtensionStore {
 	}
 
 	/// Returns size of the blob for a given name, or `None` if the blob does not exist.
-	fn blob_len(&self, name: &[u8]) -> Option<u32> {
-		unimplemented!("TODO rem def impl here");
-	}
+	fn blob_len(&self, name: &[u8]) -> Option<u32>;
 
 	/// If blob exists, return it's hash for a given algorithm.
 	/// TODO could be replace by update child info, then child_storage_root call.
@@ -530,9 +539,11 @@ pub trait Externalities: ExtensionStore {
 		name: &[u8],
 		key: &[u8],
 		limit: Option<u32>,
-		offset: u32,
+		value_offset: u32,
 	) -> Option<Vec<u8>> {
-		unimplemented!("TODO rem def impl here");
+		// TODO info from name fn
+		let info = ChildInfo::BTree(BtreeInfo { name: name.to_vec(), mode: None, structure: None });
+		self.child_storage(&info, key, value_offset, limit)
 	}
 
 	/// Returns Some iff the map name exists and contains key. If so, the inner value is the length
@@ -616,5 +627,59 @@ impl ExternalitiesExt for &mut dyn Externalities {
 
 	fn deregister_extension<T: Extension>(&mut self) -> Result<(), Error> {
 		self.deregister_extension_by_type_id(TypeId::of::<T>())
+	}
+}
+
+/// Utility to extract range from accessed value.
+pub fn result_from_slice(value: Option<&[u8]>, start: u32, limit: Option<u32>) -> Option<Vec<u8>> {
+	range_slice(value, start, limit).map(|s| s.to_vec())
+}
+
+pub fn range_slice(value: Option<&[u8]>, start: u32, limit: Option<u32>) -> Option<&[u8]> {
+	value.map(|value| {
+		let start = start as usize;
+		if start < value.len() {
+			if let Some(limit) = limit {
+				let end = start + limit as usize;
+				if end < value.len() {
+					&value[start..end]
+				} else {
+					&value[start..]
+				}
+			} else {
+				&value[start..]
+			}
+		} else {
+			&value[0..0]
+		}
+	})
+}
+
+/// Utility to extract range from accessed value.
+pub fn result_from_vec(value: Option<Vec<u8>>, start: u32, limit: Option<u32>) -> Option<Vec<u8>> {
+	value.map(|mut value| {
+		let start = start as usize;
+		if let Some(limit) = limit {
+			let end = start + limit as usize;
+			if end < value.len() {
+				value.truncate(end);
+			}
+		}
+		if start < value.len() {
+			value = value.split_off(start);
+		}
+		value
+	})
+}
+
+/// Utility to extract range from accessed value.
+pub fn result_from_cow(
+	value: Option<Cow<[u8]>>,
+	start: u32,
+	limit: Option<u32>,
+) -> Option<Vec<u8>> {
+	match value? {
+		Cow::Owned(owned) => result_from_vec(Some(owned), start, limit),
+		Cow::Borrowed(borrowed) => result_from_slice(Some(borrowed), start, limit),
 	}
 }

@@ -21,6 +21,7 @@ use super::{Extrinsics, StorageKey, StorageValue};
 
 use crate::warn;
 use smallvec::SmallVec;
+use sp_core::storage::BLOB_CHUNK_SIZE;
 #[cfg(not(feature = "std"))]
 use sp_std::collections::btree_set::BTreeSet as Set;
 use sp_std::{
@@ -38,6 +39,7 @@ const PROOF_OVERLAY_NON_EMPTY: &str = "\
 type DirtyKeysSets<K> = SmallVec<[Set<K>; 5]>;
 type DirtyInfos = SmallVec<[bool; 5]>;
 type Transactions<V> = SmallVec<[InnerValue<V>; 5]>;
+type BlobChunk = [u8; BLOB_CHUNK_SIZE];
 
 /// Error returned when trying to commit or rollback while no transaction is open or
 /// when the runtime is trying to close a transaction started by the client.
@@ -96,9 +98,21 @@ pub type OverlayedChangeSet = OverlayedMap<StorageKey, Option<StorageValue>>;
 
 /// Change set for push only operation.
 #[derive(Debug, Clone, Default)]
-pub struct OverlayedChangeSetMmr {
+pub struct OverlayedChangeSetBlob {
+	// TODO rem
 	pub changes: OverlayedList<StorageValue>,
+	// TODO rem
 	pub offset: u64,
+
+	/// Stores the changes to the blob.
+	chunks: Vec<OverlayedEntry<BlobChunk>>,
+
+	/// chunks number.
+	size: OverlayedEntry<usize>,
+
+	/// Store indexes that where modified for a transaction layer
+	/// and if size did change.
+	dirty: Vec<Vec<(usize, bool)>>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -197,11 +211,12 @@ impl<I> From<I> for OverlayedInfos<I> {
 	}
 }
 
-impl From<Vec<Vec<u8>>> for OverlayedChangeSetMmr {
+impl From<Vec<Vec<u8>>> for OverlayedChangeSetBlob {
 	fn from(storage: Vec<Vec<u8>>) -> Self {
-		let mut changes = OverlayedList::default();
+		unimplemented!("TODO chunks these input, TODO may just have single Vec");
+		/*		let mut changes = OverlayedList::default();
 		changes.changes = storage;
-		Self { changes, offset: 0 }
+		Self { changes, offset: 0 }*/
 	}
 }
 
@@ -263,9 +278,9 @@ impl<V> OverlayedEntry<V> {
 	}
 }
 
-impl OverlayedEntry<Option<StorageValue>> {
+impl<V> OverlayedEntry<Option<V>> {
 	/// The value as seen by the current transaction.
-	pub fn value(&self) -> Option<&StorageValue> {
+	pub fn value(&self) -> Option<&V> {
 		self.value_ref().as_ref()
 	}
 }
@@ -706,8 +721,17 @@ impl<V> OverlayedList<V> {
 	}
 }
 
-impl OverlayedChangeSetMmr {
+impl OverlayedChangeSetBlob {
+	/// Get an optional reference to the blob chunk at a given chunk number.
+	pub(super) fn get(&self, index: u32) -> Option<&OverlayedEntry<BlobChunk>> {
+		((index as usize) < *self.size.value_ref()).then(|| &self.chunks[index as usize])
+	}
+
 	pub(super) fn clear(&mut self, at_extrinsic: Option<u32>) -> u32 {
+		unimplemented!()
+	}
+
+	pub(super) fn bytes_size(&self) -> usize {
 		unimplemented!()
 	}
 }

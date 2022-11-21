@@ -27,7 +27,10 @@ use sp_core::hexdisplay::HexDisplay;
 use sp_core::storage::{
 	well_known_keys::is_child_storage_key, ChildInfo, StateVersion, TrackedStorageKey,
 };
-use sp_externalities::{Extension, ExtensionStore, Externalities, MultiRemovalResults};
+use sp_externalities::{
+	result_from_cow, result_from_slice, result_from_vec, Extension, ExtensionStore, Externalities,
+	MultiRemovalResults,
+};
 use sp_trie::{empty_child_trie_root, LayoutV1};
 
 use crate::{log_error, trace, warn, StorageTransactionCache};
@@ -180,13 +183,19 @@ where
 		self.overlay.set_offchain_storage(key, value)
 	}
 
-	fn storage(&self, key: &[u8]) -> Option<StorageValue> {
+	fn storage(&self, key: &[u8], start: u32, limit: Option<u32>) -> Option<StorageValue> {
 		let _guard = guard();
 		let result = self
 			.overlay
 			.storage(key)
-			.map(|x| x.map(|x| x.to_vec()))
-			.unwrap_or_else(|| self.backend.storage(key).expect(EXT_NOT_ALLOWED_TO_FAIL));
+			.map(|x| result_from_slice(x, start, limit))
+			.unwrap_or_else(|| {
+				result_from_vec(
+					self.backend.storage(key).expect(EXT_NOT_ALLOWED_TO_FAIL),
+					start,
+					limit,
+				)
+			});
 
 		// NOTE: be careful about touching the key names – used outside substrate!
 		trace!(
@@ -224,14 +233,24 @@ where
 		result.map(|r| r.encode())
 	}
 
-	fn child_storage(&self, child_info: &ChildInfo, key: &[u8]) -> Option<StorageValue> {
+	fn child_storage(
+		&self,
+		child_info: &ChildInfo,
+		key: &[u8],
+		start: u32,
+		limit: Option<u32>,
+	) -> Option<StorageValue> {
 		let _guard = guard();
 		let result = self
 			.overlay
-			.child_storage(child_info, key)
+			.child_storage(child_info, key, start, limit)
 			.map(|x| x.map(|x| x.to_vec()))
 			.unwrap_or_else(|| {
-				self.backend.child_storage(child_info, key).expect(EXT_NOT_ALLOWED_TO_FAIL)
+				result_from_vec(
+					self.backend.child_storage(child_info, key).expect(EXT_NOT_ALLOWED_TO_FAIL),
+					start,
+					limit,
+				)
 			});
 
 		trace!(
@@ -246,31 +265,12 @@ where
 		result
 	}
 
-	fn child_storage_at(&self, child_info: &ChildInfo, at: u64) -> Option<StorageValue> {
-		let _guard = guard();
-		let result = self
-			.overlay
-			.child_storage_at(child_info, at)
-			.and_then(|x| x.map(|x| x.to_vec()));
-
-		trace!(
-			target: "state",
-			method = "ChildGet",
-			ext_id = %HexDisplay::from(&self.id.to_le_bytes()),
-			child_info = %HexDisplay::from(&child_info.storage_key()),
-			at = %at,
-			result = ?result.as_ref().map(HexDisplay::from)
-		);
-
-		result
-	}
-
 	fn child_storage_hash(&self, child_info: &ChildInfo, key: &[u8]) -> Option<Vec<u8>> {
 		let _guard = guard();
 		let result = self
 			.overlay
-			.child_storage(child_info, key)
-			.map(|x| x.map(|x| H::hash(x)))
+			.child_storage(child_info, key, 0, None)
+			.map(|x| x.map(|x| H::hash(x.as_ref())))
 			.unwrap_or_else(|| {
 				self.backend.child_storage_hash(child_info, key).expect(EXT_NOT_ALLOWED_TO_FAIL)
 			});
@@ -308,7 +308,7 @@ where
 	fn exists_child_storage(&self, child_info: &ChildInfo, key: &[u8]) -> bool {
 		let _guard = guard();
 
-		let result = match self.overlay.child_storage(child_info, key) {
+		let result = match self.overlay.child_storage(child_info, key, 0, Some(0)) {
 			Some(x) => x.is_some(),
 			_ => self
 				.backend
@@ -659,7 +659,7 @@ where
 
 		if self.storage_transaction_cache.transaction_storage_root.is_some() {
 			let root = self
-				.storage(prefixed_storage_key.as_slice())
+				.storage(prefixed_storage_key.as_slice(), 0, None)
 				.and_then(|k| Decode::decode(&mut &k[..]).ok())
 				// V1 is equivalent to V0 on empty root.
 				.unwrap_or_else(empty_child_trie_root::<LayoutV1<H>>);
@@ -706,7 +706,7 @@ where
 			} else {
 				// empty overlay
 				let root = self
-					.storage(prefixed_storage_key.as_slice())
+					.storage(prefixed_storage_key.as_slice(), 0, None)
 					.and_then(|k| Decode::decode(&mut &k[..]).ok())
 					// V1 is equivalent to V0 on empty root.
 					.unwrap_or_else(empty_child_trie_root::<LayoutV1<H>>);
@@ -854,6 +854,11 @@ where
 		// At this point no supported storage requires to clone backend.
 		self.overlay.storage_move(info, target_name)
 	}
+
+	fn blob_len(&self, name: &[u8]) -> Option<u32> {
+		// At this point no supported storage requires to clone backend.
+		self.overlay.blob_len(name).map(|s| s as u32)
+	}
 }
 
 impl<'a, H, B> Ext<'a, H, B>
@@ -878,11 +883,12 @@ where
 					maybe_next_key = Some(key.to_vec());
 					return false
 				}
-				let overlay = match maybe_child {
-					Some(child_info) => self.overlay.child_storage(child_info, key),
-					None => self.overlay.storage(key),
+				let has_overlay = match maybe_child {
+					Some(child_info) =>
+						self.overlay.child_storage(child_info, key, 0, Some(0)).map(|o| o.is_some()),
+					None => self.overlay.storage(key).map(|o| o.is_some()),
 				};
-				if !matches!(overlay, Some(None)) {
+				if !matches!(has_overlay, Some(false)) {
 					// not pending deletion from the backend - delete it.
 					if let Some(child_info) = maybe_child {
 						self.overlay.set_child_storage(child_info, key.to_vec(), None);

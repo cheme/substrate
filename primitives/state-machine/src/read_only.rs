@@ -24,7 +24,7 @@ use sp_core::{
 	storage::{ChildInfo, ChildType, StateVersion, TrackedStorageKey},
 	traits::Externalities,
 };
-use sp_externalities::MultiRemovalResults;
+use sp_externalities::{result_from_vec, MultiRemovalResults};
 use std::{
 	any::{Any, TypeId},
 	marker::PhantomData,
@@ -88,10 +88,14 @@ where
 		panic!("Should not be used in read-only externalities!")
 	}
 
-	fn storage(&self, key: &[u8]) -> Option<StorageValue> {
-		self.backend
-			.storage(key)
-			.expect("Backed failed for storage in ReadOnlyExternalities")
+	fn storage(&self, key: &[u8], start: u32, limit: Option<u32>) -> Option<StorageValue> {
+		result_from_vec(
+			self.backend
+				.storage(key)
+				.expect("Backed failed for storage in ReadOnlyExternalities"),
+			start,
+			limit,
+		)
 	}
 
 	fn exists_storage(&self, key: &[u8]) -> bool {
@@ -107,15 +111,20 @@ where
 			.map(|h| h.encode())
 	}
 
-	fn child_storage(&self, child_info: &ChildInfo, key: &[u8]) -> Option<StorageValue> {
-		self.backend
-			.child_storage(child_info, key)
-			.expect("Backed failed for child_storage in ReadOnlyExternalities")
-	}
-
-	fn child_storage_at(&self, child_info: &ChildInfo, at: u64) -> Option<StorageValue> {
-		// only transient
-		None
+	fn child_storage(
+		&self,
+		child_info: &ChildInfo,
+		key: &[u8],
+		start: u32,
+		limit: Option<u32>,
+	) -> Option<StorageValue> {
+		result_from_vec(
+			self.backend
+				.child_storage(child_info, key)
+				.expect("Backed failed for child_storage in ReadOnlyExternalities"),
+			start,
+			limit,
+		)
 	}
 
 	fn exists_child_storage(&self, child_info: &ChildInfo, key: &[u8]) -> bool {
@@ -259,6 +268,11 @@ where
 
 	fn storage_move(&mut self, info: &ChildInfo, target_name: &[u8]) -> bool {
 		unimplemented!("storage_move is not supported in ReadOnlyExternalities")
+	}
+
+	fn blob_len(&self, _name: &[u8]) -> Option<u32> {
+		// no change set so no trensiant blob
+		None
 	}
 }
 

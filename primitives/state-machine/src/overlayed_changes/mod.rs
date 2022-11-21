@@ -20,7 +20,7 @@
 mod changeset;
 mod offchain;
 
-use self::changeset::{OverlayedChangeSet, OverlayedChangeSetMmr, OverlayedInfos};
+use self::changeset::{OverlayedChangeSet, OverlayedChangeSetBlob, OverlayedInfos};
 use crate::{backend::Backend, stats::StateMachineStats, DefaultError};
 use codec::{Decode, Encode};
 use hash_db::Hasher;
@@ -29,14 +29,15 @@ use sp_core::{
 	offchain::OffchainOverlayedChange,
 	storage::{
 		transient::Hash32Algorithm, well_known_keys::EXTRINSIC_INDEX, Blob as BlobInfo,
-		Btree as BtreeInfo, ChildInfo, ChildType, Name, StateVersion,
+		Btree as BtreeInfo, ChildInfo, ChildType, Name, StateVersion, BLOB_CHUNK_SIZE,
 	},
 };
+use sp_externalities::range_slice;
 #[cfg(feature = "std")]
 use sp_externalities::{Extension, Extensions};
 #[cfg(not(feature = "std"))]
 use sp_std::collections::btree_map::BTreeMap as Map;
-use sp_std::{collections::btree_set::BTreeSet, vec::Vec};
+use sp_std::{borrow::Cow, collections::btree_set::BTreeSet, vec::Vec};
 #[cfg(feature = "std")]
 use std::collections::{hash_map::Entry as MapEntry, HashMap as Map};
 #[cfg(feature = "std")]
@@ -118,7 +119,7 @@ pub struct OverlayedChanges {
 	btrees: Map<Name, (OverlayedChangeSet, OverlayedInfos<BtreeInfo>)>,
 	/// Blobs changes. The map key is the child storage key without the common prefix.
 	/// TODO BlobInfo in changeset (also cache root
-	blobs: Map<Name, (OverlayedChangeSetMmr, OverlayedInfos<BlobInfo>)>,
+	blobs: Map<Name, (OverlayedChangeSetBlob, OverlayedInfos<BlobInfo>)>,
 	/// Offchain related changes.
 	offchain: OffchainOverlayedChanges,
 	/// Transaction index changes,
@@ -285,26 +286,90 @@ impl OverlayedChanges {
 	/// Returns a double-Option: None if the key is unknown (i.e. and the query should be referred
 	/// to the backend); Some(None) if the key has been deleted. Some(Some(...)) for a key whose
 	/// value has been set.
-	pub fn child_storage(&self, child_info: &ChildInfo, key: &[u8]) -> Option<Option<&[u8]>> {
-		let map = self.children.get(child_info.storage_key())?;
-		let value = map.0.get(key)?.value();
-		let size_read = value.map(|x| x.len() as u64).unwrap_or(0);
+	pub fn child_storage(
+		&self,
+		child_info: &ChildInfo,
+		key: &[u8],
+		start: u32,
+		limit: Option<u32>,
+	) -> Option<Option<Cow<[u8]>>> {
+		let value = match child_info {
+			ChildInfo::ParentKeyId(_) => {
+				let map = self.children.get(child_info.storage_key())?;
+				range_slice(map.0.get(key)?.value().map(AsRef::as_ref), start, limit)
+					.map(Cow::Borrowed)
+			},
+			ChildInfo::BTree(info) => {
+				let map = self.btrees.get(&info.name)?;
+				map.1.value_ref().as_ref()?;
+				range_slice(map.0.get(key)?.value().map(AsRef::as_ref), start, limit)
+					.map(Cow::Borrowed)
+			},
+			ChildInfo::Blob(info) => {
+				if key.len() > 0 {
+					crate::warn!(target: "runtime", "Access blob with non null key.");
+					return None
+				}
+
+				// semantic is key is index in blob and return value is at most a full blob chunk.
+				let map = self.blobs.get(&info.name)?;
+				map.1.value_ref().as_ref()?;
+
+				let start = start as usize;
+				let size = map.0.bytes_size();
+				if start >= size {
+					return Some(Some(Cow::Owned(Vec::new())))
+				}
+				let size_slice = size - start;
+				let size_slice =
+					sp_std::cmp::min(size_slice, limit.map(|l| l as usize).unwrap_or(size_slice));
+				let end = start + size_slice;
+				if end == start {
+					return Some(Some(Cow::Owned(Vec::new())))
+				}
+
+				let chunk_start = start as u32 / BLOB_CHUNK_SIZE as u32;
+				let chunk_start_offset = start % BLOB_CHUNK_SIZE;
+				let chunk_end = end as u32 / BLOB_CHUNK_SIZE as u32;
+				let chunk_end_offset = end % BLOB_CHUNK_SIZE;
+				let (chunk_end, chunk_end_offset) = if chunk_end == 0 {
+					(chunk_end - 1, BLOB_CHUNK_SIZE)
+				} else {
+					(chunk_end, chunk_end_offset)
+				};
+				let mut result = Vec::with_capacity(size_slice);
+				let mut offset = 0;
+				if chunk_start == chunk_end {
+					result.extend_from_slice(
+						&map.0.get(chunk_start)?.value_ref().as_ref()
+							[chunk_start_offset..chunk_end_offset],
+					)
+				} else {
+					result.extend_from_slice(
+						&map.0.get(chunk_start)?.value_ref().as_ref()[chunk_start_offset..],
+					);
+					for at in chunk_start + 1..chunk_end {
+						result.extend_from_slice(map.0.get(at)?.value_ref().as_ref());
+					}
+					result.extend_from_slice(
+						&map.0.get(chunk_end)?.value_ref().as_ref()[..chunk_end_offset],
+					);
+				}
+				Some(Cow::Owned(result))
+			},
+		};
+		let size_read = value.as_ref().map(|x| x.len() as u64).unwrap_or(0);
 		self.stats.tally_read_modified(size_read);
-		Some(value.map(AsRef::as_ref))
+		Some(value)
 	}
 
-	/// Returns a double-Option: None if the key is unknown (i.e. and the query should be referred
-	/// to the backend); Some(None) if the key has been deleted. Some(Some(...)) for a key whose
-	/// value has been set.
-	pub fn child_storage_at(&self, child_info: &ChildInfo, at: u64) -> Option<Option<&[u8]>> {
-		let map = self.blobs.get(child_info.storage_key())?;
-		if at < map.0.offset {
-			return None
-		}
-		let value = map.0.changes.get_at(at - map.0.offset);
-		let size_read = value.map(|x| x.len() as u64).unwrap_or(0);
-		self.stats.tally_read_modified(size_read);
-		Some(value.map(AsRef::as_ref))
+	/// Return size of child storage.
+	/// If no child storage or size is not counted return `None`.
+	/// TODO return Option<Option<usize>> for unsupported first option.
+	pub fn blob_len(&self, name: &[u8]) -> Option<usize> {
+		let (blob, infos, ..) = self.blobs.get(name)?;
+		infos.value_ref().as_ref()?;
+		Some(blob.bytes_size())
 	}
 
 	/// Set a new value for the specified key.
@@ -360,7 +425,7 @@ impl OverlayedChanges {
 		let (changeset, info) = self.blobs.entry(storage_key).or_insert_with(|| {
 			let changes = top.spawn_child_list();
 			let offset = fetch_offset();
-			(OverlayedChangeSetMmr { changes, offset }, child_info.clone())
+			(OverlayedChangeSetBlob { changes, offset }, child_info.clone())
 		});
 		let updatable = info.try_update(child_info);
 		debug_assert!(updatable);
@@ -973,7 +1038,7 @@ impl OverlayedChanges {
 					return false
 				};
 
-				let origin = &origin.0 as *const OverlayedChangeSetMmr;
+				let origin = &origin.0 as *const OverlayedChangeSetBlob;
 
 				let entry = self
 					.blobs

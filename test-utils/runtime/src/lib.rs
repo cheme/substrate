@@ -1352,7 +1352,7 @@ fn test_witness(proof: StorageProof, root: crate::Hash) {
 		#[cfg(feature = "std")]
 		None,
 	);
-	assert!(ext.storage(b"value3").is_some());
+	assert!(ext.storage(b"value3", 0, None).is_some());
 	assert!(ext.storage_root(Default::default()).as_slice() == &root[..]);
 	ext.place_storage(vec![0], Some(vec![1]));
 	assert!(ext.storage_root(Default::default()).as_slice() != &root[..]);

@@ -29,7 +29,9 @@ use sp_core::{
 	traits::Externalities,
 	Blake2Hasher,
 };
-use sp_externalities::{Extension, Extensions, MultiRemovalResults};
+use sp_externalities::{
+	result_from_cow, result_from_slice, Extension, Extensions, MultiRemovalResults,
+};
 use sp_trie::{
 	empty_child_trie_root, empty_trie_root, HashKey, LayoutV0, LayoutV1, TrieConfiguration,
 };
@@ -200,29 +202,31 @@ impl From<BTreeMap<StorageKey, StorageValue>> for BasicExternalities {
 impl Externalities for BasicExternalities {
 	fn set_offchain_storage(&mut self, _key: &[u8], _value: Option<&[u8]>) {}
 
-	fn storage(&self, key: &[u8]) -> Option<StorageValue> {
-		self.overlay.storage(key).and_then(|v| v.map(|v| v.to_vec()))
+	fn storage(&self, key: &[u8], start: u32, limit: Option<u32>) -> Option<StorageValue> {
+		self.overlay.storage(key).and_then(|v| result_from_slice(v, start, limit))
 	}
 
 	fn storage_hash(&self, key: &[u8]) -> Option<Vec<u8>> {
 		self.overlay.storage(key).flatten().map(|v| Blake2Hasher::hash(v).encode())
 	}
 
-	fn child_storage(&self, child_info: &ChildInfo, key: &[u8]) -> Option<StorageValue> {
-		self.overlay.child_storage(child_info, key).and_then(|v| v.map(|v| v.to_vec()))
-	}
-
-	fn child_storage_at(&self, child_info: &ChildInfo, at: u64) -> Option<StorageValue> {
+	fn child_storage(
+		&self,
+		child_info: &ChildInfo,
+		key: &[u8],
+		start: u32,
+		limit: Option<u32>,
+	) -> Option<StorageValue> {
 		self.overlay
-			.child_storage_at(child_info, at)
+			.child_storage(child_info, key, start, limit)
 			.and_then(|v| v.map(|v| v.to_vec()))
 	}
 
 	fn child_storage_hash(&self, child_info: &ChildInfo, key: &[u8]) -> Option<Vec<u8>> {
 		self.overlay
-			.child_storage(child_info, key)
+			.child_storage(child_info, key, 0, None)
 			.flatten()
-			.map(|v| Blake2Hasher::hash(v).encode())
+			.map(|v| Blake2Hasher::hash(v.as_ref()).encode())
 	}
 
 	fn next_storage_key(&self, key: &[u8]) -> Option<StorageKey> {
@@ -422,6 +426,11 @@ impl Externalities for BasicExternalities {
 	fn storage_move(&mut self, info: &ChildInfo, target_name: &[u8]) -> bool {
 		// At this point no supported storage requires to clone backend.
 		self.overlay.storage_move(info, target_name)
+	}
+
+	fn blob_len(&self, name: &[u8]) -> Option<u32> {
+		// At this point no supported storage requires to clone backend.
+		self.overlay.blob_len(name).map(|s| s as u32)
 	}
 }
 

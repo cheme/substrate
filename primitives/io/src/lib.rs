@@ -129,7 +129,7 @@ impl From<MultiRemovalResults> for KillStorageResult {
 pub trait Storage {
 	/// Returns the data for `key` in the storage or `None` if the key can not be found.
 	fn get(&self, key: &[u8]) -> Option<bytes::Bytes> {
-		self.storage(key).map(|s| bytes::Bytes::from(s.to_vec()))
+		self.storage(key, 0, None).map(|s| bytes::Bytes::from(s.to_vec()))
 	}
 
 	/// Get `key` from storage, placing the value into `value_out` and return the number of
@@ -138,12 +138,10 @@ pub trait Storage {
 	/// If `value_out` length is smaller than the returned length, only `value_out` length bytes
 	/// are copied into `value_out`.
 	fn read(&self, key: &[u8], value_out: &mut [u8], value_offset: u32) -> Option<u32> {
-		self.storage(key).map(|value| {
-			let value_offset = value_offset as usize;
-			let data = &value[value_offset.min(value.len())..];
-			let written = std::cmp::min(data.len(), value_out.len());
-			value_out[..written].copy_from_slice(&data[..written]);
-			data.len() as u32
+		self.storage(key, value_offset, None).map(|value| {
+			let written = std::cmp::min(value.len(), value_out.len());
+			value_out[..written].copy_from_slice(&value[..written]);
+			value.len() as u32
 		})
 	}
 
@@ -336,7 +334,7 @@ pub trait DefaultChildStorage {
 	/// parent trie. Result is `None` if the value for `key` in the child storage can not be found.
 	fn get(&self, storage_key: &[u8], key: &[u8]) -> Option<Vec<u8>> {
 		let child_info = ChildInfo::new_default(storage_key);
-		self.child_storage(&child_info, key).map(|s| s.to_vec())
+		self.child_storage(&child_info, key, 0, None).map(|s| s.to_vec())
 	}
 
 	/// Allocation efficient variant of `get`.
@@ -354,12 +352,10 @@ pub trait DefaultChildStorage {
 		value_offset: u32,
 	) -> Option<u32> {
 		let child_info = ChildInfo::new_default(storage_key);
-		self.child_storage(&child_info, key).map(|value| {
-			let value_offset = value_offset as usize;
-			let data = &value[value_offset.min(value.len())..];
-			let written = std::cmp::min(data.len(), value_out.len());
-			value_out[..written].copy_from_slice(&data[..written]);
-			data.len() as u32
+		self.child_storage(&child_info, key, value_offset, None).map(|value| {
+			let written = std::cmp::min(value.len(), value_out.len());
+			value_out[..written].copy_from_slice(&value[..written]);
+			value.len() as u32
 		})
 	}
 
