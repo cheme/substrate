@@ -126,7 +126,9 @@ pub trait Externalities: ExtensionStore {
 	}
 
 	/// Set child storage entry `key` of current contract being called (effective immediately).
-	fn set_child_storage(&mut self, child_info: &ChildInfo, key: Vec<u8>, value: Vec<u8>) {
+	///
+	/// Return false if ignored.
+	fn set_child_storage(&mut self, child_info: &ChildInfo, key: &[u8], value: &[u8]) -> bool {
 		self.place_child_storage(child_info, key, Some(value))
 	}
 
@@ -140,8 +142,10 @@ pub trait Externalities: ExtensionStore {
 
 	/// Clear a child storage entry (`key`) of current contract being called (effective
 	/// immediately).
-	fn clear_child_storage(&mut self, child_info: &ChildInfo, key: &[u8]) {
-		self.place_child_storage(child_info, key.to_vec(), None)
+	///
+	/// Return false if operation ignored.
+	fn clear_child_storage(&mut self, child_info: &ChildInfo, key: &[u8]) -> bool {
+		self.place_child_storage(child_info, key, None)
 	}
 
 	/// Whether a storage entry exists.
@@ -154,8 +158,9 @@ pub trait Externalities: ExtensionStore {
 		self.child_storage(child_info, key, 0, Some(0)).is_some()
 	}
 
-	/// Get size of a value. TODO for map_item_len or not really needed
-	//fn child_value_size(&self, child_info: &ChildInfo, key: &[u8]) -> Option<u32>;
+	/// Get size of a value.
+	/// TODO rename child_storage_len??
+	fn child_value_size(&self, child_info: &ChildInfo, key: &[u8]) -> Option<u32>;
 
 	/// Returns the key immediately following the given key, if it exists.
 	fn next_storage_key(&self, key: &[u8]) -> Option<Vec<u8>>;
@@ -214,7 +219,15 @@ pub trait Externalities: ExtensionStore {
 	fn place_storage(&mut self, key: Vec<u8>, value: Option<Vec<u8>>);
 
 	/// Set or clear a child storage entry.
-	fn place_child_storage(&mut self, child_info: &ChildInfo, key: Vec<u8>, value: Option<Vec<u8>>);
+	///
+	/// Return false if ignored (storage need to be initialize or storage do not support change).
+	/// Removal of a missing value is not seen as ignored.
+	fn place_child_storage(
+		&mut self,
+		child_info: &ChildInfo,
+		key: &[u8],
+		value: Option<&[u8]>,
+	) -> bool;
 
 	/// Get the trie root of the current storage map.
 	///
@@ -516,18 +529,21 @@ pub trait Externalities: ExtensionStore {
 	///
 	/// If map do not exist this operatio is skipped and operation return false.
 	fn map_insert(&mut self, name: &[u8], key: &[u8], value: &[u8]) -> bool {
-		unimplemented!("TODO rem def impl here");
+		let info = ChildInfo::BTree(BtreeInfo { name: name.to_vec(), mode: None, structure: None });
+		self.place_child_storage(&info, name, Some(value))
 	}
 
 	/// Removes the pair with the given key from the map name, if the map exists and contains the
 	/// item. Does nothing and return false otherwise.
 	fn map_remove_item(&mut self, name: &[u8], key: &[u8]) -> bool {
-		unimplemented!("TODO rem def impl here");
+		let info = ChildInfo::BTree(BtreeInfo { name: name.to_vec(), mode: None, structure: None });
+		self.place_child_storage(&info, name, None)
 	}
 
 	/// Returns true iff the map name existsa and contains key.
 	fn map_contains(&self, name: &[u8], key: &[u8]) -> bool {
-		unimplemented!("TODO rem def impl here");
+		let info = ChildInfo::BTree(BtreeInfo { name: name.to_vec(), mode: None, structure: None });
+		self.exists_child_storage(&info, key)
 	}
 
 	/// Returns Some iff the map name exists and contains key.
@@ -549,7 +565,8 @@ pub trait Externalities: ExtensionStore {
 	/// Returns Some iff the map name exists and contains key. If so, the inner value is the length
 	/// of the value associated with key.
 	fn map_item_len(&self, name: &[u8], key: &[u8]) -> Option<u32> {
-		unimplemented!("TODO rem def impl here");
+		let info = ChildInfo::BTree(BtreeInfo { name: name.to_vec(), mode: None, structure: None });
+		self.child_value_size(&info, key)
 	}
 
 	/// Returns Some iff the map name exists and contains key. If so, the inner value is the value
@@ -565,9 +582,7 @@ pub trait Externalities: ExtensionStore {
 
 	/// Returns Some iff the map name exists, None otherwise. If Some, then the inner value is the
 	/// number of items in the map name.
-	fn map_count(&self, name: &[u8]) -> Option<u32> {
-		unimplemented!("TODO rem def impl here");
-	}
+	fn map_count(&self, name: &[u8]) -> Option<u32>;
 
 	/// Calculates and returns the root of the data structure structure containing the items held in
 	/// the map name. Returns None if map name does not exist.

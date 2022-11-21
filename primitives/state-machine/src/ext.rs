@@ -265,6 +265,27 @@ where
 		result
 	}
 
+	fn child_value_size(&self, child_info: &ChildInfo, key: &[u8]) -> Option<u32> {
+		let _guard = guard();
+		let result = self.overlay.child_storage_len(child_info, key).unwrap_or_else(|| {
+			self.backend
+				.child_storage(child_info, key)
+				.expect(EXT_NOT_ALLOWED_TO_FAIL)
+				.map(|v| v.len() as u32)
+		});
+
+		trace!(
+			target: "state",
+			method = "ChildGetLen",
+			ext_id = %HexDisplay::from(&self.id.to_le_bytes()),
+			child_info = %HexDisplay::from(&child_info.storage_key()),
+			key = %HexDisplay::from(&key),
+			result = result,
+		);
+
+		result
+	}
+
 	fn child_storage_hash(&self, child_info: &ChildInfo, key: &[u8]) -> Option<Vec<u8>> {
 		let _guard = guard();
 		let result = self
@@ -463,9 +484,9 @@ where
 	fn place_child_storage(
 		&mut self,
 		child_info: &ChildInfo,
-		key: StorageKey,
-		value: Option<StorageValue>,
-	) {
+		key: &[u8],
+		value: Option<&[u8]>,
+	) -> bool {
 		trace!(
 			target: "state",
 			method = "ChildPut",
@@ -477,7 +498,7 @@ where
 		let _guard = guard();
 
 		self.mark_dirty();
-		self.overlay.set_child_storage(child_info, key, value);
+		self.overlay.set_child_storage(child_info, key, value)
 	}
 
 	fn kill_child_storage(
@@ -616,10 +637,10 @@ where
 
 		if let ChildInfo::Blob(..) = child_info {
 			// TODO root calc from overlay
-			let root: Option<(Vec<u8>, bool)> = if let Some((changes, info, hash)) =
+			let root: Option<(Vec<u8>, bool)> = if let Some((changes, info)) =
 				self.overlay.blob_changes(storage_key)
 			{
-				if let Some(hash) = hash {
+				if let Some(hash) = info.hash {
 					return hash.into()
 				}
 				// TODO maybe backend implement storage root directly (hash type shoudl be in info
@@ -857,7 +878,12 @@ where
 
 	fn blob_len(&self, name: &[u8]) -> Option<u32> {
 		// At this point no supported storage requires to clone backend.
-		self.overlay.blob_len(name).map(|s| s as u32)
+		self.overlay.blob_len(name)
+	}
+
+	fn map_count(&self, name: &[u8]) -> Option<u32> {
+		// At this point no supported storage requires to clone backend.
+		self.overlay.map_count(name)
 	}
 }
 
@@ -891,7 +917,7 @@ where
 				if !matches!(has_overlay, Some(false)) {
 					// not pending deletion from the backend - delete it.
 					if let Some(child_info) = maybe_child {
-						self.overlay.set_child_storage(child_info, key.to_vec(), None);
+						self.overlay.set_child_storage(child_info, key, None);
 					} else {
 						self.overlay.set_storage(key.to_vec(), None);
 					}

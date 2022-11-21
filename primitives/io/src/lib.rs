@@ -364,7 +364,7 @@ pub trait DefaultChildStorage {
 	/// Set `key` to `value` in the child storage denoted by `storage_key`.
 	fn set(&mut self, storage_key: &[u8], key: &[u8], value: &[u8]) {
 		let child_info = ChildInfo::new_default(storage_key);
-		self.set_child_storage(&child_info, key.to_vec(), value.to_vec());
+		self.set_child_storage(&child_info, key, value);
 	}
 
 	/// Clear a child storage key.
@@ -846,6 +846,7 @@ pub trait BtreeStorage {
 
 	/// Returns Some iff the map name exists, None otherwise. If Some, then the inner value is the
 	/// number of items in the map name.
+	/// TODO consider u64?
 	fn count(&self, name: &[u8]) -> Option<u32> {
 		self.map_count(name)
 	}

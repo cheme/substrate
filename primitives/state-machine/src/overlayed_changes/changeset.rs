@@ -108,7 +108,7 @@ pub struct OverlayedChangeSetBlob {
 	chunks: Vec<OverlayedEntry<BlobChunk>>,
 
 	/// chunks number.
-	size: OverlayedEntry<usize>,
+	size: OverlayedEntry<u32>,
 
 	/// Store indexes that where modified for a transaction layer
 	/// and if size did change.
@@ -724,15 +724,15 @@ impl<V> OverlayedList<V> {
 impl OverlayedChangeSetBlob {
 	/// Get an optional reference to the blob chunk at a given chunk number.
 	pub(super) fn get(&self, index: u32) -> Option<&OverlayedEntry<BlobChunk>> {
-		((index as usize) < *self.size.value_ref()).then(|| &self.chunks[index as usize])
+		(index < *self.size.value_ref()).then(|| &self.chunks[index as usize])
 	}
 
 	pub(super) fn clear(&mut self, at_extrinsic: Option<u32>) -> u32 {
 		unimplemented!()
 	}
 
-	pub(super) fn bytes_size(&self) -> usize {
-		unimplemented!()
+	pub(super) fn bytes_size(&self) -> u32 {
+		*self.size.value_ref()
 	}
 }
 

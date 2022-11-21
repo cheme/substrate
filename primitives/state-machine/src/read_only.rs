@@ -127,6 +127,13 @@ where
 		)
 	}
 
+	fn child_value_size(&self, child_info: &ChildInfo, key: &[u8]) -> Option<u32> {
+		self.backend
+			.child_storage(child_info, key)
+			.expect("Backed failed for child_storage in ReadOnlyExternalities")
+			.map(|v| v.len() as u32)
+	}
+
 	fn exists_child_storage(&self, child_info: &ChildInfo, key: &[u8]) -> bool {
 		self.backend
 			.exists_child_storage(child_info, key)
@@ -159,9 +166,9 @@ where
 	fn place_child_storage(
 		&mut self,
 		_child_info: &ChildInfo,
-		_key: StorageKey,
-		_value: Option<StorageValue>,
-	) {
+		_key: &[u8],
+		_value: Option<&[u8]>,
+	) -> bool {
 		unimplemented!("place_child_storage not supported in ReadOnlyExternalities")
 	}
 
@@ -271,7 +278,12 @@ where
 	}
 
 	fn blob_len(&self, _name: &[u8]) -> Option<u32> {
-		// no change set so no trensiant blob
+		// no change set so no transient blob
+		None
+	}
+
+	fn map_count(&self, _name: &[u8]) -> Option<u32> {
+		// no change set so no transient btree
 		None
 	}
 }

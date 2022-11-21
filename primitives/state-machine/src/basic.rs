@@ -106,11 +106,11 @@ impl BasicExternalities {
 				.blob_storages()
 				.map(|(iter, i)| {
 					(
-						i.name.clone(),
+						i.infos.name.clone(),
 						sp_core::storage::StorageBlob {
 							data: unimplemented!(),
-							info: i.clone(),
-							hash: unimplemented!(),
+							info: i.infos.clone(),
+							hash: i.hash.clone(),
 						},
 					)
 				})
@@ -169,12 +169,12 @@ impl PartialEq for BasicExternalities {
 					.collect::<BTreeMap<_, _>>() &&
 			self.overlay
 				.blob_storages()
-				.map(|(iter, i)| (i, iter.cloned().collect::<Vec<_>>()))
+				.map(|(iter, i)| (&i.infos, iter.cloned().collect::<Vec<_>>()))
 				.collect::<BTreeMap<_, _>>() ==
 				other
 					.overlay
 					.blob_storages()
-					.map(|(iter, i)| (i, iter.cloned().collect::<Vec<_>>()))
+					.map(|(iter, i)| (&i.infos, iter.cloned().collect::<Vec<_>>()))
 					.collect::<BTreeMap<_, _>>()
 	}
 }
@@ -222,6 +222,10 @@ impl Externalities for BasicExternalities {
 			.and_then(|v| v.map(|v| v.to_vec()))
 	}
 
+	fn child_value_size(&self, child_info: &ChildInfo, key: &[u8]) -> Option<u32> {
+		self.overlay.child_storage_len(child_info, key).flatten()
+	}
+
 	fn child_storage_hash(&self, child_info: &ChildInfo, key: &[u8]) -> Option<Vec<u8>> {
 		self.overlay
 			.child_storage(child_info, key, 0, None)
@@ -251,10 +255,10 @@ impl Externalities for BasicExternalities {
 	fn place_child_storage(
 		&mut self,
 		child_info: &ChildInfo,
-		key: StorageKey,
-		value: Option<StorageValue>,
-	) {
-		self.overlay.set_child_storage(child_info, key, value);
+		key: &[u8],
+		value: Option<&[u8]>,
+	) -> bool {
+		self.overlay.set_child_storage(child_info, key, value)
 	}
 
 	fn push_storage(&mut self, child_info: &ChildInfo, value: StorageValue) {
@@ -430,7 +434,12 @@ impl Externalities for BasicExternalities {
 
 	fn blob_len(&self, name: &[u8]) -> Option<u32> {
 		// At this point no supported storage requires to clone backend.
-		self.overlay.blob_len(name).map(|s| s as u32)
+		self.overlay.blob_len(name)
+	}
+
+	fn map_count(&self, name: &[u8]) -> Option<u32> {
+		// At this point no supported storage requires to clone backend.
+		self.overlay.map_count(name)
 	}
 }
 
