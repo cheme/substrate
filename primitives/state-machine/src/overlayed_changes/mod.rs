@@ -68,11 +68,14 @@ pub type StorageCollection = Vec<(StorageKey, Option<StorageValue>)>;
 /// In memory arrays of storage values for multiple child tries.
 pub type ChildStorageCollection = Vec<(StorageKey, StorageCollection)>;
 
+/// Encoded root can be cached.
+pub type CachedRoot = Option<Vec<u8>>;
+
 /// Hash can be cache.
 pub type CachedHash = Option<[u8; 32]>;
 
 /// In memory changes for btrees.
-pub type BtreesCollection = Vec<(BtreeInfo, StorageCollection, CachedHash)>;
+pub type BtreesCollection = Vec<(BtreeInfo, StorageCollection, CachedRoot)>;
 
 /// In memory changes for blobs.
 pub type BlobsCollection = Vec<(BlobInfo, Blob, CachedHash)>;
@@ -133,9 +136,9 @@ pub struct OverlayedChanges {
 /// Info attached to a transient btree storage.
 #[derive(Debug, Clone)]
 pub struct BtreeMeta {
-	infos: BtreeInfo,
-	size: usize,
-	root: Option<[u8; 32]>,
+	pub infos: BtreeInfo,
+	pub size: usize,
+	pub root: Option<Vec<u8>>,
 }
 
 impl From<BtreeInfo> for BtreeMeta {
@@ -467,14 +470,28 @@ impl OverlayedChanges {
 			},
 			ChildInfo::BTree(infos) =>
 				if let Some((changeset, info)) = self.btrees.get_mut(&infos.name) {
-					if info.value_ref().is_none() {
-						return false
-					}
-					let existing =
-						changeset.get(key).map(|v| v.value_ref().is_some()).unwrap_or(false);
-					if (existing && val.is_none()) || (!existing && val.is_some()) {
+					let has_root = match info.value_ref() {
+						Some(infos) => infos.root.is_some(),
+						None => return false,
+					};
+					let (existing, changed) = changeset
+						.get(key)
+						.map(|v| {
+							(
+								v.value_ref().is_some(),
+								v.value_ref().as_ref().map(Vec::as_slice) == val,
+							)
+						})
+						.unwrap_or((false, true));
+					if (has_root && changed) ||
+						(existing && val.is_none()) ||
+						(!existing && val.is_some())
+					{
 						let infos =
 							info.modify_value(extrinsic_index).as_mut().expect("checked above");
+						if changed {
+							infos.root = None;
+						}
 						if val.is_some() {
 							infos.size += 1;
 						} else {
@@ -1015,7 +1032,12 @@ impl OverlayedChanges {
 					entry.0.clear_where(|_, _| true, extrinsic_index);
 				}
 				if let Some(previous_info) = previous_info.as_mut() {
+					if previous_info.infos.structure != info.structure {
+						previous_info.root = None;
+					}
 					// TODO put in in a and_modify?? so only when existing entry?
+					// TODO try update function is rather unclear: just explicitely
+					// update algo and error on different name or different mode (if not None).
 					let success = previous_info.infos.try_update(&info);
 					if !success {
 						crate::warn!(target: "runtime", "Try update failure should not happen.");
@@ -1039,6 +1061,10 @@ impl OverlayedChanges {
 					entry.0.clear(extrinsic_index);
 				}
 				if let Some(previous_info) = previous_info.as_mut() {
+					if previous_info.infos.algorithm != info.algorithm {
+						previous_info.hash = None;
+					}
+
 					let success = previous_info.infos.try_update(&info);
 					if !success {
 						crate::warn!(target: "runtime", "Try update failure should not happen.");
@@ -1050,6 +1076,32 @@ impl OverlayedChanges {
 				}
 			},
 		}
+	}
+
+	/// Cache root.
+	/// Do nothing on failure.
+	pub fn cache_btree_root(&mut self, name: &[u8], root: Vec<u8>) {
+		let extrinsic_index = self.extrinsic_index();
+		let Some(entry) = self.btrees.get_mut(name) else {
+			return
+		};
+		let Some(entry) = entry.1.modify_value(extrinsic_index).as_mut() else {
+			return
+		};
+		entry.root = Some(root);
+	}
+
+	/// Cache hash.
+	/// Do nothing on failure.
+	pub fn cache_blob_hash(&mut self, name: &[u8], hash: [u8; 32]) {
+		let extrinsic_index = self.extrinsic_index();
+		let Some(entry) = self.blobs.get_mut(name) else {
+			return
+		};
+		let Some(entry) = entry.1.modify_value(extrinsic_index).as_mut() else {
+			return
+		};
+		entry.hash = Some(hash);
 	}
 
 	/// Copy current content of a storage to another one.

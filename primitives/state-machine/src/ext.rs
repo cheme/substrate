@@ -26,8 +26,9 @@ use hash_db::Hasher;
 use sp_core::hexdisplay::HexDisplay;
 use sp_core::{
 	storage::{
-		transient::Hash32Algorithm, well_known_keys::is_child_storage_key, ChildInfo, StateVersion,
-		TrackedStorageKey,
+		transient::{Hash32Algorithm, Root32Structure},
+		well_known_keys::is_child_storage_key,
+		ChildInfo, StateVersion, TrackedStorageKey,
 	},
 	Hashers,
 };
@@ -636,7 +637,28 @@ where
 		let prefixed_storage_key = child_info.prefixed_storage_key();
 
 		if let ChildInfo::BTree(..) = child_info {
-			unimplemented!("TODO (same as parent but no put storage root cache in overlay");
+			let result = if let Some((data, info)) =
+				self.overlay.btree_changes(child_info.storage_key())
+			{
+				if let Some(root) = info.root.as_ref() {
+					// cached
+					return root.encode()
+				}
+				match info.infos.structure {
+					Some(Root32Structure::SubstrateDefault) => {
+						let delta = data.into_iter().filter_map(|(k, v)| v.value().map(|v| (k, v)));
+						sp_trie::child_trie_root::<LayoutV1<H>, _, _, _>(delta).encode()
+					},
+					None => Vec::new(),
+				}
+			} else {
+				// TODO change function proto to return None?? we check before calling it but
+				// still
+				Vec::new()
+			};
+
+			self.overlay.cache_btree_root(child_info.storage_key(), result.clone());
+			return result
 		}
 
 		if let ChildInfo::Blob(..) = child_info {

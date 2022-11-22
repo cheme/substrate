@@ -490,7 +490,7 @@ pub mod transient {
 	pub enum Root32Structure {
 		/// Substrate default.
 		/// The patricia base 16 merkle trie with
-		/// state version 1 encoding.
+		/// state version 1 encoding and same hashing method as state.
 		#[cfg_attr(feature = "std", codec(index = 0))]
 		SubstrateDefault,
 		// TODO some binary trie one(s)

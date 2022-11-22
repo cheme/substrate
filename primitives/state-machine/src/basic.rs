@@ -23,8 +23,10 @@ use hash_db::Hasher;
 use log::warn;
 use sp_core::{
 	storage::{
-		transient::Hash32Algorithm, well_known_keys::is_child_storage_key, ChildInfo, ChildType,
-		StateVersion, Storage, StorageBlob, StorageBtree, StorageChild, TrackedStorageKey,
+		transient::{Hash32Algorithm, Root32Structure},
+		well_known_keys::is_child_storage_key,
+		ChildInfo, ChildType, StateVersion, Storage, StorageBlob, StorageBtree, StorageChild,
+		TrackedStorageKey,
 	},
 	traits::Externalities,
 	Blake2Hasher,
@@ -346,21 +348,42 @@ impl Externalities for BasicExternalities {
 	) -> Vec<u8> {
 		let child_map = match child_info.child_type() {
 			ChildType::ParentKeyId => (),
-			ChildType::Btree =>
-				return if let Some(child) = self.overlay.btree_changes(child_info.storage_key()) {
-					// TODO function shared for it in overlay with update of cached hash
-					unimplemented!("TODO")
+			ChildType::Btree => {
+				let result = if let Some((data, info)) =
+					self.overlay.btree_changes(child_info.storage_key())
+				{
+					if let Some(root) = info.root.as_ref() {
+						// cached
+						return root.encode()
+					}
+					match info.infos.structure {
+						Some(Root32Structure::SubstrateDefault) => {
+							let delta = data
+								.into_iter()
+								.map(|(k, v)| (k.as_ref(), v.value().map(|v| v.as_slice())));
+							crate::in_memory_backend::new_in_mem::<Blake2Hasher, HashKey<_>>()
+								.child_storage_root(&child_info, delta, StateVersion::V1)
+								.0
+								.encode()
+						},
+						None => return Vec::new(),
+					}
 				} else {
-					// TODO change function proto to return None??
-					unimplemented!("TODO")
-				},
+					// TODO change function proto to return None?? we check before calling it but
+					// still
+					Vec::new()
+				};
+
+				self.overlay.cache_btree_root(child_info.storage_key(), result.clone());
+				return result
+			},
 			ChildType::Blob =>
 				return if let Some(child) = self.overlay.blob_changes(child_info.storage_key()) {
 					// TODO function shared for it in overlay with update of cached hash
 					unimplemented!("TODO")
 				} else {
 					// TODO change function proto to return None??
-					unimplemented!("TODO")
+					Vec::new()
 				},
 		};
 

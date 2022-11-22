@@ -563,7 +563,20 @@ pub trait Externalities: ExtensionStore {
 	/// Calculates and returns the root of the data structure structure containing the items held in
 	/// the map name. Returns None if map name does not exist.
 	fn map_root32(&mut self, name: &[u8], structure: Root32Structure) -> Option<[u8; 32]> {
-		unimplemented!("TODO rem def impl here");
+		let info = ChildInfo::BTree(BtreeInfo {
+			name: name.to_vec(),
+			mode: None,
+			structure: Some(structure),
+		});
+		// update structure to apply
+		if !self.update_storage_info(info.clone(), false) {
+			return None
+		}
+		let root = self.child_storage_root(&info, StateVersion::V1);
+		// TODO don't like this copy: change prototype to return Vec<u8>?
+		let mut result = [0u8; 32];
+		result.copy_from_slice(root.as_slice());
+		Some(result)
 	}
 
 	/// Returns up to the next count keys in map name immediately following key. If fewer items
