@@ -9963,6 +9963,7 @@ version = "5.0.0"
 name = "sp-storage"
 version = "7.0.0"
 dependencies = [
+ "hash-db",
  "impl-serde",
  "parity-scale-codec",
  "ref-cast",

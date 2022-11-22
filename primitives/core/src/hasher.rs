@@ -17,7 +17,11 @@
 
 //! Substrate Blake2b Hasher implementation
 
+use sp_storage::transient::Hash32Algorithm;
+use crate::hash32_with_algorithm_inline;
+
 pub mod blake2 {
+	use super::*;
 	use crate::hash::H256;
 	use hash256_std_hasher::Hash256StdHasher;
 	use hash_db::Hasher;
@@ -31,13 +35,22 @@ pub mod blake2 {
 		type StdHasher = Hash256StdHasher;
 		const LENGTH: usize = 32;
 
-		fn hash(x: &[u8]) -> Self::Out {
-			crate::hashing::blake2_256(x).into()
+		fn hash(data: &[u8]) -> Self::Out {
+			crate::hashing::blake2_256(data).into()
+		}
+	}
+
+	impl sp_storage::transient::Hashers for Blake2Hasher {
+		type DefaultHasher = Blake2Hasher;
+
+		fn hash(data: &[u8], algo: Hash32Algorithm) -> [u8; 32] {
+			hash32_with_algorithm_inline(data, algo)
 		}
 	}
 }
 
 pub mod keccak {
+	use super::*;
 	use crate::hash::H256;
 	use hash256_std_hasher::Hash256StdHasher;
 	use hash_db::Hasher;
@@ -51,8 +64,16 @@ pub mod keccak {
 		type StdHasher = Hash256StdHasher;
 		const LENGTH: usize = 32;
 
-		fn hash(x: &[u8]) -> Self::Out {
-			crate::hashing::keccak_256(x).into()
+		fn hash(data: &[u8]) -> Self::Out {
+			crate::hashing::keccak_256(data).into()
+		}
+	}
+
+	impl sp_storage::transient::Hashers for KeccakHasher {
+		type DefaultHasher = KeccakHasher;
+
+		fn hash(data: &[u8], algo: Hash32Algorithm) -> [u8; 32] {
+			hash32_with_algorithm_inline(data, algo)
 		}
 	}
 }

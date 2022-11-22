@@ -622,3 +622,19 @@ macro_rules! bounded_btree_map {
 		}
 	};
 }
+
+pub use sp_storage::transient::{Hash32Algorithm, Hashers};
+
+/// Utility function to easilly implement `Hashers` from
+/// the default `Hasher`.
+/// TODO consider moving Hashers trait here and simply make it default method.
+#[cfg(feature = "full_crypto")]
+pub fn hash32_with_algorithm_inline(data: &[u8], algo: Hash32Algorithm) -> [u8; 32] {
+	match algo {
+		Hash32Algorithm::Blake2b256 => {
+			crate::hashing::blake2_256(data).into()
+		},
+	}
+}
+
+

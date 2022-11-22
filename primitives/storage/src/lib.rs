@@ -452,6 +452,7 @@ pub enum ChildType {
 /// Transient storage specific structure and data.
 /// Transient storage are storage that do not persist
 /// their state between blocks.
+/// TODO rename this module and maybe in its own file
 pub mod transient {
 	use codec::{Decode, Encode};
 
@@ -476,6 +477,7 @@ pub mod transient {
 		/// Storage can be drop.
 		#[cfg_attr(feature = "std", codec(index = 0))]
 		Blake2b256,
+		// TODO all different runtime hash variants??
 		/* TODO +proof from rpc		/// Storage should be accessible.
 				#[codec(index = 1)]
 				Blake3,
@@ -492,6 +494,31 @@ pub mod transient {
 		#[cfg_attr(feature = "std", codec(index = 0))]
 		SubstrateDefault,
 		// TODO some binary trie one(s)
+	}
+
+
+	/// Trait describing an object that can hash with multiple hash_db hashers
+	/// given a 32 bytes output.
+	/// TODO maybe rename as it is the main entry point for io calls
+	/// from state machine and could extend to more things.
+	pub trait Hashers: Sync + Send {
+		/// Default hasher to use.
+/*		///
+		/// This associated type is here for convenience
+		/// and lowering code changes when switching
+		/// from an existing `Hasher`.
+		/// (`Hashers` could implement `hash_db::Hasher`
+		/// on `DEFAULT_ALGO` without it). */
+		type DefaultHasher: hash_db::Hasher;
+/* TODO I remove this associated const because it means any chain
+ * need to add their hasher in Hash32Algorithm, it is not correct.
+ * TODO remove
+		/// Default algorithm to use.
+		const DEFAULT_ALGO: Hash32Algorithm;
+*/
+		/// Compute the hash of the provided slice of bytes returning the calculated hash.
+		/// TODO consider Option<Hash32Algorithm> or a variant that use the default hasher.
+		fn hash(data: &[u8], algo: Hash32Algorithm) -> [u8; 32];
 	}
 }
 

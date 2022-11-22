@@ -696,6 +696,24 @@ impl Hasher for BlakeTwo256 {
 	}
 }
 
+use sp_core::Hash32Algorithm;
+
+fn hash32_with_algorithm_hosts(data: &[u8], algo: Hash32Algorithm) -> [u8; 32] {
+	match algo {
+		Hash32Algorithm::Blake2b256 => {
+			sp_io::hashing::blake2_256(data).into()
+		},
+	}
+}
+
+impl sp_core::Hashers for BlakeTwo256 {
+	type DefaultHasher = BlakeTwo256;
+
+	fn hash(data: &[u8], algo: Hash32Algorithm) -> [u8; 32] {
+		hash32_with_algorithm_hosts(data, algo)
+	}
+}
+
 impl Hash for BlakeTwo256 {
 	type Output = sp_core::H256;
 
@@ -720,6 +738,14 @@ impl Hasher for Keccak256 {
 
 	fn hash(s: &[u8]) -> Self::Out {
 		sp_io::hashing::keccak_256(s).into()
+	}
+}
+
+impl sp_core::Hashers for Keccak256 {
+	type DefaultHasher = Keccak256;
+
+	fn hash(data: &[u8], algo: sp_core::storage::transient::Hash32Algorithm) -> [u8; 32] {
+		hash32_with_algorithm_hosts(data, algo)
 	}
 }
 
