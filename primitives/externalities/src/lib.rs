@@ -509,14 +509,14 @@ pub trait Externalities: ExtensionStore {
 	/// If map do not exist this operatio is skipped and operation return false.
 	fn map_insert(&mut self, name: &[u8], key: &[u8], value: &[u8]) -> bool {
 		let info = btree_info_from_name(name);
-		self.place_child_storage(&info, name, Some(value))
+		self.place_child_storage(&info, key, Some(value))
 	}
 
 	/// Removes the pair with the given key from the map name, if the map exists and contains the
 	/// item. Does nothing and return false otherwise.
 	fn map_remove_item(&mut self, name: &[u8], key: &[u8]) -> bool {
 		let info = btree_info_from_name(name);
-		self.place_child_storage(&info, name, None)
+		self.place_child_storage(&info, key, None)
 	}
 
 	/// Returns true iff the map name existsa and contains key.
