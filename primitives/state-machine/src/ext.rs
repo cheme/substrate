@@ -25,7 +25,10 @@ use hash_db::Hasher;
 #[cfg(feature = "std")]
 use sp_core::hexdisplay::HexDisplay;
 use sp_core::{
-	storage::{well_known_keys::is_child_storage_key, ChildInfo, StateVersion, TrackedStorageKey},
+	storage::{
+		transient::Hash32Algorithm, well_known_keys::is_child_storage_key, ChildInfo, StateVersion,
+		TrackedStorageKey,
+	},
 	Hashers,
 };
 use sp_externalities::{
@@ -885,6 +888,14 @@ where
 	fn map_count(&self, name: &[u8]) -> Option<u32> {
 		// At this point no supported storage requires to clone backend.
 		self.overlay.map_count(name)
+	}
+
+	fn map_item_hash32(&self, name: &[u8], key: &[u8], algo: Hash32Algorithm) -> Option<[u8; 32]> {
+		let info = sp_externalities::btree_info_from_name(name);
+		self.overlay
+			.child_storage(&info, key, 0, None)
+			.flatten()
+			.map(|v| H::hash_with(v.as_ref(), algo))
 	}
 }
 

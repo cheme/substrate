@@ -23,8 +23,8 @@ use hash_db::Hasher;
 use log::warn;
 use sp_core::{
 	storage::{
-		well_known_keys::is_child_storage_key, ChildInfo, ChildType, StateVersion, Storage,
-		StorageBlob, StorageBtree, StorageChild, TrackedStorageKey,
+		transient::Hash32Algorithm, well_known_keys::is_child_storage_key, ChildInfo, ChildType,
+		StateVersion, Storage, StorageBlob, StorageBtree, StorageChild, TrackedStorageKey,
 	},
 	traits::Externalities,
 	Blake2Hasher,
@@ -440,6 +440,14 @@ impl Externalities for BasicExternalities {
 	fn map_count(&self, name: &[u8]) -> Option<u32> {
 		// At this point no supported storage requires to clone backend.
 		self.overlay.map_count(name)
+	}
+
+	fn map_item_hash32(&self, name: &[u8], key: &[u8], algo: Hash32Algorithm) -> Option<[u8; 32]> {
+		let info = sp_externalities::btree_info_from_name(name);
+		self.overlay
+			.child_storage(&info, key, 0, None)
+			.flatten()
+			.map(|v| sp_core::hash32_with_algorithm_inline(v.as_ref(), algo))
 	}
 }
 

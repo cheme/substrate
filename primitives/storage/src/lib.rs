@@ -506,22 +506,7 @@ pub mod transient {
 	/// It actually got not much to do with hasher, but this makes
 	/// refactoring faster (it could be another trait).
 	pub trait Hashers: hash_db::Hasher {
-		//		/// Default hasher to use.
-		/*		///
-		 * This associated type is here for convenience
-		 * and lowering code changes when switching
-		 * from an existing `Hasher`.
-		 * (`Hashers` could implement `hash_db::Hasher`
-		 * on `DEFAULT_ALGO` without it). */ */
-		//		type DefaultHasher: hash_db::Hasher;
-		/* TODO I remove this associated const because it means any chain
-		 * need to add their hasher in Hash32Algorithm, it is not correct.
-		 * TODO remove
-				/// Default algorithm to use.
-				const DEFAULT_ALGO: Hash32Algorithm;
-		*/
 		/// Compute the hash of the provided slice of bytes returning the calculated hash.
-		/// TODO consider Option<Hash32Algorithm> or a variant that use the default hasher.
 		fn hash_with(data: &[u8], algo: Hash32Algorithm) -> [u8; 32];
 	}
 

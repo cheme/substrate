@@ -21,7 +21,7 @@ use crate::{Backend, StorageKey, StorageValue};
 use codec::Encode;
 use hash_db::Hasher;
 use sp_core::{
-	storage::{ChildInfo, ChildType, StateVersion, TrackedStorageKey},
+	storage::{transient::Hash32Algorithm, ChildInfo, ChildType, StateVersion, TrackedStorageKey},
 	traits::Externalities,
 };
 use sp_externalities::{result_from_vec, MultiRemovalResults};
@@ -283,6 +283,16 @@ where
 	}
 
 	fn map_count(&self, _name: &[u8]) -> Option<u32> {
+		// no change set so no transient btree
+		None
+	}
+
+	fn map_item_hash32(
+		&self,
+		_name: &[u8],
+		_key: &[u8],
+		_algo: Hash32Algorithm,
+	) -> Option<[u8; 32]> {
 		// no change set so no transient btree
 		None
 	}

@@ -383,21 +383,15 @@ pub trait Externalities: ExtensionStore {
 
 	/// Returns true iff the blob name is present in execution state.
 	fn blob_exists(&self, name: &[u8]) -> bool {
-		self.storage_exists(&ChildInfo::Blob(BlobInfo {
-			name: name.to_vec(),
-			mode: None,
-			algorithm: None,
-		}))
+		let info = blob_info_from_name(name);
+		self.storage_exists(&info)
 	}
 
 	/// Delete blob if present, return false otherwise.
 	fn blob_delete(&mut self, name: &[u8]) -> bool {
 		if self.blob_exists(name) {
-			let _ = self.kill_child_storage(
-				&ChildInfo::Blob(BlobInfo { name: name.to_vec(), mode: None, algorithm: None }),
-				None,
-				None,
-			);
+			let info = blob_info_from_name(name);
+			let _ = self.kill_child_storage(&info, None, None);
 			true
 		} else {
 			false
@@ -408,20 +402,16 @@ pub trait Externalities: ExtensionStore {
 	/// If origin does not exist, this does nothing and return false.
 	/// Target content is overwritten.
 	fn blob_clone(&mut self, name: &[u8], target_name: &[u8]) -> bool {
-		self.storage_clone(
-			&ChildInfo::Blob(BlobInfo { name: name.to_vec(), mode: None, algorithm: None }),
-			target_name,
-		)
+		let info = blob_info_from_name(name);
+		self.storage_clone(&info, target_name)
 	}
 
 	/// Move blob value under a different name.
 	/// If origin does not exist, this does nothing and return false.
 	/// If target exists, it is overwritten.
 	fn blob_rename(&mut self, name: &[u8], target_name: &[u8]) -> bool {
-		self.storage_move(
-			&ChildInfo::Blob(BlobInfo { name: name.to_vec(), mode: None, algorithm: None }),
-			target_name,
-		)
+		let info = blob_info_from_name(name);
+		self.storage_move(&info, target_name)
 	}
 
 	/// Get value bytes for the blob.
@@ -433,8 +423,7 @@ pub trait Externalities: ExtensionStore {
 	/// case we write blob as file or other considerations.
 	/// TODO could be replace by child get
 	fn blob_get(&self, name: &[u8], limit: Option<u32>, value_offset: u32) -> Option<Vec<u8>> {
-		// TODO info from name fn
-		let info = ChildInfo::Blob(BlobInfo { name: name.to_vec(), mode: None, algorithm: None });
+		let info = blob_info_from_name(name);
 		self.child_storage(&info, &[], value_offset, limit)
 	}
 
@@ -484,21 +473,15 @@ pub trait Externalities: ExtensionStore {
 
 	/// Returns true iff the map name is present in execution state.
 	fn map_exists(&self, name: &[u8]) -> bool {
-		self.storage_exists(&ChildInfo::BTree(BtreeInfo {
-			name: name.to_vec(),
-			mode: None,
-			structure: None,
-		}))
+		let info = btree_info_from_name(name);
+		self.storage_exists(&info)
 	}
 
 	/// Delete btree map if present or return false.
 	fn map_delete(&mut self, name: &[u8]) -> bool {
 		if self.map_exists(name) {
-			let _ = self.kill_child_storage(
-				&ChildInfo::BTree(BtreeInfo { name: name.to_vec(), mode: None, structure: None }),
-				None,
-				None,
-			);
+			let info = btree_info_from_name(name);
+			let _ = self.kill_child_storage(&info, None, None);
 			true
 		} else {
 			false
@@ -509,40 +492,36 @@ pub trait Externalities: ExtensionStore {
 	/// If origin does not exist, this does nothing and return false.
 	/// Target content is overwritten.
 	fn map_clone(&mut self, name: &[u8], target_name: &[u8]) -> bool {
-		self.storage_clone(
-			&ChildInfo::BTree(BtreeInfo { name: name.to_vec(), mode: None, structure: None }),
-			target_name,
-		)
+		let info = btree_info_from_name(name);
+		self.storage_clone(&info, target_name)
 	}
 
 	/// Move btree map under a different name.
 	/// If origin does not exist, this does nothing and return false.
 	/// If target exists, it is overwritten.
 	fn map_rename(&mut self, name: &[u8], target_name: &[u8]) -> bool {
-		self.storage_move(
-			&ChildInfo::BTree(BtreeInfo { name: name.to_vec(), mode: None, structure: None }),
-			target_name,
-		)
+		let info = btree_info_from_name(name);
+		self.storage_move(&info, target_name)
 	}
 
 	/// Inserts a single (key, value) pair into map name, and overwriting the item if it did.
 	///
 	/// If map do not exist this operatio is skipped and operation return false.
 	fn map_insert(&mut self, name: &[u8], key: &[u8], value: &[u8]) -> bool {
-		let info = ChildInfo::BTree(BtreeInfo { name: name.to_vec(), mode: None, structure: None });
+		let info = btree_info_from_name(name);
 		self.place_child_storage(&info, name, Some(value))
 	}
 
 	/// Removes the pair with the given key from the map name, if the map exists and contains the
 	/// item. Does nothing and return false otherwise.
 	fn map_remove_item(&mut self, name: &[u8], key: &[u8]) -> bool {
-		let info = ChildInfo::BTree(BtreeInfo { name: name.to_vec(), mode: None, structure: None });
+		let info = btree_info_from_name(name);
 		self.place_child_storage(&info, name, None)
 	}
 
 	/// Returns true iff the map name existsa and contains key.
 	fn map_contains(&self, name: &[u8], key: &[u8]) -> bool {
-		let info = ChildInfo::BTree(BtreeInfo { name: name.to_vec(), mode: None, structure: None });
+		let info = btree_info_from_name(name);
 		self.exists_child_storage(&info, key)
 	}
 
@@ -557,15 +536,14 @@ pub trait Externalities: ExtensionStore {
 		limit: Option<u32>,
 		value_offset: u32,
 	) -> Option<Vec<u8>> {
-		// TODO info from name fn
-		let info = ChildInfo::BTree(BtreeInfo { name: name.to_vec(), mode: None, structure: None });
+		let info = btree_info_from_name(name);
 		self.child_storage(&info, key, value_offset, limit)
 	}
 
 	/// Returns Some iff the map name exists and contains key. If so, the inner value is the length
 	/// of the value associated with key.
 	fn map_item_len(&self, name: &[u8], key: &[u8]) -> Option<u32> {
-		let info = ChildInfo::BTree(BtreeInfo { name: name.to_vec(), mode: None, structure: None });
+		let info = btree_info_from_name(name);
 		self.child_value_size(&info, key)
 	}
 
@@ -576,9 +554,7 @@ pub trait Externalities: ExtensionStore {
 		name: &[u8],
 		key: &[u8],
 		algorithm: Hash32Algorithm,
-	) -> Option<[u8; 32]> {
-		unimplemented!("TODO rem def impl here");
-	}
+	) -> Option<[u8; 32]>;
 
 	/// Returns Some iff the map name exists, None otherwise. If Some, then the inner value is the
 	/// number of items in the map name.
@@ -697,4 +673,12 @@ pub fn result_from_cow(
 		Cow::Owned(owned) => result_from_vec(Some(owned), start, limit),
 		Cow::Borrowed(borrowed) => result_from_slice(Some(borrowed), start, limit),
 	}
+}
+
+pub fn blob_info_from_name(name: &[u8]) -> ChildInfo {
+	ChildInfo::Blob(BlobInfo { name: name.to_vec(), mode: None, algorithm: None })
+}
+
+pub fn btree_info_from_name(name: &[u8]) -> ChildInfo {
+	ChildInfo::BTree(BtreeInfo { name: name.to_vec(), mode: None, structure: None })
 }
