@@ -153,10 +153,25 @@ where
 			.expect("Backed failed for next_storage_key in ReadOnlyExternalities")
 	}
 
-	fn next_child_storage_key(&self, child_info: &ChildInfo, key: &[u8]) -> Option<StorageKey> {
-		self.backend
-			.next_child_storage_key(child_info, key)
-			.expect("Backed failed for next_child_storage_key in ReadOnlyExternalities")
+	fn next_child_storage_key(
+		&self,
+		child_info: &ChildInfo,
+		key: &[u8],
+		count: u32,
+	) -> Option<Vec<StorageKey>> {
+		let mut result = Vec::with_capacity(count as usize);
+		while result.len() < count as usize {
+			match self
+				.backend
+				.next_child_storage_key(child_info, key)
+				.expect("Backed failed for next_child_storage_key in ReadOnlyExternalities")
+			{
+				Some(value) => result.push(value),
+				None => break,
+			}
+		}
+
+		Some(result)
 	}
 
 	fn place_storage(&mut self, _key: StorageKey, _maybe_value: Option<StorageValue>) {

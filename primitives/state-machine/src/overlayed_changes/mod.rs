@@ -964,14 +964,20 @@ impl OverlayedChanges {
 	/// alongside its value for the given `storage_key` child.
 	pub fn child_iter_after(
 		&self,
-		storage_key: &[u8],
+		child_info: &ChildInfo,
 		key: &[u8],
-	) -> impl Iterator<Item = (&[u8], &OverlayedValue)> {
-		self.children
-			.get(storage_key)
-			.map(|(overlay, _)| overlay.changes_after(key))
-			.into_iter()
-			.flatten()
+	) -> Option<impl Iterator<Item = (&[u8], &OverlayedValue)>> {
+		match child_info {
+			ChildInfo::ParentKeyId(_) => Some(
+				self.children
+					.get(child_info.storage_key())
+					.map(|(overlay, _)| overlay.changes_after(key))
+					.into_iter()
+					.flatten(),
+			),
+			ChildInfo::BTree(infos) => unimplemented!(),
+			ChildInfo::Blob(infos) => None,
+		}
 	}
 
 	/// Read only access ot offchain overlay.

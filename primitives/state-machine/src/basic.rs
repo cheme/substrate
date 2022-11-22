@@ -239,10 +239,27 @@ impl Externalities for BasicExternalities {
 		self.overlay.iter_after(key).find_map(|(k, v)| v.value().map(|_| k.to_vec()))
 	}
 
-	fn next_child_storage_key(&self, child_info: &ChildInfo, key: &[u8]) -> Option<StorageKey> {
-		self.overlay
-			.child_iter_after(child_info.storage_key(), key)
-			.find_map(|(k, v)| v.value().map(|_| k.to_vec()))
+	fn next_child_storage_key(
+		&self,
+		child_info: &ChildInfo,
+		key: &[u8],
+		count: u32,
+	) -> Option<Vec<StorageKey>> {
+		let iter = self.overlay.child_iter_after(child_info, key)?;
+
+		let mut result = Vec::with_capacity(count as usize);
+		if count == 0 {
+			return Some(result)
+		}
+		for (k, v) in iter {
+			if v.value().is_some() {
+				result.push(k.to_vec());
+				if result.len() == count as usize {
+					break
+				}
+			}
+		}
+		Some(result)
 	}
 
 	fn place_storage(&mut self, key: StorageKey, maybe_value: Option<StorageValue>) {

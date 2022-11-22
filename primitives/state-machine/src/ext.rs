@@ -391,45 +391,94 @@ where
 		}
 	}
 
-	fn next_child_storage_key(&self, child_info: &ChildInfo, key: &[u8]) -> Option<StorageKey> {
-		let mut next_backend_key = self
-			.backend
-			.next_child_storage_key(child_info, key)
-			.expect(EXT_NOT_ALLOWED_TO_FAIL);
-		let mut overlay_changes =
-			self.overlay.child_iter_after(child_info.storage_key(), key).peekable();
+	fn next_child_storage_key(
+		&self,
+		child_info: &ChildInfo,
+		key: &[u8],
+		count: u32,
+	) -> Option<Vec<StorageKey>> {
+		match child_info {
+			ChildInfo::BTree(_) => {
+				let iter = self.overlay.child_iter_after(child_info, key)?;
 
-		match (&next_backend_key, overlay_changes.peek()) {
-			(_, None) => next_backend_key,
-			(Some(_), Some(_)) => {
-				for overlay_key in overlay_changes {
-					let cmp = next_backend_key.as_deref().map(|v| v.cmp(overlay_key.0));
-
-					// If `backend_key` is less than the `overlay_key`, we found out next key.
-					if cmp == Some(Ordering::Less) {
-						return next_backend_key
-					} else if overlay_key.1.value().is_some() {
-						// If there exists a value for the `overlay_key` in the overlay
-						// (aka the key is still valid), it means we have found our next key.
-						return Some(overlay_key.0.to_vec())
-					} else if cmp == Some(Ordering::Equal) {
-						// If the `backend_key` and `overlay_key` are equal, it means that we need
-						// to search for the next backend key, because the overlay has overwritten
-						// this key.
-						next_backend_key = self
-							.backend
-							.next_child_storage_key(child_info, overlay_key.0)
-							.expect(EXT_NOT_ALLOWED_TO_FAIL);
+				let mut result = Vec::with_capacity(count as usize);
+				for (k, v) in iter {
+					if v.value().is_some() {
+						result.push(k.to_vec());
+						if result.len() == count as usize {
+							break
+						}
 					}
 				}
-
-				next_backend_key
+				return Some(result)
 			},
-			(None, Some(_)) => {
-				// Find the next overlay key that has a value attached.
-				overlay_changes.find_map(|k| k.1.value().as_ref().map(|_| k.0.to_vec()))
-			},
+			ChildInfo::Blob(_) => return None,
+			ChildInfo::ParentKeyId(_) => (),
 		}
+
+		let mut overlay_changes = self.overlay.child_iter_after(child_info, key)?;
+
+		let mut result = Vec::<StorageKey>::with_capacity(count as usize);
+		let mut next_overlay = overlay_changes.next();
+		loop {
+			if result.len() == count as usize {
+				break
+			}
+
+			let mut next_backend_key = self
+				.backend
+				.next_child_storage_key(
+					child_info,
+					result.last().map(|r| r.as_slice()).unwrap_or(key),
+				)
+				.expect(EXT_NOT_ALLOWED_TO_FAIL);
+
+			// TODO recheck this diff
+			let next = match (&next_backend_key, &next_overlay) {
+				(_, None) => next_backend_key,
+				(Some(_), Some(_)) => {
+					// TODO this is incorrect  as overlay change bigger  we will call next on next
+					// value...
+					while let Some(overlay_key) = next_overlay.as_ref() {
+						let cmp = next_backend_key.as_deref().map(|v| v.cmp(overlay_key.0));
+
+						if cmp == Some(Ordering::Less) {
+							// If `backend_key` is less than the `overlay_key`, we found out next
+							// key.
+							break
+						} else if overlay_key.1.value().is_some() {
+							// If there exists a value for the `overlay_key` in the overlay
+							// (aka the key is still valid), it means we have found our next key.
+							result.push(overlay_key.0.to_vec());
+							if result.len() == count as usize {
+								return Some(result)
+							}
+						} else if cmp == Some(Ordering::Equal) {
+							// If the `backend_key` and `overlay_key` are equal, it means that we
+							// need to search for the next backend key, because the overlay has
+							// overwritten this key.
+							next_backend_key = self
+								.backend
+								.next_child_storage_key(child_info, overlay_key.0)
+								.expect(EXT_NOT_ALLOWED_TO_FAIL);
+						}
+						next_overlay = overlay_changes.next();
+					}
+
+					next_backend_key
+				},
+				(None, Some(_)) => {
+					// Find the next overlay key that has a value attached.
+					overlay_changes.find_map(|k| k.1.value().as_ref().map(|_| k.0.to_vec()))
+				},
+			};
+			if let Some(key) = next {
+				result.push(key);
+			} else {
+				break
+			}
+		}
+		Some(result)
 	}
 
 	fn place_storage(&mut self, key: StorageKey, value: Option<StorageValue>) {

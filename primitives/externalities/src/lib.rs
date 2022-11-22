@@ -166,7 +166,12 @@ pub trait Externalities: ExtensionStore {
 	fn next_storage_key(&self, key: &[u8]) -> Option<Vec<u8>>;
 
 	/// Returns the key immediately following the given key, if it exists, in child storage.
-	fn next_child_storage_key(&self, child_info: &ChildInfo, key: &[u8]) -> Option<Vec<u8>>;
+	fn next_child_storage_key(
+		&self,
+		child_info: &ChildInfo,
+		key: &[u8],
+		count: u32,
+	) -> Option<Vec<Vec<u8>>>;
 
 	/// Clear an entire child storage.
 	///
@@ -351,6 +356,7 @@ pub trait Externalities: ExtensionStore {
 	/// Change a storage storage definition. If no storage exists a new empty one is created.
 	///
 	/// Return false if ignored (eg for default child trie).
+	/// Return true if unchanged.
 	fn update_storage_info(&mut self, info: ChildInfo, clear_existing: bool) -> bool;
 
 	/// Get info for a given storage key.
@@ -573,7 +579,8 @@ pub trait Externalities: ExtensionStore {
 			return None
 		}
 		let root = self.child_storage_root(&info, StateVersion::V1);
-		// TODO don't like this copy: change prototype to return Vec<u8>?
+		// TODO don't like this copy: change prototype to return Vec<u8>? -> then no
+		// need to restrict to 32 bytes
 		let mut result = [0u8; 32];
 		result.copy_from_slice(root.as_slice());
 		Some(result)
@@ -583,7 +590,8 @@ pub trait Externalities: ExtensionStore {
 	/// exist after key than count, then only the remaining items are returned. If the map name does
 	/// not exist then None is returned.
 	fn map_next_keys(&self, name: &[u8], key: &[u8], count: u32) -> Option<Vec<Vec<u8>>> {
-		unimplemented!("TODO rem def impl here");
+		let info = btree_info_from_name(name);
+		self.next_child_storage_key(&info, key, count)
 	}
 
 	/// Returns Some of a Vec of all items in the map name, sorted; or None if the map name does not
