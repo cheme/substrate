@@ -17,8 +17,8 @@
 
 //! Substrate Blake2b Hasher implementation
 
-use sp_storage::transient::Hash32Algorithm;
 use crate::hash32_with_algorithm_inline;
+use sp_storage::transient::Hash32Algorithm;
 
 pub mod blake2 {
 	use super::*;

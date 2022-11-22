@@ -36,7 +36,7 @@ pub use sp_arithmetic::traits::{
 	CheckedShr, CheckedSub, IntegerSquareRoot, One, SaturatedConversion, Saturating,
 	UniqueSaturatedFrom, UniqueSaturatedInto, Zero,
 };
-use sp_core::{self, storage::StateVersion, Hasher, RuntimeDebug, TypeId, Hashers};
+use sp_core::{self, storage::StateVersion, Hasher, Hashers, RuntimeDebug, TypeId};
 #[doc(hidden)]
 pub use sp_core::{
 	parameter_types, ConstBool, ConstI128, ConstI16, ConstI32, ConstI64, ConstI8, ConstU128,
@@ -701,9 +701,7 @@ use sp_core::Hash32Algorithm;
 
 fn hash32_with_algorithm_hosts(data: &[u8], algo: Hash32Algorithm) -> [u8; 32] {
 	match algo {
-		Hash32Algorithm::Blake2b256 => {
-			sp_io::hashing::blake2_256(data).into()
-		},
+		Hash32Algorithm::Blake2b256 => sp_io::hashing::blake2_256(data).into(),
 	}
 }
 

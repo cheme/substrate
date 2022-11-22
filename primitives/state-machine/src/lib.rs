@@ -161,9 +161,10 @@ mod execution {
 	use hash_db::Hasher;
 	use smallvec::SmallVec;
 	use sp_core::{
-		hexdisplay::HexDisplay, Hashers, HashersOut,
+		hexdisplay::HexDisplay,
 		storage::{ChildInfo, ChildType, PrefixedStorageKey},
 		traits::{CodeExecutor, ReadRuntimeVersionExt, RuntimeCode, SpawnNamed},
+		Hashers, HashersOut,
 	};
 	use sp_externalities::Extensions;
 	use std::{

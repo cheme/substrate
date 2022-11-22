@@ -24,10 +24,10 @@ use codec::{Decode, Encode, EncodeAppend};
 use hash_db::Hasher;
 #[cfg(feature = "std")]
 use sp_core::hexdisplay::HexDisplay;
-use sp_core::storage::{
-	well_known_keys::is_child_storage_key, ChildInfo, StateVersion, TrackedStorageKey,
+use sp_core::{
+	storage::{well_known_keys::is_child_storage_key, ChildInfo, StateVersion, TrackedStorageKey},
+	Hashers,
 };
-use sp_core::Hashers;
 use sp_externalities::{
 	result_from_cow, result_from_slice, result_from_vec, Extension, ExtensionStore, Externalities,
 	MultiRemovalResults,

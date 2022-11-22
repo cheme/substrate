@@ -29,7 +29,6 @@ use crate::{
 
 use hash_db::Hasher;
 use sp_core::{
-	Hashers,
 	offchain::testing::TestPersistentOffchainDB,
 	storage::{
 		well_known_keys::{is_child_storage_key, CODE},
@@ -37,6 +36,7 @@ use sp_core::{
 	},
 	testing::TaskExecutor,
 	traits::TaskExecutorExt,
+	Hashers,
 };
 use sp_externalities::{Extension, ExtensionStore, Extensions};
 use sp_trie::StorageProof;
