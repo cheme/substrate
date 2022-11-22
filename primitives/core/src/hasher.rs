@@ -41,9 +41,7 @@ pub mod blake2 {
 	}
 
 	impl sp_storage::transient::Hashers for Blake2Hasher {
-		type DefaultHasher = Blake2Hasher;
-
-		fn hash(data: &[u8], algo: Hash32Algorithm) -> [u8; 32] {
+		fn hash_with(data: &[u8], algo: Hash32Algorithm) -> [u8; 32] {
 			hash32_with_algorithm_inline(data, algo)
 		}
 	}
@@ -70,9 +68,7 @@ pub mod keccak {
 	}
 
 	impl sp_storage::transient::Hashers for KeccakHasher {
-		type DefaultHasher = KeccakHasher;
-
-		fn hash(data: &[u8], algo: Hash32Algorithm) -> [u8; 32] {
+		fn hash_with(data: &[u8], algo: Hash32Algorithm) -> [u8; 32] {
 			hash32_with_algorithm_inline(data, algo)
 		}
 	}

@@ -499,17 +499,22 @@ pub mod transient {
 
 	/// Trait describing an object that can hash with multiple hash_db hashers
 	/// given a 32 bytes output.
+	///
+	/// The `Hasher` implementation is the default one for state.
+	///
 	/// TODO maybe rename as it is the main entry point for io calls
 	/// from state machine and could extend to more things.
-	pub trait Hashers: Sync + Send {
-		/// Default hasher to use.
+	/// It actually got not much to do with hasher, but this makes
+	/// refactoring faster (it could be another trait).
+	pub trait Hashers: hash_db::Hasher {
+//		/// Default hasher to use.
 /*		///
 		/// This associated type is here for convenience
 		/// and lowering code changes when switching
 		/// from an existing `Hasher`.
 		/// (`Hashers` could implement `hash_db::Hasher`
 		/// on `DEFAULT_ALGO` without it). */
-		type DefaultHasher: hash_db::Hasher;
+//		type DefaultHasher: hash_db::Hasher;
 /* TODO I remove this associated const because it means any chain
  * need to add their hasher in Hash32Algorithm, it is not correct.
  * TODO remove
@@ -518,8 +523,11 @@ pub mod transient {
 */
 		/// Compute the hash of the provided slice of bytes returning the calculated hash.
 		/// TODO consider Option<Hash32Algorithm> or a variant that use the default hasher.
-		fn hash(data: &[u8], algo: Hash32Algorithm) -> [u8; 32];
+		fn hash_with(data: &[u8], algo: Hash32Algorithm) -> [u8; 32];
 	}
+
+	/// Short for default hasher out type.
+	pub type HashersOut<H> = <H as hash_db::Hasher>::Out;
 }
 
 impl ChildType {

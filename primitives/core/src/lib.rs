@@ -623,7 +623,7 @@ macro_rules! bounded_btree_map {
 	};
 }
 
-pub use sp_storage::transient::{Hash32Algorithm, Hashers};
+pub use sp_storage::transient::{Hash32Algorithm, Hashers, HashersOut};
 
 /// Utility function to easilly implement `Hashers` from
 /// the default `Hasher`.

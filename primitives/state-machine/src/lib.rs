@@ -161,7 +161,7 @@ mod execution {
 	use hash_db::Hasher;
 	use smallvec::SmallVec;
 	use sp_core::{
-		hexdisplay::HexDisplay,
+		hexdisplay::HexDisplay, Hashers, HashersOut,
 		storage::{ChildInfo, ChildType, PrefixedStorageKey},
 		traits::{CodeExecutor, ReadRuntimeVersionExt, RuntimeCode, SpawnNamed},
 	};
@@ -279,7 +279,7 @@ mod execution {
 	/// The substrate state machine.
 	pub struct StateMachine<'a, B, H, Exec>
 	where
-		H: Hasher,
+		H: Hashers,
 		B: Backend<H>,
 	{
 		backend: &'a B,
@@ -299,7 +299,7 @@ mod execution {
 
 	impl<'a, B, H, Exec> Drop for StateMachine<'a, B, H, Exec>
 	where
-		H: Hasher,
+		H: Hashers,
 		B: Backend<H>,
 	{
 		fn drop(&mut self) {
@@ -309,7 +309,7 @@ mod execution {
 
 	impl<'a, B, H, Exec> StateMachine<'a, B, H, Exec>
 	where
-		H: Hasher,
+		H: Hashers,
 		H::Out: Ord + 'static + codec::Codec,
 		Exec: CodeExecutor + Clone + 'static,
 		B: Backend<H>,
@@ -518,7 +518,7 @@ mod execution {
 	) -> Result<(Vec<u8>, StorageProof), Box<dyn Error>>
 	where
 		B: AsTrieBackend<H>,
-		H: Hasher,
+		H: Hashers,
 		H::Out: Ord + 'static + codec::Codec,
 		Exec: CodeExecutor + Clone + 'static,
 		Spawn: SpawnNamed + Send + 'static,
@@ -555,7 +555,7 @@ mod execution {
 	) -> Result<(Vec<u8>, StorageProof), Box<dyn Error>>
 	where
 		S: trie_backend_essence::TrieBackendStorage<H>,
-		H: Hasher,
+		H: Hashers,
 		H::Out: Ord + 'static + codec::Codec,
 		Exec: CodeExecutor + 'static + Clone,
 		Spawn: SpawnNamed + Send + 'static,
@@ -594,7 +594,7 @@ mod execution {
 		runtime_code: &RuntimeCode,
 	) -> Result<Vec<u8>, Box<dyn Error>>
 	where
-		H: Hasher + 'static,
+		H: Hashers + 'static,
 		Exec: CodeExecutor + Clone + 'static,
 		H::Out: Ord + 'static + codec::Codec,
 		Spawn: SpawnNamed + Send + 'static,
@@ -622,7 +622,7 @@ mod execution {
 		runtime_code: &RuntimeCode,
 	) -> Result<Vec<u8>, Box<dyn Error>>
 	where
-		H: Hasher,
+		H: Hashers,
 		H::Out: Ord + 'static + codec::Codec,
 		Exec: CodeExecutor + Clone + 'static,
 		Spawn: SpawnNamed + Send + 'static,
@@ -644,7 +644,7 @@ mod execution {
 	pub fn prove_read<B, H, I>(backend: B, keys: I) -> Result<StorageProof, Box<dyn Error>>
 	where
 		B: AsTrieBackend<H>,
-		H: Hasher,
+		H: Hashers,
 		H::Out: Ord + Codec,
 		I: IntoIterator,
 		I::Item: AsRef<[u8]>,
@@ -781,7 +781,7 @@ mod execution {
 	) -> Result<(StorageProof, u32), Box<dyn Error>>
 	where
 		B: AsTrieBackend<H>,
-		H: Hasher,
+		H: Hashers,
 		H::Out: Ord + Codec,
 	{
 		let trie_backend = backend.as_trie_backend();
@@ -798,7 +798,7 @@ mod execution {
 	) -> Result<(StorageProof, u32), Box<dyn Error>>
 	where
 		S: trie_backend_essence::TrieBackendStorage<H>,
-		H: Hasher,
+		H: Hashers,
 		H::Out: Ord + Codec,
 	{
 		if start_at.len() > MAX_NESTED_TRIE_DEPTH {
@@ -920,7 +920,7 @@ mod execution {
 	) -> Result<(StorageProof, u32), Box<dyn Error>>
 	where
 		B: AsTrieBackend<H>,
-		H: Hasher,
+		H: Hashers,
 		H::Out: Ord + Codec,
 	{
 		let trie_backend = backend.as_trie_backend();
@@ -943,7 +943,7 @@ mod execution {
 	) -> Result<(StorageProof, u32), Box<dyn Error>>
 	where
 		S: trie_backend_essence::TrieBackendStorage<H>,
-		H: Hasher,
+		H: Hashers,
 		H::Out: Ord + Codec,
 	{
 		let recorder = sp_trie::recorder::Recorder::default();
@@ -981,7 +981,7 @@ mod execution {
 	) -> Result<StorageProof, Box<dyn Error>>
 	where
 		B: AsTrieBackend<H>,
-		H: Hasher,
+		H: Hashers,
 		H::Out: Ord + Codec,
 		I: IntoIterator,
 		I::Item: AsRef<[u8]>,
@@ -998,7 +998,7 @@ mod execution {
 	) -> Result<StorageProof, Box<dyn Error>>
 	where
 		B: Backend<H>,
-		H: Hasher,
+		H: Hashers,
 		H::Out: Ord + Codec,
 		I: IntoIterator<Item = u64>,
 	{
@@ -1012,7 +1012,7 @@ mod execution {
 	) -> Result<StorageProof, Box<dyn Error>>
 	where
 		S: trie_backend_essence::TrieBackendStorage<H>,
-		H: Hasher,
+		H: Hashers,
 		H::Out: Ord + Codec,
 		I: IntoIterator,
 		I::Item: AsRef<[u8]>,
@@ -1038,7 +1038,7 @@ mod execution {
 	) -> Result<StorageProof, Box<dyn Error>>
 	where
 		S: trie_backend_essence::TrieBackendStorage<H>,
-		H: Hasher,
+		H: Hashers,
 		H::Out: Ord + Codec,
 		I: IntoIterator,
 		I::Item: AsRef<[u8]>,
@@ -1063,7 +1063,7 @@ mod execution {
 		keys: I,
 	) -> Result<HashMap<Vec<u8>, Option<Vec<u8>>>, Box<dyn Error>>
 	where
-		H: Hasher + 'static,
+		H: Hashers + 'static,
 		H::Out: Ord + Codec,
 		I: IntoIterator,
 		I::Item: AsRef<[u8]>,
@@ -1088,7 +1088,7 @@ mod execution {
 		start_at: &[Vec<u8>],
 	) -> Result<(KeyValueStates, usize), Box<dyn Error>>
 	where
-		H: Hasher + 'static,
+		H: Hashers + 'static,
 		H::Out: Ord + Codec,
 	{
 		let proving_backend = create_proof_check_backend::<H>(root, proof)?;
@@ -1105,7 +1105,7 @@ mod execution {
 		start_at: Option<&[u8]>,
 	) -> Result<(Vec<(Vec<u8>, Vec<u8>)>, bool), Box<dyn Error>>
 	where
-		H: Hasher + 'static,
+		H: Hashers + 'static,
 		H::Out: Ord + Codec,
 	{
 		let proving_backend = create_proof_check_backend::<H>(root, proof)?;
@@ -1126,7 +1126,7 @@ mod execution {
 		keys: I,
 	) -> Result<HashMap<Vec<u8>, Option<Vec<u8>>>, Box<dyn Error>>
 	where
-		H: Hasher + 'static,
+		H: Hashers + 'static,
 		H::Out: Ord + Codec,
 		I: IntoIterator,
 		I::Item: AsRef<[u8]>,
@@ -1152,7 +1152,7 @@ mod execution {
 		_keys: I,
 	) -> Result<Vec<(u64, Option<Vec<u8>>)>, Box<dyn Error>>
 	where
-		H: Hasher,
+		H: Hashers,
 		H::Out: Ord + Codec,
 		I: IntoIterator<Item = u64>,
 	{
@@ -1165,7 +1165,7 @@ mod execution {
 		key: &[u8],
 	) -> Result<Option<Vec<u8>>, Box<dyn Error>>
 	where
-		H: Hasher,
+		H: Hashers,
 		H::Out: Ord + Codec,
 	{
 		proving_backend.storage(key).map_err(|e| Box::new(e) as Box<dyn Error>)
@@ -1178,7 +1178,7 @@ mod execution {
 		key: &[u8],
 	) -> Result<Option<Vec<u8>>, Box<dyn Error>>
 	where
-		H: Hasher,
+		H: Hashers,
 		H::Out: Ord + Codec,
 	{
 		proving_backend
@@ -1198,7 +1198,7 @@ mod execution {
 		start_at: Option<&[u8]>,
 	) -> Result<(Vec<(Vec<u8>, Vec<u8>)>, bool), Box<dyn Error>>
 	where
-		H: Hasher,
+		H: Hashers,
 		H::Out: Ord + Codec,
 	{
 		let mut values = Vec::new();
@@ -1226,7 +1226,7 @@ mod execution {
 		start_at: &[Vec<u8>],
 	) -> Result<(KeyValueStates, usize), Box<dyn Error>>
 	where
-		H: Hasher,
+		H: Hashers,
 		H::Out: Ord + Codec,
 	{
 		let mut result = vec![KeyValueStorageLevel {

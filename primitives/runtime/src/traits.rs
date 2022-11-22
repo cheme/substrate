@@ -36,7 +36,7 @@ pub use sp_arithmetic::traits::{
 	CheckedShr, CheckedSub, IntegerSquareRoot, One, SaturatedConversion, Saturating,
 	UniqueSaturatedFrom, UniqueSaturatedInto, Zero,
 };
-use sp_core::{self, storage::StateVersion, Hasher, RuntimeDebug, TypeId};
+use sp_core::{self, storage::StateVersion, Hasher, RuntimeDebug, TypeId, Hashers};
 #[doc(hidden)]
 pub use sp_core::{
 	parameter_types, ConstBool, ConstI128, ConstI16, ConstI32, ConstI64, ConstI8, ConstU128,
@@ -649,6 +649,7 @@ pub trait Hash:
 	+ Eq
 	+ PartialEq
 	+ Hasher<Out = <Self as Hash>::Output>
+	+ Hashers
 {
 	/// The hash type produced.
 	type Output: Member
@@ -707,9 +708,7 @@ fn hash32_with_algorithm_hosts(data: &[u8], algo: Hash32Algorithm) -> [u8; 32] {
 }
 
 impl sp_core::Hashers for BlakeTwo256 {
-	type DefaultHasher = BlakeTwo256;
-
-	fn hash(data: &[u8], algo: Hash32Algorithm) -> [u8; 32] {
+	fn hash_with(data: &[u8], algo: Hash32Algorithm) -> [u8; 32] {
 		hash32_with_algorithm_hosts(data, algo)
 	}
 }
@@ -742,9 +741,7 @@ impl Hasher for Keccak256 {
 }
 
 impl sp_core::Hashers for Keccak256 {
-	type DefaultHasher = Keccak256;
-
-	fn hash(data: &[u8], algo: sp_core::storage::transient::Hash32Algorithm) -> [u8; 32] {
+	fn hash_with(data: &[u8], algo: sp_core::storage::transient::Hash32Algorithm) -> [u8; 32] {
 		hash32_with_algorithm_hosts(data, algo)
 	}
 }

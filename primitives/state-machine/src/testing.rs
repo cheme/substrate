@@ -29,6 +29,7 @@ use crate::{
 
 use hash_db::Hasher;
 use sp_core::{
+	Hashers,
 	offchain::testing::TestPersistentOffchainDB,
 	storage::{
 		well_known_keys::{is_child_storage_key, CODE},
@@ -43,7 +44,7 @@ use sp_trie::StorageProof;
 /// Simple HashMap-based Externalities impl.
 pub struct TestExternalities<H>
 where
-	H: Hasher + 'static,
+	H: Hashers + 'static,
 	H::Out: codec::Codec + Ord,
 {
 	/// The overlay changed storage.
@@ -61,7 +62,7 @@ where
 
 impl<H> TestExternalities<H>
 where
-	H: Hasher + 'static,
+	H: Hashers + 'static,
 	H::Out: Ord + 'static + codec::Codec,
 {
 	/// Get externalities implementation.
@@ -236,7 +237,7 @@ where
 	}
 }
 
-impl<H: Hasher> std::fmt::Debug for TestExternalities<H>
+impl<H: Hashers> std::fmt::Debug for TestExternalities<H>
 where
 	H::Out: Ord + codec::Codec,
 {
@@ -245,7 +246,7 @@ where
 	}
 }
 
-impl<H: Hasher> PartialEq for TestExternalities<H>
+impl<H: Hashers> PartialEq for TestExternalities<H>
 where
 	H::Out: Ord + 'static + codec::Codec,
 {
@@ -256,7 +257,7 @@ where
 	}
 }
 
-impl<H: Hasher> Default for TestExternalities<H>
+impl<H: Hashers> Default for TestExternalities<H>
 where
 	H::Out: Ord + 'static + codec::Codec,
 {
@@ -266,7 +267,7 @@ where
 	}
 }
 
-impl<H: Hasher> From<Storage> for TestExternalities<H>
+impl<H: Hashers> From<Storage> for TestExternalities<H>
 where
 	H::Out: Ord + 'static + codec::Codec,
 {
@@ -275,7 +276,7 @@ where
 	}
 }
 
-impl<H: Hasher> From<(Storage, StateVersion)> for TestExternalities<H>
+impl<H: Hashers> From<(Storage, StateVersion)> for TestExternalities<H>
 where
 	H::Out: Ord + 'static + codec::Codec,
 {
@@ -286,7 +287,7 @@ where
 
 impl<H> sp_externalities::ExtensionStore for TestExternalities<H>
 where
-	H: Hasher,
+	H: Hashers,
 	H::Out: Ord + codec::Codec,
 {
 	fn extension_by_type_id(&mut self, type_id: TypeId) -> Option<&mut dyn Any> {
@@ -315,7 +316,7 @@ where
 
 impl<H> sp_externalities::ExternalitiesExt for TestExternalities<H>
 where
-	H: Hasher,
+	H: Hashers,
 	H::Out: Ord + codec::Codec,
 {
 	fn extension<T: Any + Extension>(&mut self) -> Option<&mut T> {
