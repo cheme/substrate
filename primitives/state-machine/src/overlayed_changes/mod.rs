@@ -514,10 +514,59 @@ impl OverlayedChanges {
 		let Some(previous_len) = self.blob_len(name) else {
 			return false;
 		};
+
+		let extrinsic_index = self.extrinsic_index();
+
 		let Some((changeset, info)) = self.blobs.get_mut(name) else {
 			return false;
 		};
-		unimplemented!()
+
+		let end = offset as usize + value.len();
+		if end > u32::MAX as usize {
+			return false
+		}
+
+		if value.len() == 0 {
+			return true
+		}
+
+		let (chunk_start, chunk_start_offset) = blob_chunk_start_index(offset as usize);
+		let (chunk_end, chunk_end_offset) = blob_chunk_end_index(end);
+
+		let update_size = end as u32 > previous_len;
+		if update_size ||
+			info.value_ref()
+				.as_ref()
+				.expect("Checked by previous blob_len call")
+				.hash
+				.is_some()
+		{
+			let info = info
+				.modify_value(extrinsic_index)
+				.as_mut()
+				.expect("Checked by previous blob_len call");
+			info.hash = None;
+			if update_size {
+				info.size = end;
+			}
+		}
+
+		if chunk_start == chunk_end {
+			let mut chunk = changeset.modify_chunk(chunk_start, extrinsic_index);
+			chunk[chunk_start_offset..chunk_end_offset].copy_from_slice(value);
+		} else {
+			let mut chunk = changeset.modify_chunk(chunk_start, extrinsic_index);
+			let mut offset = BLOB_CHUNK_SIZE - chunk_start_offset;
+			chunk[chunk_start_offset..].copy_from_slice(&value[..offset]);
+			for i in chunk_start + 1..chunk_end {
+				let mut chunk = changeset.modify_chunk(chunk_start, extrinsic_index);
+				chunk[..].copy_from_slice(&value[offset..offset + BLOB_CHUNK_SIZE]);
+				offset += BLOB_CHUNK_SIZE;
+			}
+			let mut chunk = changeset.modify_chunk(chunk_end, extrinsic_index);
+			chunk[..chunk_end_offset].copy_from_slice(&value[offset..]);
+		}
+		true
 	}
 
 	pub(crate) fn blob_truncate(&mut self, name: &[u8], new_len: u32) -> bool {

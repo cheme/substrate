@@ -97,6 +97,9 @@ pub type OverlayedValue = OverlayedEntry<Option<StorageValue>>;
 pub type OverlayedChangeSet = OverlayedMap<StorageKey, Option<StorageValue>>;
 
 /// Change set for push only operation.
+///
+/// Warning api at this level expect chunk bounds
+/// to be checked.
 #[derive(Debug, Clone, Default)]
 pub struct OverlayedChangeSetBlob {
 	// TODO rem
@@ -290,6 +293,11 @@ impl<V> OverlayedEntry<Option<V>> {
 /// is the first write to the given key that transaction.
 fn insert_dirty<K: Ord + Hash>(set: &mut DirtyKeysSets<K>, key: K) -> bool {
 	set.last_mut().map(|dk| dk.insert(key)).unwrap_or_default()
+}
+
+/// Same as `insert_dirty` but for indexed chunks.
+fn insert_dirty_chunk(set: &mut Vec<Set<usize>>, at: usize) -> bool {
+	set.last_mut().map(|dk| dk.insert(at)).unwrap_or_default()
 }
 
 /// Mark info change value as dirty.
@@ -728,11 +736,7 @@ impl OverlayedChangeSetBlob {
 
 	/// Clearing is not needed as we always check size on access.
 	/// This method will therefore only clean entry when possible.
-	pub(super) fn truncate_clean(
-		&mut self,
-		start_chunk: u32,
-		end_chunk: Option<u32>,
-	) {
+	pub(super) fn truncate_clean(&mut self, start_chunk: u32, end_chunk: Option<u32>) {
 		if self.dirty.len() == 0 {
 			// can happen on empty blob.
 			return
@@ -758,6 +762,39 @@ impl OverlayedChangeSetBlob {
 				dirty.remove(&i);
 			}
 		}
+	}
+
+	/// Access mutable value on  the change set.
+	///
+	/// If undefined, init with default.
+	///
+	/// This should be use to change the value as it will
+	/// create a new overlay value if there is none for
+	/// current transaction.
+	///
+	/// Index must be checked to never be more than current chunks len.
+	#[must_use = "A change was registered, so this value MUST be modified."]
+	pub(super) fn modify_chunk(&mut self, at: u32, at_extrinsic: Option<u32>) -> &mut BlobChunk {
+		let at = at as usize;
+		if at == self.chunks.len() {
+			self.chunks.push(OverlayedEntry { transactions: SmallVec::new() });
+		}
+
+		let mut chunk = &mut self.chunks[at];
+		let first_write_in_tx = insert_dirty_chunk(&mut self.dirty, at);
+		let clone_into_new_tx = if let Some(tx) = chunk.transactions.last() {
+			if first_write_in_tx {
+				Some(tx.value.clone())
+			} else {
+				None
+			}
+		} else {
+			Some([0u8; BLOB_CHUNK_SIZE])
+		};
+		if let Some(cloned) = clone_into_new_tx {
+			chunk.set(cloned, first_write_in_tx, at_extrinsic);
+		}
+		chunk.value_mut()
 	}
 }
 
