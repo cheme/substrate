@@ -316,6 +316,7 @@ impl OverlayedChanges {
 	/// Returns a double-Option: None if the key is unknown (i.e. and the query should be referred
 	/// to the backend); Some(None) if the key has been deleted. Some(Some(...)) for a key whose
 	/// value has been set.
+	/// TODO we use Cow here just for the blob case, maybe just separate functions.
 	pub fn child_storage(
 		&self,
 		child_info: &ChildInfo,

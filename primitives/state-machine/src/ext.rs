@@ -968,6 +968,28 @@ where
 			.flatten()
 			.map(|v| H::hash_with(v.as_ref(), algo))
 	}
+
+	fn map_dump(&self, name: &[u8]) -> Option<Vec<(Vec<u8>, Vec<u8>)>> {
+		self.overlay.btree_changes(name).map(|(data, _info)| {
+			data.filter_map(|(k, v)| v.value_ref().as_ref().map(|v| (k.clone(), v.clone())))
+				.collect()
+		})
+	}
+
+	fn map_dump_hashed(
+		&self,
+		name: &[u8],
+		algorithm: Hash32Algorithm,
+	) -> Option<Vec<([u8; 32], [u8; 32])>> {
+		self.overlay.btree_changes(name).map(|(data, _info)| {
+			data.filter_map(|(k, v)| {
+				v.value_ref()
+					.as_ref()
+					.map(|v| (H::hash_with(k, algorithm), H::hash_with(v.as_ref(), algorithm)))
+			})
+			.collect()
+		})
+	}
 }
 
 impl<'a, H, B> Ext<'a, H, B>

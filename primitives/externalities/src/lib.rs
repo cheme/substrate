@@ -596,19 +596,17 @@ pub trait Externalities: ExtensionStore {
 
 	/// Returns Some of a Vec of all items in the map name, sorted; or None if the map name does not
 	/// exist.
-	fn map_dump(&self, name: &[u8]) -> Option<Vec<(Vec<u8>, Vec<u8>)>> {
-		unimplemented!("TODO rem def impl here");
-	}
+	fn map_dump(&self, name: &[u8]) -> Option<Vec<(Vec<u8>, Vec<u8>)>>;
 
 	/// Returns Some of a Vec of all pairs of keys and values in the map name hashed with algorithm
 	/// and in order of the (unhashed) key; or None if the map name does not exist.
+	/// TODO question hashing key (except for equality checking, issue here is we don't have
+	/// preimage).
 	fn map_dump_hashed(
 		&self,
 		name: &[u8],
 		algorithm: Hash32Algorithm,
-	) -> Option<Vec<([u8; 32], [u8; 32])>> {
-		unimplemented!("TODO rem def impl here");
-	}
+	) -> Option<Vec<([u8; 32], [u8; 32])>>;
 }
 
 /// Extension for the [`Externalities`] trait.

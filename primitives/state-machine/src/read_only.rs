@@ -311,6 +311,20 @@ where
 		// no change set so no transient btree
 		None
 	}
+
+	fn map_dump(&self, _name: &[u8]) -> Option<Vec<(Vec<u8>, Vec<u8>)>> {
+		// no change set so no transient btree
+		None
+	}
+
+	fn map_dump_hashed(
+		&self,
+		_name: &[u8],
+		_algorithm: Hash32Algorithm,
+	) -> Option<Vec<([u8; 32], [u8; 32])>> {
+		// no change set so no transient btree
+		None
+	}
 }
 
 impl<'a, H: Hasher, B: 'a + Backend<H>> sp_externalities::ExtensionStore

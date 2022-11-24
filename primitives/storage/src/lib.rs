@@ -459,7 +459,7 @@ pub mod transient {
 	/// `Mode` define if transient storage should keep
 	/// storage accessible.
 	/// Accessible storage may be pruned as any storage.
-	#[derive(PartialEq, Eq, Debug, Clone, Encode, Decode)]
+	#[derive(PartialEq, Eq, Debug, Clone, Copy, Encode, Decode)]
 	#[cfg_attr(feature = "std", derive(Hash, PartialOrd, Ord))]
 	pub enum Mode {
 		/// Storage can be drop.
@@ -471,7 +471,7 @@ pub mod transient {
 	}
 
 	/// Hashing algorithm for transient blob.
-	#[derive(PartialEq, Eq, Debug, Clone, Encode, Decode)]
+	#[derive(PartialEq, Eq, Debug, Clone, Copy, Encode, Decode)]
 	#[cfg_attr(feature = "std", derive(Hash, PartialOrd, Ord))]
 	pub enum Hash32Algorithm {
 		/// Storage can be drop.
@@ -485,7 +485,7 @@ pub mod transient {
 	}
 
 	/// Hashing algorithm for transient blob.
-	#[derive(PartialEq, Eq, Debug, Clone, Encode, Decode)]
+	#[derive(PartialEq, Eq, Debug, Clone, Copy, Encode, Decode)]
 	#[cfg_attr(feature = "std", derive(Hash, PartialOrd, Ord))]
 	pub enum Root32Structure {
 		/// Substrate default.
