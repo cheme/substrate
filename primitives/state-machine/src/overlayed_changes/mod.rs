@@ -137,6 +137,10 @@ pub struct OverlayedChanges {
 #[derive(Debug, Clone)]
 pub struct BtreeMeta {
 	pub infos: BtreeInfo,
+	// TODO this additional info will mark extrinsic
+	// technical change: TODO probably remove this
+	// extrinsics first anyway (otherwhise use two
+	// modify_value variants).
 	pub size: usize,
 	pub root: Option<Vec<u8>>,
 }
@@ -151,12 +155,15 @@ impl From<BtreeInfo> for BtreeMeta {
 #[derive(Debug, Clone)]
 pub struct BlobMeta {
 	pub infos: BlobInfo,
+	// TODO same remark as btree
+	// TODO u32??
+	pub size: usize,
 	pub hash: Option<[u8; 32]>,
 }
 
 impl From<BlobInfo> for BlobMeta {
 	fn from(infos: BlobInfo) -> Self {
-		Self { infos, hash: None }
+		Self { infos, hash: None, size: 0 }
 	}
 }
 
@@ -344,10 +351,10 @@ impl OverlayedChanges {
 
 				// semantic is key is index in blob and return value is at most a full blob chunk.
 				let map = self.blobs.get(&info.name)?;
-				map.1.value_ref().as_ref()?;
+				let infos = map.1.value_ref().as_ref()?;
 
 				let start = start as usize;
-				let size = map.0.bytes_size() as usize;
+				let size = infos.size as usize;
 				if start >= size {
 					return Some(Some(Cow::Owned(Vec::new())))
 				}
@@ -359,30 +366,23 @@ impl OverlayedChanges {
 					return Some(Some(Cow::Owned(Vec::new())))
 				}
 
-				let chunk_start = start as u32 / BLOB_CHUNK_SIZE as u32;
-				let chunk_start_offset = start % BLOB_CHUNK_SIZE;
-				let chunk_end = end as u32 / BLOB_CHUNK_SIZE as u32;
-				let chunk_end_offset = end % BLOB_CHUNK_SIZE;
-				let (chunk_end, chunk_end_offset) = if chunk_end == 0 {
-					(chunk_end - 1, BLOB_CHUNK_SIZE)
-				} else {
-					(chunk_end, chunk_end_offset)
-				};
+				let (chunk_start, chunk_start_offset) = blob_chunk_start_index(start);
+				let (chunk_end, chunk_end_offset) = blob_chunk_end_index(start);
 				let mut result = Vec::with_capacity(size_slice);
 				if chunk_start == chunk_end {
 					result.extend_from_slice(
-						&map.0.get(chunk_start)?.value_ref().as_ref()
+						&map.0.get(chunk_start).value_ref().as_ref()
 							[chunk_start_offset..chunk_end_offset],
 					)
 				} else {
 					result.extend_from_slice(
-						&map.0.get(chunk_start)?.value_ref().as_ref()[chunk_start_offset..],
+						&map.0.get(chunk_start).value_ref().as_ref()[chunk_start_offset..],
 					);
 					for at in chunk_start + 1..chunk_end {
-						result.extend_from_slice(map.0.get(at)?.value_ref().as_ref());
+						result.extend_from_slice(map.0.get(at).value_ref().as_ref());
 					}
 					result.extend_from_slice(
-						&map.0.get(chunk_end)?.value_ref().as_ref()[..chunk_end_offset],
+						&map.0.get(chunk_end).value_ref().as_ref()[..chunk_end_offset],
 					);
 				}
 				Some(Cow::Owned(result))
@@ -396,8 +396,7 @@ impl OverlayedChanges {
 	/// Return size of a given blob when defined.
 	pub fn blob_len(&self, name: &[u8]) -> Option<u32> {
 		let (blob, infos, ..) = self.blobs.get(name)?;
-		infos.value_ref().as_ref()?;
-		Some(blob.bytes_size())
+		infos.value_ref().as_ref().map(|infos| infos.size as u32)
 	}
 
 	/// Return size of a given blob when defined.
@@ -511,6 +510,46 @@ impl OverlayedChanges {
 		}
 	}
 
+	pub(crate) fn blob_set(&mut self, name: &[u8], value: &[u8], offset: u32) -> bool {
+		let Some(previous_len) = self.blob_len(name) else {
+			return false;
+		};
+		let Some((changeset, info)) = self.blobs.get_mut(name) else {
+			return false;
+		};
+		unimplemented!()
+	}
+
+	pub(crate) fn blob_truncate(&mut self, name: &[u8], new_len: u32) -> bool {
+		let Some(previous_len) = self.blob_len(name) else {
+			return false;
+		};
+
+		let extrinsic_index = self.extrinsic_index();
+
+		let Some((changeset, info)) = self.blobs.get_mut(name) else {
+			return false;
+		};
+		if new_len >= previous_len {
+			return false
+		};
+
+		let (chunk_start, chunk_start_offset) = blob_chunk_start_index(new_len as usize);
+		let chunk_start = if chunk_start_offset == 0 { chunk_start } else { chunk_start + 1 };
+		let (chunk_end, _chunk_end_offset) = blob_chunk_end_index(previous_len as usize);
+
+		changeset.truncate_clean(chunk_start, Some(chunk_end + 1));
+
+		let info = info
+			.modify_value(extrinsic_index)
+			.as_mut()
+			.expect("Checked by previous blob_len call");
+		info.hash = None;
+		info.size = new_len as usize;
+
+		true
+	}
+
 	/// Push a new value in the specified child (if support appending).
 	///
 	/// Can be rolled back or committed when called inside a transaction.
@@ -564,8 +603,10 @@ impl OverlayedChanges {
 			ChildInfo::Blob(info) =>
 				if let Some(entry) = self.blobs.get_mut(&info.name) {
 					let info = entry.1.modify_value(extrinsic_index);
+					let result = info.as_ref().map(|i| i.size).unwrap_or(0);
 					*info = None;
-					entry.0.clear(extrinsic_index)
+					entry.0.truncate_clean(0, None);
+					result as u32
 				} else {
 					0
 				},
@@ -1065,7 +1106,11 @@ impl OverlayedChanges {
 				// update.
 				let previous_info = entry.1.modify_value(extrinsic_index);
 				if clear_existing {
-					entry.0.clear(extrinsic_index);
+					if let Some(info) = previous_info.as_mut() {
+						info.size = 0;
+						info.hash = None;
+						entry.0.truncate_clean(0, None);
+					}
 				}
 				if let Some(previous_info) = previous_info.as_mut() {
 					if previous_info.infos.algorithm != info.algorithm {
@@ -1174,7 +1219,9 @@ impl OverlayedChanges {
 					.blobs
 					.entry(info.name.clone())
 					.and_modify(|entry| {
-						entry.0.clear(extrinsic_index);
+						if entry.1.value_ref().is_some() {
+							entry.0.truncate_clean(0, None);
+						}
 					})
 					.or_insert_with(|| (Default::default(), BlobMeta::from(info.clone()).into()));
 
@@ -1348,6 +1395,19 @@ impl<'a> OverlayedExtensions<'a> {
 	/// Returns `true` when there was an extension registered for the given `type_id`.
 	pub fn deregister(&mut self, type_id: TypeId) -> bool {
 		self.extensions.remove(&type_id).is_some()
+	}
+}
+
+fn blob_chunk_start_index(start: usize) -> (u32, usize) {
+	((start / BLOB_CHUNK_SIZE) as u32, start % BLOB_CHUNK_SIZE)
+}
+fn blob_chunk_end_index(end: usize) -> (u32, usize) {
+	let chunk_end = end / BLOB_CHUNK_SIZE;
+	let chunk_end_offset = end % BLOB_CHUNK_SIZE;
+	if chunk_end == 0 {
+		(chunk_end as u32 - 1, BLOB_CHUNK_SIZE)
+	} else {
+		(chunk_end as u32, chunk_end_offset)
 	}
 }
 

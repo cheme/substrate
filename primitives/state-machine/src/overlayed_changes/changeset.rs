@@ -107,12 +107,11 @@ pub struct OverlayedChangeSetBlob {
 	/// Stores the changes to the blob.
 	chunks: Vec<OverlayedEntry<BlobChunk>>,
 
-	/// chunks number.
-	size: OverlayedEntry<u32>,
-
 	/// Store indexes that where modified for a transaction layer
 	/// and if size did change.
-	dirty: Vec<Vec<(usize, bool)>>,
+	/// TODO set of usize is not looking so good (storing range could be
+	/// more efficient).
+	dirty: Vec<Set<usize>>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -723,16 +722,42 @@ impl<V> OverlayedList<V> {
 
 impl OverlayedChangeSetBlob {
 	/// Get an optional reference to the blob chunk at a given chunk number.
-	pub(super) fn get(&self, index: u32) -> Option<&OverlayedEntry<BlobChunk>> {
-		(index < *self.size.value_ref()).then(|| &self.chunks[index as usize])
+	pub(super) fn get(&self, index: u32) -> &OverlayedEntry<BlobChunk> {
+		&self.chunks[index as usize]
 	}
 
-	pub(super) fn clear(&mut self, at_extrinsic: Option<u32>) -> u32 {
-		unimplemented!()
-	}
-
-	pub(super) fn bytes_size(&self) -> u32 {
-		*self.size.value_ref()
+	/// Clearing is not needed as we always check size on access.
+	/// This method will therefore only clean entry when possible.
+	pub(super) fn truncate_clean(
+		&mut self,
+		start_chunk: u32,
+		end_chunk: Option<u32>,
+	) {
+		if self.dirty.len() == 0 {
+			// can happen on empty blob.
+			return
+		}
+		let nb_chunks = self.chunks.len() as u32;
+		for i in (start_chunk..end_chunk.unwrap_or(nb_chunks)).rev() {
+			let i = i as usize;
+			let last_dirty = self.dirty.len() - 1;
+			let Some(mut dirty) = self.dirty.last_mut() else {
+				return
+			};
+			if dirty.contains(&i) &&
+				self.chunks[i]
+					.transactions
+					.last()
+					.map(|t| t.extrinsics.0.is_empty())
+					.unwrap_or(false)
+			{
+				self.chunks[i].transactions.pop();
+				if self.chunks[i].transactions.is_empty() && i == self.chunks.len() - 1 {
+					self.chunks.pop();
+				}
+				dirty.remove(&i);
+			}
+		}
 	}
 }
 

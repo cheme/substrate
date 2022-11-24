@@ -447,16 +447,12 @@ pub trait Externalities: ExtensionStore {
 	///
 	/// If size of resulting blob is over u32::MAX bytes, this is ignored
 	/// and return false.
-	fn blob_set(&mut self, name: &[u8], value: &[u8], offset: u32) -> bool {
-		unimplemented!("TODO rem def impl here");
-	}
+	fn blob_set(&mut self, name: &[u8], value: &[u8], offset: u32) -> bool;
 
 	/// Truncate blob to a given size.
 	/// If blob is smaller or already this size, do nothing and return false.
 	/// If blob is missing return false.
-	fn blob_truncate(&mut self, name: &[u8], new_size: u32) -> bool {
-		unimplemented!("TODO rem def impl here");
-	}
+	fn blob_truncate(&mut self, name: &[u8], new_size: u32) -> bool;
 
 	/// Returns size of the blob for a given name, or `None` if the blob does not exist.
 	fn blob_len(&self, name: &[u8]) -> Option<u32>;

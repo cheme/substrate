@@ -951,11 +951,6 @@ where
 		self.overlay.storage_move(info, target_name)
 	}
 
-	fn blob_len(&self, name: &[u8]) -> Option<u32> {
-		// At this point no supported storage requires to clone backend.
-		self.overlay.blob_len(name)
-	}
-
 	fn map_count(&self, name: &[u8]) -> Option<u32> {
 		// At this point no supported storage requires to clone backend.
 		self.overlay.map_count(name)
@@ -989,6 +984,19 @@ where
 			})
 			.collect()
 		})
+	}
+
+	fn blob_len(&self, name: &[u8]) -> Option<u32> {
+		// At this point no supported storage requires to clone backend.
+		self.overlay.blob_len(name)
+	}
+
+	fn blob_set(&mut self, name: &[u8], value: &[u8], offset: u32) -> bool {
+		self.overlay.blob_set(name, value, offset)
+	}
+
+	fn blob_truncate(&mut self, name: &[u8], new_size: u32) -> bool {
+		self.overlay.blob_truncate(name, new_size)
 	}
 }
 

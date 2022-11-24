@@ -292,11 +292,6 @@ where
 		unimplemented!("storage_move is not supported in ReadOnlyExternalities")
 	}
 
-	fn blob_len(&self, _name: &[u8]) -> Option<u32> {
-		// no change set so no transient blob
-		None
-	}
-
 	fn map_count(&self, _name: &[u8]) -> Option<u32> {
 		// no change set so no transient btree
 		None
@@ -324,6 +319,19 @@ where
 	) -> Option<Vec<([u8; 32], [u8; 32])>> {
 		// no change set so no transient btree
 		None
+	}
+
+	fn blob_len(&self, _name: &[u8]) -> Option<u32> {
+		// no change set so no transient blob
+		None
+	}
+
+	fn blob_set(&mut self, _name: &[u8], _value: &[u8], _offset: u32) -> bool {
+		false
+	}
+
+	fn blob_truncate(&mut self, _name: &[u8], _new_size: u32) -> bool {
+		false
 	}
 }
 
