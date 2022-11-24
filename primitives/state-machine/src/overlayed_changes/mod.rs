@@ -399,6 +399,23 @@ impl OverlayedChanges {
 		infos.value_ref().as_ref().map(|infos| infos.size as u32)
 	}
 
+	/// Return iterator on chunks if defined.
+	pub fn blob_chunks(&self, name: &[u8]) -> Option<(u32, impl Iterator<Item = &[u8]>)> {
+		let (blob, infos, ..) = self.blobs.get(name)?;
+		let size = infos.value_ref().as_ref()?.size;
+
+		let (chunk_end, chunk_end_offset) = blob_chunk_end_index(size);
+
+		let nb_chunk = if chunk_end == 0 && chunk_end_offset == 0 { 0 } else { chunk_end + 1 };
+		let iter = (0..nb_chunk).into_iter().map(move |at| {
+			let end_chunk = if at == chunk_end { chunk_end_offset } else { BLOB_CHUNK_SIZE };
+			let chunk = &blob.get(at).value_ref().as_ref()[..end_chunk];
+			chunk
+		});
+
+		Some((nb_chunk, iter))
+	}
+
 	/// Return size of a given blob when defined.
 	pub fn map_count(&self, name: &[u8]) -> Option<u32> {
 		let (blob, infos, ..) = self.btrees.get(name)?;

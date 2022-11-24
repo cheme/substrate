@@ -458,9 +458,7 @@ pub trait Externalities: ExtensionStore {
 	fn blob_len(&self, name: &[u8]) -> Option<u32>;
 
 	/// If blob exists, return it's hash for a given algorithm.
-	fn blob_hash32(&mut self, name: &[u8], algorithm: Hash32Algorithm) -> Option<[u8; 32]> {
-		unimplemented!("TOEDO");
-	}
+	fn blob_hash32(&mut self, name: &[u8], algorithm: Hash32Algorithm) -> Option<[u8; 32]>;
 
 	/// Create a new empty transient map.
 	/// Clear possibly existing map.

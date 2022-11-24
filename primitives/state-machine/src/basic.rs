@@ -522,6 +522,19 @@ impl Externalities for BasicExternalities {
 	fn blob_truncate(&mut self, name: &[u8], new_size: u32) -> bool {
 		self.overlay.blob_truncate(name, new_size)
 	}
+
+	fn blob_hash32(&mut self, name: &[u8], algorithm: Hash32Algorithm) -> Option<[u8; 32]> {
+		let (_, mut chunks) = self.overlay.blob_chunks(name)?;
+		let mut state = if let Some(chunk) = chunks.next() {
+			sp_core::Hash32State::new(chunk, algorithm)
+		} else {
+			return Some(sp_core::hash32_with_algorithm_inline(&[], algorithm))
+		};
+		for chunk in chunks {
+			state.update(chunk);
+		}
+		Some(state.finalize())
+	}
 }
 
 impl sp_externalities::ExtensionStore for BasicExternalities {

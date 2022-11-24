@@ -991,6 +991,22 @@ where
 		self.overlay.blob_len(name)
 	}
 
+	fn blob_hash32(&mut self, name: &[u8], algorithm: Hash32Algorithm) -> Option<[u8; 32]> {
+		let (nb_chunk, mut chunks) = self.overlay.blob_chunks(name)?;
+		let mut state = if let Some(chunk) = chunks.next() {
+			if nb_chunk == 1 {
+				return Some(H::hash_with(&chunk[..], algorithm))
+			}
+			H::hash_state_with(chunk, algorithm)
+		} else {
+			return Some(H::hash_with(&[], algorithm))
+		};
+		for chunk in chunks {
+			H::hash_update(&chunk[..], &mut state);
+		}
+		Some(H::hash_finalize(state))
+	}
+
 	fn blob_set(&mut self, name: &[u8], value: &[u8], offset: u32) -> bool {
 		self.overlay.blob_set(name, value, offset)
 	}

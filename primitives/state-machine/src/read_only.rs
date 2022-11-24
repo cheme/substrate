@@ -326,6 +326,11 @@ where
 		None
 	}
 
+	fn blob_hash32(&mut self, _name: &[u8], _algo: Hash32Algorithm) -> Option<[u8; 32]> {
+		// no change set so no transient blob
+		None
+	}
+
 	fn blob_set(&mut self, _name: &[u8], _value: &[u8], _offset: u32) -> bool {
 		false
 	}
