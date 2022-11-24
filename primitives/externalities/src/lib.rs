@@ -458,9 +458,8 @@ pub trait Externalities: ExtensionStore {
 	fn blob_len(&self, name: &[u8]) -> Option<u32>;
 
 	/// If blob exists, return it's hash for a given algorithm.
-	/// TODO could be replace by update child info, then child_storage_root call.
 	fn blob_hash32(&mut self, name: &[u8], algorithm: Hash32Algorithm) -> Option<[u8; 32]> {
-		unimplemented!("TODO rem def impl here");
+		unimplemented!("TOEDO");
 	}
 
 	/// Create a new empty transient map.

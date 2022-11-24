@@ -634,3 +634,36 @@ pub fn hash32_with_algorithm_inline(data: &[u8], algo: Hash32Algorithm) -> [u8; 
 		Hash32Algorithm::Blake2b256 => crate::hashing::blake2_256(data).into(),
 	}
 }
+
+/// Hasher state (when processing in multiple steps).
+#[cfg(feature = "full_crypto")]
+pub enum Hash32State {
+	Blake2b256(crate::hashing::Blake2b256State),
+}
+
+#[cfg(feature = "full_crypto")]
+impl Hash32State {
+	/// Instantiate a new stat.
+	pub fn new(data: &[u8], algo: sp_storage::transient::Hash32Algorithm) -> Self {
+		let mut result = match algo {
+			sp_storage::transient::Hash32Algorithm::Blake2b256 =>
+				Hash32State::Blake2b256(crate::hashing::Blake2b256State::new()),
+		};
+		result.update(data);
+		result
+	}
+
+	/// Hash more content.
+	pub fn update(&mut self, data: &[u8]) {
+		match self {
+			Hash32State::Blake2b256(blake) => blake.update(data),
+		}
+	}
+
+	/// Obtain hash.
+	pub fn finalize(self) -> [u8; 32] {
+		match self {
+			Hash32State::Blake2b256(blake) => blake.finalize(),
+		}
+	}
+}

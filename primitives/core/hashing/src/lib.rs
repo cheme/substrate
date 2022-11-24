@@ -40,9 +40,10 @@ pub fn blake2_512(data: &[u8]) -> [u8; 64] {
 	r
 }
 
+type Blake2b256 = blake2::Blake2b<U32>;
+
 /// Do a Blake2 256-bit hash and place result in `dest`.
 pub fn blake2_256_into(data: &[u8], dest: &mut [u8; 32]) {
-	type Blake2b256 = blake2::Blake2b<U32>;
 	dest.copy_from_slice(Blake2b256::digest(data).as_slice());
 }
 
@@ -51,6 +52,26 @@ pub fn blake2_256(data: &[u8]) -> [u8; 32] {
 	let mut r = [0; 32];
 	blake2_256_into(data, &mut r);
 	r
+}
+
+/// State for precessing blake2b 256 in multiple steps.
+pub struct Blake2b256State(Blake2b256);
+
+impl Blake2b256State {
+	/// Start hashing.
+	pub fn new() -> Self {
+		Blake2b256State(Blake2b256::new())
+	}
+
+	/// Hash more content.
+	pub fn update(&mut self, data: &[u8]) {
+		self.0.update(data)
+	}
+
+	/// Obtain hash.
+	pub fn finalize(self) -> [u8; 32] {
+		self.0.finalize().into()
+	}
 }
 
 /// Do a Blake2 128-bit hash and place result in `dest`.

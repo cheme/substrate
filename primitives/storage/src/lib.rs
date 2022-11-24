@@ -506,8 +506,17 @@ pub mod transient {
 	/// It actually got not much to do with hasher, but this makes
 	/// refactoring faster (it could be another trait).
 	pub trait Hashers: hash_db::Hasher {
+		/// State while processing a hash.
+		type HasherState;
+
 		/// Compute the hash of the provided slice of bytes returning the calculated hash.
 		fn hash_with(data: &[u8], algo: Hash32Algorithm) -> [u8; 32];
+		/// Start hashing with some bytes.
+		fn hash_state_with(data: &[u8], algo: Hash32Algorithm) -> Self::HasherState;
+		/// Advance hashing with more bytes.
+		fn hash_update(data: &[u8], state: &mut Self::HasherState);
+		/// Finish hashing and get hash.
+		fn hash_finalize(state: Self::HasherState) -> [u8; 32];
 	}
 
 	/// Short for default hasher out type.

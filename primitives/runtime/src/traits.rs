@@ -706,8 +706,33 @@ fn hash32_with_algorithm_hosts(data: &[u8], algo: Hash32Algorithm) -> [u8; 32] {
 }
 
 impl sp_core::Hashers for BlakeTwo256 {
+	// TODO define host function to replace this buf:
+	// get_hasher(algo) -> Option<usize>;
+	// store a new hasher instance in externality at index 0 in hostfunction.
+	// (when no_std make it a noop in state machine: cumulus shall not replace it).
+	// (with a limit in number TODO find one, maybe u16 is enough, running multiple hashing
+	// in paralell shall be rare))
+	// (usize is guaranted to be max + 1 or first available: need to be deterministic)
+	// release_all_hasher()
+	// remove all hasher instance, call this after every extrinsic precessing from system
+	// hash_chunk(usize, &[u8]) -> bool
+	// hash_finalize(usize) -> Vec<u8>
+	type HasherState = (Vec<u8>, Hash32Algorithm);
+
 	fn hash_with(data: &[u8], algo: Hash32Algorithm) -> [u8; 32] {
 		hash32_with_algorithm_hosts(data, algo)
+	}
+
+	fn hash_state_with(data: &[u8], algo: Hash32Algorithm) -> Self::HasherState {
+		(data.to_vec(), algo)
+	}
+
+	fn hash_update(data: &[u8], state: &mut Self::HasherState) {
+		state.0.extend_from_slice(data);
+	}
+
+	fn hash_finalize(state: Self::HasherState) -> [u8; 32] {
+		hash32_with_algorithm_hosts(state.0.as_slice(), state.1)
 	}
 }
 
@@ -739,8 +764,23 @@ impl Hasher for Keccak256 {
 }
 
 impl sp_core::Hashers for Keccak256 {
+	// TODO same replace with handle to an exteranlity stored structure.
+	type HasherState = (Vec<u8>, Hash32Algorithm);
+
 	fn hash_with(data: &[u8], algo: sp_core::storage::transient::Hash32Algorithm) -> [u8; 32] {
 		hash32_with_algorithm_hosts(data, algo)
+	}
+
+	fn hash_state_with(data: &[u8], algo: Hash32Algorithm) -> Self::HasherState {
+		(data.to_vec(), algo)
+	}
+
+	fn hash_update(data: &[u8], state: &mut Self::HasherState) {
+		state.0.extend_from_slice(data);
+	}
+
+	fn hash_finalize(state: Self::HasherState) -> [u8; 32] {
+		hash32_with_algorithm_hosts(state.0.as_slice(), state.1)
 	}
 }
 

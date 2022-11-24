@@ -17,7 +17,7 @@
 
 //! Substrate Blake2b Hasher implementation
 
-use crate::hash32_with_algorithm_inline;
+use crate::{hash32_with_algorithm_inline, Hash32State};
 use sp_storage::transient::Hash32Algorithm;
 
 pub mod blake2 {
@@ -41,8 +41,22 @@ pub mod blake2 {
 	}
 
 	impl sp_storage::transient::Hashers for Blake2Hasher {
+		type HasherState = Hash32State;
+
 		fn hash_with(data: &[u8], algo: Hash32Algorithm) -> [u8; 32] {
 			hash32_with_algorithm_inline(data, algo)
+		}
+
+		fn hash_state_with(data: &[u8], algo: Hash32Algorithm) -> Self::HasherState {
+			Hash32State::new(data, algo)
+		}
+
+		fn hash_update(data: &[u8], state: &mut Self::HasherState) {
+			state.update(data);
+		}
+
+		fn hash_finalize(state: Self::HasherState) -> [u8; 32] {
+			state.finalize()
 		}
 	}
 }
@@ -68,8 +82,22 @@ pub mod keccak {
 	}
 
 	impl sp_storage::transient::Hashers for KeccakHasher {
+		type HasherState = Hash32State;
+
 		fn hash_with(data: &[u8], algo: Hash32Algorithm) -> [u8; 32] {
 			hash32_with_algorithm_inline(data, algo)
+		}
+
+		fn hash_state_with(data: &[u8], algo: Hash32Algorithm) -> Self::HasherState {
+			Hash32State::new(data, algo)
+		}
+
+		fn hash_update(data: &[u8], state: &mut Self::HasherState) {
+			state.update(data);
+		}
+
+		fn hash_finalize(state: Self::HasherState) -> [u8; 32] {
+			state.finalize()
 		}
 	}
 }
