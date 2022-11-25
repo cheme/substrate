@@ -507,34 +507,6 @@ where
 		self.overlay.set_storage(key, value);
 	}
 
-	fn push_storage(&mut self, child_info: &ChildInfo, value: StorageValue) {
-		let _guard = guard();
-		trace!(
-			target: "state",
-			method = "ChildPush",
-			ext_id = %HexDisplay::from(&self.id.to_le_bytes()),
-			child_info = %HexDisplay::from(&child_info.storage_key()),
-			value = %HexDisplay::from(&value),
-		);
-
-		self.mark_dirty();
-		let fetch_size_mmr = || {
-			let storage_key = child_info.storage_key();
-			if let Ok(Some(encoded)) = self.backend.storage(storage_key) {
-				let mut buf = [0u8; 8];
-				if encoded.len() < 8 {
-					0
-				} else {
-					buf.copy_from_slice(&encoded[..8]);
-					u64::from_le_bytes(buf)
-				}
-			} else {
-				0
-			}
-		};
-		self.overlay.push_storage(child_info, value, fetch_size_mmr);
-	}
-
 	fn place_child_storage(
 		&mut self,
 		child_info: &ChildInfo,
@@ -727,32 +699,32 @@ where
 		}
 
 		if let ChildInfo::Blob(..) = child_info {
-				let Some((nb_chunk, mut chunks, info)) = self.overlay.blob_chunks(child_info.storage_key()) else {
+			let Some((nb_chunk, mut chunks, info)) = self.overlay.blob_chunks(child_info.storage_key()) else {
 					// TODO change function proto to return None?? we check before calling it but
 					// still
 					return Vec::new()
 				};
-				if let Some(hash) = info.hash.as_ref() {
-					// cached
-					trace!(
-						target: "state",
-						method = "ChildStorageRoot",
-						ext_id = %HexDisplay::from(&self.id.to_le_bytes()),
-						child_info = %HexDisplay::from(&storage_key),
-						storage_root = %HexDisplay::from(hash),
-						cached = true,
-					);
-					return hash.encode()
-				}
+			if let Some(hash) = info.hash.as_ref() {
+				// cached
+				trace!(
+					target: "state",
+					method = "ChildStorageRoot",
+					ext_id = %HexDisplay::from(&self.id.to_le_bytes()),
+					child_info = %HexDisplay::from(&storage_key),
+					storage_root = %HexDisplay::from(hash),
+					cached = true,
+				);
+				return hash.encode()
+			}
 
-				let result = match info.infos.algorithm {
-					Some(algorithm) =>
+			let result = match info.infos.algorithm {
+				Some(algorithm) =>
 					if let Some(chunk) = chunks.next() {
 						if nb_chunk == 1 {
 							sp_std::mem::drop(chunks);
 							H::hash_with(&chunk[..], algorithm)
 						} else {
-							let mut state =	H::hash_state_with(chunk, algorithm);
+							let mut state = H::hash_state_with(chunk, algorithm);
 							for chunk in chunks {
 								H::hash_update(&chunk[..], &mut state);
 							}
@@ -762,18 +734,18 @@ where
 						sp_std::mem::drop(chunks);
 						H::hash_with(&[], algorithm)
 					},
-					None => return Vec::new(),
-				};
-				self.overlay.cache_blob_hash(child_info.storage_key(), result.clone());
-				trace!(
-					target: "state",
-					method = "ChildStorageRoot",
-					ext_id = %HexDisplay::from(&self.id.to_le_bytes()),
-					child_info = %HexDisplay::from(&storage_key),
-					storage_root = %HexDisplay::from(&result),
-					cached = false,
-				);
-				return result.encode()
+				None => return Vec::new(),
+			};
+			self.overlay.cache_blob_hash(child_info.storage_key(), result.clone());
+			trace!(
+				target: "state",
+				method = "ChildStorageRoot",
+				ext_id = %HexDisplay::from(&self.id.to_le_bytes()),
+				child_info = %HexDisplay::from(&storage_key),
+				storage_root = %HexDisplay::from(&result),
+				cached = false,
+			);
+			return result.encode()
 		}
 
 		if self.storage_transaction_cache.transaction_storage_root.is_some() {

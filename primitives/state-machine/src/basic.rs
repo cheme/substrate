@@ -17,7 +17,9 @@
 
 //! Basic implementation for Externalities.
 
-use crate::{Backend, OverlayedChanges, StorageKey, StorageValue};
+use crate::{
+	overlayed_changes::blob_from_chunks, Backend, OverlayedChanges, StorageKey, StorageValue,
+};
 use codec::Encode;
 use hash_db::Hasher;
 use log::warn;
@@ -106,11 +108,11 @@ impl BasicExternalities {
 			blob_storages: self
 				.overlay
 				.blob_storages()
-				.map(|(iter, i)| {
+				.map(|(nb_chunk, iter, i)| {
 					(
 						i.infos.name.clone(),
 						sp_core::storage::StorageBlob {
-							data: unimplemented!(),
+							data: blob_from_chunks(iter, i.size),
 							info: i.infos.clone(),
 							hash: i.hash.clone(),
 						},
@@ -171,12 +173,12 @@ impl PartialEq for BasicExternalities {
 					.collect::<BTreeMap<_, _>>() &&
 			self.overlay
 				.blob_storages()
-				.map(|(iter, i)| (&i.infos, iter.cloned().collect::<Vec<_>>()))
+				.map(|(nb_chunks, iter, i)| (&i.infos, blob_from_chunks(iter, i.size)))
 				.collect::<BTreeMap<_, _>>() ==
 				other
 					.overlay
 					.blob_storages()
-					.map(|(iter, i)| (&i.infos, iter.cloned().collect::<Vec<_>>()))
+					.map(|(nb_chunks, iter, i)| (&i.infos, blob_from_chunks(iter, i.size)))
 					.collect::<BTreeMap<_, _>>()
 	}
 }
@@ -278,14 +280,6 @@ impl Externalities for BasicExternalities {
 		value: Option<&[u8]>,
 	) -> bool {
 		self.overlay.set_child_storage(child_info, key, value)
-	}
-
-	fn push_storage(&mut self, child_info: &ChildInfo, value: StorageValue) {
-		let fetch_size_mmr = || {
-			// no backend is 0
-			0
-		};
-		self.overlay.push_storage(child_info, value, fetch_size_mmr);
 	}
 
 	fn kill_child_storage(

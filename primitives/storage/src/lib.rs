@@ -190,8 +190,8 @@ pub struct Storage {
 #[cfg(feature = "std")]
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct StorageBlob {
-	/// Ordered data, start and data, no overlap.
-	pub data: Option<Vec<u8>>,
+	/// Full blob representation.
+	pub data: Vec<u8>,
 	/// Associated info.
 	pub info: Blob,
 	/// Last calculated hash matching

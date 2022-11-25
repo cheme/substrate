@@ -187,10 +187,6 @@ where
 		unimplemented!("place_child_storage not supported in ReadOnlyExternalities")
 	}
 
-	fn push_storage(&mut self, _child_info: &ChildInfo, _value: StorageValue) {
-		unimplemented!("push_storage not supported in ReadOnlyExternalities")
-	}
-
 	fn kill_child_storage(
 		&mut self,
 		_child_info: &ChildInfo,

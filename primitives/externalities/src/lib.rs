@@ -132,9 +132,6 @@ pub trait Externalities: ExtensionStore {
 		self.place_child_storage(child_info, key, Some(value))
 	}
 
-	/// Push child storage value to a child state that support appending.
-	fn push_storage(&mut self, child_info: &ChildInfo, value: Vec<u8>);
-
 	/// Clear a storage entry (`key`) of current contract being called (effective immediately).
 	fn clear_storage(&mut self, key: &[u8]) {
 		self.place_storage(key.to_vec(), None);

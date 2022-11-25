@@ -102,11 +102,6 @@ pub type OverlayedChangeSet = OverlayedMap<StorageKey, Option<StorageValue>>;
 /// to be checked.
 #[derive(Debug, Clone, Default)]
 pub struct OverlayedChangeSetBlob {
-	// TODO rem
-	pub changes: OverlayedList<StorageValue>,
-	// TODO rem
-	pub offset: u64,
-
 	/// Stores the changes to the blob.
 	chunks: Vec<OverlayedEntry<BlobChunk>>,
 
@@ -114,6 +109,7 @@ pub struct OverlayedChangeSetBlob {
 	/// and if size did change.
 	/// TODO set of usize is not looking so good (storing range could be
 	/// more efficient).
+	/// TODO merge all dirty in a single Vec!!!
 	dirty: Vec<Set<usize>>,
 }
 
@@ -159,23 +155,6 @@ impl<I> Default for OverlayedInfos<I> {
 	}
 }
 
-/// Push only that can be reverted
-#[derive(Debug, Clone)]
-pub struct OverlayedList<V> {
-	/// Stores the changes that this overlay constitutes.
-	pub changes: Vec<V>,
-	/// last transactions number of push.
-	indexes: Vec<usize>,
-}
-
-impl<V> Default for OverlayedList<V> {
-	fn default() -> Self {
-		let mut indexes = Vec::new();
-		indexes.push(0);
-		Self { changes: Vec::new(), indexes }
-	}
-}
-
 #[cfg(feature = "std")]
 impl From<sp_core::storage::StorageMap> for OverlayedMap<StorageKey, Option<StorageValue>> {
 	fn from(storage: sp_core::storage::StorageMap) -> Self {
@@ -194,31 +173,28 @@ impl From<sp_core::storage::StorageMap> for OverlayedMap<StorageKey, Option<Stor
 					)
 				})
 				.collect(),
+			// TODO add dirty_keys?
 			dirty_keys: Default::default(),
 		}
 	}
 }
 
-impl<I> From<I> for OverlayedInfos<I> {
-	fn from(info: I) -> Self {
-		Self {
-			infos: OverlayedEntry {
-				transactions: SmallVec::from_iter([InnerValue {
-					value: Some(info),
-					extrinsics: Default::default(),
-				}]),
-			},
-			dirty_infos: Default::default(),
-		}
-	}
-}
+impl From<Vec<u8>> for OverlayedChangeSetBlob {
+	fn from(storage: Vec<u8>) -> Self {
+		let mut set = OverlayedChangeSetBlob::default();
 
-impl From<Vec<Vec<u8>>> for OverlayedChangeSetBlob {
-	fn from(storage: Vec<Vec<u8>>) -> Self {
-		unimplemented!("TODO chunks these input, TODO may just have single Vec");
-		/*		let mut changes = OverlayedList::default();
-		changes.changes = storage;
-		Self { changes, offset: 0 }*/
+		let (chunk_end, chunk_end_offset) = super::blob_chunk_end_index(storage.len());
+		if chunk_end_offset != 0 {
+			let mut offset = 0;
+			for i in 0..chunk_end {
+				let chunk = set.modify_chunk(i, None);
+				chunk[..].copy_from_slice(&storage[offset..offset + BLOB_CHUNK_SIZE]);
+				offset += BLOB_CHUNK_SIZE;
+			}
+			let chunk = set.modify_chunk(chunk_end, None);
+			chunk[..storage.len() - offset].copy_from_slice(&storage[offset..]);
+		}
+		set
 	}
 }
 
@@ -330,16 +306,37 @@ impl<K: Ord + Hash + Clone, V> OverlayedMap<K, V> {
 		}
 	}
 
-	/// Create a new changeset list at the same transaction state but without any contents.
+	/// Create a new blob chunk set at the same transaction state but without any contents.
 	///
 	/// This changeset might be created when there are already open transactions.
 	/// We need to catch up here so that the child is at the same transaction depth.
-	pub fn spawn_child_list<V2>(&self) -> OverlayedList<V2> {
+	pub fn spawn_blob(&self) -> OverlayedChangeSetBlob {
 		use sp_std::iter::repeat;
-		OverlayedList {
-			changes: Default::default(),
-			indexes: repeat(0).take(self.transaction_depth()).collect(),
+		OverlayedChangeSetBlob {
+			chunks: Default::default(),
+			dirty: repeat(Set::new()).take(self.transaction_depth()).collect(),
 		}
+	}
+
+	/// Create a new info changeset at the same transaction state but without any contents.
+	///
+	/// This changeset might be created when there are already open transactions.
+	/// We need to catch up here so that the child is at the same transaction depth.
+	pub fn spawn_info<I>(&self, info: I) -> OverlayedInfos<I> {
+		use sp_std::iter::repeat;
+		let mut result = OverlayedInfos {
+			infos: OverlayedEntry {
+				transactions: SmallVec::from_iter([InnerValue {
+					value: Some(info),
+					extrinsics: Default::default(),
+				}]),
+			},
+			dirty_infos: repeat(false).take(self.transaction_depth()).collect(),
+		};
+		result.dirty_infos.last_mut().map(|d| {
+			*d = true;
+		});
+		result
 	}
 
 	/// True if no changes at all are contained in the change set.
@@ -630,104 +627,6 @@ impl<I> OverlayedInfos<I> {
 	}
 }
 
-impl<V> OverlayedList<V> {
-	/// True if no changes at all are contained in the change set.
-	pub fn is_empty(&self) -> bool {
-		self.changes.is_empty()
-	}
-
-	/// Get an optional reference to the value stored for the specified key.
-	/// warning parameter is offset from max index of mmr.
-	pub fn get_at(&self, offset: u64) -> Option<&V> {
-		self.changes.get(offset as usize)
-	}
-
-	/// Set a new value for the specified key.
-	///
-	/// Can be rolled back or committed when called inside a transaction.
-	pub fn push(&mut self, value: V) {
-		self.changes.push(value);
-	}
-
-	/// Get a list of all changes as seen by current transaction.
-	pub fn changes(&self) -> impl Iterator<Item = &V> {
-		self.changes.iter()
-	}
-
-	/// Get a list of all changes as seen by current transaction, consumes
-	/// the overlay.
-	pub fn into_changes(self) -> impl Iterator<Item = V> {
-		self.changes.into_iter()
-	}
-
-	/// Consume this changeset and return all committed changes.
-	///
-	/// Panics:
-	/// Panics if there are open transactions: `transaction_depth() > 0`
-	pub fn drain_commited(self) -> impl Iterator<Item = V> {
-		assert!(self.transaction_depth() == 0, "Drain is not allowed with open transactions.");
-		self.changes.into_iter()
-	}
-
-	/// Returns the current nesting depth of the transaction stack.
-	///
-	/// A value of zero means that no transaction is open and changes are committed on write.
-	pub fn transaction_depth(&self) -> usize {
-		self.indexes.len()
-	}
-
-	/// This commits all dangling transaction left open by the runtime.
-	pub fn roll_back_open_transactions(&mut self, context: &OverlayedContext) {
-		while self.has_open_runtime_transactions(context.num_client_transactions) {
-			self.rollback_transaction()
-				.expect("The loop condition checks that the transaction depth is > 0; qed");
-		}
-	}
-
-	/// Start a new nested transaction.
-	///
-	/// This allows to either commit or roll back all changes that were made while this
-	/// transaction was open. Any transaction must be closed by either `commit_transaction`
-	/// or `rollback_transaction` before this overlay can be converted into storage changes.
-	///
-	/// Changes made without any open transaction are committed immediately.
-	pub fn start_transaction(&mut self) {
-		self.indexes.push(self.changes.len());
-	}
-
-	/// Rollback the last transaction started by `start_transaction`.
-	///
-	/// Any changes made during that transaction are discarded. Returns an error if
-	/// there is no open transaction that can be rolled back.
-	pub fn rollback_transaction(&mut self) -> Result<(), NoOpenTransaction> {
-		self.close_transaction(true)
-	}
-
-	/// Commit the last transaction started by `start_transaction`.
-	///
-	/// Any changes made during that transaction are committed. Returns an error if
-	/// there is no open transaction that can be committed.
-	pub fn commit_transaction(&mut self) -> Result<(), NoOpenTransaction> {
-		self.close_transaction(false)
-	}
-
-	fn close_transaction(&mut self, rollback: bool) -> Result<(), NoOpenTransaction> {
-		if rollback {
-			self.changes.truncate(self.indexes.pop().unwrap_or(0));
-		} else {
-			if let Some(_) = self.indexes.pop() {
-			} else {
-				return Err(NoOpenTransaction)
-			}
-		}
-		Ok(())
-	}
-
-	fn has_open_runtime_transactions(&self, num_client_transactions: usize) -> bool {
-		self.transaction_depth() > num_client_transactions
-	}
-}
-
 impl OverlayedChangeSetBlob {
 	/// Get an optional reference to the blob chunk at a given chunk number.
 	pub(super) fn get(&self, index: u32) -> &OverlayedEntry<BlobChunk> {
@@ -780,7 +679,7 @@ impl OverlayedChangeSetBlob {
 			self.chunks.push(OverlayedEntry { transactions: SmallVec::new() });
 		}
 
-		let mut chunk = &mut self.chunks[at];
+		let chunk = &mut self.chunks[at];
 		let first_write_in_tx = insert_dirty_chunk(&mut self.dirty, at);
 		let clone_into_new_tx = if let Some(tx) = chunk.transactions.last() {
 			if first_write_in_tx {
@@ -795,6 +694,90 @@ impl OverlayedChangeSetBlob {
 			chunk.set(cloned, first_write_in_tx, at_extrinsic);
 		}
 		chunk.value_mut()
+	}
+
+	/// Start a new nested transaction.
+	///
+	/// This allows to either commit or roll back all changes that were made while this
+	/// transaction was open. Any transaction must be closed by either `commit_transaction`
+	/// or `rollback_transaction` before this overlay can be converted into storage changes.
+	///
+	/// Changes made without any open transaction are committed immediately.
+	/// TODO merge all transaction related stuff somehow between all struct.
+	pub fn start_transaction(&mut self) {
+		self.dirty.push(Default::default());
+	}
+
+	/// Rollback the last transaction started by `start_transaction`.
+	///
+	/// Any changes made during that transaction are discarded. Returns an error if
+	/// there is no open transaction that can be rolled back.
+	pub fn rollback_transaction(&mut self) -> Result<(), NoOpenTransaction> {
+		self.close_transaction(true)
+	}
+
+	/// Commit the last transaction started by `start_transaction`.
+	///
+	/// Any changes made during that transaction are committed. Returns an error if
+	/// there is no open transaction that can be committed.
+	pub fn commit_transaction(&mut self) -> Result<(), NoOpenTransaction> {
+		self.close_transaction(false)
+	}
+
+	fn close_transaction(&mut self, rollback: bool) -> Result<(), NoOpenTransaction> {
+		for key in self.dirty.pop().ok_or(NoOpenTransaction)? {
+			let overlayed = &mut self.chunks[key];
+
+			if rollback {
+				overlayed.pop_transaction();
+			} else {
+				let has_predecessor = if let Some(dirty_keys) = self.dirty.last_mut() {
+					// Not the last tx: Did the previous tx write to this key?
+					!dirty_keys.insert(key)
+				} else {
+					// Last tx: Is there already a value in the committed set?
+					// Check against one rather than empty because the current tx is still
+					// in the list as it is popped later in this function.
+					overlayed.transactions.len() > 1
+				};
+
+				// We only need to merge if there is an pre-existing value. It may be a value from
+				// the previous transaction or a value committed without any open transaction.
+				if has_predecessor {
+					let dropped_tx = overlayed.pop_transaction();
+					*overlayed.value_mut() = dropped_tx.value;
+					overlayed.transaction_extrinsics_mut().extend(dropped_tx.extrinsics);
+				}
+			}
+		}
+
+		if rollback {
+			for i in (0..self.chunks.len()).rev() {
+				if self.chunks[i].transactions.is_empty() {
+					self.chunks.pop();
+				} else {
+					break
+				}
+			}
+		}
+
+		Ok(())
+	}
+
+	/// This commits all dangling transaction left open by the runtime.
+	pub fn roll_back_open_transactions(&mut self, context: &OverlayedContext) {
+		while self.has_open_runtime_transactions(context.num_client_transactions) {
+			self.rollback_transaction()
+				.expect("The loop condition checks that the transaction depth is > 0; qed");
+		}
+	}
+
+	fn has_open_runtime_transactions(&self, num_client_transactions: usize) -> bool {
+		self.transaction_depth() > num_client_transactions
+	}
+
+	fn transaction_depth(&self) -> usize {
+		self.dirty.len()
 	}
 }
 

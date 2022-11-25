@@ -666,7 +666,7 @@ where
 													}
 												});
 											debug_assert!(state.key_values.is_empty());
-											entry.data = state.blob;
+											entry.data = state.blob.unwrap_or_else(|| Vec::new());
 											break
 										},
 										None =>
