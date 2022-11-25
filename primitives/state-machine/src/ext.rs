@@ -691,6 +691,14 @@ where
 			{
 				if let Some(root) = info.root.as_ref() {
 					// cached
+					trace!(
+						target: "state",
+						method = "ChildStorageRoot",
+						ext_id = %HexDisplay::from(&self.id.to_le_bytes()),
+						child_info = %HexDisplay::from(&storage_key),
+						storage_root = %HexDisplay::from(&root.as_ref()),
+						cached = true,
+					);
 					return root.encode()
 				}
 				match info.infos.structure {
@@ -707,50 +715,65 @@ where
 			};
 
 			self.overlay.cache_btree_root(child_info.storage_key(), result.clone());
+			trace!(
+				target: "state",
+				method = "ChildStorageRoot",
+				ext_id = %HexDisplay::from(&self.id.to_le_bytes()),
+				child_info = %HexDisplay::from(&storage_key),
+				storage_root = %HexDisplay::from(&result),
+				cached = false,
+			);
 			return result
 		}
 
 		if let ChildInfo::Blob(..) = child_info {
-			// TODO root calc from overlay
-			let root: Option<(Vec<u8>, bool)> = if let Some((changes, info)) =
-				self.overlay.blob_changes(storage_key)
-			{
-				if let Some(hash) = info.hash {
-					return hash.into()
+				let Some((nb_chunk, mut chunks, info)) = self.overlay.blob_chunks(child_info.storage_key()) else {
+					// TODO change function proto to return None?? we check before calling it but
+					// still
+					return Vec::new()
+				};
+				if let Some(hash) = info.hash.as_ref() {
+					// cached
+					trace!(
+						target: "state",
+						method = "ChildStorageRoot",
+						ext_id = %HexDisplay::from(&self.id.to_le_bytes()),
+						child_info = %HexDisplay::from(&storage_key),
+						storage_root = %HexDisplay::from(hash),
+						cached = true,
+					);
+					return hash.encode()
 				}
-				// TODO maybe backend implement storage root directly (hash type shoudl be in info
-				unimplemented!("hash of blob and cache it in overlay");
-			//Some(self.backend.child_mmr_root(info, changes))
-			} else {
-				None
-			};
 
-			return if let Some((root, is_empty)) = root {
+				let result = match info.infos.algorithm {
+					Some(algorithm) =>
+					if let Some(chunk) = chunks.next() {
+						if nb_chunk == 1 {
+							sp_std::mem::drop(chunks);
+							H::hash_with(&chunk[..], algorithm)
+						} else {
+							let mut state =	H::hash_state_with(chunk, algorithm);
+							for chunk in chunks {
+								H::hash_update(&chunk[..], &mut state);
+							}
+							H::hash_finalize(state)
+						}
+					} else {
+						sp_std::mem::drop(chunks);
+						H::hash_with(&[], algorithm)
+					},
+					None => return Vec::new(),
+				};
+				self.overlay.cache_blob_hash(child_info.storage_key(), result.clone());
 				trace!(
 					target: "state",
 					method = "ChildStorageRoot",
 					ext_id = %HexDisplay::from(&self.id.to_le_bytes()),
 					child_info = %HexDisplay::from(&storage_key),
-					storage_root = %HexDisplay::from(&root.as_ref()),
+					storage_root = %HexDisplay::from(&result),
 					cached = false,
 				);
-
-				root
-			} else {
-				// no blob initialized.
-				unimplemented!(
-					"TODO change to return None or do hash empty but this
-					conflict with no blob"
-				);
-				/*trace!(
-					target: "state",
-					method = "ChildStorageRoot",
-					ext_id = %HexDisplay::from(&self.id.to_le_bytes()),
-					child_info = %HexDisplay::from(&storage_key),
-					storage_root = %HexDisplay::from(&root.1.as_ref()),
-					cached = false,
-				);*/
-			}
+				return result.encode()
 		}
 
 		if self.storage_transaction_cache.transaction_storage_root.is_some() {
@@ -989,22 +1012,6 @@ where
 	fn blob_len(&self, name: &[u8]) -> Option<u32> {
 		// At this point no supported storage requires to clone backend.
 		self.overlay.blob_len(name)
-	}
-
-	fn blob_hash32(&mut self, name: &[u8], algorithm: Hash32Algorithm) -> Option<[u8; 32]> {
-		let (nb_chunk, mut chunks) = self.overlay.blob_chunks(name)?;
-		let mut state = if let Some(chunk) = chunks.next() {
-			if nb_chunk == 1 {
-				return Some(H::hash_with(&chunk[..], algorithm))
-			}
-			H::hash_state_with(chunk, algorithm)
-		} else {
-			return Some(H::hash_with(&[], algorithm))
-		};
-		for chunk in chunks {
-			H::hash_update(&chunk[..], &mut state);
-		}
-		Some(H::hash_finalize(state))
 	}
 
 	fn blob_set(&mut self, name: &[u8], value: &[u8], offset: u32) -> bool {

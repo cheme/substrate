@@ -400,11 +400,14 @@ impl OverlayedChanges {
 	}
 
 	/// Return iterator on chunks if defined.
-	pub fn blob_chunks(&self, name: &[u8]) -> Option<(u32, impl Iterator<Item = &[u8]>)> {
+	pub fn blob_chunks(
+		&self,
+		name: &[u8],
+	) -> Option<(u32, impl Iterator<Item = &[u8]>, &BlobMeta)> {
 		let (blob, infos, ..) = self.blobs.get(name)?;
-		let size = infos.value_ref().as_ref()?.size;
+		let infos = infos.value_ref().as_ref()?;
 
-		let (chunk_end, chunk_end_offset) = blob_chunk_end_index(size);
+		let (chunk_end, chunk_end_offset) = blob_chunk_end_index(infos.size);
 
 		let nb_chunk = if chunk_end == 0 && chunk_end_offset == 0 { 0 } else { chunk_end + 1 };
 		let iter = (0..nb_chunk).into_iter().map(move |at| {
@@ -413,7 +416,7 @@ impl OverlayedChanges {
 			chunk
 		});
 
-		Some((nb_chunk, iter))
+		Some((nb_chunk, iter, infos))
 	}
 
 	/// Return size of a given blob when defined.

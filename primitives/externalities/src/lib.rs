@@ -458,7 +458,23 @@ pub trait Externalities: ExtensionStore {
 	fn blob_len(&self, name: &[u8]) -> Option<u32>;
 
 	/// If blob exists, return it's hash for a given algorithm.
-	fn blob_hash32(&mut self, name: &[u8], algorithm: Hash32Algorithm) -> Option<[u8; 32]>;
+	fn blob_hash32(&mut self, name: &[u8], algorithm: Hash32Algorithm) -> Option<[u8; 32]> {
+		let info = ChildInfo::Blob(BlobInfo {
+			name: name.to_vec(),
+			mode: None,
+			algorithm: Some(algorithm),
+		});
+		// update structure to apply
+		if !self.update_storage_info(info.clone(), false) {
+			return None
+		}
+		let hash = self.child_storage_root(&info, StateVersion::V1);
+		// TODO don't like this copy: change prototype to return Vec<u8>? -> then no
+		// need to restrict to 32 bytes
+		let mut result = [0u8; 32];
+		result.copy_from_slice(hash.as_slice());
+		Some(result)
+	}
 
 	/// Create a new empty transient map.
 	/// Clear possibly existing map.

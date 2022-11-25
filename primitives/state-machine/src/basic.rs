@@ -363,46 +363,67 @@ impl Externalities for BasicExternalities {
 		child_info: &ChildInfo,
 		state_version: StateVersion,
 	) -> Vec<u8> {
-		let child_map = match child_info.child_type() {
+		match child_info.child_type() {
 			ChildType::ParentKeyId => (),
 			ChildType::Btree => {
-				let result = if let Some((data, info)) =
-					self.overlay.btree_changes(child_info.storage_key())
+				let Some((data, info)) =
+					self.overlay.btree_changes(child_info.storage_key()) else
 				{
-					if let Some(root) = info.root.as_ref() {
-						// cached
-						return root.encode()
-					}
-					match info.infos.structure {
-						Some(Root32Structure::SubstrateDefault) => {
-							let delta = data
-								.into_iter()
-								.map(|(k, v)| (k.as_ref(), v.value().map(|v| v.as_slice())));
-							crate::in_memory_backend::new_in_mem::<Blake2Hasher, HashKey<_>>()
-								.child_storage_root(&child_info, delta, StateVersion::V1)
-								.0
-								.encode()
-						},
-						None => return Vec::new(),
-					}
-				} else {
 					// TODO change function proto to return None?? we check before calling it but
 					// still
-					Vec::new()
+					return Vec::new()
+				};
+				if let Some(root) = info.root.as_ref() {
+					// cached
+					return root.encode()
+				}
+				let result = match info.infos.structure {
+					Some(Root32Structure::SubstrateDefault) => {
+						let delta = data
+							.into_iter()
+							.map(|(k, v)| (k.as_ref(), v.value().map(|v| v.as_slice())));
+						crate::in_memory_backend::new_in_mem::<Blake2Hasher, HashKey<_>>()
+							.child_storage_root(&child_info, delta, StateVersion::V1)
+							.0
+							.encode()
+					},
+					None => return Vec::new(),
 				};
 
 				self.overlay.cache_btree_root(child_info.storage_key(), result.clone());
 				return result
 			},
-			ChildType::Blob =>
-				return if let Some(child) = self.overlay.blob_changes(child_info.storage_key()) {
-					// TODO function shared for it in overlay with update of cached hash
-					unimplemented!("TODO")
-				} else {
-					// TODO change function proto to return None??
-					Vec::new()
-				},
-		};
+			ChildType::Blob => {
+				let Some((nb_chunk, mut chunks, info)) = self.overlay.blob_chunks(child_info.storage_key()) else {
+					// TODO change function proto to return None?? we check before calling it but
+					// still
+					return Vec::new()
+				};
+				if let Some(hash) = info.hash.as_ref() {
+					// cached
+					return hash.encode()
+				}
+
+				let result = match info.infos.algorithm {
+					Some(algorithm) =>
+						if let Some(chunk) = chunks.next() {
+							let mut state =
+								sp_core::Hash32State::new(chunk, Hash32Algorithm::Blake2b256);
+							for chunk in chunks {
+								state.update(chunk);
+							}
+							state.finalize()
+						} else {
+							sp_std::mem::drop(chunks);
+							sp_core::hash32_with_algorithm_inline(&[], algorithm)
+						},
+					None => return Vec::new(),
+				};
+
+				self.overlay.cache_blob_hash(child_info.storage_key(), result.clone());
+				return result.encode()
+			},
+		}
 
 		if let Some((data, child_info)) = self.overlay.child_changes(child_info.storage_key()) {
 			let delta =
@@ -521,19 +542,6 @@ impl Externalities for BasicExternalities {
 
 	fn blob_truncate(&mut self, name: &[u8], new_size: u32) -> bool {
 		self.overlay.blob_truncate(name, new_size)
-	}
-
-	fn blob_hash32(&mut self, name: &[u8], algorithm: Hash32Algorithm) -> Option<[u8; 32]> {
-		let (_, mut chunks) = self.overlay.blob_chunks(name)?;
-		let mut state = if let Some(chunk) = chunks.next() {
-			sp_core::Hash32State::new(chunk, algorithm)
-		} else {
-			return Some(sp_core::hash32_with_algorithm_inline(&[], algorithm))
-		};
-		for chunk in chunks {
-			state.update(chunk);
-		}
-		Some(state.finalize())
 	}
 }
 
