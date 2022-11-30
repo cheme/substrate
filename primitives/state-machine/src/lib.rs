@@ -1385,7 +1385,7 @@ mod tests {
 			match (using_native, self.native_succeeds, self.fallback_succeeds) {
 				(true, true, _) | (false, _, true) => (
 					Ok(vec![
-						ext.storage(b"value1").unwrap()[0] + ext.storage(b"value2").unwrap()[0],
+						ext.storage(b"value1", 0, None).unwrap()[0] + ext.storage(b"value2", 0, None).unwrap()[0],
 					]),
 					using_native,
 				),
@@ -1622,10 +1622,10 @@ mod tests {
 		let backend = InMemoryBackend::<BlakeTwo256>::from((initial, StateVersion::default()));
 
 		let mut overlay = OverlayedChanges::default();
-		overlay.set_child_storage(&child_info, b"1".to_vec(), Some(b"1312".to_vec()));
-		overlay.set_child_storage(&child_info, b"2".to_vec(), Some(b"1312".to_vec()));
-		overlay.set_child_storage(&child_info, b"3".to_vec(), Some(b"1312".to_vec()));
-		overlay.set_child_storage(&child_info, b"4".to_vec(), Some(b"1312".to_vec()));
+		overlay.set_child_storage(&child_info, b"1", Some(b"1312"));
+		overlay.set_child_storage(&child_info, b"2", Some(b"1312"));
+		overlay.set_child_storage(&child_info, b"3", Some(b"1312"));
+		overlay.set_child_storage(&child_info, b"4", Some(b"1312"));
 
 		{
 			let mut cache = StorageTransactionCache::default();
@@ -1709,10 +1709,10 @@ mod tests {
 		let mut cache = StorageTransactionCache::default();
 		let mut ext = Ext::new(&mut overlay, &mut cache, backend, None);
 
-		ext.set_child_storage(child_info, b"abc".to_vec(), b"def".to_vec());
-		assert_eq!(ext.child_storage(child_info, b"abc"), Some(b"def".to_vec()));
+		ext.set_child_storage(child_info, b"abc", b"def");
+		assert_eq!(ext.child_storage(child_info, b"abc", 0, None), Some(b"def".to_vec()));
 		let _ = ext.kill_child_storage(child_info, None, None);
-		assert_eq!(ext.child_storage(child_info, b"abc"), None);
+		assert_eq!(ext.child_storage(child_info, b"abc", 0, None), None);
 	}
 
 	#[test]
@@ -1727,7 +1727,7 @@ mod tests {
 			let mut ext = Ext::new(&mut overlay, &mut cache, backend, None);
 
 			ext.storage_append(key.clone(), reference_data[0].encode());
-			assert_eq!(ext.storage(key.as_slice()), Some(vec![reference_data[0].clone()].encode()));
+			assert_eq!(ext.storage(key.as_slice(), 0, None), Some(vec![reference_data[0].clone()].encode()));
 		}
 		overlay.start_transaction();
 		{
@@ -1736,12 +1736,12 @@ mod tests {
 			for i in reference_data.iter().skip(1) {
 				ext.storage_append(key.clone(), i.encode());
 			}
-			assert_eq!(ext.storage(key.as_slice()), Some(reference_data.encode()));
+			assert_eq!(ext.storage(key.as_slice(), 0, None), Some(reference_data.encode()));
 		}
 		overlay.rollback_transaction().unwrap();
 		{
 			let ext = Ext::new(&mut overlay, &mut cache, backend, None);
-			assert_eq!(ext.storage(key.as_slice()), Some(vec![reference_data[0].clone()].encode()));
+			assert_eq!(ext.storage(key.as_slice(), 0, None), Some(vec![reference_data[0].clone()].encode()));
 		}
 	}
 
@@ -1772,12 +1772,12 @@ mod tests {
 		{
 			let mut ext = Ext::new(&mut overlay, &mut cache, backend, None);
 
-			assert_eq!(ext.storage(key.as_slice()), Some(vec![Item::InitializationItem].encode()));
+			assert_eq!(ext.storage(key.as_slice(), 0, None), Some(vec![Item::InitializationItem].encode()));
 
 			ext.storage_append(key.clone(), Item::DiscardedItem.encode());
 
 			assert_eq!(
-				ext.storage(key.as_slice()),
+				ext.storage(key.as_slice(), 0, None),
 				Some(vec![Item::InitializationItem, Item::DiscardedItem].encode()),
 			);
 		}
@@ -1787,12 +1787,12 @@ mod tests {
 		{
 			let mut ext = Ext::new(&mut overlay, &mut cache, backend, None);
 
-			assert_eq!(ext.storage(key.as_slice()), Some(vec![Item::InitializationItem].encode()));
+			assert_eq!(ext.storage(key.as_slice(), 0, None), Some(vec![Item::InitializationItem].encode()));
 
 			ext.storage_append(key.clone(), Item::CommitedItem.encode());
 
 			assert_eq!(
-				ext.storage(key.as_slice()),
+				ext.storage(key.as_slice(), 0, None),
 				Some(vec![Item::InitializationItem, Item::CommitedItem].encode()),
 			);
 		}
@@ -1802,7 +1802,7 @@ mod tests {
 		{
 			let ext = Ext::new(&mut overlay, &mut cache, backend, None);
 			assert_eq!(
-				ext.storage(key.as_slice()),
+				ext.storage(key.as_slice(), 0, None),
 				Some(vec![Item::InitializationItem, Item::CommitedItem].encode()),
 			);
 		}
@@ -2116,33 +2116,17 @@ mod tests {
 
 	#[test]
 	fn compact_multiple_child_trie() {
-		let size_no_inner_hash =
-			compact_multiple_child_trie_inner(StateVersion::V0, Default::default());
-		let size_inner_hash =
-			compact_multiple_child_trie_inner(StateVersion::V1, Default::default());
+		let size_no_inner_hash = compact_multiple_child_trie_inner(StateVersion::V0);
+		let size_inner_hash = compact_multiple_child_trie_inner(StateVersion::V1);
 		assert!(size_inner_hash < size_no_inner_hash);
-		let sized_inner_hash = compact_multiple_child_trie_inner(Default::default(), true);
-		assert!(size_inner_hash < sized_inner_hash);
 	}
-	fn compact_multiple_child_trie_inner(state_version: StateVersion, test_dummy: bool) -> usize {
+	fn compact_multiple_child_trie_inner(state_version: StateVersion) -> usize {
 		// this root will be queried
-		let child_info1 = if test_dummy {
-			ChildInfo::new_parent_sized(b"sub1")
-		} else {
-			ChildInfo::new_default(b"sub1")
-		};
+		let child_info1 = ChildInfo::new_default(b"sub1");
 		// this root will not be include in proof
-		let child_info2 = if test_dummy {
-			ChildInfo::new_parent_sized(b"sub2")
-		} else {
-			ChildInfo::new_default(b"sub2")
-		};
+		let child_info2 = ChildInfo::new_default(b"sub2");
 		// this root will be include in proof
-		let child_info3 = if test_dummy {
-			ChildInfo::new_parent_sized(b"sub")
-		} else {
-			ChildInfo::new_default(b"sub")
-		};
+		let child_info3 = ChildInfo::new_default(b"sub");
 		let remote_backend = trie_backend::tests::test_trie(state_version, None, None);
 		let long_vec: Vec<u8> = (0..1024usize).map(|_| 8u8).collect();
 		let (remote_root, transaction) = remote_backend.full_storage_root(
@@ -2177,20 +2161,19 @@ mod tests {
 		);
 		let mut remote_storage = remote_backend.backend_storage().clone();
 		remote_storage.consolidate(transaction);
-		let remote_backend = TrieBackendBuilder::new(remote_storage.clone(), remote_root).build();
+		let remote_backend = TrieBackendBuilder::new(remote_storage, remote_root).build();
 		let remote_proof = prove_child_read(remote_backend, &child_info1, &[b"key1"]).unwrap();
 		let size = remote_proof.encoded_size();
 		let remote_proof = test_compact(remote_proof, &remote_root);
 		let local_result1 = read_child_proof_check::<BlakeTwo256, _>(
 			remote_root,
-			remote_proof.clone(),
+			remote_proof,
 			&child_info1,
 			&[b"key1"],
 		)
 		.unwrap();
 		assert_eq!(local_result1.len(), 1);
 		assert_eq!(local_result1.get(&b"key1"[..]), Some(&Some(vec![5u8; 32])));
-
 		size
 	}
 
@@ -2207,8 +2190,8 @@ mod tests {
 			let backend = test_trie(state_version, None, None);
 			let mut cache = StorageTransactionCache::default();
 			let mut ext = Ext::new(&mut overlay, &mut cache, &backend, None);
-			ext.set_child_storage(&child_info_1, b"abc".to_vec(), b"def".to_vec());
-			ext.set_child_storage(&child_info_2, b"abc".to_vec(), b"def".to_vec());
+			ext.set_child_storage(&child_info_1, b"abc", b"def");
+			ext.set_child_storage(&child_info_2, b"abc", b"def");
 			ext.storage_root(state_version);
 			cache.transaction.unwrap()
 		};
@@ -2244,10 +2227,10 @@ mod tests {
 		{
 			let mut cache = StorageTransactionCache::default();
 			let mut ext = Ext::new(&mut overlay, &mut cache, backend, None);
-			assert_eq!(ext.storage(b"bbb"), Some(vec![]));
-			assert_eq!(ext.storage(b"ccc"), Some(vec![]));
+			assert_eq!(ext.storage(b"bbb", 0, None), Some(vec![]));
+			assert_eq!(ext.storage(b"ccc", 0, None), Some(vec![]));
 			ext.clear_storage(b"ccc");
-			assert_eq!(ext.storage(b"ccc"), None);
+			assert_eq!(ext.storage(b"ccc", 0, None), None);
 		}
 		overlay.commit_transaction().unwrap();
 		assert_eq!(overlay.storage(b"ccc"), Some(None));

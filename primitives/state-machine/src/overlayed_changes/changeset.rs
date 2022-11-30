@@ -1197,41 +1197,23 @@ mod test {
 	#[test]
 	fn runtime_cannot_close_client_tx() {
 		let mut changeset = OverlayedChangeSet::default();
+		let mut context = OverlayedContext::default();
 		changeset.start_transaction();
-		changeset.enter_runtime().unwrap();
+		context.enter_runtime(changeset.transaction_depth()).unwrap();
 		changeset.start_transaction();
 		changeset.commit_transaction().unwrap();
-		assert_eq!(changeset.commit_transaction(), Err(NoOpenTransaction));
-		assert_eq!(changeset.rollback_transaction(), Err(NoOpenTransaction));
-	}
-
-	#[test]
-	fn exit_runtime_closes_runtime_tx() {
-		let mut changeset = OverlayedChangeSet::default();
-
-		changeset.start_transaction();
-
-		changeset.set(b"key0".to_vec(), Some(b"val0".to_vec()), Some(1));
-
-		changeset.enter_runtime().unwrap();
-		changeset.start_transaction();
-		changeset.set(b"key1".to_vec(), Some(b"val1".to_vec()), Some(2));
-		changeset.exit_runtime().unwrap();
-
-		changeset.commit_transaction().unwrap();
-		assert_eq!(changeset.transaction_depth(), 0);
-
-		assert_drained(changeset, vec![(b"key0", Some(b"val0"))]);
+		assert_eq!(context.guard_no_runtime_transaction(&changeset), Err(NoOpenTransaction));
 	}
 
 	#[test]
 	fn enter_exit_runtime_fails_when_already_in_requested_mode() {
 		let mut changeset = OverlayedChangeSet::default();
+		let mut context = OverlayedContext::default();
 
-		assert_eq!(changeset.exit_runtime(), Err(NotInRuntime));
-		assert_eq!(changeset.enter_runtime(), Ok(()));
-		assert_eq!(changeset.enter_runtime(), Err(AlreadyInRuntime));
-		assert_eq!(changeset.exit_runtime(), Ok(()));
-		assert_eq!(changeset.exit_runtime(), Err(NotInRuntime));
+		assert_eq!(context.exit_runtime(), Err(NotInRuntime));
+		assert_eq!(context.enter_runtime(changeset.transaction_depth()), Ok(()));
+		assert_eq!(context.enter_runtime(changeset.transaction_depth()), Err(AlreadyInRuntime));
+		assert_eq!(context.exit_runtime(), Ok(()));
+		assert_eq!(context.exit_runtime(), Err(NotInRuntime));
 	}
 }

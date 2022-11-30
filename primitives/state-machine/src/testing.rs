@@ -360,7 +360,7 @@ mod tests {
 		let code = vec![1, 2, 3];
 		ext.set_storage(CODE.to_vec(), code.clone());
 
-		assert_eq!(&ext.storage(CODE).unwrap(), &code);
+		assert_eq!(&ext.storage(CODE, 0, None).unwrap(), &code);
 	}
 
 	#[test]
@@ -376,9 +376,9 @@ mod tests {
 
 		{
 			let mut ext = ext.ext();
-			ext.place_child_storage(&child_info, b"doe".to_vec(), Some(b"reindeer".to_vec()));
-			ext.place_child_storage(&child_info, b"dog".to_vec(), Some(b"puppy".to_vec()));
-			ext.place_child_storage(&child_info, b"dog2".to_vec(), Some(b"puppy2".to_vec()));
+			ext.place_child_storage(&child_info, b"doe", Some(b"reindeer"));
+			ext.place_child_storage(&child_info, b"dog", Some(b"puppy"));
+			ext.place_child_storage(&child_info, b"dog2", Some(b"puppy2"));
 		}
 
 		ext.commit_all().unwrap();
@@ -391,9 +391,9 @@ mod tests {
 				"Should not delete all keys"
 			);
 
-			assert!(ext.child_storage(&child_info, &b"doe"[..]).is_none());
-			assert!(ext.child_storage(&child_info, &b"dog"[..]).is_none());
-			assert!(ext.child_storage(&child_info, &b"dog2"[..]).is_some());
+			assert!(ext.child_storage(&child_info, &b"doe"[..], 0, None).is_none());
+			assert!(ext.child_storage(&child_info, &b"dog"[..], 0, None).is_none());
+			assert!(ext.child_storage(&child_info, &b"dog2"[..], 0, Some(0)).is_some());
 		}
 	}
 

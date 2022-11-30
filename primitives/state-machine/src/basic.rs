@@ -592,7 +592,8 @@ mod tests {
 		let code = vec![1, 2, 3];
 		ext.set_storage(CODE.to_vec(), code.clone());
 
-		assert_eq!(&ext.storage(CODE).unwrap(), &code);
+		assert_eq!(&ext.storage(CODE, 0, None).unwrap(), &code);
+		assert_eq!(&ext.storage(CODE, 1, Some(1)).unwrap(), &code[1..2]);
 	}
 
 	#[test]
@@ -611,16 +612,16 @@ mod tests {
 			blob_storages: map![],
 		});
 
-		assert_eq!(ext.child_storage(child_info, b"doe"), Some(b"reindeer".to_vec()));
+		assert_eq!(ext.child_storage(child_info, b"doe", 0, None), Some(b"reindeer".to_vec()));
 
-		ext.set_child_storage(child_info, b"dog".to_vec(), b"puppy".to_vec());
-		assert_eq!(ext.child_storage(child_info, b"dog"), Some(b"puppy".to_vec()));
+		ext.set_child_storage(child_info, b"dog", b"puppy");
+		assert_eq!(ext.child_storage(child_info, b"dog", 0, None), Some(b"puppy".to_vec()));
 
 		ext.clear_child_storage(child_info, b"dog");
-		assert_eq!(ext.child_storage(child_info, b"dog"), None);
+		assert_eq!(ext.child_storage(child_info, b"dog", 0, None), None);
 
 		let _ = ext.kill_child_storage(child_info, None, None);
-		assert_eq!(ext.child_storage(child_info, b"doe"), None);
+		assert_eq!(ext.child_storage(child_info, b"doe", 0, None), None);
 	}
 
 	#[test]

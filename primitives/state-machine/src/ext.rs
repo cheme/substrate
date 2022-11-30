@@ -419,63 +419,70 @@ where
 		let mut overlay_changes = self.overlay.child_iter_after(child_info, key)?;
 
 		let mut result = Vec::<StorageKey>::with_capacity(count as usize);
-		let mut next_overlay = overlay_changes.next();
-		loop {
-			if result.len() == count as usize {
-				break
+		let mut forward_backend = true;
+		let mut last_remove: Option<&[u8]> = None;
+		let mut forward_overlay = true;
+		let mut next_backend_key = None;
+		let mut next_overlay = None;
+
+		while result.len() < count as usize {
+			if forward_backend {
+				let from = if let Some(key) = last_remove.as_ref().take() {
+					key
+				} else {
+					result.last().map(|r| r.as_slice()).unwrap_or(key)
+				};
+				next_backend_key = self
+					.backend
+					.next_child_storage_key(
+						child_info,
+						from,
+					)
+					.expect(EXT_NOT_ALLOWED_TO_FAIL);
+				forward_backend = false;
+				last_remove = None;
 			}
 
-			let mut next_backend_key = self
-				.backend
-				.next_child_storage_key(
-					child_info,
-					result.last().map(|r| r.as_slice()).unwrap_or(key),
-				)
-				.expect(EXT_NOT_ALLOWED_TO_FAIL);
+			if forward_overlay {
+				next_overlay = overlay_changes.next();
+				forward_overlay = false;
+			}
 
-			// TODO recheck this diff
-			let next = match (&next_backend_key, &next_overlay) {
-				(_, None) => next_backend_key,
-				(Some(_), Some(_)) => {
-					// TODO this is incorrect  as overlay change bigger  we will call next on next
-					// value...
-					while let Some(overlay_key) = next_overlay.as_ref() {
-						let cmp = next_backend_key.as_deref().map(|v| v.cmp(overlay_key.0));
-
-						if cmp == Some(Ordering::Less) {
-							// If `backend_key` is less than the `overlay_key`, we found out next
-							// key.
-							break
-						} else if overlay_key.1.value().is_some() {
-							// If there exists a value for the `overlay_key` in the overlay
-							// (aka the key is still valid), it means we have found our next key.
-							result.push(overlay_key.0.to_vec());
-							if result.len() == count as usize {
-								return Some(result)
+			let next = match (next_backend_key.take(), next_overlay.take()) {
+				(Some(backend_key), None) => {
+					forward_backend = true;
+					Some(backend_key)
+				},
+				(Some(backend_key), Some(overlay_key)) => {
+					match backend_key.as_slice().cmp(overlay_key.0) {
+						Ordering::Less => {
+							next_overlay = Some(overlay_key);
+							forward_backend = true;
+							Some(backend_key)
+						},
+						Ordering::Greater => {
+							next_backend_key = Some(backend_key);
+							forward_overlay = true;
+							overlay_key.1.value().map(|_| overlay_key.0.to_vec())
+						},
+						Ordering::Equal => {
+							forward_backend = true;
+							forward_overlay = true;
+							if overlay_key.1.value().is_none() {
+								last_remove = Some(overlay_key.0);
 							}
-						} else if cmp == Some(Ordering::Equal) {
-							// If the `backend_key` and `overlay_key` are equal, it means that we
-							// need to search for the next backend key, because the overlay has
-							// overwritten this key.
-							next_backend_key = self
-								.backend
-								.next_child_storage_key(child_info, overlay_key.0)
-								.expect(EXT_NOT_ALLOWED_TO_FAIL);
-						}
-						next_overlay = overlay_changes.next();
+							overlay_key.1.value().map(|_| overlay_key.0.to_vec())
+						},
 					}
-
-					next_backend_key
 				},
-				(None, Some(_)) => {
-					// Find the next overlay key that has a value attached.
-					overlay_changes.find_map(|k| k.1.value().as_ref().map(|_| k.0.to_vec()))
+				(None, Some(overlay_key)) => {
+					forward_overlay = true;
+					overlay_key.1.value().map(|_| overlay_key.0.to_vec())
 				},
+				(None, None) => break,
 			};
 			if let Some(key) = next {
 				result.push(key);
-			} else {
-				break
 			}
 		}
 		Some(result)
@@ -1240,8 +1247,8 @@ mod tests {
 
 		let mut cache = StorageTransactionCache::default();
 		let mut overlay = OverlayedChanges::default();
-		overlay.set_child_storage(child_info, vec![20], None);
-		overlay.set_child_storage(child_info, vec![30], Some(vec![31]));
+		overlay.set_child_storage(child_info, &[20], None);
+		overlay.set_child_storage(child_info, &[30], Some(&[31]));
 		let backend = (
 			Storage {
 				top: map![],
@@ -1264,24 +1271,26 @@ mod tests {
 
 		let ext = TestExt::new(&mut overlay, &mut cache, &backend, None);
 
+		assert_eq!(ext.next_child_storage_key(child_info, &[5], 10), Some(vec![vec![10], vec![30], vec![40]]));
+
 		// next_backend < next_overlay
-		assert_eq!(ext.next_child_storage_key(child_info, &[5]), Some(vec![10]));
+		assert_eq!(ext.next_child_storage_key(child_info, &[5], 1), Some(vec![vec![10]]));
 
 		// next_backend == next_overlay but next_overlay is a delete
-		assert_eq!(ext.next_child_storage_key(child_info, &[10]), Some(vec![30]));
+		assert_eq!(ext.next_child_storage_key(child_info, &[10], 1), Some(vec![vec![30]]));
 
 		// next_overlay < next_backend
-		assert_eq!(ext.next_child_storage_key(child_info, &[20]), Some(vec![30]));
+		assert_eq!(ext.next_child_storage_key(child_info, &[20], 1), Some(vec![vec![30]]));
 
 		// next_backend exist but next_overlay doesn't exist
-		assert_eq!(ext.next_child_storage_key(child_info, &[30]), Some(vec![40]));
+		assert_eq!(ext.next_child_storage_key(child_info, &[30], 1), Some(vec![vec![40]]));
 
 		drop(ext);
-		overlay.set_child_storage(child_info, vec![50], Some(vec![50]));
+		overlay.set_child_storage(child_info, &[50], Some(&[50]));
 		let ext = TestExt::new(&mut overlay, &mut cache, &backend, None);
 
 		// next_overlay exist but next_backend doesn't exist
-		assert_eq!(ext.next_child_storage_key(child_info, &[40]), Some(vec![50]));
+		assert_eq!(ext.next_child_storage_key(child_info, &[40], 1), Some(vec![vec![50]]));
 	}
 
 	#[test]
@@ -1290,15 +1299,15 @@ mod tests {
 		let child_info = &child_info;
 		let mut cache = StorageTransactionCache::default();
 		let mut overlay = OverlayedChanges::default();
-		overlay.set_child_storage(child_info, vec![20], None);
-		overlay.set_child_storage(child_info, vec![30], Some(vec![31]));
+		overlay.set_child_storage(child_info, &[20], None);
+		overlay.set_child_storage(child_info, &[30], Some(&[31]));
 		let backend = (
 			Storage {
 				top: map![],
 				children_default: map![
 					child_info.storage_key().to_vec() => StorageChild {
 						data: map![
-							vec![10] => vec![10],
+							vec![10] => vec![10, 1, 2],
 							vec![20] => vec![20],
 							vec![30] => vec![40]
 						],
@@ -1314,16 +1323,18 @@ mod tests {
 
 		let ext = TestExt::new(&mut overlay, &mut cache, &backend, None);
 
-		assert_eq!(ext.child_storage(child_info, &[10]), Some(vec![10]));
+		assert_eq!(ext.child_storage(child_info, &[10], 0, None), Some(vec![10, 1, 2]));
+		assert_eq!(ext.child_storage(child_info, &[10], 1, Some(1)), Some(vec![1]));
+		assert_eq!(ext.child_storage(child_info, &[10], 1, Some(2)), Some(vec![1, 2]));
 		assert_eq!(
 			ext.child_storage_hash(child_info, &[10]),
 			Some(Blake2Hasher::hash(&[10]).as_ref().to_vec()),
 		);
 
-		assert_eq!(ext.child_storage(child_info, &[20]), None);
+		assert_eq!(ext.child_storage(child_info, &[20], 0, None), None);
 		assert_eq!(ext.child_storage_hash(child_info, &[20]), None);
 
-		assert_eq!(ext.child_storage(child_info, &[30]), Some(vec![31]));
+		assert_eq!(ext.child_storage(child_info, &[30], 0, None), Some(vec![31]));
 		assert_eq!(
 			ext.child_storage_hash(child_info, &[30]),
 			Some(Blake2Hasher::hash(&[31]).as_ref().to_vec()),
@@ -1368,10 +1379,10 @@ mod tests {
 		let mut under_prefix = well_known_keys::CHILD_STORAGE_KEY_PREFIX.to_vec();
 		under_prefix.extend(b"path");
 		let _ = ext.clear_prefix(&well_known_keys::CHILD_STORAGE_KEY_PREFIX[..4], None, None);
-		assert_eq!(ext.child_storage(child_info, &[30]), Some(vec![40]));
-		assert_eq!(ext.storage(not_under_prefix.as_slice()), Some(vec![10]));
+		assert_eq!(ext.child_storage(child_info, &[30], 0, None), Some(vec![40]));
+		assert_eq!(ext.storage(not_under_prefix.as_slice(), 0, None), Some(vec![10]));
 		let _ = ext.clear_prefix(&not_under_prefix[..5], None, None);
-		assert_eq!(ext.storage(not_under_prefix.as_slice()), None);
+		assert_eq!(ext.storage(not_under_prefix.as_slice(), 0, None), None);
 	}
 
 	#[test]

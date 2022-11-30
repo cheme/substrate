@@ -281,9 +281,7 @@ impl<'a, H: Hasher> TrieCache<'a, H> {
 	}
 }
 
-impl<'a, H: Hasher, C: trie_db::NodeCodec<HashOut = H::Out, Error = Error<H::Out>>>
-	trie_db::TrieCache<C> for TrieCache<'a, H>
-{
+impl<'a, H: Hasher> trie_db::TrieCache<NodeCodec<H>> for TrieCache<'a, H> {
 	fn get_or_insert_node(
 		&mut self,
 		hash: H::Out,
