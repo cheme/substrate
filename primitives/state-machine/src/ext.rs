@@ -434,10 +434,7 @@ where
 				};
 				next_backend_key = self
 					.backend
-					.next_child_storage_key(
-						child_info,
-						from,
-					)
+					.next_child_storage_key(child_info, from)
 					.expect(EXT_NOT_ALLOWED_TO_FAIL);
 				forward_backend = false;
 				last_remove = None;
@@ -1271,7 +1268,10 @@ mod tests {
 
 		let ext = TestExt::new(&mut overlay, &mut cache, &backend, None);
 
-		assert_eq!(ext.next_child_storage_key(child_info, &[5], 10), Some(vec![vec![10], vec![30], vec![40]]));
+		assert_eq!(
+			ext.next_child_storage_key(child_info, &[5], 10),
+			Some(vec![vec![10], vec![30], vec![40]])
+		);
 
 		// next_backend < next_overlay
 		assert_eq!(ext.next_child_storage_key(child_info, &[5], 1), Some(vec![vec![10]]));
@@ -1328,7 +1328,7 @@ mod tests {
 		assert_eq!(ext.child_storage(child_info, &[10], 1, Some(2)), Some(vec![1, 2]));
 		assert_eq!(
 			ext.child_storage_hash(child_info, &[10]),
-			Some(Blake2Hasher::hash(&[10]).as_ref().to_vec()),
+			Some(Blake2Hasher::hash(&[10, 1, 2]).as_ref().to_vec()),
 		);
 
 		assert_eq!(ext.child_storage(child_info, &[20], 0, None), None);

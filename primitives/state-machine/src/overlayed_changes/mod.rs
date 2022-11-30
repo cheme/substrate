@@ -1330,9 +1330,7 @@ impl From<sp_core::storage::Storage> for OverlayedChanges {
 		let blobs: Map<Name, (OverlayedChangeSetBlob, OverlayedInfos<BlobMeta>)> = storage
 			.blob_storages
 			.into_iter()
-			.map(|(k, v)| {
-				(k, (v.data.into(), top.spawn_info(BlobMeta::from(v.info))))
-			})
+			.map(|(k, v)| (k, (v.data.into(), top.spawn_info(BlobMeta::from(v.info)))))
 			.collect();
 		Self {
 			context: Default::default(),

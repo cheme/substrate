@@ -1385,7 +1385,8 @@ mod tests {
 			match (using_native, self.native_succeeds, self.fallback_succeeds) {
 				(true, true, _) | (false, _, true) => (
 					Ok(vec![
-						ext.storage(b"value1", 0, None).unwrap()[0] + ext.storage(b"value2", 0, None).unwrap()[0],
+						ext.storage(b"value1", 0, None).unwrap()[0] +
+							ext.storage(b"value2", 0, None).unwrap()[0],
 					]),
 					using_native,
 				),
@@ -1727,7 +1728,10 @@ mod tests {
 			let mut ext = Ext::new(&mut overlay, &mut cache, backend, None);
 
 			ext.storage_append(key.clone(), reference_data[0].encode());
-			assert_eq!(ext.storage(key.as_slice(), 0, None), Some(vec![reference_data[0].clone()].encode()));
+			assert_eq!(
+				ext.storage(key.as_slice(), 0, None),
+				Some(vec![reference_data[0].clone()].encode())
+			);
 		}
 		overlay.start_transaction();
 		{
@@ -1741,7 +1745,10 @@ mod tests {
 		overlay.rollback_transaction().unwrap();
 		{
 			let ext = Ext::new(&mut overlay, &mut cache, backend, None);
-			assert_eq!(ext.storage(key.as_slice(), 0, None), Some(vec![reference_data[0].clone()].encode()));
+			assert_eq!(
+				ext.storage(key.as_slice(), 0, None),
+				Some(vec![reference_data[0].clone()].encode())
+			);
 		}
 	}
 
@@ -1772,7 +1779,10 @@ mod tests {
 		{
 			let mut ext = Ext::new(&mut overlay, &mut cache, backend, None);
 
-			assert_eq!(ext.storage(key.as_slice(), 0, None), Some(vec![Item::InitializationItem].encode()));
+			assert_eq!(
+				ext.storage(key.as_slice(), 0, None),
+				Some(vec![Item::InitializationItem].encode())
+			);
 
 			ext.storage_append(key.clone(), Item::DiscardedItem.encode());
 
@@ -1787,7 +1797,10 @@ mod tests {
 		{
 			let mut ext = Ext::new(&mut overlay, &mut cache, backend, None);
 
-			assert_eq!(ext.storage(key.as_slice(), 0, None), Some(vec![Item::InitializationItem].encode()));
+			assert_eq!(
+				ext.storage(key.as_slice(), 0, None),
+				Some(vec![Item::InitializationItem].encode())
+			);
 
 			ext.storage_append(key.clone(), Item::CommitedItem.encode());
 
