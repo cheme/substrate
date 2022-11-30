@@ -672,7 +672,7 @@ impl Blob {
 		let Blob { name: o_name, mode: o_mode, algorithm: o_algorithm } = other;
 		// hash method can differ (changing to change next call to storage root).
 		*algorithm = o_algorithm.clone();
-		name == o_name && mode == o_mode
+		name == o_name && if o_mode.is_some() { mode == o_mode } else { true }
 	}
 }
 

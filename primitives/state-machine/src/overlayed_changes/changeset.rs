@@ -1207,8 +1207,8 @@ mod test {
 
 	#[test]
 	fn enter_exit_runtime_fails_when_already_in_requested_mode() {
-		let mut changeset = OverlayedChangeSet::default();
 		let mut context = OverlayedContext::default();
+		let changeset = OverlayedChangeSet::default();
 
 		assert_eq!(context.exit_runtime(), Err(NotInRuntime));
 		assert_eq!(context.enter_runtime(changeset.transaction_depth()), Ok(()));

@@ -1717,6 +1717,26 @@ mod tests {
 	}
 
 	#[test]
+	fn transient_map_storage_works() {
+		let child_info =
+			ChildInfo::new_btree(b"sub1", Some(sp_core::storage::transient::Mode::Drop), None);
+		let child_info = &child_info;
+		let state = new_in_mem_hash_key::<BlakeTwo256>();
+		let backend = state.as_trie_backend();
+		let mut overlay = OverlayedChanges::default();
+		let mut cache = StorageTransactionCache::default();
+		let mut ext = Ext::new(&mut overlay, &mut cache, backend, None);
+
+		assert!(!ext.set_child_storage(child_info, b"abc", b"def"));
+		assert_eq!(ext.child_storage(child_info, b"abc", 0, None), None);
+		assert!(ext.update_storage_info(child_info.clone(), true));
+		assert!(ext.set_child_storage(child_info, b"abc", b"def"));
+		assert_eq!(ext.child_storage(child_info, b"abc", 0, None), Some(b"def".to_vec()));
+		let _ = ext.kill_child_storage(child_info, None, None);
+		assert_eq!(ext.child_storage(child_info, b"abc", 0, None), None);
+	}
+
+	#[test]
 	fn append_storage_works() {
 		let reference_data = vec![b"data1".to_vec(), b"2".to_vec(), b"D3".to_vec(), b"d4".to_vec()];
 		let key = b"key".to_vec();
@@ -2247,5 +2267,99 @@ mod tests {
 		}
 		overlay.commit_transaction().unwrap();
 		assert_eq!(overlay.storage(b"ccc"), Some(None));
+	}
+
+	#[test]
+	fn blob_changes() {
+		let blob1 =
+			ChildInfo::new_blob(b"sub1", Some(sp_core::storage::transient::Mode::Drop), None);
+		let blob2 =
+			ChildInfo::new_blob(b"sub2", Some(sp_core::storage::transient::Mode::Drop), None);
+		let blob3 =
+			ChildInfo::new_blob(b"sub3", Some(sp_core::storage::transient::Mode::Drop), None);
+		let blob4 =
+			ChildInfo::new_blob(b"sub4", Some(sp_core::storage::transient::Mode::Drop), None);
+		let initial: BTreeMap<Vec<u8>, Vec<u8>> = Default::default();
+
+		let state = InMemoryBackend::<BlakeTwo256>::from((initial, StateVersion::default()));
+		let backend = state.as_trie_backend();
+
+		let mut overlay = OverlayedChanges::default();
+		overlay.start_transaction();
+		// blob not created
+		assert!(!overlay.blob_set(blob1.storage_key(), &[0], 0));
+		// create blob
+		assert!(overlay.update_storage_info(blob1.clone(), true));
+		// out of range
+		assert!(!overlay.blob_set(blob1.storage_key(), &[0], 1));
+		// ok
+		assert!(overlay.blob_set(blob1.storage_key(), &[0], 0));
+		assert!(overlay.blob_set(blob1.storage_key(), &[1, 2], 1));
+		{
+			let mut cache = StorageTransactionCache::default();
+			let mut ext = Ext::new(&mut overlay, &mut cache, backend, None);
+			ext.blob_new(blob2.storage_key(), sp_core::storage::transient::Mode::Drop);
+			assert_eq!(ext.blob_get(blob1.storage_key(), Some(1), 1), Some(vec![1]));
+			assert!(ext.blob_exists(blob1.storage_key()));
+			assert!(!ext.blob_exists(blob3.storage_key()));
+			assert!(ext.blob_clone(blob1.storage_key(), blob3.storage_key()));
+			assert_eq!(ext.blob_get(blob3.storage_key(), Some(8), 1), Some(vec![1, 2]));
+			assert!(ext.blob_delete(blob1.storage_key()));
+			assert!(!ext.blob_exists(blob1.storage_key()));
+			assert_eq!(ext.blob_get(blob1.storage_key(), Some(8), 1), None);
+			assert!(ext.blob_rename(blob3.storage_key(), blob1.storage_key()));
+			assert_eq!(ext.blob_get(blob1.storage_key(), Some(1), 1), Some(vec![1]));
+			assert!(!ext.blob_exists(blob3.storage_key()));
+			assert_eq!(ext.blob_get(blob3.storage_key(), Some(8), 1), None);
+			assert_eq!(ext.blob_len(blob1.storage_key()), Some(3));
+			assert!(!ext.blob_truncate(blob1.storage_key(), 5));
+			assert!(ext.blob_truncate(blob1.storage_key(), 1));
+			assert_eq!(ext.blob_get(blob1.storage_key(), None, 0), Some(vec![0]));
+			assert_eq!(ext.blob_len(blob1.storage_key()), Some(1));
+			use hash_db::Hasher;
+			let value_hash = BlakeTwo256::hash(&[0]);
+			assert_eq!(
+				ext.blob_hash32(
+					blob1.storage_key(),
+					sp_core::storage::transient::Hash32Algorithm::Blake2b256
+				)
+				.as_ref()
+				.map(|h| &h[..]),
+				Some(&value_hash[..])
+			);
+			let mut value = vec![0; 800];
+			for i in 0u8..80 {
+				value[i as usize * 10] = i;
+			}
+			let value_hash = BlakeTwo256::hash(value.as_slice());
+			assert!(ext.blob_set(blob1.storage_key(), value.as_slice(), 0));
+			assert_eq!(
+				ext.blob_hash32(
+					blob1.storage_key(),
+					sp_core::storage::transient::Hash32Algorithm::Blake2b256
+				)
+				.as_ref()
+				.map(|h| &h[..]),
+				Some(&value_hash[..])
+			);
+		}
+		//	fn blob_hash32(&mut self, name: &[u8], algorithm: Hash32Algorithm) -> Option<[u8; 32]> {
+		/*		overlay.set_storage(b"ccc".to_vec(), Some(b"".to_vec()));
+		assert_eq!(overlay.storage(b"ccc"), Some(Some(&[][..])));
+		overlay.commit_transaction().unwrap();
+		overlay.start_transaction();
+		assert_eq!(overlay.storage(b"ccc"), Some(Some(&[][..])));
+		assert_eq!(overlay.storage(b"bbb"), None);
+
+		{
+			let mut cache = StorageTransactionCache::default();
+			let mut ext = Ext::new(&mut overlay, &mut cache, backend, None);
+			assert_eq!(ext.storage(b"bbb", 0, None), Some(vec![]));
+			assert_eq!(ext.storage(b"ccc", 0, None), Some(vec![]));
+			ext.clear_storage(b"ccc");
+			assert_eq!(ext.storage(b"ccc", 0, None), None);
+		}
+		overlay.commit_transaction().unwrap();
+		assert_eq!(overlay.storage(b"ccc"), Some(None));*/
 	}
 }

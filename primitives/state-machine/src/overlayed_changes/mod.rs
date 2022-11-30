@@ -367,7 +367,7 @@ impl OverlayedChanges {
 				}
 
 				let (chunk_start, chunk_start_offset) = blob_chunk_start_index(start);
-				let (chunk_end, chunk_end_offset) = blob_chunk_end_index(start);
+				let (chunk_end, chunk_end_offset) = blob_chunk_end_index(end);
 				let mut result = Vec::with_capacity(size_slice);
 				if chunk_start == chunk_end {
 					result.extend_from_slice(
@@ -541,6 +541,10 @@ impl OverlayedChanges {
 			return false;
 		};
 
+		if offset > previous_len {
+			return false
+		};
+
 		let extrinsic_index = self.extrinsic_index();
 
 		let Some((changeset, info)) = self.blobs.get_mut(name) else {
@@ -585,7 +589,7 @@ impl OverlayedChanges {
 			let mut offset = BLOB_CHUNK_SIZE - chunk_start_offset;
 			chunk[chunk_start_offset..].copy_from_slice(&value[..offset]);
 			for i in chunk_start + 1..chunk_end {
-				let chunk = changeset.modify_chunk(chunk_start, extrinsic_index);
+				let chunk = changeset.modify_chunk(i, extrinsic_index);
 				chunk[..].copy_from_slice(&value[offset..offset + BLOB_CHUNK_SIZE]);
 				offset += BLOB_CHUNK_SIZE;
 			}
@@ -769,13 +773,17 @@ impl OverlayedChanges {
 				.expect("Top and children changesets are started in lockstep; qed");
 		}
 		for (_, (changeset, infos)) in self.btrees.iter_mut() {
-			infos.commit_transaction();
+			infos
+				.commit_transaction()
+				.expect("Top and children changesets are started in lockstep; qed");
 			changeset
 				.commit_transaction()
 				.expect("Top and children changesets are started in lockstep; qed");
 		}
 		for (_, (changeset, infos)) in self.blobs.iter_mut() {
-			infos.commit_transaction();
+			infos
+				.commit_transaction()
+				.expect("Top and children changesets are started in lockstep; qed");
 			changeset
 				.commit_transaction()
 				.expect("Top and children changesets are started in lockstep; qed");
@@ -1250,7 +1258,7 @@ impl OverlayedChanges {
 
 				let entry = self
 					.blobs
-					.entry(info.name.clone())
+					.entry(target_name.to_vec())
 					.and_modify(|entry| {
 						if entry.1.value_ref().is_some() {
 							entry.0.truncate_clean(0, None);
@@ -1440,9 +1448,12 @@ fn blob_chunk_start_index(start: usize) -> (u32, usize) {
 	((start / BLOB_CHUNK_SIZE) as u32, start % BLOB_CHUNK_SIZE)
 }
 fn blob_chunk_end_index(end: usize) -> (u32, usize) {
+	if end == 0 {
+		return (0, 0)
+	}
 	let chunk_end = end / BLOB_CHUNK_SIZE;
 	let chunk_end_offset = end % BLOB_CHUNK_SIZE;
-	if chunk_end == 0 {
+	if chunk_end_offset == 0 {
 		(chunk_end as u32 - 1, BLOB_CHUNK_SIZE)
 	} else {
 		(chunk_end as u32, chunk_end_offset)
@@ -1686,7 +1697,6 @@ mod tests {
 	fn next_child_storage_key_change_works() {
 		let child_info = ChildInfo::new_default(b"Child1");
 		let child_info = &child_info;
-		let child = child_info.storage_key();
 		let mut overlay = OverlayedChanges::default();
 		overlay.start_transaction();
 		overlay.set_child_storage(child_info, &[20], Some(&[20]));
