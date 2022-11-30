@@ -740,14 +740,16 @@ impl OverlayedChanges {
 			!changeset.is_empty()
 		});
 		retain_map(&mut self.btrees, |_, (changeset, infos)| {
-			infos.rollback_transaction();
+			infos.rollback_transaction()
+				.expect("Top and children changesets are started in lockstep; qed");
 			changeset
 				.rollback_transaction()
 				.expect("Top and children changesets are started in lockstep; qed");
 			!(infos.value_ref().is_none() && infos.transaction_depth() == 0)
 		});
 		retain_map(&mut self.blobs, |_, (changeset, infos)| {
-			infos.rollback_transaction();
+			infos.rollback_transaction()
+				.expect("Top and children changesets are started in lockstep; qed");
 			changeset
 				.rollback_transaction()
 				.expect("Top and children changesets are started in lockstep; qed");

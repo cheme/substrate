@@ -653,11 +653,13 @@ impl OverlayedChangeSetBlob {
 					.map(|t| t.extrinsics.0.is_empty())
 					.unwrap_or(false)
 			{
-				self.chunks[i].transactions.pop();
-				if self.chunks[i].transactions.is_empty() && i == self.chunks.len() - 1 {
-					self.chunks.pop();
+				if i == self.chunks.len() - 1 {
+					dirty.remove(&i);
+					self.chunks[i].transactions.pop();
+					if self.chunks[i].transactions.is_empty() {
+						self.chunks.pop();
+					}
 				}
-				dirty.remove(&i);
 			}
 		}
 	}

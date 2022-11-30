@@ -2277,8 +2277,6 @@ mod tests {
 			ChildInfo::new_blob(b"sub2", Some(sp_core::storage::transient::Mode::Drop), None);
 		let blob3 =
 			ChildInfo::new_blob(b"sub3", Some(sp_core::storage::transient::Mode::Drop), None);
-		let blob4 =
-			ChildInfo::new_blob(b"sub4", Some(sp_core::storage::transient::Mode::Drop), None);
 		let initial: BTreeMap<Vec<u8>, Vec<u8>> = Default::default();
 
 		let state = InMemoryBackend::<BlakeTwo256>::from((initial, StateVersion::default()));
