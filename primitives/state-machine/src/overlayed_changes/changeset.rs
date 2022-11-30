@@ -149,12 +149,6 @@ pub struct OverlayedInfos<I> {
 	dirty_infos: DirtyInfos,
 }
 
-impl<I> Default for OverlayedInfos<I> {
-	fn default() -> Self {
-		Self { infos: Default::default(), dirty_infos: Default::default() }
-	}
-}
-
 #[cfg(feature = "std")]
 impl From<sp_core::storage::StorageMap> for OverlayedMap<StorageKey, Option<StorageValue>> {
 	fn from(storage: sp_core::storage::StorageMap) -> Self {
@@ -582,6 +576,11 @@ impl<I> OverlayedInfos<I> {
 	pub fn rollback_transaction(&mut self) -> Result<(), NoOpenTransaction> {
 		if self.dirty_infos.pop().ok_or(NoOpenTransaction)? {
 			self.infos.pop_transaction();
+			if self.infos.transactions.is_empty() {
+				self.infos
+					.transactions
+					.push(InnerValue { value: None, extrinsics: Default::default() });
+			}
 		}
 		Ok(())
 	}

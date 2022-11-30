@@ -2302,11 +2302,13 @@ mod tests {
 			assert_eq!(ext.blob_get(blob1.storage_key(), Some(1), 1), Some(vec![1]));
 			assert!(ext.blob_exists(blob1.storage_key()));
 			assert!(!ext.blob_exists(blob3.storage_key()));
+			ext.storage_start_transaction();
 			assert!(ext.blob_clone(blob1.storage_key(), blob3.storage_key()));
 			assert_eq!(ext.blob_get(blob3.storage_key(), Some(8), 1), Some(vec![1, 2]));
 			assert!(ext.blob_delete(blob1.storage_key()));
 			assert!(!ext.blob_exists(blob1.storage_key()));
 			assert_eq!(ext.blob_get(blob1.storage_key(), Some(8), 1), None);
+			ext.storage_start_transaction();
 			assert!(ext.blob_rename(blob3.storage_key(), blob1.storage_key()));
 			assert_eq!(ext.blob_get(blob1.storage_key(), Some(1), 1), Some(vec![1]));
 			assert!(!ext.blob_exists(blob3.storage_key()));
@@ -2342,24 +2344,13 @@ mod tests {
 				.map(|h| &h[..]),
 				Some(&value_hash[..])
 			);
+			ext.storage_rollback_transaction().unwrap();
+			assert!(!ext.blob_exists(blob1.storage_key()));
+			assert_eq!(ext.blob_get(blob1.storage_key(), Some(8), 1), None);
+			ext.storage_rollback_transaction().unwrap();
+			assert_eq!(ext.blob_get(blob1.storage_key(), Some(1), 1), Some(vec![1]));
+			assert!(ext.blob_exists(blob1.storage_key()));
+			assert!(!ext.blob_exists(blob3.storage_key()));
 		}
-		//	fn blob_hash32(&mut self, name: &[u8], algorithm: Hash32Algorithm) -> Option<[u8; 32]> {
-		/*		overlay.set_storage(b"ccc".to_vec(), Some(b"".to_vec()));
-		assert_eq!(overlay.storage(b"ccc"), Some(Some(&[][..])));
-		overlay.commit_transaction().unwrap();
-		overlay.start_transaction();
-		assert_eq!(overlay.storage(b"ccc"), Some(Some(&[][..])));
-		assert_eq!(overlay.storage(b"bbb"), None);
-
-		{
-			let mut cache = StorageTransactionCache::default();
-			let mut ext = Ext::new(&mut overlay, &mut cache, backend, None);
-			assert_eq!(ext.storage(b"bbb", 0, None), Some(vec![]));
-			assert_eq!(ext.storage(b"ccc", 0, None), Some(vec![]));
-			ext.clear_storage(b"ccc");
-			assert_eq!(ext.storage(b"ccc", 0, None), None);
-		}
-		overlay.commit_transaction().unwrap();
-		assert_eq!(overlay.storage(b"ccc"), Some(None));*/
 	}
 }
