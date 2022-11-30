@@ -276,15 +276,15 @@ where
 		}
 	}
 
-	fn update_storage_info(&mut self, info: ChildInfo, clear_existing: bool) -> bool {
+	fn update_storage_info(&mut self, _info: ChildInfo, _clear_existing: bool) -> bool {
 		unimplemented!("update_storage_info is not supported in ReadOnlyExternalities")
 	}
 
-	fn storage_clone(&mut self, info: &ChildInfo, target_name: &[u8]) -> bool {
+	fn storage_clone(&mut self, _info: &ChildInfo, _target_name: &[u8]) -> bool {
 		unimplemented!("storage_clone is not supported in ReadOnlyExternalities")
 	}
 
-	fn storage_move(&mut self, info: &ChildInfo, target_name: &[u8]) -> bool {
+	fn storage_move(&mut self, _info: &ChildInfo, _target_name: &[u8]) -> bool {
 		unimplemented!("storage_move is not supported in ReadOnlyExternalities")
 	}
 

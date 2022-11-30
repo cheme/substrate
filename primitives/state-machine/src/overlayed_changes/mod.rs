@@ -860,10 +860,11 @@ impl OverlayedChanges {
 					None
 				}
 			}),
-			take(&mut self.blobs).into_iter().filter_map(|(_key, (val, info))| {
-				if let Some(info) = info.drain_commited() {
-					let blob: Blob = Vec::new(); // TODO val.changes.commited_blob();
-					Some((info, blob))
+			take(&mut self.blobs).into_iter().filter_map(|(_key, inner)| {
+				if let Some((_, iter, info)) = Self::blob_chunks_inner(&inner) {
+					// TODO this is too costy, just send the info not concatenated ???
+					let blob: Blob = blob_from_chunks(iter, info.size);
+					Some((info.clone(), blob))
 				} else {
 					None
 				}
@@ -1056,8 +1057,8 @@ impl OverlayedChanges {
 					.into_iter()
 					.flatten(),
 			),
-			ChildInfo::BTree(infos) => None,
-			ChildInfo::Blob(infos) => None,
+			ChildInfo::BTree(_infos) => None,
+			ChildInfo::Blob(_infos) => None,
 		}
 	}
 

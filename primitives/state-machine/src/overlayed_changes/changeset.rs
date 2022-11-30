@@ -643,7 +643,7 @@ impl OverlayedChangeSetBlob {
 		for i in (start_chunk..end_chunk.unwrap_or(nb_chunks)).rev() {
 			let i = i as usize;
 			let last_dirty = self.dirty.len() - 1;
-			let Some(mut dirty) = self.dirty.last_mut() else {
+			let Some(dirty) = self.dirty.last_mut() else {
 				return
 			};
 			if dirty.contains(&i) &&

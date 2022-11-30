@@ -72,7 +72,7 @@ impl BasicExternalities {
 	pub fn into_storages(self) -> Storage {
 		let mut children_default: std::collections::HashMap<Vec<u8>, StorageChild> =
 			Default::default();
-		let mut btree_storages: std::collections::HashMap<Vec<u8>, StorageBtree> =
+		let btree_storages: std::collections::HashMap<Vec<u8>, StorageBtree> =
 			Default::default();
 		self.overlay.children().for_each(|(iter, i)| {
 			let child = StorageChild {
