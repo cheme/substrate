@@ -31,8 +31,8 @@ use sp_runtime::{
 	Justification, Justifications, StateVersion, Storage,
 };
 use sp_state_machine::{
-	backend::AsTrieBackend, ChildStorageCollection, IndexOperation, OffchainChangesCollection,
-	StorageCollection,
+	backend::AsTrieBackend, BlobsCollection, BtreesCollection, ChildStorageCollection,
+	IndexOperation, OffchainChangesCollection, StorageCollection,
 };
 use sp_storage::{ChildInfo, StorageData, StorageKey};
 use std::collections::{HashMap, HashSet};
@@ -63,7 +63,9 @@ pub struct ImportSummary<Block: BlockT> {
 	/// Is this block a new best block.
 	pub is_new_best: bool,
 	/// Optional storage changes.
-	pub storage_changes: Option<(StorageCollection, ChildStorageCollection)>,
+	/// Mainly use for notification.
+	pub storage_changes:
+		Option<(StorageCollection, ChildStorageCollection, BtreesCollection, BlobsCollection)>,
 	/// Tree route from old best to new best.
 	///
 	/// If `None`, there was no re-org while importing.

@@ -55,8 +55,12 @@ pub struct StorageNotification<Hash> {
 pub struct StorageChangeSet {
 	changes: Arc<[(StorageKey, Option<StorageData>)]>,
 	child_changes: Arc<[(StorageKey, Vec<(StorageKey, Option<StorageData>)>)]>,
+	blobs_changes: Arc<[(StorageKey, Option<StorageData>)]>,
+	btrees_changes: Arc<[(StorageKey, Option<Vec<(StorageKey, Option<StorageData>)>>)]>,
 	filter: Keys,
 	child_filters: ChildKeys,
+	blobs_filter: Keys,
+	btrees_filters: ChildKeys,
 }
 
 /// Manages storage listeners.
@@ -71,6 +75,7 @@ type ChildKeys = Option<HashMap<StorageKey, Option<HashSet<StorageKey>>>>;
 
 impl StorageChangeSet {
 	/// Convert the change set into iterator over storage items.
+	/// TODO rem?
 	pub fn iter(
 		&self,
 	) -> impl Iterator<Item = (Option<&StorageKey>, &StorageKey, Option<&StorageData>)> + '_ {
@@ -134,8 +139,14 @@ impl<Block: BlockT> StorageNotifications<Block> {
 		child_changeset: impl Iterator<
 			Item = (Vec<u8>, impl Iterator<Item = (Vec<u8>, Option<Vec<u8>>)>),
 		>,
+		btrees_changeset: impl Iterator<
+			Item = (Vec<u8>, Option<impl Iterator<Item = (Vec<u8>, Option<Vec<u8>>)>>),
+		>,
+		blobs_changeset: impl Iterator<
+			Item = (Vec<u8>, Option<Vec<u8>>),
+		>,
 	) {
-		self.0.send((hash, changeset, child_changeset))
+		self.0.send((hash, changeset, child_changeset, btrees_changeset, blobs_changeset))
 	}
 
 	/// Start listening for particular storage keys.
@@ -143,8 +154,10 @@ impl<Block: BlockT> StorageNotifications<Block> {
 		&self,
 		filter_keys: Option<&[StorageKey]>,
 		filter_child_keys: Option<&[(StorageKey, Option<Vec<StorageKey>>)]>,
+		filter_btrees_keys: Option<&[(StorageKey, Option<Vec<StorageKey>>)]>,
+		filter_blobs_keys: Option<&[StorageKey]>,
 	) -> StorageEventStream<Block::Hash> {
-		let receiver = self.0.subscribe(registry::SubscribeOp { filter_keys, filter_child_keys });
+		let receiver = self.0.subscribe(registry::SubscribeOp { filter_keys, filter_child_keys, filter_btrees_keys, filter_blobs_keys });
 
 		StorageEventStream(receiver)
 	}

@@ -143,7 +143,7 @@ impl<K, V> Default for OverlayedMap<K, V> {
 #[derive(Debug, Clone)]
 pub struct OverlayedInfos<I> {
 	/// Internal infos.
-	infos: OverlayedEntry<Option<I>>,
+	infos: OverlayedEntry<I>,
 	/// Changes for infos.
 	dirty_infos: DirtyInfos,
 }
@@ -320,7 +320,7 @@ impl<K: Ord + Hash + Clone, V> OverlayedMap<K, V> {
 		let mut result = OverlayedInfos {
 			infos: OverlayedEntry {
 				transactions: SmallVec::from_iter([InnerValue {
-					value: Some(info),
+					value: info,
 					extrinsics: Default::default(),
 				}]),
 			},
@@ -374,7 +374,7 @@ impl<K: Ord + Hash + Clone, V> OverlayedMap<K, V> {
 	///
 	/// Panics:
 	/// Panics if there are open transactions: `transaction_depth() > 0`
-	pub fn drain_commited(self) -> impl Iterator<Item = (K, V)> {
+	pub fn drain_committed(self) -> impl Iterator<Item = (K, V)> {
 		assert!(self.transaction_depth() == 0, "Drain is not allowed with open transactions.");
 		self.changes.into_iter().map(|(k, mut v)| (k, v.pop_transaction().value))
 	}
@@ -506,23 +506,23 @@ impl OverlayedContext {
 	}
 }
 
-impl<I> OverlayedInfos<I> {
+impl<I: Clone> OverlayedInfos<I> {
 	/// Consume this infos and return the info if it is existing.
 	///
 	/// Panics:
 	/// Panics if there are open transactions: `transaction_depth() > 0`
-	pub fn drain_commited(self) -> Option<I> {
+	pub fn drain_committed(self) -> I {
 		assert!(self.transaction_depth() == 0, "Drain is not allowed with open transactions.");
 		self.infos.into_value()
 	}
 
 	/// Current value for infos.
-	pub fn value_ref(&self) -> &Option<I> {
+	pub fn value_ref(&self) -> &I {
 		self.infos.value_ref()
 	}
 
 	/// The value as seen by the current transaction.
-	pub fn into_value(self) -> Option<I> {
+	pub fn into_value(self) -> I {
 		self.infos.into_value()
 	}
 
@@ -531,21 +531,15 @@ impl<I> OverlayedInfos<I> {
 	/// create a new overlay value if there is none for
 	/// current transaction.
 	#[must_use = "A change was registered, so this value MUST be modified."]
-	pub fn modify_value(&mut self, at_extrinsic: Option<u32>) -> &mut Option<I> {
-		if self.infos.transactions.is_empty() {
-			// we are in an empy uninitialize no transaction state, add one.
-			// TODO consider changing logic to always have this basis overlay
-			// for the sake of simplicity.
-			// TODO consider index based as we have external context.
-			self.infos
-				.transactions
-				.push(InnerValue { value: None, extrinsics: Default::default() });
-		}
+	#[inline]
+	pub fn modify_value(&mut self, at_extrinsic: Option<u32>) -> &mut I {
+		debug_assert!(!self.infos.transactions.is_empty());
 		if set_dirty_infos(&mut self.dirty_infos) {
+			let value = self.infos.value_ref().clone();
 			// first write, add a layer
 			self.infos
 				.transactions
-				.push(InnerValue { value: None, extrinsics: Default::default() });
+				.push(InnerValue { value, extrinsics: Default::default() });
 		}
 
 		if let Some(extrinsic) = at_extrinsic {
@@ -577,16 +571,12 @@ impl<I> OverlayedInfos<I> {
 	///
 	/// Any changes made during that transaction are discarded. Returns an error if
 	/// there is no open transaction that can be rolled back.
-	pub fn rollback_transaction(&mut self) -> Result<(), NoOpenTransaction> {
+	#[must_use = "When empty returned, the object need to be dropped."]
+	pub fn rollback_transaction(&mut self) -> Result<bool, NoOpenTransaction> {
 		if self.dirty_infos.pop().ok_or(NoOpenTransaction)? {
 			self.infos.pop_transaction();
-			if self.infos.transactions.is_empty() {
-				self.infos
-					.transactions
-					.push(InnerValue { value: None, extrinsics: Default::default() });
-			}
 		}
-		Ok(())
+		Ok(self.infos.transactions.is_empty())
 	}
 
 	/// Commit the last transaction started by `start_transaction`.
@@ -643,13 +633,13 @@ impl OverlayedChangeSetBlob {
 
 	/// Clearing is not needed as we always check size on access.
 	/// This method will therefore only clean entry when possible.
-	pub(super) fn truncate_clean(&mut self, start_chunk: u32, end_chunk: Option<u32>) {
+	pub(super) fn truncate_clean(&mut self, start_chunk: u32) {
 		if self.dirty.len() == 0 {
 			// can happen on empty blob.
 			return
 		}
 		let nb_chunks = self.chunks.len() as u32;
-		for i in (start_chunk..end_chunk.unwrap_or(nb_chunks)).rev() {
+		for i in (start_chunk..nb_chunks).rev() {
 			let i = i as usize;
 			let Some(dirty) = self.dirty.last_mut() else {
 				return
@@ -864,7 +854,7 @@ mod test {
 	}
 
 	fn assert_drained_changes(is: OverlayedChangeSet, expected: Changes) {
-		let is = is.drain_commited().collect::<Vec<_>>();
+		let is = is.drain_committed().collect::<Vec<_>>();
 		let expected = expected
 			.iter()
 			.map(|(k, v)| (k.to_vec(), v.0.map(From::from)))
@@ -873,7 +863,7 @@ mod test {
 	}
 
 	fn assert_drained(is: OverlayedChangeSet, expected: Drained) {
-		let is = is.drain_commited().collect::<Vec<_>>();
+		let is = is.drain_committed().collect::<Vec<_>>();
 		let expected = expected
 			.iter()
 			.map(|(k, v)| (k.to_vec(), v.map(From::from)))
@@ -1200,7 +1190,7 @@ mod test {
 	fn drain_with_open_transaction_panics() {
 		let mut changeset = OverlayedChangeSet::default();
 		changeset.start_transaction();
-		let _ = changeset.drain_commited();
+		let _ = changeset.drain_committed();
 	}
 
 	#[test]

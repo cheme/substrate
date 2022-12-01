@@ -127,9 +127,9 @@ pub use crate::{
 	error::{Error, ExecutionError},
 	ext::Ext,
 	overlayed_changes::{
-		ChildStorageCollection, IndexOperation, OffchainChangesCollection,
-		OffchainOverlayedChanges, OverlayedChanges, StorageChanges, StorageCollection, StorageKey,
-		StorageTransactionCache, StorageValue,
+		BlobsCollection, BtreesCollection, ChildStorageCollection, IndexOperation,
+		OffchainChangesCollection, OffchainOverlayedChanges, OverlayedChanges, StorageChanges,
+		StorageCollection, StorageKey, StorageTransactionCache, StorageValue,
 	},
 	stats::{StateMachineStats, UsageInfo, UsageUnit},
 	trie_backend::{TrieBackend, TrieBackendBuilder},

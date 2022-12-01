@@ -73,9 +73,9 @@ use sp_runtime::{
 };
 use sp_state_machine::{
 	prove_child_read, prove_range_read_with_child_with_size, prove_read,
-	read_range_proof_check_with_child_on_proving_backend, Backend as StateBackend,
-	ChildStorageCollection, KeyValueStates, KeyValueStorageLevel, StorageCollection,
-	MAX_NESTED_TRIE_DEPTH,
+	read_range_proof_check_with_child_on_proving_backend, Backend as StateBackend, BlobsCollection,
+	BtreesCollection, ChildStorageCollection, KeyValueStates, KeyValueStorageLevel,
+	StorageCollection, MAX_NESTED_TRIE_DEPTH,
 };
 use sp_trie::{CompactProof, StorageProof};
 use std::{
@@ -587,7 +587,7 @@ where
 				let storage_changes = match storage_changes {
 					sc_consensus::StorageChanges::Changes(storage_changes) => {
 						self.backend.begin_state_operation(&mut operation.op, parent_hash)?;
-						let (main_sc, child_sc, offchain_sc, tx, _, tx_index) =
+						let (main_sc, child_sc, btree_sc, blob_sc, offchain_sc, tx, _, tx_index) =
 							storage_changes.into_inner();
 
 						if self.config.offchain_indexing_api {
@@ -598,7 +598,7 @@ where
 						operation.op.update_storage(main_sc.clone(), child_sc.clone())?;
 						operation.op.update_transaction_index(tx_index)?;
 
-						Some((main_sc, child_sc))
+						Some((main_sc, child_sc, btree_sc, blob_sc))
 					},
 					sc_consensus::StorageChanges::Import(changes) => {
 						let mut storage = sp_storage::Storage::default();
@@ -997,7 +997,12 @@ where
 	fn notify_imported(
 		&self,
 		notification: Option<BlockImportNotification<Block>>,
-		storage_changes: Option<(StorageCollection, ChildStorageCollection)>,
+		storage_changes: Option<(
+			StorageCollection,
+			ChildStorageCollection,
+			BtreesCollection,
+			BlobsCollection,
+		)>,
 	) -> sp_blockchain::Result<()> {
 		let notification = match notification {
 			Some(notify_import) => notify_import,
@@ -1019,6 +1024,8 @@ where
 				&notification.hash,
 				storage_changes.0.into_iter(),
 				storage_changes.1.into_iter().map(|(sk, v)| (sk, v.into_iter())),
+				storage_changes.2.into_iter().map(|(infos, values)| (infos.infos.name, (!infos.removed).then(|| values.into_iter()))),
+				storage_changes.3.into_iter().map(|(infos, blob)| (infos.infos.name, (!infos.removed).then(|| blob))),
 			);
 		}
 
@@ -1979,8 +1986,10 @@ where
 		&self,
 		filter_keys: Option<&[StorageKey]>,
 		child_filter_keys: Option<&[(StorageKey, Option<Vec<StorageKey>>)]>,
+		btrees_filter_keys: Option<&[(StorageKey, Option<Vec<StorageKey>>)]>,
+		blobs_filter_keys: Option<&[StorageKey]>,
 	) -> sp_blockchain::Result<StorageEventStream<Block::Hash>> {
-		Ok(self.storage_notifications.listen(filter_keys, child_filter_keys))
+		Ok(self.storage_notifications.listen(filter_keys, child_filter_keys, btrees_filter_keys, blobs_filter_keys))
 	}
 }
 

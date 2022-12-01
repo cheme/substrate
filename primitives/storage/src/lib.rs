@@ -463,9 +463,13 @@ pub mod transient {
 	#[cfg_attr(feature = "std", derive(Hash, PartialOrd, Ord))]
 	pub enum Mode {
 		/// Storage can be drop.
+		/// Information will remain local to the runtime
+		/// processing (no external indexing, no notification).
 		#[cfg_attr(feature = "std", codec(index = 0))]
 		Drop,
 		/// Storage should be accessible.
+		/// Information would be expose to client indexing
+		/// and storage change notifications.
 		#[cfg_attr(feature = "std", codec(index = 1))]
 		Archive,
 	}
