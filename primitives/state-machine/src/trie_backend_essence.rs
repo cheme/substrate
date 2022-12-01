@@ -32,9 +32,9 @@ use sp_std::{boxed::Box, vec::Vec};
 #[cfg(feature = "std")]
 use sp_trie::recorder::Recorder;
 use sp_trie::{
-	child_delta_trie_root, delta_trie_root, empty_child_trie_root, read_child_trie_hash,
-	read_child_trie_value, read_trie_value,
-	trie_types::{TrieDB, TrieDBBuilder, TrieError},
+	child_delta_trie_root, delta_trie_root, read_child_trie_hash, read_child_trie_value,
+	read_trie_value,
+	trie_types::{TrieDBBuilder, TrieError},
 	DBValue, KeySpacedDB, NodeCodec, Trie, TrieCache, TrieDBIterator, TrieDBKeyIterator,
 	TrieRecorder,
 };

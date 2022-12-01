@@ -158,13 +158,12 @@ mod execution {
 
 	use super::*;
 	use codec::Codec;
-	use hash_db::Hasher;
 	use smallvec::SmallVec;
 	use sp_core::{
 		hexdisplay::HexDisplay,
 		storage::{ChildInfo, ChildType, PrefixedStorageKey},
 		traits::{CodeExecutor, ReadRuntimeVersionExt, RuntimeCode, SpawnNamed},
-		Hashers, HashersOut,
+		Hashers,
 	};
 	use sp_externalities::Extensions;
 	use std::{

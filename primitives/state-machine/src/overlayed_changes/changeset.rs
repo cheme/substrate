@@ -19,7 +19,6 @@
 
 use super::{Extrinsics, StorageKey, StorageValue};
 
-use crate::warn;
 use smallvec::SmallVec;
 use sp_core::storage::BLOB_CHUNK_SIZE;
 #[cfg(not(feature = "std"))]
@@ -652,7 +651,6 @@ impl OverlayedChangeSetBlob {
 		let nb_chunks = self.chunks.len() as u32;
 		for i in (start_chunk..end_chunk.unwrap_or(nb_chunks)).rev() {
 			let i = i as usize;
-			let last_dirty = self.dirty.len() - 1;
 			let Some(dirty) = self.dirty.last_mut() else {
 				return
 			};

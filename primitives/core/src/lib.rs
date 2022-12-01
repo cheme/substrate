@@ -623,7 +623,7 @@ macro_rules! bounded_btree_map {
 	};
 }
 
-pub use sp_storage::transient::{Hash32Algorithm, Hashers, HashersOut};
+pub use sp_storage::transient::{Hash32Algorithm, Hashers};
 
 /// Utility function to easilly implement `Hashers` from
 /// the default `Hasher`.
@@ -638,6 +638,7 @@ pub fn hash32_with_algorithm_inline(data: &[u8], algo: Hash32Algorithm) -> [u8; 
 /// Hasher state (when processing in multiple steps).
 #[cfg(feature = "full_crypto")]
 pub enum Hash32State {
+	/// Blake2b hasher, 256 bits version.
 	Blake2b256(crate::hashing::Blake2b256State),
 }
 

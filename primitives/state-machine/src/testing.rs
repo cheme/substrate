@@ -17,17 +17,10 @@
 
 //! Test implementation for Externalities.
 
-use std::{
-	any::{Any, TypeId},
-	panic::{AssertUnwindSafe, UnwindSafe},
-};
-
 use crate::{
 	backend::Backend, ext::Ext, InMemoryBackend, OverlayedChanges, StorageKey,
 	StorageTransactionCache, StorageValue, TrieBackendBuilder,
 };
-
-use hash_db::Hasher;
 use sp_core::{
 	offchain::testing::TestPersistentOffchainDB,
 	storage::{
@@ -40,6 +33,10 @@ use sp_core::{
 };
 use sp_externalities::{Extension, ExtensionStore, Extensions};
 use sp_trie::StorageProof;
+use std::{
+	any::{Any, TypeId},
+	panic::{AssertUnwindSafe, UnwindSafe},
+};
 
 /// Simple HashMap-based Externalities impl.
 pub struct TestExternalities<H>

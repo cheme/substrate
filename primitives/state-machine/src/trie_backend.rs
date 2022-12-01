@@ -23,7 +23,7 @@ use crate::{
 	trie_backend_essence::{TrieBackendEssence, TrieBackendStorage},
 	Backend, StorageKey, StorageValue,
 };
-use codec::{Codec, Encode};
+use codec::Codec;
 #[cfg(feature = "std")]
 use hash_db::HashDB;
 use hash_db::Hasher;
@@ -363,18 +363,21 @@ where
 	H: Hasher,
 {
 	use sp_trie::empty_child_trie_root;
-	match child_info.child_type() {
-		ChildType::ParentKeyId => match state_version {
+	let is_default_trie = match child_info {
+		ChildInfo::ParentKeyId(..) => true,
+		ChildInfo::BTree(info) => match info.structure {
+			Some(sp_core::storage::transient::Root32Structure::SubstrateDefault) => true,
+			None => false,
+		},
+		ChildInfo::Blob(_) => false,
+	};
+	if is_default_trie {
+		match state_version {
 			StateVersion::V0 => empty_child_trie_root::<LayoutV0<H>>(),
 			StateVersion::V1 => empty_child_trie_root::<LayoutV1<H>>(),
-		},
-		ChildType::Btree => {
-			unimplemented!("check merkle type from child info first");
-			empty_child_trie_root::<LayoutV1<H>>()
-		},
-		ChildType::Blob => {
-			unimplemented!("check merkle type from child info first");
-		},
+		}
+	} else {
+		Default::default()
 	}
 }
 

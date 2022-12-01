@@ -518,9 +518,6 @@ pub mod transient {
 		/// Finish hashing and get hash.
 		fn hash_finalize(state: Self::HasherState) -> [u8; 32];
 	}
-
-	/// Short for default hasher out type.
-	pub type HashersOut<H> = <H as hash_db::Hasher>::Out;
 }
 
 impl ChildType {

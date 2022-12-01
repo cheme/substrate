@@ -28,8 +28,8 @@ pub use offchain::OffchainOverlayedChanges;
 use sp_core::{
 	offchain::OffchainOverlayedChange,
 	storage::{
-		transient::Hash32Algorithm, well_known_keys::EXTRINSIC_INDEX, Blob as BlobInfo,
-		Btree as BtreeInfo, ChildInfo, ChildType, Name, StateVersion, BLOB_CHUNK_SIZE,
+		well_known_keys::EXTRINSIC_INDEX, Blob as BlobInfo, Btree as BtreeInfo, ChildInfo, Name,
+		StateVersion, BLOB_CHUNK_SIZE,
 	},
 };
 use sp_externalities::range_slice;
@@ -395,21 +395,17 @@ impl OverlayedChanges {
 
 	/// Return size of a given blob when defined.
 	pub fn blob_len(&self, name: &[u8]) -> Option<u32> {
-		let (blob, infos, ..) = self.blobs.get(name)?;
+		let (_, infos, ..) = self.blobs.get(name)?;
 		infos.value_ref().as_ref().map(|infos| infos.size as u32)
 	}
 
 	/// Return iterator on chunks if defined.
-	/// TODO nb_chunk can be calculated from meta size: remove it?
-	pub fn blob_chunks(
-		&self,
-		name: &[u8],
-	) -> Option<(u32, impl Iterator<Item = &[u8]>, &BlobMeta)> {
+	pub fn blob_chunks(&self, name: &[u8]) -> Option<(impl Iterator<Item = &[u8]>, &BlobMeta)> {
 		Self::blob_chunks_inner(self.blobs.get(name)?)
 	}
 	fn blob_chunks_inner<'a>(
 		blob: &'a (OverlayedChangeSetBlob, OverlayedInfos<BlobMeta>),
-	) -> Option<(u32, impl Iterator<Item = &'a [u8]>, &'a BlobMeta)> {
+	) -> Option<(impl Iterator<Item = &'a [u8]>, &'a BlobMeta)> {
 		let (blob, infos, ..) = blob;
 		let infos = infos.value_ref().as_ref()?;
 
@@ -422,7 +418,7 @@ impl OverlayedChanges {
 			chunk
 		});
 
-		Some((nb_chunk, iter, infos))
+		Some((iter, infos))
 	}
 
 	fn blob_chunks_into_committed(
@@ -432,7 +428,7 @@ impl OverlayedChanges {
 		let infos = infos.into_value()?;
 
 		if !matches!(infos.infos.mode, Some(sp_core::storage::transient::Mode::Archive)) {
-			return None;
+			return None
 		}
 
 		let (chunk_end, chunk_end_offset) = blob_chunk_end_index(infos.size);
@@ -450,9 +446,9 @@ impl OverlayedChanges {
 		Some((iter, infos))
 	}
 
-	/// Return size of a given blob when defined.
+	/// Return size of a given map when defined.
 	pub fn map_count(&self, name: &[u8]) -> Option<u32> {
-		let (blob, infos, ..) = self.btrees.get(name)?;
+		let (_, infos, ..) = self.btrees.get(name)?;
 		infos.value_ref().as_ref().map(|infos| infos.size as u32)
 	}
 
@@ -765,7 +761,8 @@ impl OverlayedChanges {
 			!changeset.is_empty()
 		});
 		retain_map(&mut self.btrees, |_, (changeset, infos)| {
-			infos.rollback_transaction()
+			infos
+				.rollback_transaction()
 				.expect("Top and children changesets are started in lockstep; qed");
 			changeset
 				.rollback_transaction()
@@ -773,7 +770,8 @@ impl OverlayedChanges {
 			!(infos.value_ref().is_none() && infos.transaction_depth() == 0)
 		});
 		retain_map(&mut self.blobs, |_, (changeset, infos)| {
-			infos.rollback_transaction()
+			infos
+				.rollback_transaction()
 				.expect("Top and children changesets are started in lockstep; qed");
 			changeset
 				.rollback_transaction()
@@ -838,7 +836,7 @@ impl OverlayedChanges {
 	pub fn exit_runtime(&mut self) -> Result<(), NotInRuntime> {
 		self.context.exit_runtime()?;
 		self.top.roll_back_open_transactions(&self.context);
-		for (_, (changeset, infos)) in self.children.iter_mut() {
+		for (_, (changeset, _)) in self.children.iter_mut() {
 			changeset.roll_back_open_transactions(&self.context)
 		}
 		for (_, (changeset, infos)) in self.btrees.iter_mut() {
@@ -917,9 +915,7 @@ impl OverlayedChanges {
 	}
 
 	/// Get an iterator over all child changes as seen by the current transaction.
-	pub fn blob_storages(
-		&self,
-	) -> impl Iterator<Item = (u32, impl Iterator<Item = &[u8]>, &BlobMeta)> {
+	pub fn blob_storages(&self) -> impl Iterator<Item = (impl Iterator<Item = &[u8]>, &BlobMeta)> {
 		self.blobs.iter().filter_map(|(_name, blob)| Self::blob_chunks_inner(blob))
 	}
 
@@ -1306,7 +1302,7 @@ impl OverlayedChanges {
 				// he create an entry.
 				let origin = unsafe { &*origin };
 				if let Some(chunks) = Self::blob_chunks_inner(origin) {
-					for (i, value) in chunks.1.enumerate() {
+					for (i, value) in chunks.0.enumerate() {
 						let chunk = entry.0.modify_chunk(i as u32, extrinsic_index);
 						chunk[..value.len()].copy_from_slice(value);
 					}

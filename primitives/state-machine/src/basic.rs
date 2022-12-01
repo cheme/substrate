@@ -27,18 +27,13 @@ use sp_core::{
 	storage::{
 		transient::{Hash32Algorithm, Root32Structure},
 		well_known_keys::is_child_storage_key,
-		ChildInfo, ChildType, StateVersion, Storage, StorageBlob, StorageBtree, StorageChild,
-		TrackedStorageKey,
+		ChildInfo, ChildType, StateVersion, Storage, StorageBtree, StorageChild, TrackedStorageKey,
 	},
 	traits::Externalities,
 	Blake2Hasher,
 };
-use sp_externalities::{
-	result_from_cow, result_from_slice, Extension, Extensions, MultiRemovalResults,
-};
-use sp_trie::{
-	empty_child_trie_root, empty_trie_root, HashKey, LayoutV0, LayoutV1, TrieConfiguration,
-};
+use sp_externalities::{result_from_slice, Extension, Extensions, MultiRemovalResults};
+use sp_trie::{empty_child_trie_root, HashKey, LayoutV0, LayoutV1, TrieConfiguration};
 use std::{
 	any::{Any, TypeId},
 	collections::BTreeMap,
@@ -72,8 +67,7 @@ impl BasicExternalities {
 	pub fn into_storages(self) -> Storage {
 		let mut children_default: std::collections::HashMap<Vec<u8>, StorageChild> =
 			Default::default();
-		let btree_storages: std::collections::HashMap<Vec<u8>, StorageBtree> =
-			Default::default();
+		let btree_storages: std::collections::HashMap<Vec<u8>, StorageBtree> = Default::default();
 		self.overlay.children().for_each(|(iter, i)| {
 			let child = StorageChild {
 				data: iter
@@ -108,7 +102,7 @@ impl BasicExternalities {
 			blob_storages: self
 				.overlay
 				.blob_storages()
-				.map(|(nb_chunk, iter, i)| {
+				.map(|(iter, i)| {
 					(
 						i.infos.name.clone(),
 						sp_core::storage::StorageBlob {
@@ -173,12 +167,12 @@ impl PartialEq for BasicExternalities {
 					.collect::<BTreeMap<_, _>>() &&
 			self.overlay
 				.blob_storages()
-				.map(|(nb_chunks, iter, i)| (&i.infos, blob_from_chunks(iter, i.size)))
+				.map(|(iter, i)| (&i.infos, blob_from_chunks(iter, i.size)))
 				.collect::<BTreeMap<_, _>>() ==
 				other
 					.overlay
 					.blob_storages()
-					.map(|(nb_chunks, iter, i)| (&i.infos, blob_from_chunks(iter, i.size)))
+					.map(|(iter, i)| (&i.infos, blob_from_chunks(iter, i.size)))
 					.collect::<BTreeMap<_, _>>()
 	}
 }
@@ -388,7 +382,7 @@ impl Externalities for BasicExternalities {
 				return result
 			},
 			ChildType::Blob => {
-				let Some((nb_chunk, mut chunks, info)) = self.overlay.blob_chunks(child_info.storage_key()) else {
+				let Some((mut chunks, info)) = self.overlay.blob_chunks(child_info.storage_key()) else {
 					// TODO change function proto to return None?? we check before calling it but
 					// still
 					return Vec::new()

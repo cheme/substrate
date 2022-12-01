@@ -20,7 +20,7 @@
 //! This uses compact proof from trie crate and extends
 //! it to substrate specific layout and child trie system.
 
-use crate::{CompactProof, HashDBT, StorageProof, TrieConfiguration, TrieHash, EMPTY_PREFIX};
+use crate::{CompactProof, HashDBT, TrieConfiguration, TrieHash, EMPTY_PREFIX};
 use sp_core::storage::{well_known_keys, ChildType, PrefixedStorageKey};
 use sp_std::{boxed::Box, vec, vec::Vec};
 use trie_db::{CError, Trie};
@@ -95,8 +95,8 @@ where
 					Some(Ok((key, value))) => {
 						let prefixed_key = PrefixedStorageKey::new_ref(&key);
 						match ChildType::from_prefixed_key(prefixed_key) {
-							Some((ChildType::Blob, unprefixed)) |
-							Some((ChildType::Btree, unprefixed)) => {
+							Some((ChildType::Blob, _unprefixed)) |
+							Some((ChildType::Btree, _unprefixed)) => {
 								// reserved non persistent, skip
 							},
 							Some((child_type, _unprefixed)) => {

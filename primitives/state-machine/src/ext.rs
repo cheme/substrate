@@ -21,7 +21,6 @@
 use crate::overlayed_changes::OverlayedExtensions;
 use crate::{backend::Backend, IndexOperation, OverlayedChanges, StorageKey, StorageValue};
 use codec::{Decode, Encode, EncodeAppend};
-use hash_db::Hasher;
 #[cfg(feature = "std")]
 use sp_core::hexdisplay::HexDisplay;
 use sp_core::{
@@ -33,7 +32,7 @@ use sp_core::{
 	Hashers,
 };
 use sp_externalities::{
-	result_from_cow, result_from_slice, result_from_vec, Extension, ExtensionStore, Externalities,
+	result_from_slice, result_from_vec, Extension, ExtensionStore, Externalities,
 	MultiRemovalResults,
 };
 use sp_trie::{empty_child_trie_root, LayoutV1};
@@ -703,7 +702,7 @@ where
 		}
 
 		if let ChildInfo::Blob(..) = child_info {
-			let Some((nb_chunk, mut chunks, info)) = self.overlay.blob_chunks(child_info.storage_key()) else {
+			let Some((mut chunks, info)) = self.overlay.blob_chunks(child_info.storage_key()) else {
 					// TODO change function proto to return None?? we check before calling it but
 					// still
 					return Vec::new()
@@ -724,7 +723,7 @@ where
 			let result = match info.infos.algorithm {
 				Some(algorithm) =>
 					if let Some(chunk) = chunks.next() {
-						if nb_chunk == 1 {
+						if info.size <= sp_core::storage::BLOB_CHUNK_SIZE {
 							sp_std::mem::drop(chunks);
 							H::hash_with(&chunk[..], algorithm)
 						} else {
@@ -1151,6 +1150,7 @@ mod tests {
 	use super::*;
 	use crate::InMemoryBackend;
 	use codec::Encode;
+	use hash_db::Hasher;
 	use sp_core::{
 		map,
 		storage::{Storage, StorageChild},

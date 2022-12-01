@@ -689,6 +689,7 @@ pub fn result_from_vec(value: Option<Vec<u8>>, start: u32, limit: Option<u32>) -
 }
 
 /// Utility to extract range from accessed value.
+/// TODO looks unused
 pub fn result_from_cow(
 	value: Option<Cow<[u8]>>,
 	start: u32,
