@@ -84,8 +84,8 @@ use sp_runtime::{
 };
 use sp_state_machine::{
 	backend::{AsTrieBackend, Backend as StateBackend},
-	ChildStorageCollection, DBValue, IndexOperation, OffchainChangesCollection, StateMachineStats,
-	StorageCollection, UsageInfo as StateUsageInfo,
+	BlobsCollection, BtreesCollection, ChildStorageCollection, DBValue, IndexOperation,
+	OffchainChangesCollection, StateMachineStats, StorageCollection, UsageInfo as StateUsageInfo,
 };
 use sp_trie::{cache::SharedTrieCache, prefixed_key, MemoryDB, PrefixedMemoryDB};
 
@@ -770,6 +770,8 @@ pub struct BlockImportOperation<Block: BlockT> {
 	db_updates: PrefixedMemoryDB<HashFor<Block>>,
 	storage_updates: StorageCollection,
 	child_storage_updates: ChildStorageCollection,
+	btrees_storage_updates: BtreesCollection,
+	blobs_storage_updates: BlobsCollection,
 	offchain_storage_updates: OffchainChangesCollection,
 	pending_block: Option<PendingBlock<Block>>,
 	aux_ops: Vec<(Vec<u8>, Option<Vec<u8>>)>,
@@ -898,9 +900,13 @@ impl<Block: BlockT> sc_client_api::backend::BlockImportOperation<Block>
 		&mut self,
 		update: StorageCollection,
 		child_update: ChildStorageCollection,
+		btrees_update: BtreesCollection,
+		blobs_update: BlobsCollection,
 	) -> ClientResult<()> {
 		self.storage_updates = update;
 		self.child_storage_updates = child_update;
+		self.btrees_storage_updates = btrees_update;
+		self.blobs_storage_updates = blobs_update;
 		Ok(())
 	}
 
@@ -1351,6 +1357,17 @@ impl<Block: BlockT> Backend<Block> {
 				>,
 			)?;
 			apply_state_commit(transaction, commit);
+
+			let mut transient_storage = TransientArchive::<Block> {
+				db: self.storage.db.clone(),
+				at: hash,
+				height: new_canonical.saturated_into(),
+				archive: matches!(
+					self.storage.state_db.pruning_mode(),
+					PruningMode::ArchiveAll | PruningMode::ArchiveCanonical
+				),
+			};
+			transient_storage.canonicalize(transaction);
 		}
 		Ok(())
 	}
@@ -1519,6 +1536,20 @@ impl<Block: BlockT> Backend<Block> {
 						with_state: true,
 					});
 				}
+
+				let mut transient_storage = TransientArchive::<Block> {
+					db: self.storage.db.clone(),
+					at: hash,
+					height: number,
+					archive: matches!(
+						self.storage.state_db.pruning_mode(),
+						PruningMode::ArchiveAll | PruningMode::ArchiveCanonical
+					),
+				};
+				transient_storage
+					.add_btrees_changes(operation.btrees_storage_updates, &mut transaction);
+				transient_storage
+					.add_blobs_changes(operation.blobs_storage_updates, &mut transaction);
 
 				// Check if need to finalize. Genesis is always finalized instantly.
 				let finalized = number_u64 == 0 || pending_block.leaf_state.is_final();
@@ -1697,6 +1728,17 @@ impl<Block: BlockT> Backend<Block> {
 	) -> ClientResult<()> {
 		let f_num = *f_header.number();
 
+		let mut transient_storage = TransientArchive::<Block> {
+			db: self.storage.db.clone(),
+			at: f_hash,
+			height: f_num.clone(),
+			archive: matches!(
+				self.storage.state_db.pruning_mode(),
+				PruningMode::ArchiveAll | PruningMode::ArchiveCanonical
+			),
+		};
+		transient_storage.canonicalize(transaction);
+
 		let lookup_key = utils::number_and_hash_to_lookup_key(f_num, f_hash)?;
 		if with_state {
 			transaction.set_from_vec(columns::META, meta_keys::FINALIZED_STATE, lookup_key.clone());
@@ -1787,6 +1829,23 @@ impl<Block: BlockT> Backend<Block> {
 		id: BlockId<Block>,
 	) -> ClientResult<()> {
 		debug!(target: "db", "Removing block #{}", id);
+		if let Some(header) =
+			sc_client_api::blockchain::HeaderBackend::header(&self.blockchain, id)?
+		{
+			let number = header.number();
+			let hash = header.hash();
+			let mut transient_storage = TransientArchive::<Block> {
+				db: self.storage.db.clone(),
+				at: hash,
+				height: number.clone(),
+				archive: matches!(
+					self.storage.state_db.pruning_mode(),
+					PruningMode::ArchiveAll | PruningMode::ArchiveCanonical
+				),
+			};
+			transient_storage.drop_or_prune(transaction);
+		}
+
 		utils::remove_from_db(
 			transaction,
 			&*self.storage.db,
@@ -1966,6 +2025,8 @@ impl<Block: BlockT> sc_client_api::backend::Backend<Block> for Backend<Block> {
 			db_updates: PrefixedMemoryDB::default(),
 			storage_updates: Default::default(),
 			child_storage_updates: Default::default(),
+			btrees_storage_updates: Default::default(),
+			blobs_storage_updates: Default::default(),
 			offchain_storage_updates: Default::default(),
 			aux_ops: Vec::new(),
 			finalized_blocks: Vec::new(),
@@ -2403,6 +2464,36 @@ impl<Block: BlockT> sc_client_api::backend::Backend<Block> for Backend<Block> {
 
 impl<Block: BlockT> sc_client_api::backend::LocalBackend<Block> for Backend<Block> {}
 
+/// A simple implementation of transient data indexing.
+/// This is meant to be use by default when no better implementation
+/// is attached, but do not try to be performant.
+struct TransientArchive<Block: BlockT> {
+	pub db: Arc<dyn Database<DbHash>>,
+	pub at: Block::Hash,
+	pub height: NumberFor<Block>,
+	pub archive: bool,
+}
+
+impl<Block: BlockT> TransientArchive<Block> {
+	/// Write btrees changes.
+	fn add_btrees_changes(&mut self, changes: BtreesCollection, tx: &mut Transaction<DbHash>) {
+		unimplemented!()
+	}
+
+	/// Write blobs changes.
+	fn add_blobs_changes(&mut self, changes: BlobsCollection, tx: &mut Transaction<DbHash>) {
+		unimplemented!()
+	}
+
+	fn canonicalize(&mut self, tx: &mut Transaction<DbHash>) {
+		unimplemented!()
+	}
+
+	fn drop_or_prune(&mut self, tx: &mut Transaction<DbHash>) {
+		unimplemented!()
+	}
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
 	use super::*;
@@ -2612,7 +2703,7 @@ pub(crate) mod tests {
 			op.update_db_storage(overlay).unwrap();
 			header.state_root = root.into();
 
-			op.update_storage(storage, Vec::new()).unwrap();
+			op.update_storage(storage, Vec::new(), Vec::new(), Vec::new()).unwrap();
 			op.set_block_data(header.clone(), Some(vec![]), None, None, NewBlockState::Best)
 				.unwrap();
 
@@ -3167,7 +3258,7 @@ pub(crate) mod tests {
 			header.state_root = root.into();
 			let hash = header.hash();
 
-			op.update_storage(storage, Vec::new()).unwrap();
+			op.update_storage(storage, Vec::new(), Vec::new(), Vec::new()).unwrap();
 			op.set_block_data(header, Some(vec![]), None, None, NewBlockState::Normal)
 				.unwrap();
 

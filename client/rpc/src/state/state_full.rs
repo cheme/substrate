@@ -399,13 +399,18 @@ where
 	}
 
 	fn subscribe_storage(&self, mut sink: SubscriptionSink, keys: Option<Vec<StorageKey>>) {
-		let stream = match self.client.storage_changes_notification_stream(keys.as_deref(), None, None, None) {
-			Ok(stream) => stream,
-			Err(blockchain_err) => {
-				let _ = sink.reject(JsonRpseeError::from(Error::Client(Box::new(blockchain_err))));
-				return
-			},
-		};
+		let stream =
+			match self
+				.client
+				.storage_changes_notification_stream(keys.as_deref(), None, None, None)
+			{
+				Ok(stream) => stream,
+				Err(blockchain_err) => {
+					let _ =
+						sink.reject(JsonRpseeError::from(Error::Client(Box::new(blockchain_err))));
+					return
+				},
+			};
 
 		// initial values
 		let initial = stream::iter(keys.map(|keys| {

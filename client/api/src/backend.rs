@@ -197,6 +197,8 @@ pub trait BlockImportOperation<Block: BlockT> {
 		&mut self,
 		update: StorageCollection,
 		child_update: ChildStorageCollection,
+		btrees_update: BtreesCollection,
+		blobs_update: BlobsCollection,
 	) -> sp_blockchain::Result<()>;
 
 	/// Write offchain storage changes to the database.

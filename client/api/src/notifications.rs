@@ -142,11 +142,10 @@ impl<Block: BlockT> StorageNotifications<Block> {
 		btrees_changeset: impl Iterator<
 			Item = (Vec<u8>, Option<impl Iterator<Item = (Vec<u8>, Option<Vec<u8>>)>>),
 		>,
-		blobs_changeset: impl Iterator<
-			Item = (Vec<u8>, Option<Vec<u8>>),
-		>,
+		blobs_changeset: impl Iterator<Item = (Vec<u8>, Option<Vec<u8>>)>,
 	) {
-		self.0.send((hash, changeset, child_changeset, btrees_changeset, blobs_changeset))
+		self.0
+			.send((hash, changeset, child_changeset, btrees_changeset, blobs_changeset))
 	}
 
 	/// Start listening for particular storage keys.
@@ -157,7 +156,12 @@ impl<Block: BlockT> StorageNotifications<Block> {
 		filter_btrees_keys: Option<&[(StorageKey, Option<Vec<StorageKey>>)]>,
 		filter_blobs_keys: Option<&[StorageKey]>,
 	) -> StorageEventStream<Block::Hash> {
-		let receiver = self.0.subscribe(registry::SubscribeOp { filter_keys, filter_child_keys, filter_btrees_keys, filter_blobs_keys });
+		let receiver = self.0.subscribe(registry::SubscribeOp {
+			filter_keys,
+			filter_child_keys,
+			filter_btrees_keys,
+			filter_blobs_keys,
+		});
 
 		StorageEventStream(receiver)
 	}

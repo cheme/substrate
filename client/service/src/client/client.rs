@@ -595,7 +595,12 @@ where
 						}
 
 						operation.op.update_db_storage(tx)?;
-						operation.op.update_storage(main_sc.clone(), child_sc.clone())?;
+						operation.op.update_storage(
+							main_sc.clone(),
+							child_sc.clone(),
+							btree_sc.clone(),
+							blob_sc.clone(),
+						)?;
 						operation.op.update_transaction_index(tx_index)?;
 
 						Some((main_sc, child_sc, btree_sc, blob_sc))
@@ -1024,8 +1029,13 @@ where
 				&notification.hash,
 				storage_changes.0.into_iter(),
 				storage_changes.1.into_iter().map(|(sk, v)| (sk, v.into_iter())),
-				storage_changes.2.into_iter().map(|(infos, values)| (infos.infos.name, (!infos.removed).then(|| values.into_iter()))),
-				storage_changes.3.into_iter().map(|(infos, blob)| (infos.infos.name, (!infos.removed).then(|| blob))),
+				storage_changes.2.into_iter().map(|(infos, values)| {
+					(infos.infos.name, (!infos.removed).then(|| values.into_iter()))
+				}),
+				storage_changes
+					.3
+					.into_iter()
+					.map(|(infos, blob)| (infos.infos.name, (!infos.removed).then(|| blob))),
 			);
 		}
 
@@ -1989,7 +1999,12 @@ where
 		btrees_filter_keys: Option<&[(StorageKey, Option<Vec<StorageKey>>)]>,
 		blobs_filter_keys: Option<&[StorageKey]>,
 	) -> sp_blockchain::Result<StorageEventStream<Block::Hash>> {
-		Ok(self.storage_notifications.listen(filter_keys, child_filter_keys, btrees_filter_keys, blobs_filter_keys))
+		Ok(self.storage_notifications.listen(
+			filter_keys,
+			child_filter_keys,
+			btrees_filter_keys,
+			blobs_filter_keys,
+		))
 	}
 }
 

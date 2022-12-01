@@ -340,7 +340,7 @@ impl OverlayedChanges {
 			ChildInfo::BTree(info) => {
 				let map = self.btrees.get(&info.name)?;
 				if map.1.value_ref().removed {
-					return Some(None);
+					return Some(None)
 				}
 				range_slice(map.0.get(key)?.value().map(AsRef::as_ref), start, limit)
 					.map(Cow::Borrowed)
@@ -355,7 +355,7 @@ impl OverlayedChanges {
 				let map = self.blobs.get(&info.name)?;
 				let infos = map.1.value_ref();
 				if infos.removed {
-					return Some(None);
+					return Some(None)
 				}
 
 				let start = start as usize;
@@ -419,7 +419,7 @@ impl OverlayedChanges {
 		let (blob, infos, ..) = blob;
 		let infos = infos.value_ref();
 		if infos.removed {
-			return None;
+			return None
 		}
 
 		let (chunk_end, chunk_end_offset) = blob_chunk_end_index(infos.size);
@@ -477,7 +477,7 @@ impl OverlayedChanges {
 				let map = self.btrees.get(&info.name)?;
 				let info = map.1.value_ref();
 				if info.removed {
-					return Some(None);
+					return Some(None)
 				}
 				map.0.get(key)?.value().map(|v| v.len() as u32)
 			},
@@ -535,7 +535,7 @@ impl OverlayedChanges {
 			ChildInfo::BTree(infos) =>
 				if let Some((changeset, info)) = self.btrees.get_mut(&infos.name) {
 					if info.value_ref().removed {
-						return false;
+						return false
 					}
 					let has_root = info.value_ref().root.is_some();
 					let (existing, changed) = changeset
@@ -551,8 +551,7 @@ impl OverlayedChanges {
 						(existing && val.is_none()) ||
 						(!existing && val.is_some())
 					{
-						let infos =
-							info.modify_value(extrinsic_index);
+						let infos = info.modify_value(extrinsic_index);
 						if changed {
 							infos.root = None;
 						}
@@ -602,13 +601,8 @@ impl OverlayedChanges {
 		let (chunk_end, chunk_end_offset) = blob_chunk_end_index(end);
 
 		let update_size = end as u32 > previous_len;
-		if update_size ||
-			info.value_ref()
-				.hash
-				.is_some()
-		{
-			let info = info
-				.modify_value(extrinsic_index);
+		if update_size || info.value_ref().hash.is_some() {
+			let info = info.modify_value(extrinsic_index);
 			info.hash = None;
 			if update_size {
 				info.size = end;
@@ -652,8 +646,7 @@ impl OverlayedChanges {
 
 		changeset.truncate_clean(chunk_start);
 
-		let info = info
-			.modify_value(extrinsic_index);
+		let info = info.modify_value(extrinsic_index);
 		info.hash = None;
 		info.size = new_len as usize;
 
@@ -892,9 +885,9 @@ impl OverlayedChanges {
 			take(&mut self.children)
 				.into_iter()
 				.map(|(key, (val, info))| (key, (val.drain_committed(), info))),
-			take(&mut self.btrees).into_iter().map(|(_key, (val, info))|
-					(info.drain_committed(), val.drain_committed())
-			),
+			take(&mut self.btrees)
+				.into_iter()
+				.map(|(_key, (val, info))| (info.drain_committed(), val.drain_committed())),
 			take(&mut self.blobs).into_iter().filter_map(|(_key, (val, info))| {
 				if let Some((iter, info)) = Self::blob_chunks_into_committed(val, info) {
 					// TODO this is too costy, just send the info not concatenated ???
@@ -949,12 +942,10 @@ impl OverlayedChanges {
 		&self,
 		name: &[u8],
 	) -> Option<(impl Iterator<Item = (&StorageKey, &OverlayedValue)>, &BtreeMeta)> {
-		self.btrees
-			.get(name)
-			.and_then(|(overlay, info)| {
-				let info = info.value_ref();
-				(!info.removed).then(|| (overlay.changes(), info))
-			})
+		self.btrees.get(name).and_then(|(overlay, info)| {
+			let info = info.value_ref();
+			(!info.removed).then(|| (overlay.changes(), info))
+		})
 	}
 
 	/// Get an list of all index operations.
@@ -1008,12 +999,8 @@ impl OverlayedChanges {
 			child_storage_changes: child_storage_changes
 				.map(|(sk, it)| (sk, it.0.collect()))
 				.collect(),
-			btrees_changes: btrees_changes
-				.map(|(info, it)| (info, it.collect()))
-				.collect(),
-			blobs_changes: blobs_changes
-				.map(|(info, blob)| (info, blob))
-				.collect(),
+			btrees_changes: btrees_changes.map(|(info, it)| (info, it.collect())).collect(),
+			blobs_changes: blobs_changes.map(|(info, blob)| (info, blob)).collect(),
 			offchain_storage_changes,
 			transaction,
 			transaction_storage_root,
