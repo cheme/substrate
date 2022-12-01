@@ -948,7 +948,6 @@ impl OverlayedChanges {
 	}
 
 	/// Convert this instance with all changes into a [`StorageChanges`] instance.
-	#[cfg(feature = "std")]
 	pub fn into_storage_changes<B: Backend<H>, H: Hasher>(
 		mut self,
 		backend: &B,
