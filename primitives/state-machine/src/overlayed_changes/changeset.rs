@@ -522,6 +522,11 @@ impl<I> OverlayedInfos<I> {
 		self.infos.value_ref()
 	}
 
+	/// The value as seen by the current transaction.
+	pub fn into_value(self) -> Option<I> {
+		self.infos.into_value()
+	}
+
 	/// Access mutable value on  the change set.
 	/// This should be use to change the value as it will
 	/// create a new overlay value if there is none for
@@ -630,6 +635,11 @@ impl OverlayedChangeSetBlob {
 	/// Get an optional reference to the blob chunk at a given chunk number.
 	pub(super) fn get(&self, index: u32) -> &OverlayedEntry<BlobChunk> {
 		&self.chunks[index as usize]
+	}
+
+	/// Entry iter.
+	pub(super) fn into_iter(self) -> impl Iterator<Item = OverlayedEntry<BlobChunk>> {
+		self.chunks.into_iter()
 	}
 
 	/// Clearing is not needed as we always check size on access.

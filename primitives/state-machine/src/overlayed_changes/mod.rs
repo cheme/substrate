@@ -425,6 +425,31 @@ impl OverlayedChanges {
 		Some((nb_chunk, iter, infos))
 	}
 
+	fn blob_chunks_into_committed(
+		blob: OverlayedChangeSetBlob,
+		infos: OverlayedInfos<BlobMeta>,
+	) -> Option<(impl Iterator<Item = [u8; BLOB_CHUNK_SIZE]>, BlobMeta)> {
+		let infos = infos.into_value()?;
+
+		if !matches!(infos.infos.mode, Some(sp_core::storage::transient::Mode::Archive)) {
+			return None;
+		}
+
+		let (chunk_end, chunk_end_offset) = blob_chunk_end_index(infos.size);
+
+		let nb_chunk = if chunk_end == 0 && chunk_end_offset == 0 { 0 } else { chunk_end + 1 };
+		let iter = blob.into_iter().enumerate().filter_map(move |(at, entry)| {
+			let at = at as u32;
+			if at < nb_chunk {
+				Some(entry.into_value())
+			} else {
+				None
+			}
+		});
+
+		Some((iter, infos))
+	}
+
 	/// Return size of a given blob when defined.
 	pub fn map_count(&self, name: &[u8]) -> Option<u32> {
 		let (blob, infos, ..) = self.btrees.get(name)?;
@@ -860,11 +885,11 @@ impl OverlayedChanges {
 					None
 				}
 			}),
-			take(&mut self.blobs).into_iter().filter_map(|(_key, inner)| {
-				if let Some((_, iter, info)) = Self::blob_chunks_inner(&inner) {
+			take(&mut self.blobs).into_iter().filter_map(|(_key, (val, info))| {
+				if let Some((iter, info)) = Self::blob_chunks_into_committed(val, info) {
 					// TODO this is too costy, just send the info not concatenated ???
 					let blob: Blob = blob_from_chunks(iter, info.size);
-					Some((info.clone(), blob))
+					Some((info, blob))
 				} else {
 					None
 				}
@@ -1463,17 +1488,17 @@ fn blob_chunk_end_index(end: usize) -> (u32, usize) {
 	}
 }
 
-pub(crate) fn blob_from_chunks<'a>(
-	mut iter: impl Iterator<Item = &'a [u8]>,
+pub(crate) fn blob_from_chunks<B: AsRef<[u8]>>(
+	mut iter: impl Iterator<Item = B>,
 	size: usize,
 ) -> Vec<u8> {
 	let mut result = Vec::with_capacity(size);
 	while let Some(chunk) = iter.next() {
 		if (size - result.len()) < BLOB_CHUNK_SIZE {
-			result.extend_from_slice(&chunk[..size]);
+			result.extend_from_slice(&chunk.as_ref()[..size]);
 			break
 		} else {
-			result.extend_from_slice(&chunk[..]);
+			result.extend_from_slice(&chunk.as_ref()[..]);
 		}
 	}
 	debug_assert!(iter.next().is_none());
