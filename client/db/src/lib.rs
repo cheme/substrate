@@ -2484,6 +2484,7 @@ struct TransientArchive<'a, Block: BlockT> {
 
 struct TransientArchiveInMemory<Block: BlockT> {
 	infos: HashMap<Block::Hash, Option<TransientBlockInfo<Block::Hash>>>,
+	// TODO consider using its own configuration
 	pruning: PruningMode,
 }
 
@@ -2535,21 +2536,86 @@ impl<'a, Block: BlockT> TransientArchive<'a, Block> {
 	) {
 		if self.in_mem.pruning.is_archive() {
 			// just write, no checks
-			let mut journal = Vec::new();
+			let mut journal = vec![0u8]; // version 0
 			self.write_btrees(btrees_changes, tx, &mut journal);
 			self.write_blobs(blobs_changes, tx, &mut journal);
 			tx.set_from_vec(columns::AUX, &Self::journal_key(self.hash), journal);
-		} else {
-			unimplemented!()
+			return
 		}
+		unimplemented!()
 	}
 
 	fn canonicalize(&mut self, tx: &mut Transaction<DbHash>) {
+		if self.in_mem.pruning.is_archive() {
+			// done in `add_transient_changes`.
+			return
+		}
 		unimplemented!()
 	}
 
+	// TODO consider calling drop and prune from canonicalize instead, but
+	// would require checking if cannonical for ArchiveCanonical.
 	fn drop_or_prune(&mut self, tx: &mut Transaction<DbHash>) {
-		unimplemented!()
+		match self.in_mem.pruning {
+			PruningMode::ArchiveAll => return,
+			_ => (),
+		}
+		let journal_key = Self::journal_key(self.hash);
+		let Some(journal) = self.db.get(columns::AUX, &journal_key) else {
+			debug!("Missing journal, skipping pruning {:?}", self.hash);
+			return;
+		};
+		tx.remove(columns::AUX, &journal_key);
+		let mut read_journal = journal.as_slice();
+		let mut current_btree: Option<Vec<u8>> = None;
+		let Some(version) = read_journal.get(0) else {
+			warn!("Invalid journal encoding, skipping pruning {:?}", self.hash);
+			return
+		};
+		read_journal = &read_journal[1..];
+		if *version != 0 {
+			warn!("Unexepected journal version {:?}, skipping pruning {:?}", version, self.hash);
+			return
+		}
+		while let Some(type_item) = read_journal.get(0) {
+			read_journal = &read_journal[1..];
+			match type_item {
+				0u8 => {
+					let Ok(name) = Vec::<u8>::decode(&mut read_journal) else {
+						warn!("Invalid journal encoding, skipping pruning {:?}", self.hash);
+						return
+					};
+					current_btree = Some(name);
+				},
+				1u8 => {
+					// Note all decode here could be replace by just decoding size
+					// to avoid instantiating a vec.
+					let Ok(name) = Vec::<u8>::decode(&mut read_journal) else {
+						warn!("Invalid journal encoding, skipping pruning {:?}", self.hash);
+						return
+					};
+					current_btree = None;
+					let key = Self::blob_key(self.hash, name.as_slice());
+					tx.remove(columns::AUX, &key);
+				},
+				2u8 => {
+					let Ok(key) = Vec::<u8>::decode(&mut read_journal) else {
+						warn!("Invalid journal encoding, skipping pruning {:?}", self.hash);
+						return
+					};
+					let Some(name) = current_btree.as_ref() else {
+						warn!("Invalid journal encoding, skipping pruning {:?}", self.hash);
+						return
+					};
+					let key = Self::btree_key(self.hash, name, &key);
+					tx.remove(columns::AUX, &key);
+				},
+				_ => {
+					warn!("Invalid journal encoding, skipping pruning {:?}", self.hash);
+					return
+				},
+			}
+		}
 	}
 
 	fn write_btrees(
@@ -2612,7 +2678,6 @@ impl<'a, Block: BlockT> TransientArchive<'a, Block> {
 			journal.push(1u8);
 			name.encode_to(journal);
 			journal.extend_from_slice(name.as_slice());
-			journal.push(2u8);
 			tx.set_from_vec(columns::AUX, &Self::blob_key(self.hash, name.as_slice()), blob);
 		}
 	}
