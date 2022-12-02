@@ -2510,6 +2510,7 @@ type TransientPtr<H> = Option<*mut TransientBlockInfo<H>>;
 struct TransientBlockInfo<H> {
 	rc: usize,
 	can_prune: bool,
+	hash: H,
 	parent_siblings: TransientPtr<H>,
 	direct_parent: TransientPtr<H>,
 	children_siblings: TransientPtr<H>,
@@ -2529,15 +2530,15 @@ impl<'a, Block: BlockT> TransientArchive<'a, Block> {
 	fn add_transient_changes(
 		&mut self,
 		btrees_changes: BtreesCollection,
-		blob_changes: BlobsCollection,
+		blobs_changes: BlobsCollection,
 		tx: &mut Transaction<DbHash>,
 	) {
 		if self.in_mem.pruning.is_archive() {
 			// just write, no checks
 			let mut journal = Vec::new();
 			self.write_btrees(btrees_changes, tx, &mut journal);
+			self.write_blobs(blobs_changes, tx, &mut journal);
 			tx.set_from_vec(columns::AUX, &Self::journal_key(self.hash), journal);
-			unimplemented!()
 		} else {
 			unimplemented!()
 		}
@@ -2565,7 +2566,7 @@ impl<'a, Block: BlockT> TransientArchive<'a, Block> {
 			if info.removed {
 				// Note that there is currently no sense to have removed
 				// info, but will be needed in case of a non transient mode.
-				continue;
+				continue
 			}
 			let name = info.infos.name.encode();
 			journal.push(0u8);
@@ -2573,7 +2574,11 @@ impl<'a, Block: BlockT> TransientArchive<'a, Block> {
 			let mut values = std::collections::BTreeSet::new();
 			for (key, change) in changes {
 				if let Some(change) = change {
-					tx.set_from_vec(columns::AUX, &Self::btree_key(self.hash, name.as_slice(), key.as_slice()), change);
+					tx.set_from_vec(
+						columns::AUX,
+						&Self::btree_key(self.hash, name.as_slice(), key.as_slice()),
+						change,
+					);
 					values.insert(key);
 				} else {
 					// transient, this is not needed at this point.
@@ -2601,7 +2606,7 @@ impl<'a, Block: BlockT> TransientArchive<'a, Block> {
 			if info.removed {
 				// Note that there is currently no sense to have removed
 				// info, but will be needed in case of a non transient mode.
-				continue;
+				continue
 			}
 			let name = &info.infos.name;
 			journal.push(1u8);
@@ -2611,7 +2616,7 @@ impl<'a, Block: BlockT> TransientArchive<'a, Block> {
 			tx.set_from_vec(columns::AUX, &Self::blob_key(self.hash, name.as_slice()), blob);
 		}
 	}
-	
+
 	fn journal_key(hash: &Block::Hash) -> Vec<u8> {
 		let mut key = Vec::with_capacity(32 + 16);
 		key.extend_from_slice(b"TransientJournal");
@@ -2635,8 +2640,6 @@ impl<'a, Block: BlockT> TransientArchive<'a, Block> {
 		key.extend_from_slice(blob_key);
 		key
 	}
-
-
 }
 
 #[cfg(test)]
