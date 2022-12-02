@@ -44,9 +44,11 @@ use linked_hash_map::LinkedHashMap;
 use log::{debug, trace, warn};
 use parking_lot::{Mutex, RwLock};
 use std::{
+	cell::Cell,
 	collections::{HashMap, HashSet},
 	io,
 	path::{Path, PathBuf},
+	rc::Rc,
 	sync::Arc,
 };
 
@@ -1058,6 +1060,7 @@ pub struct Backend<Block: BlockT> {
 	state_usage: Arc<StateUsageStats>,
 	genesis_state: RwLock<Option<Arc<DbGenesisStorage<Block>>>>,
 	shared_trie_cache: Option<sp_trie::cache::SharedTrieCache<HashFor<Block>>>,
+	transient_in_memory: RwLock<TransientArchiveInMemory<Block>>,
 }
 
 impl<Block: BlockT> Backend<Block> {
@@ -1155,6 +1158,8 @@ impl<Block: BlockT> Backend<Block> {
 		let is_archive_pruning = state_pruning_used.is_archive();
 		let blockchain = BlockchainDb::new(db.clone())?;
 
+		let transient_in_memory =
+			RwLock::new(TransientArchiveInMemory::new(state_db.pruning_mode()));
 		let storage_db =
 			StorageDb { db: db.clone(), state_db, prefix_keys: !db.supports_ref_counting() };
 
@@ -1174,6 +1179,7 @@ impl<Block: BlockT> Backend<Block> {
 			shared_trie_cache: config.trie_cache_maximum_size.map(|maximum_size| {
 				SharedTrieCache::new(sp_trie::cache::CacheSize::Maximum(maximum_size))
 			}),
+			transient_in_memory,
 		};
 
 		// Older DB versions have no last state key. Check if the state is available and set it.
@@ -1323,6 +1329,7 @@ impl<Block: BlockT> Backend<Block> {
 		&self,
 		transaction: &mut Transaction<DbHash>,
 		hash: Block::Hash,
+		parent_hash: Block::Hash,
 		number: NumberFor<Block>,
 	) -> ClientResult<()> {
 		let number_u64 = number.saturated_into::<u64>();
@@ -1360,12 +1367,10 @@ impl<Block: BlockT> Backend<Block> {
 
 			let mut transient_storage = TransientArchive::<Block> {
 				db: self.storage.db.clone(),
-				at: hash,
-				height: new_canonical.saturated_into(),
-				archive: matches!(
-					self.storage.state_db.pruning_mode(),
-					PruningMode::ArchiveAll | PruningMode::ArchiveCanonical
-				),
+				hash: &hash,
+				parent_hash: &parent_hash,
+				number: new_canonical.saturated_into(),
+				in_mem: &mut *self.transient_in_memory.write(),
 			};
 			transient_storage.canonicalize(transaction);
 		}
@@ -1538,18 +1543,17 @@ impl<Block: BlockT> Backend<Block> {
 				}
 
 				let mut transient_storage = TransientArchive::<Block> {
+					in_mem: &mut *self.transient_in_memory.write(),
 					db: self.storage.db.clone(),
-					at: hash,
-					height: number,
-					archive: matches!(
-						self.storage.state_db.pruning_mode(),
-						PruningMode::ArchiveAll | PruningMode::ArchiveCanonical
-					),
+					hash: &hash,
+					parent_hash: &parent_hash,
+					number,
 				};
-				transient_storage
-					.add_btrees_changes(operation.btrees_storage_updates, &mut transaction);
-				transient_storage
-					.add_blobs_changes(operation.blobs_storage_updates, &mut transaction);
+				transient_storage.add_transient_changes(
+					operation.btrees_storage_updates,
+					operation.blobs_storage_updates,
+					&mut transaction,
+				);
 
 				// Check if need to finalize. Genesis is always finalized instantly.
 				let finalized = number_u64 == 0 || pending_block.leaf_state.is_final();
@@ -1590,7 +1594,12 @@ impl<Block: BlockT> Backend<Block> {
 				)?;
 			} else {
 				// canonicalize blocks which are old enough, regardless of finality.
-				self.force_delayed_canonicalize(&mut transaction, hash, *header.number())?
+				self.force_delayed_canonicalize(
+					&mut transaction,
+					hash,
+					*header.parent_hash(),
+					*header.number(),
+				)?
 			}
 
 			if !existing_header {
@@ -1727,15 +1736,14 @@ impl<Block: BlockT> Backend<Block> {
 		with_state: bool,
 	) -> ClientResult<()> {
 		let f_num = *f_header.number();
+		let f_parent = *f_header.parent_hash();
 
 		let mut transient_storage = TransientArchive::<Block> {
+			in_mem: &mut *self.transient_in_memory.write(),
 			db: self.storage.db.clone(),
-			at: f_hash,
-			height: f_num.clone(),
-			archive: matches!(
-				self.storage.state_db.pruning_mode(),
-				PruningMode::ArchiveAll | PruningMode::ArchiveCanonical
-			),
+			hash: &f_hash,
+			parent_hash: &f_parent,
+			number: f_num.clone(),
 		};
 		transient_storage.canonicalize(transaction);
 
@@ -1834,14 +1842,13 @@ impl<Block: BlockT> Backend<Block> {
 		{
 			let number = header.number();
 			let hash = header.hash();
+			let parent_hash = header.parent_hash();
 			let mut transient_storage = TransientArchive::<Block> {
+				in_mem: &mut *self.transient_in_memory.write(),
 				db: self.storage.db.clone(),
-				at: hash,
-				height: number.clone(),
-				archive: matches!(
-					self.storage.state_db.pruning_mode(),
-					PruningMode::ArchiveAll | PruningMode::ArchiveCanonical
-				),
+				hash: &hash,
+				parent_hash: &parent_hash,
+				number: number.clone(),
 			};
 			transient_storage.drop_or_prune(transaction);
 		}
@@ -2467,22 +2474,73 @@ impl<Block: BlockT> sc_client_api::backend::LocalBackend<Block> for Backend<Bloc
 /// A simple implementation of transient data indexing.
 /// This is meant to be use by default when no better implementation
 /// is attached, but do not try to be performant.
-struct TransientArchive<Block: BlockT> {
+struct TransientArchive<'a, Block: BlockT> {
 	pub db: Arc<dyn Database<DbHash>>,
-	pub at: Block::Hash,
-	pub height: NumberFor<Block>,
-	pub archive: bool,
+	pub hash: &'a Block::Hash,
+	pub parent_hash: &'a Block::Hash,
+	pub number: NumberFor<Block>,
+	pub in_mem: &'a mut TransientArchiveInMemory<Block>,
 }
 
-impl<Block: BlockT> TransientArchive<Block> {
-	/// Write btrees changes.
-	fn add_btrees_changes(&mut self, changes: BtreesCollection, tx: &mut Transaction<DbHash>) {
-		unimplemented!()
-	}
+struct TransientArchiveInMemory<Block: BlockT> {
+	infos: HashMap<Block::Hash, Option<TransientBlockInfo<Block::Hash>>>,
+	pruning: PruningMode,
+}
 
-	/// Write blobs changes.
-	fn add_blobs_changes(&mut self, changes: BlobsCollection, tx: &mut Transaction<DbHash>) {
-		unimplemented!()
+// not send transient ptr should not leak.
+unsafe impl<Block: BlockT + Send> Send for TransientArchiveInMemory<Block> {}
+
+// not sync transient ptr should not leak.
+unsafe impl<Block: BlockT + Sync> Sync for TransientArchiveInMemory<Block> {}
+
+impl<Block: BlockT> TransientArchiveInMemory<Block> {
+	fn new(pruning: PruningMode) -> Self {
+		TransientArchiveInMemory { infos: HashMap::new(), pruning }
+	}
+}
+
+/// Pointer in in memory chain struct just *mut.
+/// Could switch to safe `Arc<RwLock` later or less unsafe `Rc<Cell`.
+type TransientPtr<H> = Option<*mut TransientBlockInfo<H>>;
+
+/// Simple struct to keep trace of chain structure
+/// locally.
+/// The api could use fork tree, but this is also
+/// meant to be a simple example for other indexer.
+struct TransientBlockInfo<H> {
+	rc: usize,
+	can_prune: bool,
+	parent_siblings: TransientPtr<H>,
+	direct_parent: TransientPtr<H>,
+	children_siblings: TransientPtr<H>,
+	direct_children: Vec<TransientPtr<H>>,
+	next_siblings: TransientPtr<H>,
+	prev_siblings: TransientPtr<H>,
+}
+
+#[derive(Encode, Decode)]
+enum JournalEntry {
+	NewName(Vec<u8>),
+	NewKey(Vec<u8>),
+}
+
+impl<'a, Block: BlockT> TransientArchive<'a, Block> {
+	/// Write btrees and blobs changes.
+	fn add_transient_changes(
+		&mut self,
+		btrees_changes: BtreesCollection,
+		blob_changes: BlobsCollection,
+		tx: &mut Transaction<DbHash>,
+	) {
+		if self.in_mem.pruning.is_archive() {
+			// just write, no checks
+			let mut journal = Vec::new();
+			self.write_btrees(btrees_changes, tx, &mut journal);
+			tx.set_from_vec(columns::AUX, &Self::journal_key(self.hash), journal);
+			unimplemented!()
+		} else {
+			unimplemented!()
+		}
 	}
 
 	fn canonicalize(&mut self, tx: &mut Transaction<DbHash>) {
@@ -2492,6 +2550,93 @@ impl<Block: BlockT> TransientArchive<Block> {
 	fn drop_or_prune(&mut self, tx: &mut Transaction<DbHash>) {
 		unimplemented!()
 	}
+
+	fn write_btrees(
+		&mut self,
+		btrees_changes: BtreesCollection,
+		tx: &mut Transaction<DbHash>,
+		journal: &mut Vec<u8>,
+	) {
+		for (info, changes) in btrees_changes {
+			match info.infos.mode {
+				Some(sp_core::storage::transient::Mode::Archive) => (),
+				Some(sp_core::storage::transient::Mode::Drop) | None => continue,
+			}
+			if info.removed {
+				// Note that there is currently no sense to have removed
+				// info, but will be needed in case of a non transient mode.
+				continue;
+			}
+			let name = info.infos.name.encode();
+			journal.push(0u8);
+			journal.extend_from_slice(name.as_slice());
+			let mut values = std::collections::BTreeSet::new();
+			for (key, change) in changes {
+				if let Some(change) = change {
+					tx.set_from_vec(columns::AUX, &Self::btree_key(self.hash, name.as_slice(), key.as_slice()), change);
+					values.insert(key);
+				} else {
+					// transient, this is not needed at this point.
+				}
+			}
+			// Note that empty btrees are only lookable through journal
+			for key in values.iter() {
+				journal.push(2u8);
+				key.encode_to(journal);
+			}
+		}
+	}
+
+	fn write_blobs(
+		&mut self,
+		blobs_changes: BlobsCollection,
+		tx: &mut Transaction<DbHash>,
+		journal: &mut Vec<u8>,
+	) {
+		for (info, blob) in blobs_changes {
+			match info.infos.mode {
+				Some(sp_core::storage::transient::Mode::Archive) => (),
+				Some(sp_core::storage::transient::Mode::Drop) | None => continue,
+			}
+			if info.removed {
+				// Note that there is currently no sense to have removed
+				// info, but will be needed in case of a non transient mode.
+				continue;
+			}
+			let name = &info.infos.name;
+			journal.push(1u8);
+			name.encode_to(journal);
+			journal.extend_from_slice(name.as_slice());
+			journal.push(2u8);
+			tx.set_from_vec(columns::AUX, &Self::blob_key(self.hash, name.as_slice()), blob);
+		}
+	}
+	
+	fn journal_key(hash: &Block::Hash) -> Vec<u8> {
+		let mut key = Vec::with_capacity(32 + 16);
+		key.extend_from_slice(b"TransientJournal");
+		key.extend_from_slice(hash.as_ref());
+		key
+	}
+
+	fn btree_key(hash: &Block::Hash, encoded_name: &[u8], btree_key: &[u8]) -> Vec<u8> {
+		let mut key = Vec::with_capacity(32 + 19 + encoded_name.len() + btree_key.len());
+		key.extend_from_slice(b"TransientBtreesItem");
+		key.extend_from_slice(hash.as_ref());
+		key.extend_from_slice(encoded_name);
+		key.extend_from_slice(btree_key);
+		key
+	}
+
+	fn blob_key(hash: &Block::Hash, blob_key: &[u8]) -> Vec<u8> {
+		let mut key = Vec::with_capacity(32 + 18 + blob_key.len());
+		key.extend_from_slice(b"TransientBlobsItem");
+		key.extend_from_slice(hash.as_ref());
+		key.extend_from_slice(blob_key);
+		key
+	}
+
+
 }
 
 #[cfg(test)]
