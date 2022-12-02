@@ -777,6 +777,9 @@ impl OverlayedChanges {
 			!changeset.is_empty()
 		});
 		retain_map(&mut self.btrees, |_, (changeset, infos)| {
+			if let Some(last_removed) = infos.take_last_removed() {
+				*changeset = last_removed;
+			}
 			let clean = infos
 				.rollback_transaction()
 				.expect("Top and children changesets are started in lockstep; qed");
@@ -786,6 +789,9 @@ impl OverlayedChanges {
 			!clean
 		});
 		retain_map(&mut self.blobs, |_, (changeset, infos)| {
+			if let Some(last_removed) = infos.take_last_removed() {
+				*changeset = last_removed;
+			}
 			let clean = infos
 				.rollback_transaction()
 				.expect("Top and children changesets are started in lockstep; qed");
@@ -814,17 +820,37 @@ impl OverlayedChanges {
 				.expect("Top and children changesets are started in lockstep; qed");
 		}
 		for (_, (changeset, infos)) in self.btrees.iter_mut() {
+			let last_removed = infos.take_last_removed();
 			infos
 				.commit_transaction()
 				.expect("Top and children changesets are started in lockstep; qed");
+			if let Some(mut last_removed) = last_removed {
+				if !infos.has_last_removed() {
+					// next revert would revert to previous state.
+					// Note that this is could be lazy but current design
+					// favor freeing memory.
+					last_removed.rollback_transaction()?;
+					infos.set_last_removed(last_removed);
+				}
+			}
 			changeset
 				.commit_transaction()
 				.expect("Top and children changesets are started in lockstep; qed");
 		}
 		for (_, (changeset, infos)) in self.blobs.iter_mut() {
+			let last_removed = infos.take_last_removed();
 			infos
 				.commit_transaction()
 				.expect("Top and children changesets are started in lockstep; qed");
+			if let Some(mut last_removed) = last_removed {
+				if !infos.has_last_removed() {
+					// next revert would revert to previous state.
+					// Note that this is could be lazy but current design
+					// favor freeing memory.
+					last_removed.rollback_transaction()?;
+					infos.set_last_removed(last_removed);
+				}
+			}
 			changeset
 				.commit_transaction()
 				.expect("Top and children changesets are started in lockstep; qed");
@@ -850,20 +876,11 @@ impl OverlayedChanges {
 	/// This commits all dangling transaction left open by the runtime.
 	/// Calling this while outside the runtime will return an error.
 	pub fn exit_runtime(&mut self) -> Result<(), NotInRuntime> {
+		let nb_open = self.top.nb_open_transactions(&self.context);
 		self.context.exit_runtime()?;
-		self.top.roll_back_open_transactions(&self.context);
-		for (_, (changeset, _)) in self.children.iter_mut() {
-			changeset.roll_back_open_transactions(&self.context)
+		for _ in 0..nb_open {
+			self.rollback_transaction().expect("counted above");
 		}
-		for (_, (changeset, infos)) in self.btrees.iter_mut() {
-			infos.roll_back_open_transactions(&self.context);
-			changeset.roll_back_open_transactions(&self.context)
-		}
-		for (_, (changeset, infos)) in self.blobs.iter_mut() {
-			infos.roll_back_open_transactions(&self.context);
-			changeset.roll_back_open_transactions(&self.context)
-		}
-		self.offchain.overlay_mut().roll_back_open_transactions(&self.context);
 		Ok(())
 	}
 

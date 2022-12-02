@@ -386,12 +386,9 @@ impl<K: Ord + Hash + Clone, V> OverlayedMap<K, V> {
 		self.dirty_keys.len()
 	}
 
-	/// This commits all dangling transaction left open by the runtime.
-	pub fn roll_back_open_transactions(&mut self, context: &OverlayedContext) {
-		while self.has_open_runtime_transactions(context.num_client_transactions) {
-			self.rollback_transaction()
-				.expect("The loop condition checks that the transaction depth is > 0; qed");
-		}
+	/// Count number of open transactions.
+	pub fn nb_open_transactions(&mut self, context: &OverlayedContext) -> usize {
+		self.transaction_depth() - context.num_client_transactions
 	}
 
 	/// Start a new nested transaction.
@@ -549,6 +546,40 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 		&mut self.infos.value_mut().0
 	}
 
+	/// Check if we have a previously removed content set
+	/// in current transaction layer.
+	pub fn has_last_removed(&self) -> bool {
+		if self.dirty_infos.last().copied().unwrap_or(false) {
+			self.infos.value_ref().1.is_some()
+		} else {
+			false
+		}
+	}
+
+	/// Take last_removed of current transaction layer.
+	pub fn take_last_removed(&mut self) -> Option<M> {
+		if self.dirty_infos.last().copied().unwrap_or(false) {
+			self.infos.value_mut().1.take()
+		} else {
+			None
+		}
+	}
+
+	/// Set last_removed in current transaction layer.
+	pub fn set_last_removed(&mut self, last_removed: M) {
+		if set_dirty_infos(&mut self.dirty_infos) {
+			let value = self.infos.value_ref().0.clone();
+			// first write, add a layer
+			self.infos
+				.transactions
+				.push(InnerValue { value: (value, None), extrinsics: Default::default() });
+		}
+
+		debug_assert!(self.infos.value_mut().1.is_none()); // otherwhise we overwrite the correct value
+
+		self.infos.value_mut().1 = Some(last_removed);
+	}
+
 	/// Returns the current nesting depth of the transaction stack.
 	///
 	/// A value of zero means that no transaction is open and changes are committed on write.
@@ -605,18 +636,6 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 			}
 		}
 		Ok(())
-	}
-
-	/// This commits all dangling transaction left open by the runtime.
-	pub fn roll_back_open_transactions(&mut self, context: &OverlayedContext) {
-		while self.has_open_runtime_transactions(context.num_client_transactions) {
-			self.rollback_transaction()
-				.expect("The loop condition checks that the transaction depth is > 0; qed");
-		}
-	}
-
-	fn has_open_runtime_transactions(&self, num_client_transactions: usize) -> bool {
-		self.transaction_depth() > num_client_transactions
 	}
 }
 
@@ -761,22 +780,6 @@ impl OverlayedChangeSetBlob {
 		}
 
 		Ok(())
-	}
-
-	/// This commits all dangling transaction left open by the runtime.
-	pub fn roll_back_open_transactions(&mut self, context: &OverlayedContext) {
-		while self.has_open_runtime_transactions(context.num_client_transactions) {
-			self.rollback_transaction()
-				.expect("The loop condition checks that the transaction depth is > 0; qed");
-		}
-	}
-
-	fn has_open_runtime_transactions(&self, num_client_transactions: usize) -> bool {
-		self.transaction_depth() > num_client_transactions
-	}
-
-	fn transaction_depth(&self) -> usize {
-		self.dirty.len()
 	}
 }
 
