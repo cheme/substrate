@@ -135,6 +135,8 @@ pub struct OverlayedMap<K, V> {
 
 impl<K, V> Default for OverlayedMap<K, V> {
 	fn default() -> Self {
+		// TODO this is bad, just init dirty keys to size one to make everything
+		// simplier or at least swith dirty info to index base array
 		Self { changes: BTreeMap::new(), dirty_keys: SmallVec::new() }
 	}
 }
@@ -549,7 +551,7 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 	/// Check if we have a previously removed content set
 	/// in current transaction layer.
 	pub fn has_last_removed(&self) -> bool {
-		if self.dirty_infos.last().copied().unwrap_or(false) {
+		if self.dirty_infos.last().copied().unwrap_or(true) {
 			self.infos.value_ref().1.is_some()
 		} else {
 			false
@@ -558,7 +560,7 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 
 	/// Take last_removed of current transaction layer.
 	pub fn take_last_removed(&mut self) -> Option<M> {
-		if self.dirty_infos.last().copied().unwrap_or(false) {
+		if self.dirty_infos.last().copied().unwrap_or(true) {
 			self.infos.value_mut().1.take()
 		} else {
 			None

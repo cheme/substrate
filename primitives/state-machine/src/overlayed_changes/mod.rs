@@ -113,14 +113,10 @@ pub struct OverlayedChanges {
 	children: Map<StorageKey, (OverlayedChangeSet, ChildInfo)>,
 	/// Btrees changes. The map key is the child storage key without the common prefix.
 	/// TODO BtreeInfo in changeset (also cache root
-	btrees:
-		Map<Name, (OverlayedChangeSet, OverlayedInfos<BtreeMeta, OverlayedChangeSet>)>,
+	btrees: Map<Name, (OverlayedChangeSet, OverlayedInfos<BtreeMeta, OverlayedChangeSet>)>,
 	/// Blobs changes. The map key is the child storage key without the common prefix.
 	/// TODO BlobInfo in changeset (also cache root
-	blobs: Map<
-		Name,
-		(OverlayedChangeSetBlob, OverlayedInfos<BlobMeta, OverlayedChangeSetBlob>),
-	>,
+	blobs: Map<Name, (OverlayedChangeSetBlob, OverlayedInfos<BlobMeta, OverlayedChangeSetBlob>)>,
 	/// Offchain related changes.
 	offchain: OffchainOverlayedChanges,
 	/// Transaction index changes,
@@ -418,10 +414,7 @@ impl OverlayedChanges {
 		Self::blob_chunks_inner(self.blobs.get(name)?)
 	}
 	fn blob_chunks_inner<'a>(
-		blob: &'a (
-			OverlayedChangeSetBlob,
-			OverlayedInfos<BlobMeta, OverlayedChangeSetBlob>,
-		),
+		blob: &'a (OverlayedChangeSetBlob, OverlayedInfos<BlobMeta, OverlayedChangeSetBlob>),
 	) -> Option<(impl Iterator<Item = &'a [u8]>, &'a BlobMeta)> {
 		let (blob, infos, ..) = blob;
 		let infos = infos.value_ref();
@@ -687,7 +680,13 @@ impl OverlayedChanges {
 						info.size = 0;
 						info.hash = None;
 						info.removed = true;
-						entry.0.truncate_clean(0);
+						let mut last = sp_std::mem::take(&mut entry.0);
+						if !entry.1.has_last_removed() {
+							if self.context.guard_no_runtime_transaction(&self.top).is_ok() {
+								let _ = last.rollback_transaction();
+								entry.1.set_last_removed(last);
+							}
+						}
 						result as u32
 					} else {
 						0
@@ -698,10 +697,18 @@ impl OverlayedChanges {
 			ChildInfo::BTree(info) =>
 				if let Some(entry) = self.btrees.get_mut(&info.name) {
 					let info = entry.1.modify_value(extrinsic_index);
+					let result = info.size;
 					info.removed = true;
 					info.size = 0;
 					info.root = None;
-					entry.0.clear_where(|_, _| true, extrinsic_index)
+					let mut last = sp_std::mem::take(&mut entry.0);
+					if !entry.1.has_last_removed() {
+						if self.context.guard_no_runtime_transaction(&self.top).is_ok() {
+							let _ = last.rollback_transaction();
+							entry.1.set_last_removed(last);
+						}
+					}
+					result as u32
 				} else {
 					0
 				},
@@ -779,11 +786,12 @@ impl OverlayedChanges {
 		retain_map(&mut self.btrees, |_, (changeset, infos)| {
 			if let Some(last_removed) = infos.take_last_removed() {
 				*changeset = last_removed;
+			} else {
+				changeset
+					.rollback_transaction()
+					.expect("Top and children changesets are started in lockstep; qed");
 			}
 			let clean = infos
-				.rollback_transaction()
-				.expect("Top and children changesets are started in lockstep; qed");
-			changeset
 				.rollback_transaction()
 				.expect("Top and children changesets are started in lockstep; qed");
 			!clean
@@ -791,11 +799,12 @@ impl OverlayedChanges {
 		retain_map(&mut self.blobs, |_, (changeset, infos)| {
 			if let Some(last_removed) = infos.take_last_removed() {
 				*changeset = last_removed;
+			} else {
+				changeset
+					.rollback_transaction()
+					.expect("Top and children changesets are started in lockstep; qed");
 			}
 			let clean = infos
-				.rollback_transaction()
-				.expect("Top and children changesets are started in lockstep; qed");
-			changeset
 				.rollback_transaction()
 				.expect("Top and children changesets are started in lockstep; qed");
 			!clean
@@ -1159,12 +1168,18 @@ impl OverlayedChanges {
 				let entry = self.btrees.entry(info.name.clone()).or_insert_with(|| {
 					(top.spawn_child(), top.spawn_info(BtreeMeta::from(info.clone())))
 				});
+				if clear_existing {
+					let mut last = sp_std::mem::take(&mut entry.0);
+					if !entry.1.has_last_removed() {
+						if self.context.guard_no_runtime_transaction(&self.top).is_ok() {
+							let _ = last.rollback_transaction();
+							entry.1.set_last_removed(last);
+						}
+					}
+				}
 				// even if same content we register and
 				// update.
 				let stored = entry.1.modify_value(extrinsic_index);
-				if clear_existing {
-					entry.0.clear_where(|_, _| true, extrinsic_index);
-				}
 				if stored.infos.structure != info.structure {
 					stored.root = None;
 				}
@@ -1189,15 +1204,22 @@ impl OverlayedChanges {
 				let entry = self.blobs.entry(info.name.clone()).or_insert_with(|| {
 					(top.spawn_blob(), top.spawn_info(BlobMeta::from(info.clone())))
 				});
+				if clear_existing {
+					let mut last = sp_std::mem::take(&mut entry.0);
+					if !entry.1.has_last_removed() {
+						if self.context.guard_no_runtime_transaction(&self.top).is_ok() {
+							let _ = last.rollback_transaction();
+							entry.1.set_last_removed(last);
+						}
+					}
+				}
+
 				// even if same content we register and
 				// update.
 				let stored = entry.1.modify_value(extrinsic_index);
 				if clear_existing {
-					if !stored.removed {
-						stored.size = 0;
-						stored.hash = None;
-						entry.0.truncate_clean(0);
-					}
+					stored.size = 0;
+					stored.hash = None;
 				}
 				if stored.infos.algorithm != info.algorithm {
 					stored.hash = None;
@@ -1268,7 +1290,13 @@ impl OverlayedChanges {
 					.btrees
 					.entry(info.name.clone())
 					.and_modify(|entry| {
-						entry.0.clear_where(|_, _| true, extrinsic_index);
+						let mut last = sp_std::mem::take(&mut entry.0);
+						if !entry.1.has_last_removed() {
+							if self.context.guard_no_runtime_transaction(&self.top).is_ok() {
+								let _ = last.rollback_transaction();
+								entry.1.set_last_removed(last);
+							}
+						}
 					})
 					.or_insert_with(|| {
 						(top.spawn_child(), top.spawn_info(BtreeMeta::from(info.clone())))
@@ -1315,8 +1343,12 @@ impl OverlayedChanges {
 					.blobs
 					.entry(target_name.to_vec())
 					.and_modify(|entry| {
-						if !entry.1.value_ref().removed {
-							entry.0.truncate_clean(0);
+						let mut last = sp_std::mem::take(&mut entry.0);
+						if !entry.1.has_last_removed() {
+							if self.context.guard_no_runtime_transaction(&self.top).is_ok() {
+								let _ = last.rollback_transaction();
+								entry.1.set_last_removed(last);
+							}
 						}
 					})
 					.or_insert_with(|| {
@@ -1383,16 +1415,14 @@ impl OverlayedChanges {
 impl From<sp_core::storage::Storage> for OverlayedChanges {
 	fn from(storage: sp_core::storage::Storage) -> Self {
 		let top: OverlayedChangeSet = storage.top.into();
-		let btrees: Map<
-			Name,
-			(OverlayedChangeSet, OverlayedInfos<BtreeMeta, OverlayedChangeSet>),
-		> = storage
-			.btree_storages
-			.into_iter()
-			// TODO overlay also with btree infos and root
-			// TODO add btree info in overlayedchangeset?
-			.map(|(k, v)| (k, (v.data.into(), top.spawn_info(BtreeMeta::from(v.info)))))
-			.collect();
+		let btrees: Map<Name, (OverlayedChangeSet, OverlayedInfos<BtreeMeta, OverlayedChangeSet>)> =
+			storage
+				.btree_storages
+				.into_iter()
+				// TODO overlay also with btree infos and root
+				// TODO add btree info in overlayedchangeset?
+				.map(|(k, v)| (k, (v.data.into(), top.spawn_info(BtreeMeta::from(v.info)))))
+				.collect();
 		let blobs: Map<
 			Name,
 			(OverlayedChangeSetBlob, OverlayedInfos<BlobMeta, OverlayedChangeSetBlob>),
