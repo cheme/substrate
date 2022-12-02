@@ -1738,14 +1738,16 @@ impl<Block: BlockT> Backend<Block> {
 		let f_num = *f_header.number();
 		let f_parent = *f_header.parent_hash();
 
-		let mut transient_storage = TransientArchive::<Block> {
-			in_mem: &mut *self.transient_in_memory.write(),
-			db: self.storage.db.clone(),
-			hash: &f_hash,
-			parent_hash: &f_parent,
-			number: f_num.clone(),
-		};
-		transient_storage.canonicalize(transaction);
+		{
+			let mut transient_storage = TransientArchive::<Block> {
+				in_mem: &mut *self.transient_in_memory.write(),
+				db: self.storage.db.clone(),
+				hash: &f_hash,
+				parent_hash: &f_parent,
+				number: f_num.clone(),
+			};
+			transient_storage.canonicalize(transaction);
+		}
 
 		let lookup_key = utils::number_and_hash_to_lookup_key(f_num, f_hash)?;
 		if with_state {
@@ -2732,6 +2734,18 @@ impl<'a, Block: BlockT> TransientArchive<'a, Block> {
 		key
 	}
 }
+
+/// Callback hooks for a transient indexer.
+pub trait TransientIndexer<Block> {}
+
+/*
+ * dyn call proto:
+ * supported api version
+ * unsafe extern fn() -> u32
+ * get dyn trait
+ * unsafe extern fn(PruningMode) -> dyn TransientIndexer
+ *TransientArchiveInMemory<Block>
+ */
 
 #[cfg(test)]
 pub(crate) mod tests {
