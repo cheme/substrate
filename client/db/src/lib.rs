@@ -2483,7 +2483,7 @@ struct TransientArchive<'a, Block: BlockT> {
 }
 
 struct TransientArchiveInMemory<Block: BlockT> {
-	infos: HashMap<Block::Hash, Option<TransientBlockInfo<Block::Hash>>>,
+	infos: HashMap<Block::Hash, TransientBlockInfo<Block>>,
 	// TODO consider using its own configuration
 	pruning: PruningMode,
 }
@@ -2500,24 +2500,31 @@ impl<Block: BlockT> TransientArchiveInMemory<Block> {
 	}
 }
 
+/*
 /// Pointer in in memory chain struct just *mut.
 /// Could switch to safe `Arc<RwLock` later or less unsafe `Rc<Cell`.
-type TransientPtr<H> = Option<*mut TransientBlockInfo<H>>;
+type TransientPtr<B> = Option<*mut TransientBlockInfo<B>>;
+*/
 
 /// Simple struct to keep trace of chain structure
 /// locally.
 /// The api could use fork tree, but this is also
 /// meant to be a simple example for other indexer.
-struct TransientBlockInfo<H> {
-	rc: usize,
-	can_prune: bool,
-	hash: H,
-	parent_siblings: TransientPtr<H>,
-	direct_parent: TransientPtr<H>,
-	children_siblings: TransientPtr<H>,
-	direct_children: Vec<TransientPtr<H>>,
-	next_siblings: TransientPtr<H>,
-	prev_siblings: TransientPtr<H>,
+/// Some pointer are not necessary but will be if a persistence
+/// is needed (and we store deltas).
+struct TransientBlockInfo<Block: BlockT> {
+	hash: Block::Hash,
+	number: NumberFor<Block>, // Not strictly neccessary.
+	/*
+	parent_siblings: TransientPtr<Block>,
+	direct_parent: TransientPtr<Block>,
+	children_siblings: TransientPtr<Block>,
+	direct_children: Vec<TransientPtr<Block>>,
+	next_siblings: TransientPtr<Block>,
+	prev_siblings: TransientPtr<Block>,
+	*/
+	btrees_changes: BtreesCollection,
+	blobs_changes: BlobsCollection,
 }
 
 #[derive(Encode, Decode)]
@@ -2542,7 +2549,19 @@ impl<'a, Block: BlockT> TransientArchive<'a, Block> {
 			tx.set_from_vec(columns::AUX, &Self::journal_key(self.hash), journal);
 			return
 		}
-		unimplemented!()
+		let info = TransientBlockInfo {
+			hash: self.hash.clone(),
+			number: self.number.clone(),
+			btrees_changes,
+			blobs_changes,
+		};
+
+		if self.in_mem.infos.insert(self.hash.clone(), info).is_some() {
+			warn!(
+				"Adding transient info twice for a same block at {:?}: {:?}",
+				self.hash, self.number
+			);
+		}
 	}
 
 	fn canonicalize(&mut self, tx: &mut Transaction<DbHash>) {
@@ -2550,7 +2569,14 @@ impl<'a, Block: BlockT> TransientArchive<'a, Block> {
 			// done in `add_transient_changes`.
 			return
 		}
-		unimplemented!()
+		if let Some(info) = self.in_mem.infos.remove(&self.hash) {
+			let mut journal = vec![0u8]; // version 0
+			self.write_btrees(info.btrees_changes, tx, &mut journal);
+			self.write_blobs(info.blobs_changes, tx, &mut journal);
+			tx.set_from_vec(columns::AUX, &Self::journal_key(self.hash), journal);
+		} else {
+			warn!("Canonicalize miss transient info at {:?}: {:?}", self.hash, self.number);
+		}
 	}
 
 	// TODO consider calling drop and prune from canonicalize instead, but
