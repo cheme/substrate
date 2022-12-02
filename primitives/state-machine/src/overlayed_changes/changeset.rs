@@ -141,9 +141,9 @@ impl<K, V> Default for OverlayedMap<K, V> {
 
 /// Holds history of infos attached to a storage.
 #[derive(Debug, Clone)]
-pub struct OverlayedInfos<I> {
+pub struct OverlayedInfos<I, M> {
 	/// Internal infos.
-	infos: OverlayedEntry<I>,
+	infos: OverlayedEntry<(I, Option<M>)>,
 	/// Changes for infos.
 	dirty_infos: DirtyInfos,
 }
@@ -315,12 +315,12 @@ impl<K: Ord + Hash + Clone, V> OverlayedMap<K, V> {
 	///
 	/// This changeset might be created when there are already open transactions.
 	/// We need to catch up here so that the child is at the same transaction depth.
-	pub fn spawn_info<I>(&self, info: I) -> OverlayedInfos<I> {
+	pub fn spawn_info<I, M>(&self, info: I) -> OverlayedInfos<I, M> {
 		use sp_std::iter::repeat;
 		let mut result = OverlayedInfos {
 			infos: OverlayedEntry {
 				transactions: SmallVec::from_iter([InnerValue {
-					value: info,
+					value: (info, None),
 					extrinsics: Default::default(),
 				}]),
 			},
@@ -506,24 +506,24 @@ impl OverlayedContext {
 	}
 }
 
-impl<I: Clone> OverlayedInfos<I> {
+impl<I: Clone, M> OverlayedInfos<I, M> {
 	/// Consume this infos and return the info if it is existing.
 	///
 	/// Panics:
 	/// Panics if there are open transactions: `transaction_depth() > 0`
 	pub fn drain_committed(self) -> I {
 		assert!(self.transaction_depth() == 0, "Drain is not allowed with open transactions.");
-		self.infos.into_value()
+		self.infos.into_value().0
 	}
 
 	/// Current value for infos.
 	pub fn value_ref(&self) -> &I {
-		self.infos.value_ref()
+		&self.infos.value_ref().0
 	}
 
 	/// The value as seen by the current transaction.
 	pub fn into_value(self) -> I {
-		self.infos.into_value()
+		self.infos.into_value().0
 	}
 
 	/// Access mutable value on  the change set.
@@ -535,18 +535,18 @@ impl<I: Clone> OverlayedInfos<I> {
 	pub fn modify_value(&mut self, at_extrinsic: Option<u32>) -> &mut I {
 		debug_assert!(!self.infos.transactions.is_empty());
 		if set_dirty_infos(&mut self.dirty_infos) {
-			let value = self.infos.value_ref().clone();
+			let value = self.infos.value_ref().0.clone();
 			// first write, add a layer
 			self.infos
 				.transactions
-				.push(InnerValue { value, extrinsics: Default::default() });
+				.push(InnerValue { value: (value, None), extrinsics: Default::default() });
 		}
 
 		if let Some(extrinsic) = at_extrinsic {
 			self.infos.transaction_extrinsics_mut().insert(extrinsic);
 		}
 
-		self.infos.value_mut()
+		&mut self.infos.value_mut().0
 	}
 
 	/// Returns the current nesting depth of the transaction stack.
