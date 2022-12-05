@@ -380,6 +380,8 @@ cfg_if! {
 				fn test_multiple_arguments(data: Vec<u8>, other: Vec<u8>, num: u32);
 				/// Traces log "Hey I'm runtime."
 				fn do_trace_log();
+				/// Verify the given signature, public & message bundle.
+				fn verify_ed25519(sig: ed25519::Signature, public: ed25519::Public, message: Vec<u8>) -> bool;
 			}
 		}
 	} else {
@@ -432,6 +434,8 @@ cfg_if! {
 				fn test_multiple_arguments(data: Vec<u8>, other: Vec<u8>, num: u32);
 				/// Traces log "Hey I'm runtime."
 				fn do_trace_log();
+				/// Verify the given signature, public & message bundle.
+				fn verify_ed25519(sig: ed25519::Signature, public: ed25519::Public, message: Vec<u8>) -> bool;
 			}
 		}
 	}
@@ -612,7 +616,7 @@ impl From<frame_system::Call<Runtime>> for Extrinsic {
 	}
 }
 
-impl frame_system::Config for Runtime {
+impl frame_system::pallet::Config for Runtime {
 	type BaseCallFilter = frame_support::traits::Everything;
 	type BlockWeights = RuntimeBlockWeights;
 	type BlockLength = RuntimeBlockLength;
@@ -871,6 +875,10 @@ cfg_if! {
 				fn do_trace_log() {
 					log::trace!("Hey I'm runtime");
 				}
+
+				fn verify_ed25519(sig: ed25519::Signature, public: ed25519::Public, message: Vec<u8>) -> bool {
+					sp_io::crypto::ed25519_verify(&sig, &message, &public)
+				}
 			}
 
 			impl sp_consensus_aura::AuraApi<Block, AuraId> for Runtime {
@@ -974,13 +982,13 @@ cfg_if! {
 				}
 			}
 
-			impl beefy_primitives::BeefyApi<Block> for RuntimeApi {
+			impl beefy_primitives::BeefyApi<Block> for Runtime {
 				fn validator_set() -> Option<beefy_primitives::ValidatorSet<beefy_primitives::crypto::AuthorityId>> {
 					None
 				}
 			}
 
-			impl beefy_merkle_tree::BeefyMmrApi<Block, beefy_primitives::MmrRootHash> for RuntimeApi {
+			impl beefy_merkle_tree::BeefyMmrApi<Block, beefy_primitives::MmrRootHash> for Runtime {
 				fn authority_set_proof() -> beefy_primitives::mmr::BeefyAuthoritySet<beefy_primitives::MmrRootHash> {
 					Default::default()
 				}
@@ -1148,6 +1156,10 @@ cfg_if! {
 
 				fn do_trace_log() {
 					log::trace!("Hey I'm runtime: {}", log::STATIC_MAX_LEVEL);
+				}
+
+				fn verify_ed25519(sig: ed25519::Signature, public: ed25519::Public, message: Vec<u8>) -> bool {
+					sp_io::crypto::ed25519_verify(&sig, &message, &public)
 				}
 			}
 
