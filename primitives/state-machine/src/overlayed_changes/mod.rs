@@ -672,46 +672,107 @@ impl OverlayedChanges {
 				debug_assert!(updatable);
 				changeset.clear_where(|_, _| true, extrinsic_index)
 			},
-			ChildInfo::Blob(info) =>
-				if let Some(entry) = self.blobs.get_mut(&info.name) {
-					if !entry.1.value_ref().removed {
-						let info = entry.1.modify_value(extrinsic_index);
-						let result = info.size as u32;
-						info.size = 0;
-						info.hash = None;
-						info.removed = true;
-						let mut last = sp_std::mem::take(&mut entry.0);
-						if !entry.1.has_last_removed() {
-							if self.context.guard_no_runtime_transaction(&self.top).is_ok() {
-								let _ = last.rollback_transaction();
-								entry.1.set_last_removed(last);
-							}
+			ChildInfo::Blob(info) => self.clear_blob_storage(&info.name, None).0,
+			ChildInfo::BTree(info) => self.clear_btree_storage(&info.name, None).0,
+		}
+	}
+
+	fn clear_blob_storage(
+		&mut self,
+		name: &[u8],
+		move_old_state: Option<&[u8]>,
+	) -> (u32, Option<(OverlayedChangeSetBlob, bool, Option<Vec<u8>>)>) {
+		let top = &self.top;
+		let extrinsic_index = self.extrinsic_index();
+		if let Some(entry) = self.blobs.get_mut(name) {
+			if !entry.1.value_ref().removed {
+				let info = entry.1.modify_value(extrinsic_index);
+				let result = info.size;
+				info.removed = true;
+				info.size = 0;
+				info.hash = None;
+				let mut last = sp_std::mem::replace(&mut entry.0, top.spawn_blob());
+				// TODO the guard_no_runtime_transaction may be covered by the need_keep
+				let moved = if self.context.guard_no_runtime_transaction(&self.top).is_ok() {
+					if let Some(current_key) = entry.1.take_moved_from_current() {
+						if let Some(target) = move_old_state {
+							Some((last, false, Some(current_key)))
+						} else {
+							let _ = last.rollback_transaction();
+							entry.1.set_moved_from(current_key, Some(last));
+							None
 						}
-						result as u32
-					} else {
-						0
-					}
-				} else {
-					0
-				},
-			ChildInfo::BTree(info) =>
-				if let Some(entry) = self.btrees.get_mut(&info.name) {
-					let info = entry.1.modify_value(extrinsic_index);
-					let result = info.size;
-					info.removed = true;
-					info.size = 0;
-					info.root = None;
-					let mut last = sp_std::mem::take(&mut entry.0);
-					if !entry.1.has_last_removed() {
-						if self.context.guard_no_runtime_transaction(&self.top).is_ok() {
+					} else if entry.1.need_keep_origin() {
+						if let Some(target) = move_old_state {
+							entry.1.set_moved_to(target.to_vec());
+							Some((last, true, None))
+						} else {
 							let _ = last.rollback_transaction();
 							entry.1.set_last_removed(last);
+							None
 						}
+					} else {
+						move_old_state.map(|_| (last, false, None))
 					}
-					result as u32
 				} else {
-					0
-				},
+					move_old_state.map(|_| (last, false, None))
+				};
+				(result as u32, moved)
+			} else {
+				(0, None)
+			}
+		} else {
+			(0, None)
+		}
+	}
+
+	fn clear_btree_storage(
+		&mut self,
+		name: &[u8],
+		move_old_state: Option<&[u8]>,
+	) -> (u32, Option<(OverlayedChangeSet, bool, Option<Vec<u8>>)>) {
+		let top = &self.top;
+		let extrinsic_index = self.extrinsic_index();
+		if let Some(entry) = self.btrees.get_mut(name) {
+			if !entry.1.value_ref().removed {
+				let info = entry.1.modify_value(extrinsic_index);
+				let result = info.size;
+				info.removed = true;
+				info.size = 0;
+				info.root = None;
+				let mut last = sp_std::mem::replace(&mut entry.0, top.spawn_child());
+				// TODO the guard_no_runtime_transaction may be covered by the need_keep
+				let moved = if self.context.guard_no_runtime_transaction(&self.top).is_ok() {
+					if let Some(current_key) = entry.1.take_moved_from_current() {
+						if let Some(target) = move_old_state {
+							entry.1.set_moved_to(target.to_vec());
+							Some((last, false, Some(current_key)))
+						} else {
+							let _ = last.rollback_transaction();
+							entry.1.set_moved_from(current_key, Some(last));
+							None
+						}
+					} else if entry.1.need_keep_origin() {
+						if let Some(target) = move_old_state {
+							entry.1.set_moved_to(target.to_vec());
+							Some((last, true, None))
+						} else {
+							let _ = last.rollback_transaction();
+							entry.1.set_last_removed(last);
+							None
+						}
+					} else {
+						move_old_state.map(|_| (last, false, None))
+					}
+				} else {
+					move_old_state.map(|_| (last, false, None))
+				};
+				(result as u32, moved)
+			} else {
+				(0, None)
+			}
+		} else {
+			(0, None)
 		}
 	}
 
@@ -828,11 +889,20 @@ impl OverlayedChanges {
 				.commit_transaction()
 				.expect("Top and children changesets are started in lockstep; qed");
 		}
+		unimplemented!();
+		/*
 		for (_, (changeset, infos)) in self.btrees.iter_mut() {
 			let last_removed = infos.take_last_removed();
+			let moved_from = infos.take_moved_from();
+			let moved_to = infos.take_moved_to();
 			infos
 				.commit_transaction()
 				.expect("Top and children changesets are started in lockstep; qed");
+			if infos.has_previous_moved_from() {
+				// last_removed is content for
+				if let Some(last_removed) = last_removed.take() {
+				}
+			}
 			if let Some(mut last_removed) = last_removed {
 				if !infos.has_last_removed() {
 					// next revert would revert to previous state.
@@ -840,6 +910,17 @@ impl OverlayedChanges {
 					// favor freeing memory.
 					last_removed.rollback_transaction()?;
 					infos.set_last_removed(last_removed);
+				}
+			}
+			if let Some(moved_to) = moved_to {
+				if !infos.has_moved_to() {
+					infos.set_moved_to(moved_to);
+				}
+			}
+			for (from, state) in moved_from {
+				let has_previous = infos.has_moved_from(from.as_slice());
+				if !has_previous {
+					infos.set_moved_from(from, state)
 				}
 			}
 			changeset
@@ -864,6 +945,7 @@ impl OverlayedChanges {
 				.commit_transaction()
 				.expect("Top and children changesets are started in lockstep; qed");
 		}
+		*/
 		self.offchain
 			.overlay_mut()
 			.commit_transaction()
@@ -1170,7 +1252,7 @@ impl OverlayedChanges {
 				});
 				if clear_existing {
 					let mut last = sp_std::mem::take(&mut entry.0);
-					if !entry.1.has_last_removed() {
+					if entry.1.need_keep_origin() {
 						if self.context.guard_no_runtime_transaction(&self.top).is_ok() {
 							let _ = last.rollback_transaction();
 							entry.1.set_last_removed(last);
@@ -1206,7 +1288,7 @@ impl OverlayedChanges {
 				});
 				if clear_existing {
 					let mut last = sp_std::mem::take(&mut entry.0);
-					if !entry.1.has_last_removed() {
+					if entry.1.need_keep_origin() {
 						if self.context.guard_no_runtime_transaction(&self.top).is_ok() {
 							let _ = last.rollback_transaction();
 							entry.1.set_last_removed(last);
@@ -1271,41 +1353,37 @@ impl OverlayedChanges {
 			// Copy not supported.
 			ChildInfo::ParentKeyId(_) => false,
 			ChildInfo::BTree(info) => {
-				let top = &self.top;
 				if &info.name == target_name {
 					return false
 				}
 				let extrinsic_index = self.extrinsic_index();
+				let info_dest = if let Some(origin) = self.btrees.get(&info.name) {
+					let mut info_dest = origin.1.value_ref().clone();
+					if info_dest.removed {
+						return false
+					};
+					info_dest.infos.name = target_name.to_vec();
+					info_dest
+				} else {
+					return false
+				};
+
+				self.clear_btree_storage(target_name, None);
+
 				let Some(origin) = self.btrees.get(&info.name) else {
 					return false
 				};
-				let info_origin = origin.1.value_ref().clone();
-				if info_origin.removed {
-					return false
-				};
-
 				let origin = &origin.0 as *const OverlayedChangeSet;
 
-				let entry = self
-					.btrees
-					.entry(target_name.to_vec())
-					.and_modify(|entry| {
-						let mut last = sp_std::mem::take(&mut entry.0);
-						if !entry.1.has_last_removed() {
-							if self.context.guard_no_runtime_transaction(&self.top).is_ok() {
-								let _ = last.rollback_transaction();
-								entry.1.set_last_removed(last);
-							}
-						}
-					})
-					.or_insert_with(|| {
-						(top.spawn_child(), top.spawn_info(BtreeMeta::from(info.clone())))
-					});
+				let top = &self.top;
+				let entry = self.btrees.entry(target_name.to_vec()).or_insert_with(|| {
+					(top.spawn_child(), top.spawn_info(BtreeMeta::from(info.clone())))
+				});
 
 				// even if same content we register and
 				// update.
 				let dest = entry.1.modify_value(extrinsic_index);
-				*dest = info_origin;
+				*dest = info_dest;
 
 				// Access pointer to origin as we know btree
 				// implementation do not change this one when
@@ -1320,16 +1398,24 @@ impl OverlayedChanges {
 				true
 			},
 			ChildInfo::Blob(info) => {
-				let top = &self.top;
 				if &info.name == target_name {
 					return false
 				}
 				let extrinsic_index = self.extrinsic_index();
-				let Some(origin) = self.blobs.get(&info.name) else {
+				let info_dest = if let Some(origin) = self.blobs.get(&info.name) {
+					let mut info_dest = origin.1.value_ref().clone();
+					if info_dest.removed {
+						return false
+					};
+					info_dest.infos.name = target_name.to_vec();
+					info_dest
+				} else {
 					return false
 				};
-				let info_origin = origin.1.value_ref().clone();
-				if info_origin.removed {
+
+				self.clear_blob_storage(target_name, None);
+
+				let Some(origin) = self.blobs.get(&info.name) else {
 					return false
 				};
 
@@ -1339,26 +1425,15 @@ impl OverlayedChanges {
 						OverlayedInfos<BlobMeta, OverlayedChangeSetBlob>,
 					);
 
-				let entry = self
-					.blobs
-					.entry(target_name.to_vec())
-					.and_modify(|entry| {
-						let mut last = sp_std::mem::take(&mut entry.0);
-						if !entry.1.has_last_removed() {
-							if self.context.guard_no_runtime_transaction(&self.top).is_ok() {
-								let _ = last.rollback_transaction();
-								entry.1.set_last_removed(last);
-							}
-						}
-					})
-					.or_insert_with(|| {
-						(top.spawn_blob(), top.spawn_info(BlobMeta::from(info.clone())))
-					});
+				let top = &self.top;
+				let entry = self.blobs.entry(target_name.to_vec()).or_insert_with(|| {
+					(top.spawn_blob(), top.spawn_info(BlobMeta::from(info.clone())))
+				});
 
 				// even if same content we register and
 				// update.
 				let dest = entry.1.modify_value(extrinsic_index);
-				*dest = info_origin;
+				*dest = info_dest;
 
 				// Access pointer to origin as we know btree
 				// implementation do not change this one when
@@ -1382,66 +1457,87 @@ impl OverlayedChanges {
 			// Move not supported.
 			ChildInfo::ParentKeyId(_) => false,
 			ChildInfo::BTree(info) => {
-				let top = &self.top;
 				if &info.name == target_name {
 					return false
 				}
-				let Some(origin) = self.btrees.get_mut(&info.name) else {
-					return false
-				};
-				let info_origin = origin.1.value_ref().clone();
-				if info_origin.removed {
-					return false
-				};
-				origin.1.set_moved_to(target_name.to_vec());
-				let data = sp_std::mem::replace(&mut origin.0, top.spawn_child());
-
-				let dest = self
-					.btrees
-					.entry(target_name.to_vec())
-					.or_insert_with(|| {
-						(top.spawn_child(), top.spawn_info(BtreeMeta::from(info.clone())))
-					});
-				let mut data = sp_std::mem::replace(&mut dest.0, data);
-				let _ = data.rollback_transaction();
-				if dest.1.has_previous_moved_from() {
-					dest.1.set_moved_from((info.name.to_vec(), Some(data)));
+				let extrinsic_index = self.extrinsic_index();
+				let info_dest = if let Some(origin) = self.btrees.get(&info.name) {
+					let mut info_dest = origin.1.value_ref().clone();
+					if info_dest.removed {
+						return false
+					};
+					info_dest.infos.name = target_name.to_vec();
+					info_dest
 				} else {
-					dest.1.set_moved_from((info.name.to_vec(), None));
-					dest.1.set_last_removed(data);
+					return false
 				};
+
+				let Some((state, ref_origin, proxy_origin)) = self.clear_btree_storage(&info.name, Some(target_name)).1 else {
+					return false
+				};
+
+				self.clear_btree_storage(target_name, None);
+
+				let top = &self.top;
+				let entry = self.btrees.entry(target_name.to_vec()).or_insert_with(|| {
+					(top.spawn_child(), top.spawn_info(BtreeMeta::from(info.clone())))
+				});
+
+				// even if same content we register and
+				// update.
+				let dest = entry.1.modify_value(extrinsic_index);
+				*dest = info_dest;
+
+				entry.0 = state;
+				if ref_origin {
+					entry.1.set_moved_from(info.name.clone(), None);
+				} else if let Some(from) = proxy_origin {
+					entry.1.set_moved_from(from.clone(), None);
+					let entry = self.btrees.get_mut(&from).expect("moved got an origin");
+					entry.1.update_moved_to(target_name.to_vec())
+				}
 				true
 			},
 			ChildInfo::Blob(info) => {
-				// TODO this start is the same between blob, btree copy move...
-				let top = &self.top;
 				if &info.name == target_name {
 					return false
 				}
-				let Some(origin) = self.blobs.get_mut(&info.name) else {
-					return false
-				};
-				let info_origin = origin.1.value_ref().clone();
-				if info_origin.removed {
-					return false
-				};
-				origin.1.set_moved_to(target_name.to_vec());
-				let data = sp_std::mem::replace(&mut origin.0, top.spawn_blob());
-
-				let dest = self
-					.blobs
-					.entry(target_name.to_vec())
-					.or_insert_with(|| {
-						(top.spawn_blob(), top.spawn_info(BlobMeta::from(info.clone())))
-					});
-				let mut data = sp_std::mem::replace(&mut dest.0, data);
-				let _ = data.rollback_transaction();
-				if dest.1.has_previous_moved_from() {
-					dest.1.set_moved_from((info.name.to_vec(), Some(data)));
+				let extrinsic_index = self.extrinsic_index();
+				let info_dest = if let Some(origin) = self.blobs.get(&info.name) {
+					let mut info_dest = origin.1.value_ref().clone();
+					if info_dest.removed {
+						return false
+					};
+					info_dest.infos.name = target_name.to_vec();
+					info_dest
 				} else {
-					dest.1.set_moved_from((info.name.to_vec(), None));
-					dest.1.set_last_removed(data);
+					return false
 				};
+
+				let Some((state, ref_origin, proxy_origin)) = self.clear_blob_storage(&info.name, Some(target_name)).1 else {
+					return false
+				};
+
+				self.clear_blob_storage(target_name, None);
+
+				let top = &self.top;
+				let entry = self.blobs.entry(target_name.to_vec()).or_insert_with(|| {
+					(top.spawn_blob(), top.spawn_info(BlobMeta::from(info.clone())))
+				});
+
+				// even if same content we register and
+				// update.
+				let dest = entry.1.modify_value(extrinsic_index);
+				*dest = info_dest;
+
+				entry.0 = state;
+				if ref_origin {
+					entry.1.set_moved_from(info.name.clone(), None);
+				} else if let Some(from) = proxy_origin {
+					entry.1.set_moved_from(from.clone(), None);
+					let entry = self.blobs.get_mut(&from).expect("moved got an origin");
+					entry.1.update_moved_to(target_name.to_vec())
+				}
 				true
 			},
 		}
