@@ -141,11 +141,30 @@ impl<K, V> Default for OverlayedMap<K, V> {
 	}
 }
 
+#[derive(Debug, Clone)]
+struct InfoEntry<I, M> {
+	info: I,
+	removed: Option<M>,
+	moved_to: Option<Vec<u8>>,
+	moved_from: Option<Vec<u8>>,
+}
+
+impl<I, M> From<I> for InfoEntry<I, M> {
+	fn from(info: I) -> Self {
+		InfoEntry {
+			info,
+			removed: None,
+			moved_to: None,
+			moved_from: None,
+		}
+	}
+}
+
 /// Holds history of infos attached to a storage.
 #[derive(Debug, Clone)]
 pub struct OverlayedInfos<I, M> {
 	/// Internal infos.
-	infos: OverlayedEntry<(I, Option<M>)>,
+	infos: OverlayedEntry<InfoEntry<I, M>>,
 	/// Changes for infos.
 	dirty_infos: DirtyInfos,
 }
@@ -322,7 +341,7 @@ impl<K: Ord + Hash + Clone, V> OverlayedMap<K, V> {
 		let mut result = OverlayedInfos {
 			infos: OverlayedEntry {
 				transactions: SmallVec::from_iter([InnerValue {
-					value: (info, None),
+					value: info.into(),
 					extrinsics: Default::default(),
 				}]),
 			},
@@ -512,17 +531,17 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 	/// Panics if there are open transactions: `transaction_depth() > 0`
 	pub fn drain_committed(self) -> I {
 		assert!(self.transaction_depth() == 0, "Drain is not allowed with open transactions.");
-		self.infos.into_value().0
+		self.infos.into_value().info
 	}
 
 	/// Current value for infos.
 	pub fn value_ref(&self) -> &I {
-		&self.infos.value_ref().0
+		&self.infos.value_ref().info
 	}
 
 	/// The value as seen by the current transaction.
 	pub fn into_value(self) -> I {
-		self.infos.into_value().0
+		self.infos.into_value().info
 	}
 
 	/// Access mutable value on  the change set.
@@ -534,25 +553,25 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 	pub fn modify_value(&mut self, at_extrinsic: Option<u32>) -> &mut I {
 		debug_assert!(!self.infos.transactions.is_empty());
 		if set_dirty_infos(&mut self.dirty_infos) {
-			let value = self.infos.value_ref().0.clone();
+			let info = self.infos.value_ref().info.clone();
 			// first write, add a layer
 			self.infos
 				.transactions
-				.push(InnerValue { value: (value, None), extrinsics: Default::default() });
+				.push(InnerValue { value: info.into(), extrinsics: Default::default() });
 		}
 
 		if let Some(extrinsic) = at_extrinsic {
 			self.infos.transaction_extrinsics_mut().insert(extrinsic);
 		}
 
-		&mut self.infos.value_mut().0
+		&mut self.infos.value_mut().info
 	}
 
 	/// Check if we have a previously removed content set
 	/// in current transaction layer.
 	pub fn has_last_removed(&self) -> bool {
 		if self.dirty_infos.last().copied().unwrap_or(true) {
-			self.infos.value_ref().1.is_some()
+			self.infos.value_ref().removed.is_some()
 		} else {
 			false
 		}
@@ -561,7 +580,7 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 	/// Take last_removed of current transaction layer.
 	pub fn take_last_removed(&mut self) -> Option<M> {
 		if self.dirty_infos.last().copied().unwrap_or(true) {
-			self.infos.value_mut().1.take()
+			self.infos.value_mut().removed.take()
 		} else {
 			None
 		}
@@ -570,16 +589,16 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 	/// Set last_removed in current transaction layer.
 	pub fn set_last_removed(&mut self, last_removed: M) {
 		if set_dirty_infos(&mut self.dirty_infos) {
-			let value = self.infos.value_ref().0.clone();
+			let info = self.infos.value_ref().info.clone();
 			// first write, add a layer
 			self.infos
 				.transactions
-				.push(InnerValue { value: (value, None), extrinsics: Default::default() });
+				.push(InnerValue { value: info.into(), extrinsics: Default::default() });
 		}
 
-		debug_assert!(self.infos.value_mut().1.is_none()); // otherwhise we overwrite the correct value
+		debug_assert!(self.infos.value_mut().removed.is_none()); // otherwhise we overwrite the correct value
 
-		self.infos.value_mut().1 = Some(last_removed);
+		self.infos.value_mut().removed = Some(last_removed);
 	}
 
 	/// Returns the current nesting depth of the transaction stack.
