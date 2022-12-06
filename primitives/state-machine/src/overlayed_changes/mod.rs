@@ -1288,7 +1288,7 @@ impl OverlayedChanges {
 
 				let entry = self
 					.btrees
-					.entry(info.name.clone())
+					.entry(target_name.to_vec())
 					.and_modify(|entry| {
 						let mut last = sp_std::mem::take(&mut entry.0);
 						if !entry.1.has_last_removed() {
@@ -1381,31 +1381,68 @@ impl OverlayedChanges {
 		match info {
 			// Move not supported.
 			ChildInfo::ParentKeyId(_) => false,
-			ChildInfo::BTree(btree) => {
-				if &btree.name == target_name {
+			ChildInfo::BTree(info) => {
+				let top = &self.top;
+				if &info.name == target_name {
 					return false
 				}
-				// we need to copy to keep transaction
-				// history of changes.
-				if self.storage_copy(info, target_name) {
-					let _ = self.clear_child_storage(info);
-					true
+				let Some(origin) = self.btrees.get_mut(&info.name) else {
+					return false
+				};
+				let info_origin = origin.1.value_ref().clone();
+				if info_origin.removed {
+					return false
+				};
+				origin.1.set_moved_to(target_name.to_vec());
+				let data = sp_std::mem::replace(&mut origin.0, top.spawn_child());
+
+				let dest = self
+					.btrees
+					.entry(target_name.to_vec())
+					.or_insert_with(|| {
+						(top.spawn_child(), top.spawn_info(BtreeMeta::from(info.clone())))
+					});
+				let mut data = sp_std::mem::replace(&mut dest.0, data);
+				let _ = data.rollback_transaction();
+				if dest.1.has_previous_moved_from() {
+					dest.1.set_moved_from((info.name.to_vec(), Some(data)));
 				} else {
-					false
-				}
+					dest.1.set_moved_from((info.name.to_vec(), None));
+					dest.1.set_last_removed(data);
+				};
+				true
 			},
-			ChildInfo::Blob(blob) => {
-				if &blob.name == target_name {
+			ChildInfo::Blob(info) => {
+				// TODO this start is the same between blob, btree copy move...
+				let top = &self.top;
+				if &info.name == target_name {
 					return false
 				}
-				// we need to copy to keep transaction
-				// history of changes.
-				if self.storage_copy(info, target_name) {
-					let _ = self.clear_child_storage(info);
-					true
+				let Some(origin) = self.blobs.get_mut(&info.name) else {
+					return false
+				};
+				let info_origin = origin.1.value_ref().clone();
+				if info_origin.removed {
+					return false
+				};
+				origin.1.set_moved_to(target_name.to_vec());
+				let data = sp_std::mem::replace(&mut origin.0, top.spawn_blob());
+
+				let dest = self
+					.blobs
+					.entry(target_name.to_vec())
+					.or_insert_with(|| {
+						(top.spawn_blob(), top.spawn_info(BlobMeta::from(info.clone())))
+					});
+				let mut data = sp_std::mem::replace(&mut dest.0, data);
+				let _ = data.rollback_transaction();
+				if dest.1.has_previous_moved_from() {
+					dest.1.set_moved_from((info.name.to_vec(), Some(data)));
 				} else {
-					false
-				}
+					dest.1.set_moved_from((info.name.to_vec(), None));
+					dest.1.set_last_removed(data);
+				};
+				true
 			},
 		}
 	}

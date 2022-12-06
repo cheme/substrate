@@ -146,7 +146,7 @@ struct InfoEntry<I, M> {
 	info: I,
 	removed: Option<M>,
 	moved_to: Option<Vec<u8>>,
-	moved_from: Option<Vec<u8>>,
+	moved_from: Vec<(Vec<u8>, Option<M>)>,
 }
 
 impl<I, M> From<I> for InfoEntry<I, M> {
@@ -155,7 +155,7 @@ impl<I, M> From<I> for InfoEntry<I, M> {
 			info,
 			removed: None,
 			moved_to: None,
-			moved_from: None,
+			moved_from: Vec::new(),
 		}
 	}
 }
@@ -577,6 +577,25 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 		}
 	}
 
+	/// Check if we have a previously moved content set
+	/// in current transaction layer.
+	pub fn has_moved_to(&self) -> bool {
+		if self.dirty_infos.last().copied().unwrap_or(true) {
+			self.infos.value_ref().moved_to.is_some()
+		} else {
+			false
+		}
+	}
+
+	/// Check if adding moved from need content.
+	pub fn has_previous_moved_from(&self) -> bool {
+		if self.dirty_infos.last().copied().unwrap_or(true) {
+			!self.infos.value_ref().moved_from.is_empty()
+		} else {
+			false
+		}
+	}
+
 	/// Take last_removed of current transaction layer.
 	pub fn take_last_removed(&mut self) -> Option<M> {
 		if self.dirty_infos.last().copied().unwrap_or(true) {
@@ -599,6 +618,36 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 		debug_assert!(self.infos.value_mut().removed.is_none()); // otherwhise we overwrite the correct value
 
 		self.infos.value_mut().removed = Some(last_removed);
+	}
+
+	/// Set moved_to in current transaction layer.
+	pub fn set_moved_to(&mut self, moved_to: Vec<u8>) {
+		if set_dirty_infos(&mut self.dirty_infos) {
+			let info = self.infos.value_ref().info.clone();
+			// first write, add a layer
+			self.infos
+				.transactions
+				.push(InnerValue { value: info.into(), extrinsics: Default::default() });
+		}
+
+		debug_assert!(self.infos.value_mut().moved_to.is_none()); // otherwhise we overwrite the correct value
+
+		self.infos.value_mut().moved_to = Some(moved_to);
+	}
+
+	/// Set moved_to in current transaction layer.
+	pub fn set_moved_from(&mut self, moved_from: (Vec<u8>, Option<M>)) {
+		if set_dirty_infos(&mut self.dirty_infos) {
+			let info = self.infos.value_ref().info.clone();
+			// first write, add a layer
+			self.infos
+				.transactions
+				.push(InnerValue { value: info.into(), extrinsics: Default::default() });
+		}
+
+		debug_assert!(self.infos.value_mut().moved_from.last().map(|t| t.1.is_none()).unwrap_or(true));
+
+		self.infos.value_mut().moved_from.push(moved_from)
 	}
 
 	/// Returns the current nesting depth of the transaction stack.
