@@ -619,7 +619,7 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 
 	/// Check if we should store origin for a possible rollback.
 	pub fn need_keep_origin(&self) -> bool {
-		if self.dirty_infos.last().copied().unwrap_or(true) {
+		if self.dirty_infos.last().copied().unwrap_or(false) {
 			match &self.infos.value_ref().origin {
 				OriginEntry::Current => true,
 				_ => false,
@@ -634,7 +634,7 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 
 	/// Check if change of state it previous transaction layer.
 	pub fn has_previous_past_state(&self) -> bool {
-		if self.dirty_infos.last().copied().unwrap_or(true) {
+		if self.dirty_infos.last().copied().unwrap_or(false) {
 			match &self.infos.value_ref().origin {
 				OriginEntry::MovedTo(_) | OriginEntry::Removed(_) => true,
 				OriginEntry::Empty | OriginEntry::Current => false,
@@ -647,7 +647,7 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 	/// Check if adding moved from need content.
 	/// TODO is it useless ?
 	pub fn has_previous_moved_from(&self) -> bool {
-		if self.dirty_infos.last().copied().unwrap_or(true) {
+		if self.dirty_infos.last().copied().unwrap_or(false) {
 			self.infos.value_ref().moved_from_current.is_some() ||
 				!self
 					.infos
@@ -663,7 +663,7 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 
 	/// Check if moved from need content exists for an origin.
 	pub fn is_previous_moved_from_current(&self, from: &[u8]) -> bool {
-		if self.dirty_infos.last().copied().unwrap_or(true) {
+		if self.dirty_infos.last().copied().unwrap_or(false) {
 			self.infos.value_ref().moved_from_current.as_ref().map(Vec::as_slice) == Some(from)
 		} else {
 			false
@@ -672,7 +672,7 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 
 	/// Check if moved from need content exists for an origin.
 	pub fn take_other_previous_moved_from(&mut self, from: &[u8]) -> Option<M> {
-		if self.dirty_infos.last().copied().unwrap_or(true) {
+		if self.dirty_infos.last().copied().unwrap_or(false) {
 			self.infos.value_mut().others_moved_from.as_mut().and_then(|v| v.remove(from))
 		} else {
 			None
@@ -681,7 +681,7 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 
 	/// Take last_removed of current transaction layer.
 	pub fn take_last_removed(&mut self) -> Option<M> {
-		if self.dirty_infos.last().copied().unwrap_or(true) {
+		if self.dirty_infos.last().copied().unwrap_or(false) {
 			let infos = self.infos.value_mut();
 			if let &OriginEntry::Removed(_) = &infos.origin {
 				if let OriginEntry::Removed(old) =
@@ -696,7 +696,7 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 
 	/// Take moved to origin current transaction layer.
 	pub fn take_moved_to(&mut self) -> Option<Vec<u8>> {
-		if self.dirty_infos.last().copied().unwrap_or(true) {
+		if self.dirty_infos.last().copied().unwrap_or(false) {
 			let infos = self.infos.value_mut();
 			if let &OriginEntry::MovedTo(_) = &infos.origin {
 				if let OriginEntry::MovedTo(dest) =
@@ -711,7 +711,7 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 
 	/// Check if we got a current moved from info as current state.
 	pub fn take_moved_from_current(&mut self) -> Option<Vec<u8>> {
-		if self.dirty_infos.last().copied().unwrap_or(true) {
+		if self.dirty_infos.last().copied().unwrap_or(false) {
 			let infos = self.infos.value_mut();
 			sp_std::mem::take(&mut infos.moved_from_current)
 		} else {
@@ -721,7 +721,7 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 
 	/// Take last_removed of current transaction layer.
 	pub fn take_moved_from(&mut self) -> Option<impl Iterator<Item = (Vec<u8>, Option<M>)>> {
-		if self.dirty_infos.last().copied().unwrap_or(true) {
+		if self.dirty_infos.last().copied().unwrap_or(false) {
 			let infos = self.infos.value_mut();
 			let others_moved_from = sp_std::mem::take(&mut infos.others_moved_from);
 			let moved_from_current = sp_std::mem::take(&mut infos.moved_from_current);
