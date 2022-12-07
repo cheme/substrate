@@ -2351,5 +2351,7 @@ mod tests {
 			assert!(ext.blob_exists(blob1.storage_key()));
 			assert!(!ext.blob_exists(blob3.storage_key()));
 		}
+
+		// TODO test multiple consecutive rename: same tx, different tx.
 	}
 }
