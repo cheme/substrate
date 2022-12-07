@@ -694,8 +694,8 @@ impl OverlayedChanges {
 				let mut last = sp_std::mem::replace(&mut entry.0, top.spawn_blob());
 				// TODO the guard_no_runtime_transaction may be covered by the need_keep
 				let moved = if self.context.guard_no_runtime_transaction(&self.top).is_ok() {
-					if let Some(current_key) = entry.1.take_moved_from_current() {
-						if let Some(target) = move_old_state {
+					if let Some(current_key) = entry.1.take_is_previous_moved_from() {
+						if let Some(_target) = move_old_state {
 							Some((last, false, Some(current_key)))
 						} else {
 							let _ = last.rollback_transaction();
@@ -743,7 +743,7 @@ impl OverlayedChanges {
 				let mut last = sp_std::mem::replace(&mut entry.0, top.spawn_child());
 				// TODO the guard_no_runtime_transaction may be covered by the need_keep
 				let moved = if self.context.guard_no_runtime_transaction(&self.top).is_ok() {
-					if let Some(current_key) = entry.1.take_moved_from_current() {
+					if let Some(current_key) = entry.1.take_is_previous_moved_from() {
 						if let Some(target) = move_old_state {
 							entry.1.set_moved_to(target.to_vec());
 							Some((last, false, Some(current_key)))
@@ -884,7 +884,7 @@ impl OverlayedChanges {
 				Some(OriginEntry::Removed(last_removed)) => {
 					*changeset = last_removed;
 				},
-				Some(OriginEntry::MovedTo(moved_to)) => {
+				Some(OriginEntry::MovedTo(_moved_to)) => {
 					// will get new info from moved from in second step
 				},
 			}
@@ -938,7 +938,7 @@ impl OverlayedChanges {
 				Some(OriginEntry::Removed(last_removed)) => {
 					*changeset = last_removed;
 				},
-				Some(OriginEntry::MovedTo(moved_to)) => {
+				Some(OriginEntry::MovedTo(_moved_to)) => {
 					// will get new info from moved from in second step
 				},
 			}
@@ -976,9 +976,6 @@ impl OverlayedChanges {
 		}
 
 		for (_, (changeset, infos)) in self.btrees.iter_mut() {
-			let last_removed = infos.take_last_removed();
-			let moved_from = infos.take_moved_from();
-			let moved_to = infos.take_moved_to();
 			infos
 				.commit_transaction()
 				.expect("Top and children changesets are started in lockstep; qed");
@@ -988,7 +985,6 @@ impl OverlayedChanges {
 		}
 
 		for (_, (changeset, infos)) in self.blobs.iter_mut() {
-			let last_removed = infos.take_last_removed();
 			infos
 				.commit_transaction()
 				.expect("Top and children changesets are started in lockstep; qed");
