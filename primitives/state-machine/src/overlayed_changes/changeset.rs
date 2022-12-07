@@ -620,7 +620,7 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 
 	/// Check if we should store origin for a possible rollback.
 	pub fn need_keep_origin(&self) -> bool {
-		if self.dirty_infos.last().copied().unwrap_or(false) {
+		if self.dirty_infos.last().copied().unwrap_or(true) {
 			match &self.infos.value_ref().origin {
 				OriginEntry::Current => true,
 				_ => false,

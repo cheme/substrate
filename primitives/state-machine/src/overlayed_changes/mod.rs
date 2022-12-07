@@ -1296,20 +1296,14 @@ impl OverlayedChanges {
 			// its existence is only related to its content.
 			ChildInfo::ParentKeyId(_) => false,
 			ChildInfo::BTree(info) => {
+				if clear_existing {
+					self.clear_btree_storage(&info.name, None);
+				}
 				let top = &self.top;
 				let extrinsic_index = self.extrinsic_index();
 				let entry = self.btrees.entry(info.name.clone()).or_insert_with(|| {
 					(top.spawn_child(), top.spawn_info(BtreeMeta::from(info.clone())))
 				});
-				if clear_existing {
-					let mut last = sp_std::mem::take(&mut entry.0);
-					if entry.1.need_keep_origin() {
-						if self.context.guard_no_runtime_transaction(&self.top).is_ok() {
-							let _ = last.rollback_transaction();
-							entry.1.set_last_removed(last);
-						}
-					}
-				}
 				// even if same content we register and
 				// update.
 				let stored = entry.1.modify_value(extrinsic_index);
@@ -1332,20 +1326,14 @@ impl OverlayedChanges {
 				success
 			},
 			ChildInfo::Blob(info) => {
+				if clear_existing {
+					self.clear_blob_storage(&info.name, None);
+				}
 				let top = &self.top;
 				let extrinsic_index = self.extrinsic_index();
 				let entry = self.blobs.entry(info.name.clone()).or_insert_with(|| {
 					(top.spawn_blob(), top.spawn_info(BlobMeta::from(info.clone())))
 				});
-				if clear_existing {
-					let mut last = sp_std::mem::take(&mut entry.0);
-					if entry.1.need_keep_origin() {
-						if self.context.guard_no_runtime_transaction(&self.top).is_ok() {
-							let _ = last.rollback_transaction();
-							entry.1.set_last_removed(last);
-						}
-					}
-				}
 
 				// even if same content we register and
 				// update.
