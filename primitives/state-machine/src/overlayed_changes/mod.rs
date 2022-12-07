@@ -20,16 +20,15 @@
 mod changeset;
 mod offchain;
 
-use self::changeset::{OverlayedChangeSet, OverlayedChangeSetBlob, OverlayedInfos, OriginEntry};
+use self::changeset::{OriginEntry, OverlayedChangeSet, OverlayedChangeSetBlob, OverlayedInfos};
 use crate::{backend::Backend, stats::StateMachineStats, DefaultError};
-use codec::{Decode, Encode};
+use codec::Encode;
 use hash_db::Hasher;
 pub use offchain::OffchainOverlayedChanges;
 use sp_core::{
 	offchain::OffchainOverlayedChange,
 	storage::{
-		well_known_keys::EXTRINSIC_INDEX, Blob as BlobInfo, Btree as BtreeInfo, ChildInfo, Name,
-		StateVersion, BLOB_CHUNK_SIZE,
+		Blob as BlobInfo, Btree as BtreeInfo, ChildInfo, Name, StateVersion, BLOB_CHUNK_SIZE,
 	},
 };
 use sp_externalities::range_slice;
@@ -37,7 +36,7 @@ use sp_externalities::range_slice;
 use sp_externalities::{Extension, Extensions};
 #[cfg(not(feature = "std"))]
 use sp_std::collections::btree_map::BTreeMap as Map;
-use sp_std::{borrow::Cow, collections::btree_set::BTreeSet, vec::Vec};
+use sp_std::{borrow::Cow, vec::Vec};
 #[cfg(feature = "std")]
 use std::collections::{hash_map::Entry as MapEntry, HashMap as Map};
 #[cfg(feature = "std")]
@@ -49,9 +48,6 @@ use std::{
 pub use self::changeset::{
 	AlreadyInRuntime, NoOpenTransaction, NotInRuntime, OverlayedContext, OverlayedValue,
 };
-
-/// Changes that are made outside of extrinsics are marked with this index;
-pub const NO_EXTRINSIC_INDEX: u32 = 0xffffffff;
 
 /// Storage key.
 pub type StorageKey = Vec<u8>;
@@ -76,29 +72,6 @@ pub type BlobsCollection = Vec<(BlobMeta, Blob)>;
 
 /// In memory array of storage values.
 pub type OffchainChangesCollection = Vec<((Vec<u8>, Vec<u8>), OffchainOverlayedChange)>;
-
-/// Keep trace of extrinsics index for a modified value.
-#[derive(Debug, Default, Eq, PartialEq, Clone)]
-pub struct Extrinsics(Vec<u32>);
-
-impl Extrinsics {
-	/// Extracts extrinsics into a `BTreeSets`.
-	fn copy_extrinsics_into(&self, dest: &mut BTreeSet<u32>) {
-		dest.extend(self.0.iter())
-	}
-
-	/// Add an extrinsics.
-	fn insert(&mut self, ext: u32) {
-		if Some(&ext) != self.0.last() {
-			self.0.push(ext);
-		}
-	}
-
-	/// Extend `self` with `other`.
-	fn extend(&mut self, other: Self) {
-		self.0.extend(other.0.into_iter());
-	}
-}
 
 /// The set of changes that are overlaid onto the backend.
 ///
@@ -314,7 +287,7 @@ impl OverlayedChanges {
 		key: &[u8],
 		init: impl Fn() -> StorageValue,
 	) -> &mut StorageValue {
-		let value = self.top.modify(key.to_vec(), init, self.extrinsic_index());
+		let value = self.top.modify(key.to_vec(), init);
 
 		// if the value was deleted initialise it back with an empty vec
 		value.get_or_insert_with(StorageValue::default)
@@ -499,7 +472,7 @@ impl OverlayedChanges {
 	pub fn set_storage(&mut self, key: StorageKey, val: Option<StorageValue>) {
 		let size_write = val.as_ref().map(|x| x.len() as u64).unwrap_or(0);
 		self.stats.tally_write_overlay(size_write);
-		self.top.set(key, val, self.extrinsic_index());
+		self.top.set(key, val);
 	}
 
 	/// Set a new value for the specified key and child.
@@ -515,7 +488,6 @@ impl OverlayedChanges {
 		key: &[u8],
 		val: Option<&[u8]>,
 	) -> bool {
-		let extrinsic_index = self.extrinsic_index();
 		let size_write = val.as_ref().map(|x| x.len() as u64).unwrap_or(0);
 		self.stats.tally_write_overlay(size_write);
 		let top = &self.top;
@@ -529,7 +501,7 @@ impl OverlayedChanges {
 					.or_insert_with(|| (top.spawn_child(), child_info.clone()));
 				let updatable = info.try_update(child_info);
 				debug_assert!(updatable);
-				changeset.set(key.to_vec(), val.map(Vec::from), extrinsic_index);
+				changeset.set(key.to_vec(), val.map(Vec::from));
 				true
 			},
 			ChildInfo::BTree(infos) =>
@@ -551,7 +523,7 @@ impl OverlayedChanges {
 						(existing && val.is_none()) ||
 						(!existing && val.is_some())
 					{
-						let infos = info.modify_value(extrinsic_index);
+						let infos = info.modify_value();
 						if changed {
 							infos.root = None;
 						}
@@ -561,7 +533,7 @@ impl OverlayedChanges {
 							infos.size -= 1;
 						}
 					}
-					changeset.set(key.to_vec(), val.map(Vec::from), extrinsic_index);
+					changeset.set(key.to_vec(), val.map(Vec::from));
 					true
 				} else {
 					false
@@ -582,8 +554,6 @@ impl OverlayedChanges {
 			return false
 		};
 
-		let extrinsic_index = self.extrinsic_index();
-
 		let Some((changeset, info)) = self.blobs.get_mut(name) else {
 			return false;
 		};
@@ -602,7 +572,7 @@ impl OverlayedChanges {
 
 		let update_size = end as u32 > previous_len;
 		if update_size || info.value_ref().hash.is_some() {
-			let info = info.modify_value(extrinsic_index);
+			let info = info.modify_value();
 			info.hash = None;
 			if update_size {
 				info.size = end;
@@ -610,18 +580,18 @@ impl OverlayedChanges {
 		}
 
 		if chunk_start == chunk_end {
-			let chunk = changeset.modify_chunk(chunk_start, extrinsic_index);
+			let chunk = changeset.modify_chunk(chunk_start);
 			chunk[chunk_start_offset..chunk_end_offset].copy_from_slice(value);
 		} else {
-			let chunk = changeset.modify_chunk(chunk_start, extrinsic_index);
+			let chunk = changeset.modify_chunk(chunk_start);
 			let mut offset = BLOB_CHUNK_SIZE - chunk_start_offset;
 			chunk[chunk_start_offset..].copy_from_slice(&value[..offset]);
 			for i in chunk_start + 1..chunk_end {
-				let chunk = changeset.modify_chunk(i, extrinsic_index);
+				let chunk = changeset.modify_chunk(i);
 				chunk[..].copy_from_slice(&value[offset..offset + BLOB_CHUNK_SIZE]);
 				offset += BLOB_CHUNK_SIZE;
 			}
-			let chunk = changeset.modify_chunk(chunk_end, extrinsic_index);
+			let chunk = changeset.modify_chunk(chunk_end);
 			chunk[..chunk_end_offset].copy_from_slice(&value[offset..]);
 		}
 		true
@@ -631,8 +601,6 @@ impl OverlayedChanges {
 		let Some(previous_len) = self.blob_len(name) else {
 			return false;
 		};
-
-		let extrinsic_index = self.extrinsic_index();
 
 		let Some((changeset, info)) = self.blobs.get_mut(name) else {
 			return false;
@@ -646,7 +614,7 @@ impl OverlayedChanges {
 
 		changeset.truncate_clean(chunk_start);
 
-		let info = info.modify_value(extrinsic_index);
+		let info = info.modify_value();
 		info.hash = None;
 		info.size = new_len as usize;
 
@@ -657,7 +625,6 @@ impl OverlayedChanges {
 	///
 	/// Can be rolled back or committed when called inside a transaction.
 	pub(crate) fn clear_child_storage(&mut self, child_info: &ChildInfo) -> u32 {
-		let extrinsic_index = self.extrinsic_index();
 		let storage_key = child_info.storage_key().to_vec();
 		let top = &self.top;
 		match child_info {
@@ -670,7 +637,7 @@ impl OverlayedChanges {
 					.or_insert_with(|| (top.spawn_child(), child_info.clone()));
 				let updatable = info.try_update(child_info);
 				debug_assert!(updatable);
-				changeset.clear_where(|_, _| true, extrinsic_index)
+				changeset.clear_where(|_, _| true)
 			},
 			ChildInfo::Blob(info) => self.clear_blob_storage(&info.name, false).0,
 			ChildInfo::BTree(info) => self.clear_btree_storage(&info.name, false).0,
@@ -683,10 +650,9 @@ impl OverlayedChanges {
 		move_old_state: bool,
 	) -> (u32, Option<(OverlayedChangeSetBlob, bool, Option<Vec<u8>>)>) {
 		let top = &self.top;
-		let extrinsic_index = self.extrinsic_index();
 		if let Some(entry) = self.blobs.get_mut(name) {
 			if !entry.1.value_ref().removed {
-				let info = entry.1.modify_value(extrinsic_index);
+				let info = entry.1.modify_value();
 				let result = info.size;
 				info.removed = true;
 				info.size = 0;
@@ -732,10 +698,9 @@ impl OverlayedChanges {
 		move_old_state: bool,
 	) -> (u32, Option<(OverlayedChangeSet, bool, Option<Vec<u8>>)>) {
 		let top = &self.top;
-		let extrinsic_index = self.extrinsic_index();
 		if let Some(entry) = self.btrees.get_mut(name) {
 			if !entry.1.value_ref().removed {
-				let info = entry.1.modify_value(extrinsic_index);
+				let info = entry.1.modify_value();
 				let result = info.size;
 				info.removed = true;
 				info.size = 0;
@@ -780,14 +745,13 @@ impl OverlayedChanges {
 	///
 	/// Can be rolled back or committed when called inside a transaction.
 	pub(crate) fn clear_prefix(&mut self, prefix: &[u8]) -> u32 {
-		self.top.clear_where(|key, _| key.starts_with(prefix), self.extrinsic_index())
+		self.top.clear_where(|key, _| key.starts_with(prefix))
 	}
 
 	/// Removes all key-value pairs which keys share the given prefix.
 	///
 	/// Can be rolled back or committed when called inside a transaction
 	pub(crate) fn clear_child_prefix(&mut self, child_info: &ChildInfo, prefix: &[u8]) -> u32 {
-		let extrinsic_index = self.extrinsic_index();
 		let storage_key = child_info.storage_key().to_vec();
 		let top = &self.top;
 		let (changeset, info) = self
@@ -796,7 +760,7 @@ impl OverlayedChanges {
 			.or_insert_with(|| (top.spawn_child(), child_info.clone()));
 		let updatable = info.try_update(child_info);
 		debug_assert!(updatable);
-		changeset.clear_where(|key, _| key.starts_with(prefix), extrinsic_index)
+		changeset.clear_where(|key, _| key.starts_with(prefix))
 	}
 
 	/// Returns the current nesting depth of the transaction stack.
@@ -1171,29 +1135,6 @@ impl OverlayedChanges {
 		})
 	}
 
-	/// Inserts storage entry responsible for current extrinsic index.
-	#[cfg(test)]
-	pub(crate) fn set_extrinsic_index(&mut self, extrinsic_index: u32) {
-		self.top.set(EXTRINSIC_INDEX.to_vec(), Some(extrinsic_index.encode()), None);
-	}
-
-	/// Returns current extrinsic index to use in changes trie construction.
-	/// None is returned if it is not set or changes trie config is not set.
-	/// Persistent value (from the backend) can be ignored because runtime must
-	/// set this index before first and unset after last extrinsic is executed.
-	/// Changes that are made outside of extrinsics, are marked with
-	/// `NO_EXTRINSIC_INDEX` index.
-	fn extrinsic_index(&self) -> Option<u32> {
-		match self.collect_extrinsics {
-			true => Some(
-				self.storage(EXTRINSIC_INDEX)
-					.and_then(|idx| idx.and_then(|idx| Decode::decode(&mut &*idx).ok()))
-					.unwrap_or(NO_EXTRINSIC_INDEX),
-			),
-			false => None,
-		}
-	}
-
 	/// Generate the storage root using `backend` and all changes
 	/// as seen by the current transaction.
 	///
@@ -1296,13 +1237,12 @@ impl OverlayedChanges {
 					self.clear_btree_storage(&info.name, false);
 				}
 				let top = &self.top;
-				let extrinsic_index = self.extrinsic_index();
 				let entry = self.btrees.entry(info.name.clone()).or_insert_with(|| {
 					(top.spawn_child(), top.spawn_info(BtreeMeta::from(info.clone())))
 				});
 				// even if same content we register and
 				// update.
-				let stored = entry.1.modify_value(extrinsic_index);
+				let stored = entry.1.modify_value();
 				if stored.infos.structure != info.structure {
 					stored.root = None;
 				}
@@ -1326,14 +1266,13 @@ impl OverlayedChanges {
 					self.clear_blob_storage(&info.name, false);
 				}
 				let top = &self.top;
-				let extrinsic_index = self.extrinsic_index();
 				let entry = self.blobs.entry(info.name.clone()).or_insert_with(|| {
 					(top.spawn_blob(), top.spawn_info(BlobMeta::from(info.clone())))
 				});
 
 				// even if same content we register and
 				// update.
-				let stored = entry.1.modify_value(extrinsic_index);
+				let stored = entry.1.modify_value();
 				if clear_existing {
 					stored.size = 0;
 					stored.hash = None;
@@ -1360,11 +1299,10 @@ impl OverlayedChanges {
 	/// Cache root.
 	/// Do nothing on failure.
 	pub fn cache_btree_root(&mut self, name: &[u8], root: Vec<u8>) {
-		let extrinsic_index = self.extrinsic_index();
 		let Some(entry) = self.btrees.get_mut(name) else {
 			return
 		};
-		let entry = entry.1.modify_value(extrinsic_index);
+		let entry = entry.1.modify_value();
 		debug_assert!(!entry.removed);
 		entry.root = Some(root);
 	}
@@ -1372,11 +1310,10 @@ impl OverlayedChanges {
 	/// Cache hash.
 	/// Do nothing on failure.
 	pub fn cache_blob_hash(&mut self, name: &[u8], hash: [u8; 32]) {
-		let extrinsic_index = self.extrinsic_index();
 		let Some(entry) = self.blobs.get_mut(name) else {
 			return
 		};
-		let entry = entry.1.modify_value(extrinsic_index);
+		let entry = entry.1.modify_value();
 		debug_assert!(!entry.removed);
 		entry.hash = Some(hash);
 	}
@@ -1391,7 +1328,6 @@ impl OverlayedChanges {
 				if &info.name == target_name {
 					return false
 				}
-				let extrinsic_index = self.extrinsic_index();
 				let info_dest = if let Some(origin) = self.btrees.get(&info.name) {
 					let mut info_dest = origin.1.value_ref().clone();
 					if info_dest.removed {
@@ -1417,7 +1353,7 @@ impl OverlayedChanges {
 
 				// even if same content we register and
 				// update.
-				let dest = entry.1.modify_value(extrinsic_index);
+				let dest = entry.1.modify_value();
 				*dest = info_dest;
 
 				// Access pointer to origin as we know btree
@@ -1426,7 +1362,7 @@ impl OverlayedChanges {
 				let origin = unsafe { &*origin };
 				for (key, value) in origin.changes() {
 					if let Some(value) = value.value_ref() {
-						let dest = entry.0.modify(key.clone(), Default::default, extrinsic_index);
+						let dest = entry.0.modify(key.clone(), Default::default);
 						*dest = Some(value.clone());
 					}
 				}
@@ -1436,7 +1372,6 @@ impl OverlayedChanges {
 				if &info.name == target_name {
 					return false
 				}
-				let extrinsic_index = self.extrinsic_index();
 				let info_dest = if let Some(origin) = self.blobs.get(&info.name) {
 					let mut info_dest = origin.1.value_ref().clone();
 					if info_dest.removed {
@@ -1467,7 +1402,7 @@ impl OverlayedChanges {
 
 				// even if same content we register and
 				// update.
-				let dest = entry.1.modify_value(extrinsic_index);
+				let dest = entry.1.modify_value();
 				*dest = info_dest;
 
 				// Access pointer to origin as we know btree
@@ -1476,7 +1411,7 @@ impl OverlayedChanges {
 				let origin = unsafe { &*origin };
 				if let Some(chunks) = Self::blob_chunks_inner(origin) {
 					for (i, value) in chunks.0.enumerate() {
-						let chunk = entry.0.modify_chunk(i as u32, extrinsic_index);
+						let chunk = entry.0.modify_chunk(i as u32);
 						chunk[..value.len()].copy_from_slice(value);
 					}
 				}
@@ -1495,7 +1430,6 @@ impl OverlayedChanges {
 				if &info.name == target_name {
 					return false
 				}
-				let extrinsic_index = self.extrinsic_index();
 				let info_dest = if let Some(origin) = self.btrees.get(&info.name) {
 					let mut info_dest = origin.1.value_ref().clone();
 					if info_dest.removed {
@@ -1520,7 +1454,7 @@ impl OverlayedChanges {
 
 				// even if same content we register and
 				// update.
-				let dest = entry.1.modify_value(extrinsic_index);
+				let dest = entry.1.modify_value();
 				*dest = info_dest;
 
 				entry.0 = state;
@@ -1535,7 +1469,6 @@ impl OverlayedChanges {
 				if &info.name == target_name {
 					return false
 				}
-				let extrinsic_index = self.extrinsic_index();
 				let info_dest = if let Some(origin) = self.blobs.get(&info.name) {
 					let mut info_dest = origin.1.value_ref().clone();
 					if info_dest.removed {
@@ -1560,7 +1493,7 @@ impl OverlayedChanges {
 
 				// even if same content we register and
 				// update.
-				let dest = entry.1.modify_value(extrinsic_index);
+				let dest = entry.1.modify_value();
 				*dest = info_dest;
 
 				entry.0 = state;
@@ -1739,13 +1672,6 @@ mod tests {
 	use sp_core::{traits::Externalities, Blake2Hasher};
 	use std::collections::BTreeMap;
 
-	fn assert_extrinsics(overlay: &OverlayedChangeSet, key: impl AsRef<[u8]>, expected: Vec<u32>) {
-		assert_eq!(
-			overlay.get(key.as_ref()).unwrap().extrinsics().into_iter().collect::<Vec<_>>(),
-			expected
-		)
-	}
-
 	#[test]
 	fn overlayed_storage_works() {
 		let mut overlayed = OverlayedChanges::default();
@@ -1867,47 +1793,6 @@ mod tests {
 		);
 
 		assert_eq!(&ext.storage_root(state_version)[..], &root);
-	}
-
-	#[test]
-	fn extrinsic_changes_are_collected() {
-		let mut overlay = OverlayedChanges::default();
-		overlay.set_collect_extrinsics(true);
-
-		overlay.start_transaction();
-
-		overlay.set_storage(vec![100], Some(vec![101]));
-
-		overlay.set_extrinsic_index(0);
-		overlay.set_storage(vec![1], Some(vec![2]));
-
-		overlay.set_extrinsic_index(1);
-		overlay.set_storage(vec![3], Some(vec![4]));
-
-		overlay.set_extrinsic_index(2);
-		overlay.set_storage(vec![1], Some(vec![6]));
-
-		assert_extrinsics(&overlay.top, vec![1], vec![0, 2]);
-		assert_extrinsics(&overlay.top, vec![3], vec![1]);
-		assert_extrinsics(&overlay.top, vec![100], vec![NO_EXTRINSIC_INDEX]);
-
-		overlay.start_transaction();
-
-		overlay.set_extrinsic_index(3);
-		overlay.set_storage(vec![3], Some(vec![7]));
-
-		overlay.set_extrinsic_index(4);
-		overlay.set_storage(vec![1], Some(vec![8]));
-
-		assert_extrinsics(&overlay.top, vec![1], vec![0, 2, 4]);
-		assert_extrinsics(&overlay.top, vec![3], vec![1, 3]);
-		assert_extrinsics(&overlay.top, vec![100], vec![NO_EXTRINSIC_INDEX]);
-
-		overlay.rollback_transaction().unwrap();
-
-		assert_extrinsics(&overlay.top, vec![1], vec![0, 2]);
-		assert_extrinsics(&overlay.top, vec![3], vec![1]);
-		assert_extrinsics(&overlay.top, vec![100], vec![NO_EXTRINSIC_INDEX]);
 	}
 
 	#[test]
