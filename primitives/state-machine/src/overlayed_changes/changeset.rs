@@ -33,7 +33,7 @@ const PROOF_OVERLAY_NON_EMPTY: &str = "\
 
 type DirtyKeysSets<K> = SmallVec<[Set<K>; 5]>;
 type DirtyInfos = SmallVec<[bool; 5]>;
-type Transactions<V> = SmallVec<[InnerValue<V>; 5]>;
+type Transactions<V> = SmallVec<[V; 5]>;
 type BlobChunk = [u8; BLOB_CHUNK_SIZE];
 
 /// Error returned when trying to commit or rollback while no transaction is open or
@@ -59,14 +59,6 @@ pub enum ExecutionMode {
 	Client,
 	/// Executing in runtime mode: Transactions started by the client are protected.
 	Runtime,
-}
-
-// TODO rem this struct
-#[derive(Debug, Default, Clone)]
-#[cfg_attr(test, derive(PartialEq))]
-struct InnerValue<V> {
-	/// Current value. None if value has been deleted.
-	value: V,
 }
 
 /// An overlay that contains all versions of a value for a specific key.
@@ -200,14 +192,7 @@ impl From<sp_core::storage::StorageMap> for OverlayedMap<StorageKey, Option<Stor
 		Self {
 			changes: storage
 				.into_iter()
-				.map(|(k, v)| {
-					(
-						k,
-						OverlayedEntry {
-							transactions: SmallVec::from_iter([InnerValue { value: Some(v) }]),
-						},
-					)
-				})
+				.map(|(k, v)| (k, OverlayedEntry { transactions: SmallVec::from_iter([Some(v)]) }))
 				.collect(),
 			// TODO add dirty_keys?
 			dirty_keys: Default::default(),
@@ -243,21 +228,21 @@ impl Default for ExecutionMode {
 impl<V> OverlayedEntry<V> {
 	/// The value as seen by the current transaction.
 	pub fn value_ref(&self) -> &V {
-		&self.transactions.last().expect(PROOF_OVERLAY_NON_EMPTY).value
+		&self.transactions.last().expect(PROOF_OVERLAY_NON_EMPTY)
 	}
 
 	/// The value as seen by the current transaction.
 	pub fn into_value(mut self) -> V {
-		self.transactions.pop().expect(PROOF_OVERLAY_NON_EMPTY).value
+		self.transactions.pop().expect(PROOF_OVERLAY_NON_EMPTY)
 	}
 
 	/// Mutable reference to the most recent version.
 	fn value_mut(&mut self) -> &mut V {
-		&mut self.transactions.last_mut().expect(PROOF_OVERLAY_NON_EMPTY).value
+		self.transactions.last_mut().expect(PROOF_OVERLAY_NON_EMPTY)
 	}
 
 	/// Remove the last version and return it.
-	fn pop_transaction(&mut self) -> InnerValue<V> {
+	fn pop_transaction(&mut self) -> V {
 		self.transactions.pop().expect(PROOF_OVERLAY_NON_EMPTY)
 	}
 
@@ -267,7 +252,7 @@ impl<V> OverlayedEntry<V> {
 	/// rolled back when required.
 	fn set(&mut self, value: V, first_write_in_tx: bool) {
 		if first_write_in_tx || self.transactions.is_empty() {
-			self.transactions.push(InnerValue { value });
+			self.transactions.push(value);
 		} else {
 			*self.value_mut() = value;
 		}
@@ -343,9 +328,7 @@ impl<K: Ord + Hash + Clone, V> OverlayedMap<K, V> {
 	pub(crate) fn spawn_info<I, M>(&self, info: I) -> OverlayedInfos<I, M> {
 		use sp_std::iter::repeat;
 		let mut result = OverlayedInfos {
-			infos: OverlayedEntry {
-				transactions: SmallVec::from_iter([InnerValue { value: info.into() }]),
-			},
+			infos: OverlayedEntry { transactions: SmallVec::from_iter([info.into()]) },
 			dirty_infos: repeat(false).take(self.transaction_depth()).collect(),
 		};
 		result.dirty_infos.last_mut().map(|d| {
@@ -394,7 +377,7 @@ impl<K: Ord + Hash + Clone, V> OverlayedMap<K, V> {
 
 	/// Consume this changeset and return all committed changes.
 	pub fn drain_committed(self) -> impl Iterator<Item = (K, V)> {
-		self.changes.into_iter().map(|(k, mut v)| (k, v.pop_transaction().value))
+		self.changes.into_iter().map(|(k, mut v)| (k, v.pop_transaction()))
 	}
 
 	/// Returns the current nesting depth of the transaction stack.
@@ -464,7 +447,7 @@ impl<K: Ord + Hash + Clone, V> OverlayedMap<K, V> {
 				// the previous transaction or a value committed without any open transaction.
 				if has_predecessor {
 					let dropped_tx = overlayed.pop_transaction();
-					*overlayed.value_mut() = dropped_tx.value;
+					*overlayed.value_mut() = dropped_tx;
 				}
 			}
 		}
@@ -566,7 +549,7 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 			let mut value: InfoEntry<I, M> = infos.info.clone().into();
 			value.origin = OriginEntry::Current;
 			// first write, add a layer
-			self.infos.transactions.push(InnerValue { value });
+			self.infos.transactions.push(value);
 		}
 
 		&mut self.infos.value_mut().info
@@ -624,7 +607,7 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 		if set_dirty_infos(&mut self.dirty_infos) {
 			let info = self.infos.value_ref().info.clone();
 			// first write, add a layer
-			self.infos.transactions.push(InnerValue { value: info.into() });
+			self.infos.transactions.push(info.into());
 		}
 
 		let infos = self.infos.value_mut();
@@ -637,7 +620,7 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 		if set_dirty_infos(&mut self.dirty_infos) {
 			let info = self.infos.value_ref().info.clone();
 			// first write, add a layer
-			self.infos.transactions.push(InnerValue { value: info.into() });
+			self.infos.transactions.push(info.into());
 		}
 
 		let infos = self.infos.value_mut();
@@ -650,7 +633,7 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 		if set_dirty_infos(&mut self.dirty_infos) {
 			let info = self.infos.value_ref().info.clone();
 			// first write, add a layer
-			self.infos.transactions.push(InnerValue { value: info.into() });
+			self.infos.transactions.push(info.into());
 		}
 
 		let infos = self.infos.value_mut();
@@ -717,7 +700,7 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 				// origin of committed is not of any use, origin of previous would work,
 				// same for moved from.
 				// Only keep the current info.
-				self.infos.value_mut().info = dropped_tx.value.info;
+				self.infos.value_mut().info = dropped_tx.info;
 			}
 		}
 		Ok(())
@@ -782,7 +765,7 @@ impl OverlayedChangeSetBlob {
 		let first_write_in_tx = insert_dirty_chunk(&mut self.dirty, at);
 		let clone_into_new_tx = if let Some(tx) = chunk.transactions.last() {
 			if first_write_in_tx {
-				Some(tx.value.clone())
+				Some(tx.clone())
 			} else {
 				None
 			}
@@ -844,7 +827,7 @@ impl OverlayedChangeSetBlob {
 				// the previous transaction or a value committed without any open transaction.
 				if has_predecessor {
 					let dropped_tx = overlayed.pop_transaction();
-					*overlayed.value_mut() = dropped_tx.value;
+					*overlayed.value_mut() = dropped_tx;
 				}
 			}
 		}
@@ -877,7 +860,7 @@ impl OverlayedChangeSet {
 		let first_write_in_tx = insert_dirty(&mut self.dirty_keys, key);
 		let clone_into_new_tx = if let Some(tx) = overlayed.transactions.last() {
 			if first_write_in_tx {
-				Some(tx.value.clone())
+				Some(tx.clone())
 			} else {
 				None
 			}
