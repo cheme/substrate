@@ -888,7 +888,10 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 			// the previous transaction or a value committed without any open transaction.
 			if need_merge {
 				let dropped_tx = self.infos.pop_transaction();
-				*self.infos.value_mut() = dropped_tx.value;
+				// origin of committed is not of any use, origin of previous would work,
+				// same for moved from.
+				// Only keep the current info.
+				self.infos.value_mut().info = dropped_tx.value.info;
 				self.infos.transaction_extrinsics_mut().extend(dropped_tx.extrinsics);
 			}
 		}

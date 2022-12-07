@@ -974,8 +974,7 @@ impl OverlayedChanges {
 				.commit_transaction()
 				.expect("Top and children changesets are started in lockstep; qed");
 		}
-		unimplemented!();
-		/*
+
 		for (_, (changeset, infos)) in self.btrees.iter_mut() {
 			let last_removed = infos.take_last_removed();
 			let moved_from = infos.take_moved_from();
@@ -983,54 +982,21 @@ impl OverlayedChanges {
 			infos
 				.commit_transaction()
 				.expect("Top and children changesets are started in lockstep; qed");
-			if infos.has_previous_moved_from() {
-				// last_removed is content for
-				if let Some(last_removed) = last_removed.take() {
-				}
-			}
-			if let Some(mut last_removed) = last_removed {
-				if !infos.has_last_removed() {
-					// next revert would revert to previous state.
-					// Note that this is could be lazy but current design
-					// favor freeing memory.
-					last_removed.rollback_transaction()?;
-					infos.set_last_removed(last_removed);
-				}
-			}
-			if let Some(moved_to) = moved_to {
-				if !infos.has_moved_to() {
-					infos.set_moved_to(moved_to);
-				}
-			}
-			for (from, state) in moved_from {
-				let has_previous = infos.has_moved_from(from.as_slice());
-				if !has_previous {
-					infos.set_moved_from(from, state)
-				}
-			}
 			changeset
 				.commit_transaction()
 				.expect("Top and children changesets are started in lockstep; qed");
 		}
+
 		for (_, (changeset, infos)) in self.blobs.iter_mut() {
 			let last_removed = infos.take_last_removed();
 			infos
 				.commit_transaction()
 				.expect("Top and children changesets are started in lockstep; qed");
-			if let Some(mut last_removed) = last_removed {
-				if !infos.has_last_removed() {
-					// next revert would revert to previous state.
-					// Note that this is could be lazy but current design
-					// favor freeing memory.
-					last_removed.rollback_transaction()?;
-					infos.set_last_removed(last_removed);
-				}
-			}
 			changeset
 				.commit_transaction()
 				.expect("Top and children changesets are started in lockstep; qed");
 		}
-		*/
+
 		self.offchain
 			.overlay_mut()
 			.commit_transaction()
