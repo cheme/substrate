@@ -672,15 +672,15 @@ impl OverlayedChanges {
 				debug_assert!(updatable);
 				changeset.clear_where(|_, _| true, extrinsic_index)
 			},
-			ChildInfo::Blob(info) => self.clear_blob_storage(&info.name, None).0,
-			ChildInfo::BTree(info) => self.clear_btree_storage(&info.name, None).0,
+			ChildInfo::Blob(info) => self.clear_blob_storage(&info.name, false).0,
+			ChildInfo::BTree(info) => self.clear_btree_storage(&info.name, false).0,
 		}
 	}
 
 	fn clear_blob_storage(
 		&mut self,
 		name: &[u8],
-		move_old_state: Option<&[u8]>,
+		move_old_state: bool,
 	) -> (u32, Option<(OverlayedChangeSetBlob, bool, Option<Vec<u8>>)>) {
 		let top = &self.top;
 		let extrinsic_index = self.extrinsic_index();
@@ -695,7 +695,7 @@ impl OverlayedChanges {
 				// TODO the guard_no_runtime_transaction may be covered by the need_keep
 				let moved = if self.context.guard_no_runtime_transaction(&self.top).is_ok() {
 					if let Some(current_key) = entry.1.take_is_previous_moved_from() {
-						if let Some(_target) = move_old_state {
+						if move_old_state {
 							Some((last, false, Some(current_key)))
 						} else {
 							let _ = last.rollback_transaction();
@@ -703,8 +703,8 @@ impl OverlayedChanges {
 							None
 						}
 					} else if entry.1.need_keep_origin() {
-						if let Some(target) = move_old_state {
-							entry.1.set_moved_to(target.to_vec());
+						if move_old_state {
+							entry.1.set_moved_to();
 							Some((last, true, None))
 						} else {
 							let _ = last.rollback_transaction();
@@ -712,10 +712,10 @@ impl OverlayedChanges {
 							None
 						}
 					} else {
-						move_old_state.map(|_| (last, false, None))
+						move_old_state.then(|| (last, false, None))
 					}
 				} else {
-					move_old_state.map(|_| (last, false, None))
+					move_old_state.then(|| (last, false, None))
 				};
 				(result as u32, moved)
 			} else {
@@ -729,7 +729,7 @@ impl OverlayedChanges {
 	fn clear_btree_storage(
 		&mut self,
 		name: &[u8],
-		move_old_state: Option<&[u8]>,
+		move_old_state: bool,
 	) -> (u32, Option<(OverlayedChangeSet, bool, Option<Vec<u8>>)>) {
 		let top = &self.top;
 		let extrinsic_index = self.extrinsic_index();
@@ -744,8 +744,8 @@ impl OverlayedChanges {
 				// TODO the guard_no_runtime_transaction may be covered by the need_keep
 				let moved = if self.context.guard_no_runtime_transaction(&self.top).is_ok() {
 					if let Some(current_key) = entry.1.take_is_previous_moved_from() {
-						if let Some(target) = move_old_state {
-							entry.1.set_moved_to(target.to_vec());
+						if move_old_state {
+							entry.1.set_moved_to();
 							Some((last, false, Some(current_key)))
 						} else {
 							let _ = last.rollback_transaction();
@@ -753,8 +753,8 @@ impl OverlayedChanges {
 							None
 						}
 					} else if entry.1.need_keep_origin() {
-						if let Some(target) = move_old_state {
-							entry.1.set_moved_to(target.to_vec());
+						if move_old_state {
+							entry.1.set_moved_to();
 							Some((last, true, None))
 						} else {
 							let _ = last.rollback_transaction();
@@ -762,10 +762,10 @@ impl OverlayedChanges {
 							None
 						}
 					} else {
-						move_old_state.map(|_| (last, false, None))
+						move_old_state.then(|| (last, false, None))
 					}
 				} else {
-					move_old_state.map(|_| (last, false, None))
+					move_old_state.then(|| (last, false, None))
 				};
 				(result as u32, moved)
 			} else {
@@ -884,7 +884,7 @@ impl OverlayedChanges {
 				Some(OriginEntry::Removed(last_removed)) => {
 					*changeset = last_removed;
 				},
-				Some(OriginEntry::MovedTo(_moved_to)) => {
+				Some(OriginEntry::MovedTo) => {
 					// will get new info from moved from in second step
 				},
 			}
@@ -938,7 +938,7 @@ impl OverlayedChanges {
 				Some(OriginEntry::Removed(last_removed)) => {
 					*changeset = last_removed;
 				},
-				Some(OriginEntry::MovedTo(_moved_to)) => {
+				Some(OriginEntry::MovedTo) => {
 					// will get new info from moved from in second step
 				},
 			}
@@ -1293,7 +1293,7 @@ impl OverlayedChanges {
 			ChildInfo::ParentKeyId(_) => false,
 			ChildInfo::BTree(info) => {
 				if clear_existing {
-					self.clear_btree_storage(&info.name, None);
+					self.clear_btree_storage(&info.name, false);
 				}
 				let top = &self.top;
 				let extrinsic_index = self.extrinsic_index();
@@ -1323,7 +1323,7 @@ impl OverlayedChanges {
 			},
 			ChildInfo::Blob(info) => {
 				if clear_existing {
-					self.clear_blob_storage(&info.name, None);
+					self.clear_blob_storage(&info.name, false);
 				}
 				let top = &self.top;
 				let extrinsic_index = self.extrinsic_index();
@@ -1403,7 +1403,7 @@ impl OverlayedChanges {
 					return false
 				};
 
-				self.clear_btree_storage(target_name, None);
+				self.clear_btree_storage(target_name, false);
 
 				let Some(origin) = self.btrees.get(&info.name) else {
 					return false
@@ -1448,7 +1448,7 @@ impl OverlayedChanges {
 					return false
 				};
 
-				self.clear_blob_storage(target_name, None);
+				self.clear_blob_storage(target_name, false);
 
 				let Some(origin) = self.blobs.get(&info.name) else {
 					return false
@@ -1507,11 +1507,11 @@ impl OverlayedChanges {
 					return false
 				};
 
-				let Some((state, ref_origin, proxy_origin)) = self.clear_btree_storage(&info.name, Some(target_name)).1 else {
+				let Some((state, ref_origin, proxy_origin)) = self.clear_btree_storage(&info.name, true).1 else {
 					return false
 				};
 
-				self.clear_btree_storage(target_name, None);
+				self.clear_btree_storage(target_name, false);
 
 				let top = &self.top;
 				let entry = self.btrees.entry(target_name.to_vec()).or_insert_with(|| {
@@ -1528,8 +1528,6 @@ impl OverlayedChanges {
 					entry.1.set_moved_from(info.name.clone(), None);
 				} else if let Some(from) = proxy_origin {
 					entry.1.set_moved_from(from.clone(), None);
-					let entry = self.btrees.get_mut(&from).expect("moved got an origin");
-					entry.1.update_moved_to(target_name.to_vec())
 				}
 				true
 			},
@@ -1549,11 +1547,11 @@ impl OverlayedChanges {
 					return false
 				};
 
-				let Some((state, ref_origin, proxy_origin)) = self.clear_blob_storage(&info.name, Some(target_name)).1 else {
+				let Some((state, ref_origin, proxy_origin)) = self.clear_blob_storage(&info.name, true).1 else {
 					return false
 				};
 
-				self.clear_blob_storage(target_name, None);
+				self.clear_blob_storage(target_name, false);
 
 				let top = &self.top;
 				let entry = self.blobs.entry(target_name.to_vec()).or_insert_with(|| {
@@ -1570,8 +1568,6 @@ impl OverlayedChanges {
 					entry.1.set_moved_from(info.name.clone(), None);
 				} else if let Some(from) = proxy_origin {
 					entry.1.set_moved_from(from.clone(), None);
-					let entry = self.blobs.get_mut(&from).expect("moved got an origin");
-					entry.1.update_moved_to(target_name.to_vec())
 				}
 				true
 			},

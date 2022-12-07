@@ -166,7 +166,7 @@ pub(crate) enum OriginEntry<M> {
 	/// On commit, if previous origin is empty or current, replay by this one.
 	/// If `MovedTo` or `Removed`, do nothing.
 	/// This state should only apply when origin is not `Empty`.
-	MovedTo(Vec<u8>), // TODO the inner Vec<u8> is useless.
+	MovedTo,
 }
 
 #[derive(Debug, Clone)]
@@ -662,7 +662,7 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 	}
 
 	/// Set moved_to in current transaction layer.
-	pub fn set_moved_to(&mut self, moved_to: Vec<u8>) {
+	pub fn set_moved_to(&mut self) {
 		if set_dirty_infos(&mut self.dirty_infos) {
 			let info = self.infos.value_ref().info.clone();
 			// first write, add a layer
@@ -673,16 +673,7 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 
 		let infos = self.infos.value_mut();
 		debug_assert!(matches!(infos.origin, OriginEntry::Current));
-		infos.origin = OriginEntry::MovedTo(moved_to);
-	}
-
-	/// Change moved_to in current transaction layer, this is only
-	/// to be used when something get moved twice in same transaction.
-	pub fn update_moved_to(&mut self, moved_to: Vec<u8>) {
-		assert!(!set_dirty_infos(&mut self.dirty_infos)); // is already dirty
-		let infos = self.infos.value_mut();
-		debug_assert!(matches!(infos.origin, OriginEntry::MovedTo(_)));
-		infos.origin = OriginEntry::MovedTo(moved_to);
+		infos.origin = OriginEntry::MovedTo;
 	}
 
 	/// Set moved_to in current transaction layer.
