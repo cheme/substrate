@@ -115,6 +115,8 @@ pub struct OverlayedContext {
 	num_client_transactions: usize,
 	/// Determines whether the node is using the overlay from the client or the runtime.
 	execution_mode: ExecutionMode,
+	/// Total number of transactions (same as `top.number_transaction`).
+	number_transactions: usize,
 }
 
 /// Holds a set of changes with the ability modify them using nested transactions.
@@ -130,8 +132,6 @@ pub struct OverlayedMap<K, V> {
 
 impl<K, V> Default for OverlayedMap<K, V> {
 	fn default() -> Self {
-		// TODO this is bad, just init dirty keys to size one to make everything
-		// simplier or at least swith dirty info to index base array
 		Self { changes: BTreeMap::new(), dirty_keys: SmallVec::new() }
 	}
 }
@@ -480,10 +480,6 @@ impl<K: Ord + Hash + Clone, V> OverlayedMap<K, V> {
 
 		Ok(())
 	}
-
-	fn has_open_runtime_transactions(&self, num_client_transactions: usize) -> bool {
-		self.transaction_depth() > num_client_transactions
-	}
 }
 
 impl OverlayedContext {
@@ -491,13 +487,39 @@ impl OverlayedContext {
 	///
 	/// This protects all existing transactions from being removed by the runtime.
 	/// Calling this while already inside the runtime will return an error.
-	pub fn enter_runtime(&mut self, depth: usize) -> Result<(), AlreadyInRuntime> {
+	pub fn enter_runtime(&mut self) -> Result<(), AlreadyInRuntime> {
 		if let ExecutionMode::Runtime = self.execution_mode {
 			return Err(AlreadyInRuntime)
 		}
 		self.execution_mode = ExecutionMode::Runtime;
-		self.num_client_transactions = depth;
+		self.num_client_transactions = self.number_transactions;
 		Ok(())
+	}
+
+	/// Register start of a transaction in context.
+	pub fn start_transaction(&mut self) {
+		self.number_transactions += 1;
+	}
+
+	/// Rollback a transaction in context.
+	pub fn rollback_transaction(&mut self) -> Result<(), NoOpenTransaction> {
+		// runtime is not allowed to close transactions started by the client
+		if let ExecutionMode::Runtime = self.execution_mode {
+			if self.number_transactions <= self.num_client_transactions {
+				return Err(NoOpenTransaction)
+			}
+		}
+		if self.number_transactions == 0 {
+			return Err(NoOpenTransaction)
+		}
+
+		self.number_transactions -= 1;
+		Ok(())
+	}
+
+	/// Rollback a transaction in context.
+	pub fn commit_transaction(&mut self) -> Result<(), NoOpenTransaction> {
+		self.rollback_transaction()
 	}
 
 	/// Call this when control returns from the runtime.
@@ -506,20 +528,6 @@ impl OverlayedContext {
 			return Err(NotInRuntime)
 		}
 		self.execution_mode = ExecutionMode::Client;
-		Ok(())
-	}
-
-	/// Check transaction are opened for runtime mode.
-	pub fn guard_no_runtime_transaction<K: Ord + Hash + Clone, V>(
-		&mut self,
-		top: &OverlayedMap<K, V>,
-	) -> Result<(), NoOpenTransaction> {
-		// runtime is not allowed to close transactions started by the client
-		if let ExecutionMode::Runtime = self.execution_mode {
-			if !top.has_open_runtime_transactions(self.num_client_transactions) {
-				return Err(NoOpenTransaction)
-			}
-		}
 		Ok(())
 	}
 }
@@ -1263,23 +1271,21 @@ mod test {
 
 	#[test]
 	fn runtime_cannot_close_client_tx() {
-		let mut changeset = OverlayedChangeSet::default();
 		let mut context = OverlayedContext::default();
-		changeset.start_transaction();
-		context.enter_runtime(changeset.transaction_depth()).unwrap();
-		changeset.start_transaction();
-		changeset.commit_transaction().unwrap();
-		assert_eq!(context.guard_no_runtime_transaction(&changeset), Err(NoOpenTransaction));
+		context.start_transaction();
+		context.enter_runtime().unwrap();
+		context.start_transaction();
+		context.commit_transaction().unwrap();
+		assert_eq!(context.rollback_transaction(), Err(NoOpenTransaction));
 	}
 
 	#[test]
 	fn enter_exit_runtime_fails_when_already_in_requested_mode() {
 		let mut context = OverlayedContext::default();
-		let changeset = OverlayedChangeSet::default();
 
 		assert_eq!(context.exit_runtime(), Err(NotInRuntime));
-		assert_eq!(context.enter_runtime(changeset.transaction_depth()), Ok(()));
-		assert_eq!(context.enter_runtime(changeset.transaction_depth()), Err(AlreadyInRuntime));
+		assert_eq!(context.enter_runtime(), Ok(()));
+		assert_eq!(context.enter_runtime(), Err(AlreadyInRuntime));
 		assert_eq!(context.exit_runtime(), Ok(()));
 		assert_eq!(context.exit_runtime(), Err(NotInRuntime));
 	}

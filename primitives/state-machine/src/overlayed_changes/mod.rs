@@ -658,27 +658,22 @@ impl OverlayedChanges {
 				info.size = 0;
 				info.hash = None;
 				let mut last = sp_std::mem::replace(&mut entry.0, top.spawn_blob());
-				// TODO the guard_no_runtime_transaction may be covered by the need_keep
-				let moved = if self.context.guard_no_runtime_transaction(&self.top).is_ok() {
-					if let Some(current_key) = entry.1.take_is_previous_moved_from() {
-						if move_old_state {
-							Some((last, false, Some(current_key)))
-						} else {
-							let _ = last.rollback_transaction();
-							entry.1.set_moved_from(current_key, Some(last));
-							None
-						}
-					} else if entry.1.need_keep_origin() {
-						if move_old_state {
-							entry.1.set_moved_to();
-							Some((last, true, None))
-						} else {
-							let _ = last.rollback_transaction();
-							entry.1.set_last_removed(last);
-							None
-						}
+				let moved = if let Some(current_key) = entry.1.take_is_previous_moved_from() {
+					if move_old_state {
+						Some((last, false, Some(current_key)))
 					} else {
-						move_old_state.then(|| (last, false, None))
+						let _ = last.rollback_transaction();
+						entry.1.set_moved_from(current_key, Some(last));
+						None
+					}
+				} else if entry.1.need_keep_origin() {
+					if move_old_state {
+						entry.1.set_moved_to();
+						Some((last, true, None))
+					} else {
+						let _ = last.rollback_transaction();
+						entry.1.set_last_removed(last);
+						None
 					}
 				} else {
 					move_old_state.then(|| (last, false, None))
@@ -707,27 +702,23 @@ impl OverlayedChanges {
 				info.root = None;
 				let mut last = sp_std::mem::replace(&mut entry.0, top.spawn_child());
 				// TODO the guard_no_runtime_transaction may be covered by the need_keep
-				let moved = if self.context.guard_no_runtime_transaction(&self.top).is_ok() {
-					if let Some(current_key) = entry.1.take_is_previous_moved_from() {
-						if move_old_state {
-							entry.1.set_moved_to();
-							Some((last, false, Some(current_key)))
-						} else {
-							let _ = last.rollback_transaction();
-							entry.1.set_moved_from(current_key, Some(last));
-							None
-						}
-					} else if entry.1.need_keep_origin() {
-						if move_old_state {
-							entry.1.set_moved_to();
-							Some((last, true, None))
-						} else {
-							let _ = last.rollback_transaction();
-							entry.1.set_last_removed(last);
-							None
-						}
+				let moved = if let Some(current_key) = entry.1.take_is_previous_moved_from() {
+					if move_old_state {
+						entry.1.set_moved_to();
+						Some((last, false, Some(current_key)))
 					} else {
-						move_old_state.then(|| (last, false, None))
+						let _ = last.rollback_transaction();
+						entry.1.set_moved_from(current_key, Some(last));
+						None
+					}
+				} else if entry.1.need_keep_origin() {
+					if move_old_state {
+						entry.1.set_moved_to();
+						Some((last, true, None))
+					} else {
+						let _ = last.rollback_transaction();
+						entry.1.set_last_removed(last);
+						None
 					}
 				} else {
 					move_old_state.then(|| (last, false, None))
@@ -780,6 +771,7 @@ impl OverlayedChanges {
 	///
 	/// Changes made without any open transaction are committed immediately.
 	pub fn start_transaction(&mut self) {
+		self.context.start_transaction();
 		self.top.start_transaction();
 		for (_, (changeset, _)) in self.children.iter_mut() {
 			changeset.start_transaction();
@@ -800,10 +792,9 @@ impl OverlayedChanges {
 	/// Any changes made during that transaction are discarded. Returns an error if
 	/// there is no open transaction that can be rolled back.
 	pub fn rollback_transaction(&mut self) -> Result<(), NoOpenTransaction> {
-		self.context.guard_no_runtime_transaction(&self.top)?;
+		self.context.rollback_transaction()?;
 
 		self.top.rollback_transaction()?;
-
 		retain_map(&mut self.children, |_, (changeset, _)| {
 			changeset
 				.rollback_transaction()
@@ -931,7 +922,7 @@ impl OverlayedChanges {
 	/// Any changes made during that transaction are committed. Returns an error if there
 	/// is no open transaction that can be committed.
 	pub fn commit_transaction(&mut self) -> Result<(), NoOpenTransaction> {
-		self.context.guard_no_runtime_transaction(&self.top)?;
+		self.context.commit_transaction()?;
 		self.top.commit_transaction()?;
 		for (_, (changeset, _)) in self.children.iter_mut() {
 			changeset
@@ -969,7 +960,7 @@ impl OverlayedChanges {
 	/// This protects all existing transactions from being removed by the runtime.
 	/// Calling this while already inside the runtime will return an error.
 	pub fn enter_runtime(&mut self) -> Result<(), AlreadyInRuntime> {
-		self.context.enter_runtime(self.top.transaction_depth())?;
+		self.context.enter_runtime()?;
 		Ok(())
 	}
 
