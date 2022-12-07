@@ -584,14 +584,12 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 		debug_assert!(!self.infos.transactions.is_empty());
 		if set_dirty_infos(&mut self.dirty_infos) {
 			let mut infos = self.infos.value_mut();
-			if let &OriginEntry::Empty = &infos.origin {
-				infos.origin = OriginEntry::Current;
-			}
-			let info = infos.info.clone();
+			let mut value: InfoEntry<I, M> = infos.info.clone().into();
+			value.origin = OriginEntry::Current;
 			// first write, add a layer
 			self.infos
 				.transactions
-				.push(InnerValue { value: info.into(), extrinsics: Default::default() });
+				.push(InnerValue { value, extrinsics: Default::default() });
 		}
 
 		if let Some(extrinsic) = at_extrinsic {
