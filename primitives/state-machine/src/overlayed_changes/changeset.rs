@@ -141,30 +141,31 @@ impl<K, V> Default for OverlayedMap<K, V> {
 	}
 }
 
+/// Indicate a possibly different origin at start of a transaction.
 #[derive(Debug, Clone)]
-enum OriginEntry<M> {
-	// Current value is same as before.
-	// On rollback just rollback current.
-	// On commit just commit current.
+pub(crate) enum OriginEntry<M> {
+	/// Current value is same as before.
+	/// On rollback just rollback current.
+	/// On commit just commit current.
 	Current,
-	// Nothing before the current value.
-	// On rollback just remove current.
-	// On commit just use parent/previous
-	// origin entry (remove if none).
+	/// Nothing before the current value.
+	/// On rollback just remove current.
+	/// On commit just use parent/previous
+	/// origin entry (remove if none).
 	Empty,
-	// Current values did overwrite this one.
-	// On rollback restore the removed state as current.
-	// On commit if previous origin is empty or current,
-	// replace by removed. If it is `MovedTo` or `Removed`, do nothing.
-	// This state should only apply when origin is not `Empty`.
+	/// Current values did overwrite this one.
+	/// On rollback restore the removed state as current.
+	/// On commit if previous origin is empty or current,
+	/// replace by removed. If it is `MovedTo` or `Removed`, do nothing.
+	/// This state should only apply when origin is not `Empty`.
 	Removed(M),
-	// Current values were moved under a different
-	// name.
-	// On rollback, restore the current from the moved_from field of another entry
-	// indexed by this entry name.
-	// On commit, if previous origin is empty or current, replay by this one.
-	// If `MovedTo` or `Removed`, do nothing.
-	// This state should only apply when origin is not `Empty`.
+	/// Current values were moved under a different
+	/// name.
+	/// On rollback, restore the current from the moved_from field of another entry
+	/// indexed by this entry name.
+	/// On commit, if previous origin is empty or current, replay by this one.
+	/// If `MovedTo` or `Removed`, do nothing.
+	/// This state should only apply when origin is not `Empty`.
 	MovedTo(Vec<u8>), // TODO the inner Vec<u8> is useless.
 }
 
@@ -670,6 +671,25 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 		}
 	}
 
+	/// Take is previous moved from origin.
+	pub fn take_is_previous_moved_from(&mut self) -> Option<Vec<u8>> {
+		if self.dirty_infos.last().copied().unwrap_or(false) {
+			self.infos.value_mut().moved_from_current.take()
+		} else {
+			None
+		}
+	}
+
+	/// Take is previous moved from origin.
+	pub fn take_others_previous_moved_from(&mut self) -> Option<Map<Vec<u8>, M>> {
+		if self.dirty_infos.last().copied().unwrap_or(false) {
+			self.infos.value_mut().others_moved_from.take()
+		} else {
+			None
+		}
+	}
+
+
 	/// Check if moved from need content exists for an origin.
 	pub fn take_other_previous_moved_from(&mut self, from: &[u8]) -> Option<M> {
 		if self.dirty_infos.last().copied().unwrap_or(false) {
@@ -692,6 +712,21 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 			}
 		}
 		None
+	}
+
+	/// Take last_removed of current transaction layer.
+	/// TODO check if can replace other take methode
+	pub(crate) fn take_last_origin(&mut self) -> Option<OriginEntry<M>> {
+		if self.dirty_infos.last().copied().unwrap_or(false) {
+			let infos = self.infos.value_mut();
+			Some(if let &OriginEntry::Empty = &infos.origin {
+				OriginEntry::Empty
+			} else {
+				sp_std::mem::replace(&mut infos.origin, OriginEntry::Current)
+			})
+		} else {
+			None
+		}
 	}
 
 	/// Take moved to origin current transaction layer.
@@ -823,6 +858,7 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 	///
 	/// Any changes made during that transaction are discarded. Returns an error if
 	/// there is no open transaction that can be rolled back.
+	/// TODO remove the returned bool (we now use the origin Empty)
 	#[must_use = "When empty returned, the object need to be dropped."]
 	pub fn rollback_transaction(&mut self) -> Result<bool, NoOpenTransaction> {
 		if self.dirty_infos.pop().ok_or(NoOpenTransaction)? {

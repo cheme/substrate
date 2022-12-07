@@ -20,7 +20,7 @@
 mod changeset;
 mod offchain;
 
-use self::changeset::{OverlayedChangeSet, OverlayedChangeSetBlob, OverlayedInfos};
+use self::changeset::{OverlayedChangeSet, OverlayedChangeSetBlob, OverlayedInfos, OriginEntry};
 use crate::{backend::Backend, stats::StateMachineStats, DefaultError};
 use codec::{Decode, Encode};
 use hash_db::Hasher;
@@ -837,39 +837,124 @@ impl OverlayedChanges {
 	/// there is no open transaction that can be rolled back.
 	pub fn rollback_transaction(&mut self) -> Result<(), NoOpenTransaction> {
 		self.context.guard_no_runtime_transaction(&self.top)?;
+
 		self.top.rollback_transaction()?;
+
 		retain_map(&mut self.children, |_, (changeset, _)| {
 			changeset
 				.rollback_transaction()
 				.expect("Top and children changesets are started in lockstep; qed");
 			!changeset.is_empty()
 		});
+
+		let mut moved_from = Vec::new();
 		retain_map(&mut self.btrees, |_, (changeset, infos)| {
-			if let Some(last_removed) = infos.take_last_removed() {
-				*changeset = last_removed;
-			} else {
+			if let Some(from) = infos.take_is_previous_moved_from() {
 				changeset
 					.rollback_transaction()
 					.expect("Top and children changesets are started in lockstep; qed");
+				// Note this spawn is not worknig if origin is current, but moved from
+				// implies Removed or Empty.
+				let change = sp_std::mem::replace(changeset, self.top.spawn_child());
+				moved_from.push((from, change));
 			}
-			let clean = infos
+			if let Some(others) = infos.take_others_previous_moved_from() {
+				moved_from.extend(others.into_iter());
+			}
+			if let Some(from) = infos.take_is_previous_moved_from() {
+				changeset
+					.rollback_transaction()
+					.expect("Top and children changesets are started in lockstep; qed");
+				// Note this spawn is not worknig if origin is current, but moved from
+				// implies Removed or Empty.
+				let change = sp_std::mem::replace(changeset, self.top.spawn_child());
+				moved_from.push((from, change));
+			}
+
+			let mut clean = false;
+			match infos.take_last_origin() {
+				Some(OriginEntry::Empty) => {
+					clean = true;
+				},
+				None | Some(OriginEntry::Current) => {
+					changeset
+						.rollback_transaction()
+						.expect("Top and children changesets are started in lockstep; qed");
+				},
+				Some(OriginEntry::Removed(last_removed)) => {
+					*changeset = last_removed;
+				},
+				Some(OriginEntry::MovedTo(moved_to)) => {
+					// will get new info from moved from in second step
+				},
+			}
+			let _ = infos
 				.rollback_transaction()
 				.expect("Top and children changesets are started in lockstep; qed");
 			!clean
 		});
+		for (at, state) in moved_from.into_iter() {
+			if let Some(entry) = self.btrees.get_mut(&at) {
+				entry.0 = state;
+			} else {
+				crate::warn!(target: "runtime", "Moving to non existing entry should not happen.");
+			}
+		}
+
+		let mut moved_from = Vec::new();
 		retain_map(&mut self.blobs, |_, (changeset, infos)| {
-			if let Some(last_removed) = infos.take_last_removed() {
-				*changeset = last_removed;
-			} else {
+			if let Some(from) = infos.take_is_previous_moved_from() {
 				changeset
 					.rollback_transaction()
 					.expect("Top and children changesets are started in lockstep; qed");
+				// Note this spawn is not worknig if origin is current, but moved from
+				// implies Removed or Empty.
+				let change = sp_std::mem::replace(changeset, self.top.spawn_blob());
+				moved_from.push((from, change));
 			}
-			let clean = infos
+			if let Some(others) = infos.take_others_previous_moved_from() {
+				moved_from.extend(others.into_iter());
+			}
+			if let Some(from) = infos.take_is_previous_moved_from() {
+				changeset
+					.rollback_transaction()
+					.expect("Top and children changesets are started in lockstep; qed");
+				// Note this spawn is not worknig if origin is current, but moved from
+				// implies Removed or Empty.
+				let change = sp_std::mem::replace(changeset, self.top.spawn_blob());
+				moved_from.push((from, change));
+			}
+
+			let mut clean = false;
+			match infos.take_last_origin() {
+				Some(OriginEntry::Empty) => {
+					clean = true;
+				},
+				None | Some(OriginEntry::Current) => {
+					changeset
+						.rollback_transaction()
+						.expect("Top and children changesets are started in lockstep; qed");
+				},
+				Some(OriginEntry::Removed(last_removed)) => {
+					*changeset = last_removed;
+				},
+				Some(OriginEntry::MovedTo(moved_to)) => {
+					// will get new info from moved from in second step
+				},
+			}
+			let _ = infos
 				.rollback_transaction()
 				.expect("Top and children changesets are started in lockstep; qed");
 			!clean
 		});
+		for (at, state) in moved_from.into_iter() {
+			if let Some(entry) = self.blobs.get_mut(&at) {
+				entry.0 = state;
+			} else {
+				crate::warn!(target: "runtime", "Moving to non existing entry should not happen.");
+			}
+		}
+
 		self.offchain
 			.overlay_mut()
 			.rollback_transaction()
