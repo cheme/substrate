@@ -754,13 +754,9 @@ impl OverlayedChanges {
 		changeset.clear_where(|key, _| key.starts_with(prefix))
 	}
 
-	/// Returns the current nesting depth of the transaction stack.
-	///
 	/// A value of zero means that no transaction is open and changes are committed on write.
 	pub fn transaction_depth(&self) -> usize {
-		// The top changeset and all child changesets transact in lockstep and are
-		// therefore always at the same transaction depth.
-		self.top.transaction_depth()
+		self.context.transaction_depth()
 	}
 
 	/// Start a new nested transaction.
@@ -969,8 +965,7 @@ impl OverlayedChanges {
 	/// This commits all dangling transaction left open by the runtime.
 	/// Calling this while outside the runtime will return an error.
 	pub fn exit_runtime(&mut self) -> Result<(), NotInRuntime> {
-		let nb_open = self.top.nb_open_transactions(&self.context);
-		self.context.exit_runtime()?;
+		let nb_open = self.context.exit_runtime()?;
 		for _ in 0..nb_open {
 			self.rollback_transaction().expect("counted above");
 		}
@@ -996,6 +991,7 @@ impl OverlayedChanges {
 		impl Iterator<Item = (BtreeMeta, impl Iterator<Item = (StorageKey, Option<StorageValue>)>)>,
 		impl Iterator<Item = (BlobMeta, Blob)>,
 	) {
+		self.context.guard_drain_committed();
 		use sp_std::mem::take;
 		(
 			take(&mut self.top).drain_committed(),
@@ -1026,6 +1022,7 @@ impl OverlayedChanges {
 	pub fn offchain_drain_committed(
 		&mut self,
 	) -> impl Iterator<Item = ((StorageKey, StorageKey), OffchainOverlayedChange)> {
+		self.context.guard_drain_committed();
 		self.offchain.drain()
 	}
 
@@ -1862,5 +1859,13 @@ mod tests {
 		let next_to_40 = overlay.child_iter_after(child_info, &[40]).unwrap().next().unwrap();
 		assert_eq!(next_to_40.0.to_vec(), vec![50]);
 		assert_eq!(next_to_40.1.value(), Some(&vec![50]));
+	}
+
+	#[test]
+	#[should_panic]
+	fn drain_with_open_transaction_panics() {
+		let mut overlay = OverlayedChanges::default();
+		overlay.start_transaction();
+		let _ = overlay.drain_committed();
 	}
 }

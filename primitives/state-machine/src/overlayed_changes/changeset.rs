@@ -393,11 +393,7 @@ impl<K: Ord + Hash + Clone, V> OverlayedMap<K, V> {
 	}
 
 	/// Consume this changeset and return all committed changes.
-	///
-	/// Panics:
-	/// Panics if there are open transactions: `transaction_depth() > 0`
 	pub fn drain_committed(self) -> impl Iterator<Item = (K, V)> {
-		assert!(self.transaction_depth() == 0, "Drain is not allowed with open transactions.");
 		self.changes.into_iter().map(|(k, mut v)| (k, v.pop_transaction().value))
 	}
 
@@ -406,11 +402,6 @@ impl<K: Ord + Hash + Clone, V> OverlayedMap<K, V> {
 	/// A value of zero means that no transaction is open and changes are committed on write.
 	pub fn transaction_depth(&self) -> usize {
 		self.dirty_keys.len()
-	}
-
-	/// Count number of open transactions.
-	pub fn nb_open_transactions(&mut self, context: &OverlayedContext) -> usize {
-		self.transaction_depth() - context.num_client_transactions
 	}
 
 	/// Start a new nested transaction.
@@ -523,22 +514,32 @@ impl OverlayedContext {
 	}
 
 	/// Call this when control returns from the runtime.
-	pub fn exit_runtime(&mut self) -> Result<(), NotInRuntime> {
+	/// Returns number of transaction to close.
+	#[must_use = "Transactions should be rollback or commited depending on logic."]
+	pub fn exit_runtime(&mut self) -> Result<usize, NotInRuntime> {
 		if let ExecutionMode::Client = self.execution_mode {
 			return Err(NotInRuntime)
 		}
 		self.execution_mode = ExecutionMode::Client;
-		Ok(())
+		let result = self.number_transactions - self.num_client_transactions;
+		self.num_client_transactions = 0;
+		Ok(result)
+	}
+
+	/// Panic if we cannot drain committed (if transactions are open).
+	pub fn guard_drain_committed(&self) {
+		assert!(self.number_transactions == 0, "Drain is not allowed with open transactions.");
+	}
+
+	/// Number of open transaction (including non runtime ones).
+	pub fn transaction_depth(&self) -> usize {
+		self.number_transactions
 	}
 }
 
 impl<I: Clone, M> OverlayedInfos<I, M> {
 	/// Consume this infos and return the info if it is existing.
-	///
-	/// Panics:
-	/// Panics if there are open transactions: `transaction_depth() > 0`
 	pub fn drain_committed(self) -> I {
-		assert!(self.transaction_depth() == 0, "Drain is not allowed with open transactions.");
 		self.infos.into_value().info
 	}
 
@@ -666,13 +667,6 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 			debug_assert!(infos.moved_from_current.is_none());
 			infos.moved_from_current = Some(moved_from_name);
 		}
-	}
-
-	/// Returns the current nesting depth of the transaction stack.
-	///
-	/// A value of zero means that no transaction is open and changes are committed on write.
-	pub fn transaction_depth(&self) -> usize {
-		self.dirty_infos.len()
 	}
 
 	/// Start a new nested transaction.
@@ -1262,14 +1256,6 @@ mod test {
 	}
 
 	#[test]
-	#[should_panic]
-	fn drain_with_open_transaction_panics() {
-		let mut changeset = OverlayedChangeSet::default();
-		changeset.start_transaction();
-		let _ = changeset.drain_committed();
-	}
-
-	#[test]
 	fn runtime_cannot_close_client_tx() {
 		let mut context = OverlayedContext::default();
 		context.start_transaction();
@@ -1286,7 +1272,7 @@ mod test {
 		assert_eq!(context.exit_runtime(), Err(NotInRuntime));
 		assert_eq!(context.enter_runtime(), Ok(()));
 		assert_eq!(context.enter_runtime(), Err(AlreadyInRuntime));
-		assert_eq!(context.exit_runtime(), Ok(()));
+		assert_eq!(context.exit_runtime(), Ok(0));
 		assert_eq!(context.exit_runtime(), Err(NotInRuntime));
 	}
 }
