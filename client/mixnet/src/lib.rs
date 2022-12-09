@@ -240,7 +240,6 @@ where
 			NetworkId::from_public_key(&network_identity.public()),
 			mixnet_config.public_key,
 			key_store.clone(),
-			&mixnet_config,
 			metrics,
 		);
 
@@ -783,14 +782,12 @@ impl AuthorityTopology {
 		network_id: NetworkId,
 		node_public_key: MixPublicKey,
 		key_store: Arc<dyn SyncCryptoStore>,
-		config: &Config,
 		metrics: Option<metrics::MetricsHandle>,
 	) -> Self {
 		let topo = TopologyHashTable::new(
 			// MixnetId is ImOnline key.
 			local_id,
 			node_public_key,
-			config,
 			TopoConfig::DEFAULT_PARAMETERS.clone(),
 			(),
 		);
@@ -827,11 +824,6 @@ impl AuthorityTopology {
 					metrics::LABEL_NODE_STATUS[metrics::ConnectedNodeStatus::External as usize]
 				])
 				.set(stats.nb_connected_external as u64);
-			m.current_connected
-				.with_label_values(&[
-					metrics::LABEL_NODE_STATUS[metrics::ConnectedNodeStatus::Consumer as usize]
-				])
-				.set(stats.nb_connected_consumer as u64);
 			m.current_connected
 				.with_label_values(&[
 					metrics::LABEL_NODE_STATUS[metrics::ConnectedNodeStatus::Handshakes as usize]
@@ -890,18 +882,6 @@ impl mixnet::traits::Configuration for AuthorityTopology {
 				stats.number_received_invalid,
 				nb_window,
 				PacketsKind::Received,
-				PacketsResult::Failure,
-			);
-			metrics.set_window_packets(
-				stats.number_from_external_received_valid,
-				nb_window,
-				PacketsKind::ReceivedExternal,
-				PacketsResult::Success,
-			);
-			metrics.set_window_packets(
-				stats.number_from_external_received_invalid,
-				nb_window,
-				PacketsKind::ReceivedExternal,
 				PacketsResult::Failure,
 			);
 			metrics.set_window_packets(
@@ -1067,8 +1047,7 @@ mod metrics {
 		Forwarding = 1,
 		Receiving = 2,
 		External = 3,
-		Consumer = 4,
-		Handshakes = 5,
+		Handshakes = 4,
 	}
 
 	pub const LABEL_NODE_STATUS: &[&str] =
