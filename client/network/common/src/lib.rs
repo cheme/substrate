@@ -34,6 +34,7 @@ impl<T> ExHashT for T where T: std::hash::Hash + Eq + std::fmt::Debug + Clone + 
 use codec::{Decode, Encode};
 
 // TODO move at proper place
+// TODO try remove and use the channel from the mixnet crate
 /// Command for the mixnet worker.
 pub enum MixnetCommand {
 	/// Result of transaction to send back in mixnet.

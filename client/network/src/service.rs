@@ -1449,6 +1449,13 @@ where
 
 			match poll_value {
 				Poll::Pending => break,
+				Poll::Ready(SwarmEvent::Behaviour(BehaviourOut::MixnetClose)) => {
+					// noops as we want others protocol to stay open.
+					debug!(
+						target: "sub-libp2p",
+						"Mixnet stream close.",
+					);
+				},
 				Poll::Ready(SwarmEvent::Behaviour(BehaviourOut::InboundRequest {
 					protocol,
 					result,
