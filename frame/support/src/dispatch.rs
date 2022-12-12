@@ -359,13 +359,15 @@ where
 
 /// Implementation for test extrinsic.
 #[cfg(feature = "std")]
-impl<Call: Encode, Extra: Encode> GetDispatchInfo for sp_runtime::testing::TestXt<Call, Extra> {
+impl<Call: Encode + GetDispatchInfo, Extra: Encode> GetDispatchInfo
+	for sp_runtime::testing::TestXt<Call, Extra>
+{
 	fn get_dispatch_info(&self) -> DispatchInfo {
 		// for testing: weight == size.
 		DispatchInfo {
 			weight: Weight::from_ref_time(self.encode().len() as _),
 			pays_fee: Pays::Yes,
-			..Default::default()
+			class: self.call.get_dispatch_info().class,
 		}
 	}
 }
@@ -3181,8 +3183,8 @@ mod tests {
 		dispatch::{DispatchClass, DispatchInfo, Pays},
 		metadata::*,
 		traits::{
-			CrateVersion, Get, GetCallName, IntegrityTest, OnFinalize, OnIdle, OnInitialize,
-			OnRuntimeUpgrade, PalletInfo,
+			CallerTrait, CrateVersion, Get, GetCallName, IntegrityTest, OnFinalize, OnIdle,
+			OnInitialize, OnRuntimeUpgrade, PalletInfo,
 		},
 	};
 	use sp_weights::RuntimeDbWeight;
@@ -3300,6 +3302,16 @@ mod tests {
 		}
 	}
 
+	impl CallerTrait<<TraitImpl as system::Config>::AccountId> for OuterOrigin {
+		fn into_system(self) -> Option<RawOrigin<<TraitImpl as system::Config>::AccountId>> {
+			unimplemented!("Not required in tests!")
+		}
+
+		fn as_system_ref(&self) -> Option<&RawOrigin<<TraitImpl as system::Config>::AccountId>> {
+			unimplemented!("Not required in tests!")
+		}
+	}
+
 	impl crate::traits::OriginTrait for OuterOrigin {
 		type Call = <TraitImpl as system::Config>::RuntimeCall;
 		type PalletsOrigin = OuterOrigin;
@@ -3325,6 +3337,10 @@ mod tests {
 			unimplemented!("Not required in tests!")
 		}
 
+		fn into_caller(self) -> Self::PalletsOrigin {
+			unimplemented!("Not required in tests!")
+		}
+
 		fn try_with_caller<R>(
 			self,
 			_f: impl FnOnce(Self::PalletsOrigin) -> Result<R, Self::PalletsOrigin>,
@@ -3342,6 +3358,9 @@ mod tests {
 			unimplemented!("Not required in tests!")
 		}
 		fn as_signed(self) -> Option<Self::AccountId> {
+			unimplemented!("Not required in tests!")
+		}
+		fn as_system_ref(&self) -> Option<&RawOrigin<Self::AccountId>> {
 			unimplemented!("Not required in tests!")
 		}
 	}

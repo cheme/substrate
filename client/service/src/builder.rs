@@ -40,12 +40,14 @@ use sc_keystore::LocalKeystore;
 use sc_network::{config::SyncMode, NetworkService};
 use sc_network_bitswap::BitswapRequestHandler;
 use sc_network_common::{
+	protocol::role::Roles,
 	service::{NetworkStateInfo, NetworkStatusProvider},
 	sync::warp::WarpSyncProvider,
 };
 use sc_network_light::light_client_requests::handler::LightClientRequestHandler;
 use sc_network_sync::{
-	block_request_handler::BlockRequestHandler, state_request_handler::StateRequestHandler,
+	block_request_handler::BlockRequestHandler, service::network::NetworkServiceProvider,
+	state_request_handler::StateRequestHandler,
 	warp_request_handler::RequestHandler as WarpSyncRequestHandler, ChainSync,
 };
 use sc_rpc::{
@@ -56,6 +58,7 @@ use sc_rpc::{
 	system::SystemApiServer,
 	DenyUnsafe, SubscriptionTaskExecutor,
 };
+use sc_rpc_spec_v2::transaction::TransactionApiServer;
 use sc_telemetry::{telemetry, ConnectionMessage, Telemetry, TelemetryHandle, SUBSTRATE_INFO};
 use sc_transaction_pool_api::MaintainedTransactionPool;
 use sc_utils::mpsc::{tracing_unbounded, TracingUnboundedSender};
@@ -308,6 +311,7 @@ where
 		executor,
 		spawn_handle,
 		config.clone(),
+		execution_extensions,
 	)?;
 	crate::client::Client::new(
 		backend,
@@ -315,7 +319,6 @@ where
 		genesis_storage,
 		fork_blocks,
 		bad_blocks,
-		execution_extensions,
 		prometheus_registry,
 		telemetry,
 		config,
@@ -435,9 +438,7 @@ where
 	TBl::Hash: Unpin,
 	TBl::Header: Unpin,
 	TBackend: 'static + sc_client_api::backend::Backend<TBl> + Send,
-	TExPool: MaintainedTransactionPool<Block = TBl, Hash = <TBl as BlockT>::Hash>
-		+ parity_util_mem::MallocSizeOf
-		+ 'static,
+	TExPool: MaintainedTransactionPool<Block = TBl, Hash = <TBl as BlockT>::Hash> + 'static,
 {
 	let SpawnTasksParams {
 		mut config,
@@ -541,12 +542,7 @@ where
 	spawn_handle.spawn(
 		"informant",
 		None,
-		sc_informant::build(
-			client.clone(),
-			network,
-			transaction_pool.clone(),
-			config.informant_output_format,
-		),
+		sc_informant::build(client.clone(), network, config.informant_output_format),
 	);
 
 	task_manager.keep_alive((config.base_path, rpc));
@@ -677,6 +673,13 @@ where
 		(chain, state, child_state)
 	};
 
+	let transaction_v2 = sc_rpc_spec_v2::transaction::Transaction::new(
+		client.clone(),
+		transaction_pool.clone(),
+		task_executor.clone(),
+	)
+	.into_rpc();
+
 	let author = sc_rpc::author::Author::new(
 		client.clone(),
 		transaction_pool,
@@ -695,6 +698,10 @@ where
 		rpc_api.merge(offchain).map_err(|e| Error::Application(e.into()))?;
 	}
 
+	// Part of the RPC v2 spec.
+	rpc_api.merge(transaction_v2).map_err(|e| Error::Application(e.into()))?;
+
+	// Part of the old RPC spec.
 	rpc_api.merge(chain).map_err(|e| Error::Application(e.into()))?;
 	rpc_api.merge(author).map_err(|e| Error::Application(e.into()))?;
 	rpc_api.merge(system).map_err(|e| Error::Application(e.into()))?;
@@ -845,7 +852,8 @@ where
 		protocol_config
 	};
 
-	let chain_sync = ChainSync::new(
+	let (chain_sync_network_provider, chain_sync_network_handle) = NetworkServiceProvider::new();
+	let (chain_sync, chain_sync_service, block_announce_config) = ChainSync::new(
 		match config.network.sync_mode {
 			SyncMode::Full => sc_network_common::sync::SyncMode::Full,
 			SyncMode::Fast { skip_proofs, storage_chain_mode } =>
@@ -853,9 +861,18 @@ where
 			SyncMode::Warp => sc_network_common::sync::SyncMode::Warp,
 		},
 		client.clone(),
+		protocol_id.clone(),
+		&config.chain_spec.fork_id().map(ToOwned::to_owned),
+		Roles::from(&config.role),
 		block_announce_validator,
 		config.network.max_parallel_downloads,
 		warp_sync_provider,
+		config.prometheus_config.as_ref().map(|config| config.registry.clone()).as_ref(),
+		chain_sync_network_handle,
+		import_queue.service(),
+		block_request_protocol_config.name.clone(),
+		state_request_protocol_config.name.clone(),
+		warp_sync_protocol_config.as_ref().map(|config| config.name.clone()),
 	)?;
 
 	request_response_protocol_configs.push(config.network.ipfs_server.then(|| {
@@ -868,24 +885,27 @@ where
 		role: config.role.clone(),
 		executor: {
 			let spawn_handle = Clone::clone(&spawn_handle);
-			Some(Box::new(move |fut| {
+			Box::new(move |fut| {
 				spawn_handle.spawn("libp2p-node", Some("networking"), fut);
-			}))
+			})
 		},
 		network_config: config.network.clone(),
 		chain: client.clone(),
 		protocol_id: protocol_id.clone(),
 		fork_id: config.chain_spec.fork_id().map(ToOwned::to_owned),
-		import_queue: Box::new(import_queue),
 		chain_sync: Box::new(chain_sync),
+		chain_sync_service: Box::new(chain_sync_service.clone()),
 		metrics_registry: config.prometheus_config.as_ref().map(|config| config.registry.clone()),
-		block_request_protocol_config,
-		state_request_protocol_config,
-		warp_sync_protocol_config,
-		light_client_request_protocol_config,
 		mixnet,
+		block_announce_config,
 		request_response_protocol_configs: request_response_protocol_configs
 			.into_iter()
+			.chain([
+				Some(block_request_protocol_config),
+				Some(state_request_protocol_config),
+				Some(light_client_request_protocol_config),
+				warp_sync_protocol_config,
+			])
 			.flatten()
 			.collect::<Vec<_>>(),
 	};
@@ -914,7 +934,14 @@ where
 		Arc::new(TransactionPoolAdapter { pool: transaction_pool, client: client.clone() }),
 		config.prometheus_config.as_ref().map(|config| &config.registry),
 	)?;
+
 	spawn_handle.spawn("network-transactions-handler", Some("networking"), tx_handler.run());
+	spawn_handle.spawn(
+		"chain-sync-network-service-provider",
+		Some("networking"),
+		chain_sync_network_provider.run(network.clone()),
+	);
+	spawn_handle.spawn("import-queue", None, import_queue.run(Box::new(chain_sync_service)));
 
 	let (system_rpc_tx, system_rpc_rx) = tracing_unbounded("mpsc_system_rpc");
 	let (mixnet_tx, mixnet_rx) = futures::channel::mpsc::channel(LIMIT_MIXNET_QUERY_QUEUE);

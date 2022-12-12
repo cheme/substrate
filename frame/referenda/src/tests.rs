@@ -44,7 +44,7 @@ fn basic_happy_path_works() {
 		assert_ok!(Referenda::submit(
 			RuntimeOrigin::signed(1),
 			Box::new(RawOrigin::Root.into()),
-			set_balance_proposal_hash(1),
+			set_balance_proposal_bounded(1),
 			DispatchTime::At(10),
 		));
 		assert_eq!(Balances::reserved_balance(&1), 2);
@@ -175,7 +175,7 @@ fn queueing_works() {
 		assert_ok!(Referenda::submit(
 			RuntimeOrigin::signed(5),
 			Box::new(RawOrigin::Root.into()),
-			set_balance_proposal_hash(0),
+			set_balance_proposal_bounded(0),
 			DispatchTime::After(0),
 		));
 		assert_ok!(Referenda::place_decision_deposit(RuntimeOrigin::signed(5), 0));
@@ -187,7 +187,7 @@ fn queueing_works() {
 			assert_ok!(Referenda::submit(
 				RuntimeOrigin::signed(i),
 				Box::new(RawOrigin::Root.into()),
-				set_balance_proposal_hash(i),
+				set_balance_proposal_bounded(i),
 				DispatchTime::After(0),
 			));
 			assert_ok!(Referenda::place_decision_deposit(RuntimeOrigin::signed(i), i as u32));
@@ -266,13 +266,34 @@ fn queueing_works() {
 }
 
 #[test]
+fn alarm_interval_works() {
+	new_test_ext().execute_with(|| {
+		let call =
+			<Test as Config>::Preimages::bound(CallOf::<Test, ()>::from(Call::nudge_referendum {
+				index: 0,
+			}))
+			.unwrap();
+		for n in 0..10 {
+			let interval = n * n;
+			let now = 100 * (interval + 1);
+			System::set_block_number(now);
+			AlarmInterval::set(interval);
+			let when = now + 1;
+			let (actual, _) = Referenda::set_alarm(call.clone(), when).unwrap();
+			assert!(actual >= when);
+			assert!(actual - interval <= when);
+		}
+	});
+}
+
+#[test]
 fn auto_timeout_should_happen_with_nothing_but_submit() {
 	new_test_ext().execute_with(|| {
 		// #1: submit
 		assert_ok!(Referenda::submit(
 			RuntimeOrigin::signed(1),
 			Box::new(RawOrigin::Root.into()),
-			set_balance_proposal_hash(1),
+			set_balance_proposal_bounded(1),
 			DispatchTime::At(20),
 		));
 		run_to(20);
@@ -292,13 +313,13 @@ fn tracks_are_distinguished() {
 		assert_ok!(Referenda::submit(
 			RuntimeOrigin::signed(1),
 			Box::new(RawOrigin::Root.into()),
-			set_balance_proposal_hash(1),
+			set_balance_proposal_bounded(1),
 			DispatchTime::At(10),
 		));
 		assert_ok!(Referenda::submit(
 			RuntimeOrigin::signed(2),
 			Box::new(RawOrigin::None.into()),
-			set_balance_proposal_hash(2),
+			set_balance_proposal_bounded(2),
 			DispatchTime::At(20),
 		));
 
@@ -315,7 +336,7 @@ fn tracks_are_distinguished() {
 					ReferendumInfo::Ongoing(ReferendumStatus {
 						track: 0,
 						origin: OriginCaller::system(RawOrigin::Root),
-						proposal_hash: set_balance_proposal_hash(1),
+						proposal: set_balance_proposal_bounded(1),
 						enactment: DispatchTime::At(10),
 						submitted: 1,
 						submission_deposit: Deposit { who: 1, amount: 2 },
@@ -331,7 +352,7 @@ fn tracks_are_distinguished() {
 					ReferendumInfo::Ongoing(ReferendumStatus {
 						track: 1,
 						origin: OriginCaller::system(RawOrigin::None),
-						proposal_hash: set_balance_proposal_hash(2),
+						proposal: set_balance_proposal_bounded(2),
 						enactment: DispatchTime::At(20),
 						submitted: 1,
 						submission_deposit: Deposit { who: 2, amount: 2 },
@@ -350,13 +371,13 @@ fn tracks_are_distinguished() {
 #[test]
 fn submit_errors_work() {
 	new_test_ext().execute_with(|| {
-		let h = set_balance_proposal_hash(1);
+		let h = set_balance_proposal_bounded(1);
 		// No track for Signed origins.
 		assert_noop!(
 			Referenda::submit(
 				RuntimeOrigin::signed(1),
 				Box::new(RawOrigin::Signed(2).into()),
-				h,
+				h.clone(),
 				DispatchTime::At(10),
 			),
 			Error::<Test>::NoTrack
@@ -381,7 +402,7 @@ fn decision_deposit_errors_work() {
 		let e = Error::<Test>::NotOngoing;
 		assert_noop!(Referenda::place_decision_deposit(RuntimeOrigin::signed(2), 0), e);
 
-		let h = set_balance_proposal_hash(1);
+		let h = set_balance_proposal_bounded(1);
 		assert_ok!(Referenda::submit(
 			RuntimeOrigin::signed(1),
 			Box::new(RawOrigin::Root.into()),
@@ -403,7 +424,7 @@ fn refund_deposit_works() {
 		let e = Error::<Test>::BadReferendum;
 		assert_noop!(Referenda::refund_decision_deposit(RuntimeOrigin::signed(1), 0), e);
 
-		let h = set_balance_proposal_hash(1);
+		let h = set_balance_proposal_bounded(1);
 		assert_ok!(Referenda::submit(
 			RuntimeOrigin::signed(1),
 			Box::new(RawOrigin::Root.into()),
@@ -423,9 +444,47 @@ fn refund_deposit_works() {
 }
 
 #[test]
+fn refund_submission_deposit_works() {
+	new_test_ext().execute_with(|| {
+		// refund of non existing referendum fails.
+		let e = Error::<Test>::BadReferendum;
+		assert_noop!(Referenda::refund_submission_deposit(RuntimeOrigin::signed(1), 0), e);
+		// create a referendum.
+		let h = set_balance_proposal_bounded(1);
+		assert_ok!(Referenda::submit(
+			RuntimeOrigin::signed(1),
+			Box::new(RawOrigin::Root.into()),
+			h.clone(),
+			DispatchTime::At(10),
+		));
+		// refund of an ongoing referendum fails.
+		let e = Error::<Test>::BadStatus;
+		assert_noop!(Referenda::refund_submission_deposit(RuntimeOrigin::signed(3), 0), e);
+		// cancel referendum.
+		assert_ok!(Referenda::cancel(RuntimeOrigin::signed(4), 0));
+		// refund of canceled referendum works.
+		assert_ok!(Referenda::refund_submission_deposit(RuntimeOrigin::signed(3), 0));
+		// fails if already refunded.
+		let e = Error::<Test>::NoDeposit;
+		assert_noop!(Referenda::refund_submission_deposit(RuntimeOrigin::signed(2), 0), e);
+		// create second referendum.
+		assert_ok!(Referenda::submit(
+			RuntimeOrigin::signed(1),
+			Box::new(RawOrigin::Root.into()),
+			h,
+			DispatchTime::At(10),
+		));
+		// refund of a killed referendum fails.
+		assert_ok!(Referenda::kill(RuntimeOrigin::root(), 1));
+		let e = Error::<Test>::NoDeposit;
+		assert_noop!(Referenda::refund_submission_deposit(RuntimeOrigin::signed(2), 0), e);
+	});
+}
+
+#[test]
 fn cancel_works() {
 	new_test_ext().execute_with(|| {
-		let h = set_balance_proposal_hash(1);
+		let h = set_balance_proposal_bounded(1);
 		assert_ok!(Referenda::submit(
 			RuntimeOrigin::signed(1),
 			Box::new(RawOrigin::Root.into()),
@@ -444,7 +503,7 @@ fn cancel_works() {
 #[test]
 fn cancel_errors_works() {
 	new_test_ext().execute_with(|| {
-		let h = set_balance_proposal_hash(1);
+		let h = set_balance_proposal_bounded(1);
 		assert_ok!(Referenda::submit(
 			RuntimeOrigin::signed(1),
 			Box::new(RawOrigin::Root.into()),
@@ -462,7 +521,7 @@ fn cancel_errors_works() {
 #[test]
 fn kill_works() {
 	new_test_ext().execute_with(|| {
-		let h = set_balance_proposal_hash(1);
+		let h = set_balance_proposal_bounded(1);
 		assert_ok!(Referenda::submit(
 			RuntimeOrigin::signed(1),
 			Box::new(RawOrigin::Root.into()),
@@ -482,7 +541,7 @@ fn kill_works() {
 #[test]
 fn kill_errors_works() {
 	new_test_ext().execute_with(|| {
-		let h = set_balance_proposal_hash(1);
+		let h = set_balance_proposal_bounded(1);
 		assert_ok!(Referenda::submit(
 			RuntimeOrigin::signed(1),
 			Box::new(RawOrigin::Root.into()),

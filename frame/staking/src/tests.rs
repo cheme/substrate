@@ -4365,9 +4365,10 @@ mod election_data_provider {
 	#[test]
 	fn targets_2sec_block() {
 		let mut validators = 1000;
-		while <Test as Config>::WeightInfo::get_npos_targets(validators)
-			.all_lt(2u64 * frame_support::weights::constants::WEIGHT_PER_SECOND)
-		{
+		while <Test as Config>::WeightInfo::get_npos_targets(validators).all_lt(Weight::from_parts(
+			2u64 * frame_support::weights::constants::WEIGHT_REF_TIME_PER_SECOND,
+			u64::MAX,
+		)) {
 			validators += 1;
 		}
 
@@ -4384,8 +4385,10 @@ mod election_data_provider {
 		let mut nominators = 1000;
 
 		while <Test as Config>::WeightInfo::get_npos_voters(validators, nominators, slashing_spans)
-			.all_lt(2u64 * frame_support::weights::constants::WEIGHT_PER_SECOND)
-		{
+			.all_lt(Weight::from_parts(
+				2u64 * frame_support::weights::constants::WEIGHT_REF_TIME_PER_SECOND,
+				u64::MAX,
+			)) {
 			nominators += 1;
 		}
 
@@ -5622,5 +5625,59 @@ fn reducing_max_unlocking_chunks_abrupt() {
 
 		// reset the ledger corruption
 		MaxUnlockingChunks::set(2);
+	})
+}
+
+#[test]
+fn cannot_set_unsupported_validator_count() {
+	ExtBuilder::default().build_and_execute(|| {
+		MaxWinners::set(50);
+		// set validator count works
+		assert_ok!(Staking::set_validator_count(RuntimeOrigin::root(), 30));
+		assert_ok!(Staking::set_validator_count(RuntimeOrigin::root(), 50));
+		// setting validator count above 100 does not work
+		assert_noop!(
+			Staking::set_validator_count(RuntimeOrigin::root(), 51),
+			Error::<Test>::TooManyValidators,
+		);
+	})
+}
+
+#[test]
+fn increase_validator_count_errors() {
+	ExtBuilder::default().build_and_execute(|| {
+		MaxWinners::set(50);
+		assert_ok!(Staking::set_validator_count(RuntimeOrigin::root(), 40));
+
+		// increase works
+		assert_ok!(Staking::increase_validator_count(RuntimeOrigin::root(), 6));
+		assert_eq!(ValidatorCount::<Test>::get(), 46);
+
+		// errors
+		assert_noop!(
+			Staking::increase_validator_count(RuntimeOrigin::root(), 5),
+			Error::<Test>::TooManyValidators,
+		);
+	})
+}
+
+#[test]
+fn scale_validator_count_errors() {
+	ExtBuilder::default().build_and_execute(|| {
+		MaxWinners::set(50);
+		assert_ok!(Staking::set_validator_count(RuntimeOrigin::root(), 20));
+
+		// scale value works
+		assert_ok!(Staking::scale_validator_count(
+			RuntimeOrigin::root(),
+			Percent::from_percent(200)
+		));
+		assert_eq!(ValidatorCount::<Test>::get(), 40);
+
+		// errors
+		assert_noop!(
+			Staking::scale_validator_count(RuntimeOrigin::root(), Percent::from_percent(126)),
+			Error::<Test>::TooManyValidators,
+		);
 	})
 }

@@ -24,7 +24,7 @@ use codec::Encode;
 use futures::StreamExt;
 use jsonrpsee::{
 	core::Error as RpcError,
-	types::{error::CallError, EmptyParams},
+	types::{error::CallError, EmptyServerParams as EmptyParams},
 	RpcModule,
 };
 use sc_transaction_pool::{BasicPool, FullChainApi};
