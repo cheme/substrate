@@ -694,6 +694,8 @@ where
 		surbs_reply: bool,
 		reply: oneshot::Sender<Result<(), mixnet::Error>>,
 	) -> Result<(), String> {
+		// TODO do not send through behaviour but have send command in this struct and use old
+		// implementation of send_transaction_to_mixnet
 		self.network_service.behaviour_mut().send_transaction_to_mixnet(
 			tx,
 			num_hop,
