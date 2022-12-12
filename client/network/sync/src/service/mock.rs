@@ -17,7 +17,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 use futures::channel::oneshot;
-use libp2p::{Multiaddr, PeerId};
+use libp2p::{swarm::dial_opts::DialOpts, Multiaddr, PeerId};
 use sc_consensus::{BlockImportError, BlockImportStatus};
 use sc_network_common::{
 	config::MultiaddrWithPeerId,
@@ -105,6 +105,7 @@ mockall::mock! {
 		) -> Result<(), String>;
 		fn remove_from_peers_set(&self, protocol: ProtocolName, peers: Vec<PeerId>);
 		fn sync_num_connected(&self) -> usize;
+		fn dial(&self, addr: DialOpts);
 	}
 
 	#[async_trait::async_trait]
