@@ -232,33 +232,6 @@ where
 		self.discovery.known_peers()
 	}
 
-	/// Submit transaction to the mix network.
-	pub fn send_transaction_to_mixnet(
-		&mut self,
-		encoded_tx: Vec<u8>,
-		number_hops: usize,
-		surb_reply: bool,
-		reply: oneshot::Sender<Result<(), mixnet::Error>>,
-	) -> Result<(), String> {
-		if let Some(mixnet) = self.mixnet.as_mut() {
-			if let Ok(decoded) = <B::Extrinsic as Decode>::decode(&mut encoded_tx.as_ref()) {
-				let send_options =
-					mixnet::SendOptions { num_hop: Some(number_hops), with_surb: surb_reply };
-				// TODO allow reply in mixnet crate
-				mixnet
-					.command_sink()
-					.send(None, vec![decoded].encode(), send_options)
-					.map_err(|e| e.to_string())
-			} else {
-				let _ = reply.send(Err(mixnet::Error::Other("Invalid transaction".into())));
-				Err("Invalid transaction".into())
-			}
-		} else {
-			let _ = reply.send(Err(mixnet::Error::NotReady));
-			Err("Mixnet protocol is disabled".into())
-		}
-	}
-
 	/// Adds a hard-coded address for the given peer, that never expires.
 	pub fn add_known_address(&mut self, peer_id: PeerId, addr: Multiaddr) {
 		self.discovery.add_known_address(peer_id, addr)

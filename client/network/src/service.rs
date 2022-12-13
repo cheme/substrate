@@ -70,7 +70,7 @@ use sc_network_common::{
 		NotificationSenderReady as NotificationSenderReadyT, Signature, SigningError,
 	},
 	sync::SyncStatus,
-	ExHashT,
+	ExHashT, MixnetCommand,
 };
 use sc_peerset::PeersetHandle;
 use sc_utils::mpsc::{tracing_unbounded, TracingUnboundedReceiver, TracingUnboundedSender};
@@ -149,6 +149,7 @@ where
 		let local_identity = params.network_config.node_key.clone().into_keypair()?;
 		let local_public = local_identity.public();
 		let local_peer_id = local_public.to_peer_id();
+		let mut mixnet_command_sender = None;
 
 		params
 			.network_config
@@ -357,6 +358,7 @@ where
 			let behaviour = {
 				let mut mixnet = None;
 				if let Some((mixnet_in, mixnet_out, command_sender)) = params.mixnet {
+					mixnet_command_sender = Some(command_sender.clone());
 					mixnet = Some((MixnetBehaviour::new(mixnet_in, mixnet_out), command_sender));
 				};
 
@@ -459,6 +461,7 @@ where
 			from_service,
 			event_streams: out_events::OutChannels::new(params.metrics_registry.as_ref())?,
 			peers_notifications_sinks,
+			mixnet_command_sender,
 			metrics,
 			boot_node_ids,
 			_marker: Default::default(),
@@ -689,19 +692,31 @@ where
 	/// Submit transaction to the mix network.
 	pub fn send_transaction_to_mixnet(
 		&mut self,
-		tx: Vec<u8>,
-		num_hop: usize,
-		surbs_reply: bool,
+		encoded_tx: Vec<u8>,
+		number_hops: usize,
+		surb_reply: bool,
 		reply: oneshot::Sender<Result<(), mixnet::Error>>,
 	) -> Result<(), String> {
-		// TODO do not send through behaviour but have send command in this struct and use old
-		// implementation of send_transaction_to_mixnet
-		self.network_service.behaviour_mut().send_transaction_to_mixnet(
-			tx,
-			num_hop,
-			surbs_reply,
-			reply,
-		)
+		use codec::{Decode, Encode};
+		if let Some(mixnet) = self.mixnet_command_sender.as_mut() {
+			if let Ok(decoded) = <B::Extrinsic as Decode>::decode(&mut encoded_tx.as_ref()) {
+				let send_options =
+					mixnet::SendOptions { num_hop: Some(number_hops), with_surb: surb_reply };
+				mixnet
+					.start_send(MixnetCommand::SendTransaction(
+						vec![decoded].encode(),
+						send_options,
+						reply,
+					))
+					.map_err(|e| e.to_string())
+			} else {
+				let _ = reply.send(Err(mixnet::Error::Other("Invalid transaction".into())));
+				Err("Invalid transaction".into())
+			}
+		} else {
+			let _ = reply.send(Err(mixnet::Error::NotReady));
+			Err("Mixnet protocol is disabled".into())
+		}
 	}
 }
 
@@ -1297,6 +1312,8 @@ where
 	/// For each peer and protocol combination, an object that allows sending notifications to
 	/// that peer. Shared with the [`NetworkService`].
 	peers_notifications_sinks: Arc<Mutex<HashMap<(PeerId, ProtocolName), NotificationsSink>>>,
+	/// Mixnet command sender if mixnet is enabled. TODO remove (as mixnetCommand)
+	mixnet_command_sender: Option<futures::channel::mpsc::Sender<MixnetCommand>>,
 	/// Marker to pin the `H` generic. Serves no purpose except to not break backwards
 	/// compatibility.
 	_marker: PhantomData<H>,
