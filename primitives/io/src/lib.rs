@@ -1397,6 +1397,40 @@ pub trait Hashing {
 		sp_core::hashing::blake2_256(data)
 	}
 
+	/// Get hasher state handle initiated with given data.
+	/// Panic if no hasher handle available.
+	/// Considering the large adress space for handle,
+	/// we always return current bigger handle + 1 for
+	/// a new handle. If it overflow u32 we panic.
+	/// It is highly unrecommended to never read the handle
+	/// value in a runtime (the value will differ depending on execution
+	/// context (single extrinsic, block processing...)).
+	/// Runtime should also be discourage to keep runtime open.
+	fn get_hasher(data: &[u8], algorithm: Crossing<Hash32Algorithm>) -> Option<u32> {
+		unimplemented!()
+	}
+
+	/// Drop a given hasher instance.
+	/// If hasher handle is undefined, all hashers instance
+	/// will be drop.
+	fn drop_hasher(hasher: Option<u32>) {
+		unimplemented!()
+	}
+
+	/// Update hashing with given data.
+	/// Return true if successful.
+	/// Return false if missing hasher.
+	fn hasher_update(hasher: u32, data: &[u8]) -> bool {
+		unimplemented!()
+	}
+
+	/// Finalize hashing, dropping the stored hasher and returning
+	/// the resulting hash if successful.
+	/// Return None if missing hasher.
+	fn hasher_finalize(hasher: u32) -> Option<[u8; 32]> {
+		unimplemented!()
+	}
+
 	/// Conduct four XX hashes to give a 256-bit result.
 	fn twox_256(data: &[u8]) -> [u8; 32] {
 		sp_core::hashing::twox_256(data)

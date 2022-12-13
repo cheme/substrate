@@ -717,7 +717,7 @@ fn hash32_with_algorithm_hosts(data: &[u8], algo: Hash32Algorithm) -> [u8; 32] {
 }
 
 impl sp_core::Hashers for BlakeTwo256 {
-	// TODO define host function to replace this buf:
+	/*	// TODO define host function to replace this buf:
 	// get_hasher(algo) -> Option<usize>;
 	// store a new hasher instance in externality at index 0 in hostfunction.
 	// (when no_std make it a noop in state machine: cumulus shall not replace it).
@@ -728,22 +728,25 @@ impl sp_core::Hashers for BlakeTwo256 {
 	// remove all hasher instance, call this after every extrinsic precessing from system
 	// hash_chunk(usize, &[u8]) -> bool
 	// hash_finalize(usize) -> Vec<u8>
-	type HasherState = (Vec<u8>, Hash32Algorithm);
+	type HasherState = (Vec<u8>, Hash32Algorithm);*/
+	type HasherState = u32;
 
 	fn hash_with(data: &[u8], algo: Hash32Algorithm) -> [u8; 32] {
 		hash32_with_algorithm_hosts(data, algo)
 	}
 
+	// TODO also remove initial data?
 	fn hash_state_with(data: &[u8], algo: Hash32Algorithm) -> Self::HasherState {
-		(data.to_vec(), algo)
+		sp_io::hashing::get_hasher(data, algo.into())
+			.expect("TODO change Hashers trait to support error")
 	}
 
 	fn hash_update(data: &[u8], state: &mut Self::HasherState) {
-		state.0.extend_from_slice(data);
+		assert!(sp_io::hashing::hasher_update(*state, data)) // TODO handle error
 	}
 
 	fn hash_finalize(state: Self::HasherState) -> [u8; 32] {
-		hash32_with_algorithm_hosts(state.0.as_slice(), state.1)
+		sp_io::hashing::hasher_finalize(state).expect("TODO change Hashers trait to support error")
 	}
 }
 
@@ -775,23 +778,23 @@ impl Hasher for Keccak256 {
 }
 
 impl sp_core::Hashers for Keccak256 {
-	// TODO same replace with handle to an exteranlity stored structure.
-	type HasherState = (Vec<u8>, Hash32Algorithm);
+	type HasherState = u32;
 
 	fn hash_with(data: &[u8], algo: sp_core::storage::transient::Hash32Algorithm) -> [u8; 32] {
 		hash32_with_algorithm_hosts(data, algo)
 	}
 
 	fn hash_state_with(data: &[u8], algo: Hash32Algorithm) -> Self::HasherState {
-		(data.to_vec(), algo)
+		sp_io::hashing::get_hasher(data, algo.into())
+			.expect("TODO change Hashers trait to support error")
 	}
 
 	fn hash_update(data: &[u8], state: &mut Self::HasherState) {
-		state.0.extend_from_slice(data);
+		assert!(sp_io::hashing::hasher_update(*state, data)) // TODO handle error
 	}
 
 	fn hash_finalize(state: Self::HasherState) -> [u8; 32] {
-		hash32_with_algorithm_hosts(state.0.as_slice(), state.1)
+		sp_io::hashing::hasher_finalize(state).expect("TODO change Hashers trait to support error")
 	}
 }
 
