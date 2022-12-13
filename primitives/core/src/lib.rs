@@ -39,7 +39,7 @@ pub use serde;
 #[cfg(feature = "std")]
 use serde::{Deserialize, Serialize};
 use sp_runtime_interface::pass_by::{PassByEnum, PassByInner};
-use sp_std::{ops::Deref, prelude::*};
+use sp_std::{marker::PhantomData, ops::Deref, prelude::*};
 
 pub use sp_debug_derive::RuntimeDebug;
 
@@ -623,7 +623,7 @@ macro_rules! bounded_btree_map {
 	};
 }
 
-pub use sp_storage::transient::{Hash32Algorithm, Hashers};
+pub use sp_storage::transient::{Hash32Algorithm, HasherState, Hashers};
 
 /// Utility function to easilly implement `Hashers` from
 /// the default `Hasher`.
@@ -645,13 +645,11 @@ pub enum Hash32State {
 #[cfg(feature = "full_crypto")]
 impl Hash32State {
 	/// Instantiate a new stat.
-	pub fn new(data: &[u8], algo: sp_storage::transient::Hash32Algorithm) -> Self {
-		let mut result = match algo {
+	pub fn new(algo: sp_storage::transient::Hash32Algorithm) -> Self {
+		match algo {
 			sp_storage::transient::Hash32Algorithm::Blake2b256 =>
 				Hash32State::Blake2b256(crate::hashing::Blake2b256State::new()),
-		};
-		result.update(data);
-		result
+		}
 	}
 
 	/// Hash more content.
@@ -666,5 +664,201 @@ impl Hash32State {
 		match self {
 			Hash32State::Blake2b256(blake) => blake.finalize(),
 		}
+	}
+}
+
+/// Base implementation for hashers externalities.
+#[cfg(not(feature = "full_crypto"))]
+pub struct HashersExternalities<H>(PhantomData<H>);
+
+/// Base implementation for hashers externalities.
+#[cfg(feature = "full_crypto")]
+#[derive(Default)]
+pub struct HashersExternalities<H>(Vec<Option<Hash32State>>, PhantomData<H>);
+
+#[cfg(feature = "std")]
+impl<H> std::fmt::Debug for HashersExternalities<H> {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.debug_tuple("HashersExternalies").finish()
+	}
+}
+
+#[cfg(feature = "full_crypto")]
+impl<H: Hashers> HashersExternalities<H> {
+	/// Instantiate new hasher externalities.
+	pub fn new() -> Self {
+		HashersExternalities(Vec::new(), PhantomData)
+	}
+
+	/// Get hasher state handle initiated with given data.
+	/// See sp_io::hashing::get_hasher.
+	pub fn get_hasher(
+		&mut self,
+		algorithm: Hash32Algorithm,
+	) -> Option<HasherState<H::HasherState>> {
+		if !H::IS_HOST {
+			return H::hash_state_with(algorithm)
+		}
+		if self.0.len() == u32::MAX as usize {
+			return None
+		}
+		self.0.push(Some(Hash32State::new(algorithm)));
+		Some(HasherState::Host(self.0.len() as u32 - 1, PhantomData))
+	}
+
+	/// Drop a given hasher instance.
+	/// If hasher handle is undefined, all hashers instance
+	/// will be drop.
+	pub fn drop_hasher(&mut self, hasher: Option<HasherState<H::HasherState>>) {
+		if let Some(ix) = hasher {
+			let HasherState::Host(ix, _) = ix else {
+				return;
+			};
+			if let Some(hasher) = self.0.get_mut(ix as usize) {
+				*hasher = None;
+				for i in (0..self.0.len()).rev() {
+					if self.0[i].is_none() {
+						let _ = self.0.pop();
+					}
+				}
+			}
+		} else {
+			self.0.clear();
+		}
+	}
+
+	/// Update hashing with given data.
+	/// Return true if successful.
+	/// Return false if missing hasher.
+	pub fn hasher_update(&mut self, handle: &mut HasherState<H::HasherState>, data: &[u8]) -> bool {
+		let handle = match handle {
+			HasherState::Host(handle, _) => handle,
+			HasherState::Local(_) => return H::hash_update(data, handle),
+		};
+		if let Some(Some(hasher)) = self.0.get_mut(*handle as usize) {
+			hasher.update(data);
+			true
+		} else {
+			false
+		}
+	}
+
+	/// Finalize hashing, dropping the stored hasher and returning
+	/// the resulting hash if successful.
+	/// Return None if missing hasher.
+	pub fn hasher_finalize(&mut self, handle: HasherState<H::HasherState>) -> Option<[u8; 32]> {
+		let handle = match handle {
+			HasherState::Host(handle, _) => handle,
+			HasherState::Local(_) => return H::hash_finalize(handle),
+		};
+		if let Some(hasher) = self.0.get_mut(handle as usize).and_then(Option::take) {
+			let hash = hasher.finalize();
+			for i in (0..self.0.len()).rev() {
+				if self.0[i].is_none() {
+					let _ = self.0.pop();
+				}
+			}
+			Some(hash)
+		} else {
+			None
+		}
+	}
+}
+
+#[cfg(not(feature = "full_crypto"))]
+impl HashersExternalities {
+	/// Get hasher state handle initiated with given data.
+	/// See sp_io::hashing::get_hasher.
+	pub fn get_hasher(&mut self, algorithm: Hash32Algorithm) -> Option<u32> {
+		if self.0.len() == u32::MAX as usize {
+			return None
+		}
+		self.0.push(Some(Hash32State::new(algorithm)));
+		Some(self.0.len() as u32 - 1)
+	}
+
+	/// Drop a given hasher instance.
+	/// If hasher handle is undefined, all hashers instance
+	/// will be drop.
+	pub fn drop_hasher(&mut self, hasher: Option<u32>) {
+		if let Some(ix) = hasher {
+			if let Some(hasher) = self.0.get_mut(ix as usize) {
+				*hasher = None;
+				for i in (0..self.0.len()).rev() {
+					if self.0[i].is_none() {
+						let _ = self.0.pop();
+					}
+				}
+			}
+		} else {
+			self.0.clear();
+		}
+	}
+
+	/// Update hashing with given data.
+	/// Return true if successful.
+	/// Return false if missing hasher.
+	pub fn hasher_update(&mut self, handle: u32, data: &[u8]) -> bool {
+		if let Some(Some(hasher)) = self.0.get_mut(handle as usize) {
+			hasher.update(data);
+			true
+		} else {
+			false
+		}
+	}
+
+	/// Finalize hashing, dropping the stored hasher and returning
+	/// the resulting hash if successful.
+	/// Return None if missing hasher.
+	pub fn hasher_finalize(&mut self, handle: u32) -> Option<[u8; 32]> {
+		if let Some(hasher) = self.0.get_mut(handle as usize).and_then(Option::take) {
+			let hash = hasher.finalize();
+			for i in (0..self.0.len()).rev() {
+				if self.0[i].is_none() {
+					let _ = self.0.pop();
+				}
+			}
+			Some(hash)
+		} else {
+			None
+		}
+	}
+}
+
+#[cfg(not(feature = "full_crypto"))]
+impl<H: Hashers> HashersExternalities<H> {
+	/// Instantiate new hasher externalities.
+	pub fn new() -> Self {
+		HashersExternalities(PhantomData)
+	}
+
+	/// Get hasher state handle initiated with given data.
+	/// See sp_io::hashing::get_hasher.
+	pub fn get_hasher(
+		&mut self,
+		algorithm: Hash32Algorithm,
+	) -> Option<HasherState<H::HasherState>> {
+		H::hash_state_with(algorithm)
+	}
+
+	/// Drop a given hasher instance.
+	/// If hasher handle is undefined, all hashers instance
+	/// will be drop.
+	pub fn drop_hasher(&mut self, hasher: Option<HasherState<H::HasherState>>) {
+		H::hash_drop(algorithm)
+	}
+
+	/// Update hashing with given data.
+	/// Return true if successful.
+	/// Return false if missing hasher.
+	pub fn hasher_update(&mut self, handle: &mut HasherState<H::HasherState>, data: &[u8]) -> bool {
+		H::hash_update(data, handle)
+	}
+
+	/// Finalize hashing, dropping the stored hasher and returning
+	/// the resulting hash if successful.
+	/// Return None if missing hasher.
+	pub fn hasher_finalize(&mut self, handle: HasherState<H::HasherState>) -> Option<[u8; 32]> {
+		H::hash_finalize(handle)
 	}
 }

@@ -36,7 +36,7 @@ pub use sp_arithmetic::traits::{
 	CheckedShr, CheckedSub, IntegerSquareRoot, One, SaturatedConversion, Saturating,
 	UniqueSaturatedFrom, UniqueSaturatedInto, Zero,
 };
-use sp_core::{self, storage::StateVersion, Hasher, Hashers, RuntimeDebug, TypeId};
+use sp_core::{self, storage::StateVersion, Hasher, HasherState, Hashers, RuntimeDebug, TypeId};
 #[doc(hidden)]
 pub use sp_core::{
 	parameter_types, ConstBool, ConstI128, ConstI16, ConstI32, ConstI64, ConstI8, ConstU128,
@@ -716,37 +716,36 @@ fn hash32_with_algorithm_hosts(data: &[u8], algo: Hash32Algorithm) -> [u8; 32] {
 	}
 }
 
-impl sp_core::Hashers for BlakeTwo256 {
-	/*	// TODO define host function to replace this buf:
-	// get_hasher(algo) -> Option<usize>;
-	// store a new hasher instance in externality at index 0 in hostfunction.
-	// (when no_std make it a noop in state machine: cumulus shall not replace it).
-	// (with a limit in number TODO find one, maybe u16 is enough, running multiple hashing
-	// in paralell shall be rare))
-	// (usize is guaranted to be max + 1 or first available: need to be deterministic)
-	// release_all_hasher()
-	// remove all hasher instance, call this after every extrinsic precessing from system
-	// hash_chunk(usize, &[u8]) -> bool
-	// hash_finalize(usize) -> Vec<u8>
-	type HasherState = (Vec<u8>, Hash32Algorithm);*/
-	type HasherState = u32;
+impl Hashers for BlakeTwo256 {
+	type HasherState = ();
 
 	fn hash_with(data: &[u8], algo: Hash32Algorithm) -> [u8; 32] {
 		hash32_with_algorithm_hosts(data, algo)
 	}
 
-	// TODO also remove initial data?
-	fn hash_state_with(data: &[u8], algo: Hash32Algorithm) -> Self::HasherState {
-		sp_io::hashing::get_hasher(data, algo.into())
-			.expect("TODO change Hashers trait to support error")
+	fn hash_state_with(algo: Hash32Algorithm) -> Option<HasherState<Self::HasherState>> {
+		HasherState::Host(sp_io::hashing::get_hasher(algo.into()))
 	}
 
-	fn hash_update(data: &[u8], state: &mut Self::HasherState) {
-		assert!(sp_io::hashing::hasher_update(*state, data)) // TODO handle error
+	fn hash_update(data: &[u8], state: &mut HasherState<Self::HasherState>) -> bool {
+		let HasherState::Host(state) = state else {
+			return false;
+		};
+		sp_io::hashing::hasher_update(*state, data)
 	}
 
-	fn hash_finalize(state: Self::HasherState) -> [u8; 32] {
-		sp_io::hashing::hasher_finalize(state).expect("TODO change Hashers trait to support error")
+	fn hash_finalize(state: Self::HasherState) -> Option<[u8; 32]> {
+		let HasherState::Host(state) = state else {
+			return false;
+		};
+		sp_io::hashing::hasher_finalize(state)
+	}
+
+	fn hash_drop(state: Option<Self::HasherState>) {
+		let HasherState::Host(state) = state else {
+			return ();
+		};
+		sp_io::hashing::drop_hasher(state)
 	}
 }
 
@@ -777,24 +776,36 @@ impl Hasher for Keccak256 {
 	}
 }
 
-impl sp_core::Hashers for Keccak256 {
-	type HasherState = u32;
+impl Hashers for Keccak256 {
+	type HasherState = ();
 
-	fn hash_with(data: &[u8], algo: sp_core::storage::transient::Hash32Algorithm) -> [u8; 32] {
+	fn hash_with(data: &[u8], algo: Hash32Algorithm) -> [u8; 32] {
 		hash32_with_algorithm_hosts(data, algo)
 	}
 
-	fn hash_state_with(data: &[u8], algo: Hash32Algorithm) -> Self::HasherState {
-		sp_io::hashing::get_hasher(data, algo.into())
-			.expect("TODO change Hashers trait to support error")
+	fn hash_state_with(algo: Hash32Algorithm) -> Option<HasherState<Self::HasherState>> {
+		HasherState::Host(sp_io::hashing::get_hasher(algo.into()))
 	}
 
-	fn hash_update(data: &[u8], state: &mut Self::HasherState) {
-		assert!(sp_io::hashing::hasher_update(*state, data)) // TODO handle error
+	fn hash_update(data: &[u8], state: &mut HasherState<Self::HasherState>) -> bool {
+		let HasherState::Host(state) = state else {
+			return false;
+		};
+		sp_io::hashing::hasher_update(*state, data)
 	}
 
-	fn hash_finalize(state: Self::HasherState) -> [u8; 32] {
-		sp_io::hashing::hasher_finalize(state).expect("TODO change Hashers trait to support error")
+	fn hash_finalize(state: Self::HasherState) -> Option<[u8; 32]> {
+		let HasherState::Host(state) = state else {
+			return false;
+		};
+		sp_io::hashing::hasher_finalize(state)
+	}
+
+	fn hash_drop(state: Option<Self::HasherState>) {
+		let HasherState::Host(state) = state else {
+			return ();
+		};
+		sp_io::hashing::drop_hasher(state)
 	}
 }
 

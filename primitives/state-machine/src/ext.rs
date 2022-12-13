@@ -29,7 +29,7 @@ use sp_core::{
 		well_known_keys::is_child_storage_key,
 		ChildInfo, StateVersion, TrackedStorageKey,
 	},
-	Hashers,
+	Hashers, HashersExternalities,
 };
 use sp_externalities::{
 	result_from_slice, result_from_vec, Extension, ExtensionStore, Externalities,
@@ -47,6 +47,74 @@ use sp_std::{
 };
 #[cfg(feature = "std")]
 use std::error;
+
+#[cfg(feature = "std")]
+macro_rules! get_hasher {
+	($s:ident, $a:expr) => {
+		$s.hashers
+			.as_mut()
+			.map(|h| h.get_hasher($a))
+			.unwrap_or_else(|| H::hash_state_with($a))
+	};
+}
+
+#[cfg(not(feature = "std"))]
+macro_rules! get_hasher {
+	($s:ident, $a:expr) => {
+		H::hash_state_with($a)
+	};
+}
+
+#[cfg(feature = "std")]
+macro_rules! drop_hasher {
+	($s:ident, $h:expr) => {
+		$s.hashers
+			.as_mut()
+			.map(|h| h.drop_hasher($h))
+			.unwrap_or_else(|| H::hash_drop($h))
+	};
+}
+
+#[cfg(not(feature = "std"))]
+macro_rules! drop_hasher {
+	($s:ident, $h:expr) => {
+		H::hash_drop($h)
+	};
+}
+
+#[cfg(feature = "std")]
+macro_rules! hasher_update {
+	($s:ident, $h:expr, $d:expr) => {
+		$s.hashers
+			.as_mut()
+			.map(|h| h.hasher_update($h, $d))
+			.unwrap_or_else(|| H::hash_update($d, &mut $h))
+	};
+}
+
+#[cfg(not(feature = "std"))]
+macro_rules! hasher_update {
+	($s:ident, $h:expr, $d:expr) => {
+		H::hash_update($d, &mut $h)
+	};
+}
+
+#[cfg(feature = "std")]
+macro_rules! hasher_finalize {
+	($s:ident, $h:expr) => {
+		$s.hashers
+			.as_mut()
+			.map(|h| h.hasher_finalize($h))
+			.unwrap_or_else(|| H::hash_finalize($h))
+	};
+}
+
+#[cfg(not(feature = "std"))]
+macro_rules! hasher_finalize {
+	($s:ident, $h:expr) => {
+		H::hash_finalize($h)
+	};
+}
 
 const EXT_NOT_ALLOWED_TO_FAIL: &str = "Externalities not allowed to fail within runtime";
 const BENCHMARKING_FN: &str = "\
@@ -102,14 +170,16 @@ where
 	H: Hashers,
 	B: 'a + Backend<H>,
 {
+	/// Pseudo-unique id used for tracing.
+	pub id: u16,
 	/// The overlayed changes to write to.
 	overlay: &'a mut OverlayedChanges,
 	/// The storage backend to read from.
 	backend: &'a B,
 	/// The cache for the storage transactions.
 	storage_transaction_cache: &'a mut StorageTransactionCache<B::Transaction, H>,
-	/// Pseudo-unique id used for tracing.
-	pub id: u16,
+	/// Hashers
+	hashers: &'a mut HashersExternalities<H>,
 	/// Extensions registered with this instance.
 	#[cfg(feature = "std")]
 	extensions: Option<OverlayedExtensions<'a>>,
@@ -134,6 +204,7 @@ where
 	#[cfg(feature = "std")]
 	pub fn new(
 		overlay: &'a mut OverlayedChanges,
+		hashers: &'a mut HashersExternalities<H>,
 		storage_transaction_cache: &'a mut StorageTransactionCache<B::Transaction, H>,
 		backend: &'a B,
 		extensions: Option<&'a mut sp_externalities::Extensions>,
@@ -143,6 +214,7 @@ where
 			backend,
 			storage_transaction_cache,
 			id: rand::random(),
+			hashers,
 			extensions: extensions.map(OverlayedExtensions::new),
 		}
 	}
@@ -703,10 +775,18 @@ where
 
 		if let ChildInfo::Blob(..) = child_info {
 			let Some((mut chunks, info)) = self.overlay.blob_chunks(child_info.storage_key()) else {
-					// TODO change function proto to return None?? we check before calling it but
-					// still
-					return Vec::new()
-				};
+				// TODO change function proto to return None?? we check before calling it but
+				// still
+				return Vec::new()
+			};
+			let Some(algorithm) = info.infos.algorithm else {
+				return Vec::new()
+			};
+			let Some(mut state) = get_hasher!(self, algorithm) else {
+				// get a handle even if we run single chunk (easier to specify failure:
+				// no condition no cache asumption).
+				return Vec::new()
+			};
 			if let Some(hash) = info.hash.as_ref() {
 				// cached
 				trace!(
@@ -717,28 +797,37 @@ where
 					storage_root = %HexDisplay::from(hash),
 					cached = true,
 				);
+				drop_hasher!(self, Some(state));
 				return hash.encode()
 			}
 
-			let result = match info.infos.algorithm {
-				Some(algorithm) =>
-					if let Some(chunk) = chunks.next() {
-						if info.size <= sp_core::storage::BLOB_CHUNK_SIZE {
-							sp_std::mem::drop(chunks);
-							H::hash_with(&chunk[..], algorithm)
-						} else {
-							let mut state = H::hash_state_with(chunk, algorithm);
-							for chunk in chunks {
-								H::hash_update(&chunk[..], &mut state);
-							}
-							H::hash_finalize(state)
+			let result = if let Some(chunk) = chunks.next() {
+				if info.size <= sp_core::storage::BLOB_CHUNK_SIZE {
+					sp_std::mem::drop(chunks);
+					H::hash_with(&chunk[..], algorithm)
+				} else {
+					if !hasher_update!(self, state, &chunk[..]) {
+						drop_hasher!(self, Some(state));
+						return Vec::new()
+					}
+					for chunk in chunks {
+						if !hasher_update!(self, state, &chunk[..]) {
+							drop_hasher!(self, Some(state));
+							return Vec::new()
 						}
+					}
+					if let Some(hash) = self.hasher_finalize(state) {
+						hash
 					} else {
-						sp_std::mem::drop(chunks);
-						H::hash_with(&[], algorithm)
-					},
-				None => return Vec::new(),
+						drop_hasher!(self, Some(state));
+						return Vec::new() // TODO proper err
+					}
+				}
+			} else {
+				sp_std::mem::drop(chunks);
+				H::hash_with(&[], algorithm)
 			};
+
 			self.overlay.cache_blob_hash(child_info.storage_key(), result.clone());
 			trace!(
 				target: "state",
@@ -995,6 +1084,22 @@ where
 
 	fn blob_truncate(&mut self, name: &[u8], new_size: u32) -> bool {
 		self.overlay.blob_truncate(name, new_size)
+	}
+
+	fn get_hasher(&mut self, algorithm: Hash32Algorithm) -> Option<u32> {
+		get_hasher!(self, algorithm)
+	}
+
+	fn drop_hasher(&mut self, hasher: Option<u32>) {
+		drop_hasher!(self, hasher)
+	}
+
+	fn hasher_update(&mut self, mut hasher: u32, data: &[u8]) -> bool {
+		hasher_update!(self, hasher, data)
+	}
+
+	fn hasher_finalize(&mut self, hasher: u32) -> Option<[u8; 32]> {
+		hasher_finalize!(self, hasher)
 	}
 }
 

@@ -613,6 +613,25 @@ pub trait Externalities: ExtensionStore {
 		name: &[u8],
 		algorithm: Hash32Algorithm,
 	) -> Option<Vec<([u8; 32], [u8; 32])>>;
+
+	/// Get hasher state handle initiated with given data.
+	/// See sp_io::hashing::get_hasher.
+	fn get_hasher(&mut self, algorithm: Hash32Algorithm) -> Option<u32>;
+
+	/// Drop a given hasher instance.
+	/// If hasher handle is undefined, all hashers instance
+	/// will be drop.
+	fn drop_hasher(&mut self, hasher: Option<u32>);
+
+	/// Update hashing with given data.
+	/// Return true if successful.
+	/// Return false if missing hasher.
+	fn hasher_update(&mut self, hasher: u32, data: &[u8]) -> bool;
+
+	/// Finalize hashing, dropping the stored hasher and returning
+	/// the resulting hash if successful.
+	/// Return None if missing hasher.
+	fn hasher_finalize(&mut self, hasher: u32) -> Option<[u8; 32]>;
 }
 
 /// Extension for the [`Externalities`] trait.

@@ -455,6 +455,7 @@ pub enum ChildType {
 /// TODO rename this module and maybe in its own file
 pub mod transient {
 	use codec::{Decode, Encode};
+	use sp_std::marker::PhantomData;
 
 	/// `Mode` define if transient storage should keep
 	/// storage accessible.
@@ -475,6 +476,9 @@ pub mod transient {
 	}
 
 	/// Hashing algorithm for transient blob.
+	///
+	/// Warning any update to this enum means updating
+	/// (new version needed) all host functions using it as a parameter.
 	#[derive(PartialEq, Eq, Debug, Clone, Copy, Encode, Decode)]
 	#[cfg_attr(feature = "std", derive(Hash, PartialOrd, Ord))]
 	pub enum Hash32Algorithm {
@@ -489,6 +493,9 @@ pub mod transient {
 	}
 
 	/// Hashing algorithm for transient blob.
+	///
+	/// Warning any update to this enum means updating
+	/// (new version needed) all host functions using it as a parameter.
 	#[derive(PartialEq, Eq, Debug, Clone, Copy, Encode, Decode)]
 	#[cfg_attr(feature = "std", derive(Hash, PartialOrd, Ord))]
 	pub enum Root32Structure {
@@ -498,6 +505,14 @@ pub mod transient {
 		#[cfg_attr(feature = "std", codec(index = 0))]
 		SubstrateDefault,
 		// TODO some binary trie one(s)
+	}
+
+	/// State for a hasher.
+	/// TODO try remove again
+	pub enum HasherState<S> {
+		Host(u32, PhantomData<S>),
+		#[cfg(feature = "std")]
+		Local(S),
 	}
 
 	/// Trait describing an object that can hash with multiple hash_db hashers
@@ -510,17 +525,25 @@ pub mod transient {
 	/// It actually got not much to do with hasher, but this makes
 	/// refactoring faster (it could be another trait).
 	pub trait Hashers: hash_db::Hasher {
+		/// Indicate if we should try to use a host function state.
+		const IS_HOST: bool;
 		/// State while processing a hash.
 		type HasherState;
 
 		/// Compute the hash of the provided slice of bytes returning the calculated hash.
 		fn hash_with(data: &[u8], algo: Hash32Algorithm) -> [u8; 32];
-		/// Start hashing with some bytes.
-		fn hash_state_with(data: &[u8], algo: Hash32Algorithm) -> Self::HasherState;
+		/// Get hasher.
+		fn hash_state_with(algo: Hash32Algorithm) -> Option<HasherState<Self::HasherState>>;
 		/// Advance hashing with more bytes.
-		fn hash_update(data: &[u8], state: &mut Self::HasherState);
+		/// Return true on success, false on failure.
+		fn hash_update(data: &[u8], state: &mut HasherState<Self::HasherState>) -> bool;
+		/// Remove hasher state explicitely.
+		/// When using `None` remove all know hasher constext (only make
+		/// sense in the context of calling host function through this api).
+		fn hash_drop(state: Option<HasherState<Self::HasherState>>);
 		/// Finish hashing and get hash.
-		fn hash_finalize(state: Self::HasherState) -> [u8; 32];
+		/// Return None on failure.
+		fn hash_finalize(state: HasherState<Self::HasherState>) -> Option<[u8; 32]>;
 	}
 }
 

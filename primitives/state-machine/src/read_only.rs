@@ -334,6 +334,22 @@ where
 	fn blob_truncate(&mut self, _name: &[u8], _new_size: u32) -> bool {
 		false
 	}
+
+	fn get_hasher(&mut self, _algorithm: Hash32Algorithm) -> Option<u32> {
+		unimplemented!("get_hasher is not supported in ReadOnlyExternalities")
+	}
+
+	fn drop_hasher(&mut self, _hasher: Option<u32>) {
+		unimplemented!("drop_hasher is not supported in ReadOnlyExternalities")
+	}
+
+	fn hasher_update(&mut self, _hasher: u32, _data: &[u8]) -> bool {
+		unimplemented!("hasher_update is not supported in ReadOnlyExternalities")
+	}
+
+	fn hasher_finalize(&mut self, _hasher: u32) -> Option<[u8; 32]> {
+		unimplemented!("hasher_finalize is not supported in ReadOnlyExternalities")
+	}
 }
 
 impl<'a, H: Hasher, B: 'a + Backend<H>> sp_externalities::ExtensionStore

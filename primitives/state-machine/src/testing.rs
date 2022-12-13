@@ -29,7 +29,7 @@ use sp_core::{
 	},
 	testing::TaskExecutor,
 	traits::TaskExecutorExt,
-	Hashers,
+	Hash32State, Hashers,
 };
 use sp_externalities::{Extension, ExtensionStore, Extensions};
 use sp_trie::StorageProof;
@@ -66,6 +66,7 @@ where
 	pub fn ext(&mut self) -> Ext<H, InMemoryBackend<H>> {
 		Ext::new(
 			&mut self.overlay,
+			None,
 			&mut self.storage_transaction_cache,
 			&self.backend,
 			Some(&mut self.extensions),
@@ -207,6 +208,7 @@ where
 			.build();
 		let mut proving_ext = Ext::new(
 			&mut self.overlay,
+			&mut self.hashers,
 			&mut self.storage_transaction_cache,
 			&proving_backend,
 			Some(&mut self.extensions),
@@ -234,8 +236,9 @@ where
 	}
 }
 
-impl<H: Hashers> std::fmt::Debug for TestExternalities<H>
+impl<H> std::fmt::Debug for TestExternalities<H>
 where
+	H: Hashers,
 	H::Out: Ord + codec::Codec,
 {
 	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -243,8 +246,9 @@ where
 	}
 }
 
-impl<H: Hashers> PartialEq for TestExternalities<H>
+impl<H> PartialEq for TestExternalities<H>
 where
+	H: Hashers,
 	H::Out: Ord + 'static + codec::Codec,
 {
 	/// This doesn't test if they are in the same state, only if they contains the
@@ -254,8 +258,9 @@ where
 	}
 }
 
-impl<H: Hashers> Default for TestExternalities<H>
+impl<H> Default for TestExternalities<H>
 where
+	H: Hashers,
 	H::Out: Ord + 'static + codec::Codec,
 {
 	fn default() -> Self {
@@ -264,8 +269,9 @@ where
 	}
 }
 
-impl<H: Hashers> From<Storage> for TestExternalities<H>
+impl<H> From<Storage> for TestExternalities<H>
 where
+	H: Hashers,
 	H::Out: Ord + 'static + codec::Codec,
 {
 	fn from(storage: Storage) -> Self {
@@ -273,8 +279,9 @@ where
 	}
 }
 
-impl<H: Hashers> From<(Storage, StateVersion)> for TestExternalities<H>
+impl<H> From<(Storage, StateVersion)> for TestExternalities<H>
 where
+	H: Hashers,
 	H::Out: Ord + 'static + codec::Codec,
 {
 	fn from((storage, state_version): (Storage, StateVersion)) -> Self {
