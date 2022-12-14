@@ -33,7 +33,6 @@ use sp_core::{
 		Blob as BlobInfo, Btree as BtreeInfo, ChildInfo, Name, StateVersion, BLOB_CHUNK_SIZE,
 	},
 };
-use sp_externalities::range_slice;
 #[cfg(feature = "std")]
 use sp_externalities::{Extension, Extensions};
 #[cfg(not(feature = "std"))]
@@ -296,12 +295,7 @@ impl Changes {
 	/// to the backend); Some(None) if the key has been deleted. Some(Some(...)) for a key whose
 	/// value has been set.
 	pub fn storage(&self, key: &[u8]) -> Option<Option<&[u8]>> {
-		self.top.get(key).map(|x| {
-			let value = x.value();
-			let size_read = value.map(|x| x.len() as u64).unwrap_or(0);
-			self.stats.tally_read_modified(size_read);
-			value.map(AsRef::as_ref)
-		})
+		self.top.storage(key, 0, None, &self.stats)
 	}
 
 	/// Returns mutable reference to current value.
@@ -335,16 +329,14 @@ impl Changes {
 		let value = match child_info {
 			ChildInfo::ParentKeyId(_) => {
 				let map = self.children.get(child_info.storage_key())?;
-				range_slice(map.changes.get(key)?.value().map(AsRef::as_ref), start, limit)
-					.map(Cow::Borrowed)
+				map.changes.storage(key, start, limit, &self.stats)?.map(Cow::Borrowed)
 			},
 			ChildInfo::BTree(info) => {
 				let map = self.btrees.get(&info.name)?;
 				if map.infos.value_ref().removed {
 					return Some(None)
 				}
-				range_slice(map.changes.get(key)?.value().map(AsRef::as_ref), start, limit)
-					.map(Cow::Borrowed)
+				map.changes.storage(key, start, limit, &self.stats)?.map(Cow::Borrowed)
 			},
 			ChildInfo::Blob(info) => {
 				if key.len() > 0 {
@@ -358,44 +350,9 @@ impl Changes {
 				if infos.removed {
 					return Some(None)
 				}
-
-				let start = start as usize;
-				let size = infos.size as usize;
-				if start >= size {
-					return Some(Some(Cow::Owned(Vec::new())))
-				}
-				let size_slice = size - start;
-				let size_slice =
-					sp_std::cmp::min(size_slice, limit.map(|l| l as usize).unwrap_or(size_slice));
-				let end = start + size_slice;
-				if end == start {
-					return Some(Some(Cow::Owned(Vec::new())))
-				}
-
-				let (chunk_start, chunk_start_offset) = blob_chunk_start_index(start);
-				let (chunk_end, chunk_end_offset) = blob_chunk_end_index(end);
-				let mut result = Vec::with_capacity(size_slice);
-				if chunk_start == chunk_end {
-					result.extend_from_slice(
-						&map.changes.get(chunk_start).value_ref().as_ref()
-							[chunk_start_offset..chunk_end_offset],
-					)
-				} else {
-					result.extend_from_slice(
-						&map.changes.get(chunk_start).value_ref().as_ref()[chunk_start_offset..],
-					);
-					for at in chunk_start + 1..chunk_end {
-						result.extend_from_slice(map.changes.get(at).value_ref().as_ref());
-					}
-					result.extend_from_slice(
-						&map.changes.get(chunk_end).value_ref().as_ref()[..chunk_end_offset],
-					);
-				}
-				Some(Cow::Owned(result))
+				Some(Cow::Owned(map.changes.storage(start, limit, infos.size, &self.stats)))
 			},
 		};
-		let size_read = value.as_ref().map(|x| x.len() as u64).unwrap_or(0);
-		self.stats.tally_read_modified(size_read);
 		Some(value)
 	}
 
@@ -575,9 +532,6 @@ impl Changes {
 			return true
 		}
 
-		let (chunk_start, chunk_start_offset) = blob_chunk_start_index(offset as usize);
-		let (chunk_end, chunk_end_offset) = blob_chunk_end_index(end);
-
 		let update_size = end as u32 > previous_len;
 		if update_size || infos.value_ref().hash.is_some() {
 			let info = infos.modify_value();
@@ -587,22 +541,12 @@ impl Changes {
 			}
 		}
 
-		if chunk_start == chunk_end {
-			let chunk = changes.modify_chunk(chunk_start);
-			chunk[chunk_start_offset..chunk_end_offset].copy_from_slice(value);
+		if changes.set(value, offset) {
+			self.stats.tally_write_overlay(value.len() as u64);
+			true
 		} else {
-			let chunk = changes.modify_chunk(chunk_start);
-			let mut offset = BLOB_CHUNK_SIZE - chunk_start_offset;
-			chunk[chunk_start_offset..].copy_from_slice(&value[..offset]);
-			for i in chunk_start + 1..chunk_end {
-				let chunk = changes.modify_chunk(i);
-				chunk[..].copy_from_slice(&value[offset..offset + BLOB_CHUNK_SIZE]);
-				offset += BLOB_CHUNK_SIZE;
-			}
-			let chunk = changes.modify_chunk(chunk_end);
-			chunk[..chunk_end_offset].copy_from_slice(&value[offset..]);
+			false
 		}
-		true
 	}
 
 	pub(crate) fn blob_truncate(&mut self, name: &[u8], new_len: u32) -> bool {

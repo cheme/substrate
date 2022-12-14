@@ -195,7 +195,6 @@ where
 		backend: &'a B,
 		extensions: Option<&'a mut sp_externalities::Extensions>,
 	) -> Self {
-		debug_assert!(!H::IS_USING_HOST);
 		Self {
 			overlay,
 			backend,

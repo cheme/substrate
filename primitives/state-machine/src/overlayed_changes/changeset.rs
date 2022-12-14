@@ -19,8 +19,10 @@
 
 use super::{StorageKey, StorageValue};
 
+use crate::stats::StateMachineStats;
 use smallvec::SmallVec;
 use sp_core::storage::BLOB_CHUNK_SIZE;
+use sp_externalities::range_slice;
 #[cfg(not(feature = "std"))]
 use sp_std::collections::{btree_map::BTreeMap as Map, btree_set::BTreeSet as Set};
 use sp_std::{collections::btree_map::BTreeMap, hash::Hash, vec::Vec};
@@ -708,6 +710,81 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 }
 
 impl OverlayedChangeSetBlob {
+	/// Access blob storage build from multiple chunks.
+	pub fn storage(
+		&self,
+		start: u32,
+		limit: Option<u32>,
+		size: usize, 
+		stats: &StateMachineStats,
+	) -> Vec<u8> {
+		let start = start as usize;
+		if start >= size {
+			return Vec::new();
+		}
+		let size_slice = size - start;
+		let size_slice =
+		sp_std::cmp::min(size_slice, limit.map(|l| l as usize).unwrap_or(size_slice));
+		let end = start + size_slice;
+		if end == start {
+			return Vec::new();
+		}
+
+		let (chunk_start, chunk_start_offset) = super::blob_chunk_start_index(start);
+		let (chunk_end, chunk_end_offset) = super::blob_chunk_end_index(end);
+		let mut result = Vec::with_capacity(size_slice);
+		if chunk_start == chunk_end {
+			result.extend_from_slice(
+				&self.get(chunk_start).value_ref().as_ref()
+					[chunk_start_offset..chunk_end_offset],
+			)
+		} else {
+			result.extend_from_slice(
+				&self.get(chunk_start).value_ref().as_ref()[chunk_start_offset..],
+			);
+			for at in chunk_start + 1..chunk_end {
+				result.extend_from_slice(self.get(at).value_ref().as_ref());
+			}
+			result.extend_from_slice(
+				&self.get(chunk_end).value_ref().as_ref()[..chunk_end_offset],
+			);
+		}
+		stats.tally_read_modified(result.len() as u64);
+		result
+	}
+
+	/// Change blob storage, no offset bound checks.
+	pub(super) fn set(&mut self, value: &[u8], offset: u32) -> bool {
+		let end = offset as usize + value.len();
+		if end > u32::MAX as usize {
+			return false
+		}
+
+		if value.len() == 0 {
+			return true
+		}
+
+		let (chunk_start, chunk_start_offset) = super::blob_chunk_start_index(offset as usize);
+		let (chunk_end, chunk_end_offset) = super::blob_chunk_end_index(end);
+
+		if chunk_start == chunk_end {
+			let chunk = self.modify_chunk(chunk_start);
+			chunk[chunk_start_offset..chunk_end_offset].copy_from_slice(value);
+		} else {
+			let chunk = self.modify_chunk(chunk_start);
+			let mut offset = BLOB_CHUNK_SIZE - chunk_start_offset;
+			chunk[chunk_start_offset..].copy_from_slice(&value[..offset]);
+			for i in chunk_start + 1..chunk_end {
+				let chunk = self.modify_chunk(i);
+				chunk[..].copy_from_slice(&value[offset..offset + BLOB_CHUNK_SIZE]);
+				offset += BLOB_CHUNK_SIZE;
+			}
+			let chunk = self.modify_chunk(chunk_end);
+			chunk[..chunk_end_offset].copy_from_slice(&value[offset..]);
+		}
+		true
+	}
+
 	/// Get an optional reference to the blob chunk at a given chunk number.
 	pub(super) fn get(&self, index: u32) -> &OverlayedEntry<BlobChunk> {
 		&self.chunks[index as usize]
@@ -847,6 +924,26 @@ impl OverlayedChangeSetBlob {
 }
 
 impl OverlayedChangeSet {
+	/// Returns a double-Option: None if the key is unknown (i.e. and the query should be referred
+	/// to the backend); Some(None) if the key has been deleted. Some(Some(...)) for a key whose
+	/// value has been set.
+	pub fn storage(
+		&self,
+		key: &[u8],
+		start: u32,
+		limit: Option<u32>,
+		stats: &StateMachineStats,
+	) -> Option<Option<&[u8]>> {
+		if let Some(x) = self.get(key) {
+			let value = range_slice(x.value().map(AsRef::as_ref), start, limit);
+			let size_read = value.map(|x| x.len() as u64).unwrap_or(0);
+			stats.tally_read_modified(size_read);
+			Some(value)
+		} else {
+			None
+		}
+	}
+
 	/// Get a mutable reference for a value.
 	///
 	/// Can be rolled back or committed when called inside a transaction.
