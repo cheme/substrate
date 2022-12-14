@@ -31,8 +31,6 @@ use sp_core::{
 	},
 	Hashers,
 };
-#[cfg(feature = "std")]
-use sp_core::HashersExternalities;
 use sp_externalities::{
 	result_from_slice, result_from_vec, Extension, ExtensionStore, Externalities,
 	MultiRemovalResults,
@@ -53,7 +51,7 @@ use std::error;
 #[cfg(feature = "std")]
 macro_rules! get_hasher {
 	($s:ident, $a:expr) => {
-		$s.hashers.get_hasher($a)
+		$s.overlay.hashers.get_hasher($a)
 	};
 }
 
@@ -67,7 +65,7 @@ macro_rules! get_hasher {
 #[cfg(feature = "std")]
 macro_rules! drop_hasher {
 	($s:ident, $h:expr) => {
-		$s.hashers.drop_hasher($h)
+		$s.overlay.hashers.drop_hasher($h)
 	};
 }
 
@@ -81,7 +79,7 @@ macro_rules! drop_hasher {
 #[cfg(feature = "std")]
 macro_rules! hasher_update {
 	($s:ident, $h:expr, $d:expr) => {
-		$s.hashers.hasher_update($h, $d)
+		$s.overlay.hashers.hasher_update($h, $d)
 	};
 }
 
@@ -95,7 +93,7 @@ macro_rules! hasher_update {
 #[cfg(feature = "std")]
 macro_rules! hasher_finalize {
 	($s:ident, $h:expr) => {
-		$s.hashers.hasher_finalize($h)
+		$s.overlay.hashers.hasher_finalize($h)
 	};
 }
 
@@ -168,9 +166,6 @@ where
 	backend: &'a B,
 	/// The cache for the storage transactions.
 	storage_transaction_cache: &'a mut StorageTransactionCache<B::Transaction, H>,
-	/// Hashers.
-	#[cfg(feature = "std")]
-	hashers: &'a mut HashersExternalities,
 	/// Extensions registered with this instance.
 	#[cfg(feature = "std")]
 	extensions: Option<OverlayedExtensions<'a>>,
@@ -196,7 +191,6 @@ where
 	#[cfg(feature = "std")]
 	pub fn new(
 		overlay: &'a mut OverlayedChanges,
-		hashers: &'a mut HashersExternalities,
 		storage_transaction_cache: &'a mut StorageTransactionCache<B::Transaction, H>,
 		backend: &'a B,
 		extensions: Option<&'a mut sp_externalities::Extensions>,
@@ -207,7 +201,6 @@ where
 			backend,
 			storage_transaction_cache,
 			id: rand::random(),
-			hashers,
 			extensions: extensions.map(OverlayedExtensions::new),
 		}
 	}
@@ -767,7 +760,7 @@ where
 		}
 
 		if let ChildInfo::Blob(..) = child_info {
-			let Some((mut chunks, info)) = self.overlay.blob_chunks(child_info.storage_key()) else {
+			let Some((mut chunks, info)) = self.overlay.blobs.get(child_info.storage_key()).and_then(|b| b.chunks()) else {
 				// TODO change function proto to return None?? we check before calling it but
 				// still
 				return Vec::new()

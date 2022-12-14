@@ -25,6 +25,8 @@ use crate::{backend::Backend, stats::StateMachineStats, DefaultError};
 use codec::Encode;
 use hash_db::Hasher;
 pub use offchain::OffchainOverlayedChanges;
+#[cfg(feature = "std")]
+use sp_core::HashersExternalities;
 use sp_core::{
 	offchain::OffchainOverlayedChange,
 	storage::{
@@ -76,6 +78,9 @@ pub type OffchainChangesCollection = Vec<((Vec<u8>, Vec<u8>), OffchainOverlayedC
 /// The set of changes that are overlaid onto the backend.
 ///
 /// It allows changes to be modified using nestable transactions.
+///
+/// TODO rename simply `Changes`.
+/// TODO move all children, btrees, blobs under their own struct when possible.
 #[derive(Debug, Default, Clone)]
 pub struct OverlayedChanges {
 	/// Context of execution.
@@ -83,13 +88,11 @@ pub struct OverlayedChanges {
 	/// Top level storage changes.
 	top: OverlayedChangeSet,
 	/// Child storage changes. The map key is the child storage key without the common prefix.
-	children: Map<StorageKey, (OverlayedChangeSet, ChildInfo)>,
+	children: Map<StorageKey, ChildChanges>,
 	/// Btrees changes. The map key is the child storage key without the common prefix.
-	/// TODO BtreeInfo in changeset (also cache root
-	btrees: Map<Name, (OverlayedChangeSet, OverlayedInfos<BtreeMeta, OverlayedChangeSet>)>,
+	btrees: Map<Name, BtreeChanges>,
 	/// Blobs changes. The map key is the child storage key without the common prefix.
-	/// TODO BlobInfo in changeset (also cache root
-	blobs: Map<Name, (OverlayedChangeSetBlob, OverlayedInfos<BlobMeta, OverlayedChangeSetBlob>)>,
+	pub(crate) blobs: Map<Name, BlobChanges>,
 	/// Offchain related changes.
 	offchain: OffchainOverlayedChanges,
 	/// Transaction index changes,
@@ -98,6 +101,32 @@ pub struct OverlayedChanges {
 	collect_extrinsics: bool,
 	/// Collect statistic on this execution.
 	stats: StateMachineStats,
+	#[cfg(feature = "std")]
+	pub(crate) hashers: HashersExternalities,
+}
+
+/// Default child storage.
+/// TODO move methods in this struct when possible
+#[derive(Debug, Clone)]
+struct ChildChanges {
+	changes: OverlayedChangeSet,
+	infos: ChildInfo,
+}
+
+/// Changes for blob storage.
+/// TODO move methods in this struct when possible
+#[derive(Debug, Clone)]
+pub(crate) struct BlobChanges {
+	changes: OverlayedChangeSetBlob,
+	infos: OverlayedInfos<BlobMeta, OverlayedChangeSetBlob>,
+}
+
+/// Changes for btree storage.
+/// TODO move methods in this struct when possible
+#[derive(Debug, Clone)]
+struct BtreeChanges {
+	changes: OverlayedChangeSet,
+	infos: OverlayedInfos<BtreeMeta, OverlayedChangeSet>,
 }
 
 /// Info attached to a transient btree storage.
@@ -307,15 +336,15 @@ impl OverlayedChanges {
 		let value = match child_info {
 			ChildInfo::ParentKeyId(_) => {
 				let map = self.children.get(child_info.storage_key())?;
-				range_slice(map.0.get(key)?.value().map(AsRef::as_ref), start, limit)
+				range_slice(map.changes.get(key)?.value().map(AsRef::as_ref), start, limit)
 					.map(Cow::Borrowed)
 			},
 			ChildInfo::BTree(info) => {
 				let map = self.btrees.get(&info.name)?;
-				if map.1.value_ref().removed {
+				if map.infos.value_ref().removed {
 					return Some(None)
 				}
-				range_slice(map.0.get(key)?.value().map(AsRef::as_ref), start, limit)
+				range_slice(map.changes.get(key)?.value().map(AsRef::as_ref), start, limit)
 					.map(Cow::Borrowed)
 			},
 			ChildInfo::Blob(info) => {
@@ -326,7 +355,7 @@ impl OverlayedChanges {
 
 				// semantic is key is index in blob and return value is at most a full blob chunk.
 				let map = self.blobs.get(&info.name)?;
-				let infos = map.1.value_ref();
+				let infos = map.infos.value_ref();
 				if infos.removed {
 					return Some(None)
 				}
@@ -349,18 +378,18 @@ impl OverlayedChanges {
 				let mut result = Vec::with_capacity(size_slice);
 				if chunk_start == chunk_end {
 					result.extend_from_slice(
-						&map.0.get(chunk_start).value_ref().as_ref()
+						&map.changes.get(chunk_start).value_ref().as_ref()
 							[chunk_start_offset..chunk_end_offset],
 					)
 				} else {
 					result.extend_from_slice(
-						&map.0.get(chunk_start).value_ref().as_ref()[chunk_start_offset..],
+						&map.changes.get(chunk_start).value_ref().as_ref()[chunk_start_offset..],
 					);
 					for at in chunk_start + 1..chunk_end {
-						result.extend_from_slice(map.0.get(at).value_ref().as_ref());
+						result.extend_from_slice(map.changes.get(at).value_ref().as_ref());
 					}
 					result.extend_from_slice(
-						&map.0.get(chunk_end).value_ref().as_ref()[..chunk_end_offset],
+						&map.changes.get(chunk_end).value_ref().as_ref()[..chunk_end_offset],
 					);
 				}
 				Some(Cow::Owned(result))
@@ -373,8 +402,8 @@ impl OverlayedChanges {
 
 	/// Return size of a given blob when defined.
 	pub fn blob_len(&self, name: &[u8]) -> Option<u32> {
-		let (_, infos, ..) = self.blobs.get(name)?;
-		let infos = infos.value_ref();
+		let blob = self.blobs.get(name)?;
+		let infos = blob.infos.value_ref();
 		if infos.removed {
 			None
 		} else {
@@ -384,27 +413,7 @@ impl OverlayedChanges {
 
 	/// Return iterator on chunks if defined.
 	pub fn blob_chunks(&self, name: &[u8]) -> Option<(impl Iterator<Item = &[u8]>, &BlobMeta)> {
-		Self::blob_chunks_inner(self.blobs.get(name)?)
-	}
-	fn blob_chunks_inner<'a>(
-		blob: &'a (OverlayedChangeSetBlob, OverlayedInfos<BlobMeta, OverlayedChangeSetBlob>),
-	) -> Option<(impl Iterator<Item = &'a [u8]>, &'a BlobMeta)> {
-		let (blob, infos, ..) = blob;
-		let infos = infos.value_ref();
-		if infos.removed {
-			return None
-		}
-
-		let (chunk_end, chunk_end_offset) = blob_chunk_end_index(infos.size);
-
-		let nb_chunk = if chunk_end == 0 && chunk_end_offset == 0 { 0 } else { chunk_end + 1 };
-		let iter = (0..nb_chunk).into_iter().map(move |at| {
-			let end_chunk = if at == chunk_end { chunk_end_offset } else { BLOB_CHUNK_SIZE };
-			let chunk = &blob.get(at).value_ref().as_ref()[..end_chunk];
-			chunk
-		});
-
-		Some((iter, infos))
+		self.blobs.get(name).and_then(|blob| blob.chunks())
 	}
 
 	fn blob_chunks_into_committed(
@@ -434,8 +443,8 @@ impl OverlayedChanges {
 
 	/// Return size of a given map when defined.
 	pub fn map_count(&self, name: &[u8]) -> Option<u32> {
-		let (_, infos, ..) = self.btrees.get(name)?;
-		let infos = infos.value_ref();
+		let btree = self.btrees.get(name)?;
+		let infos = btree.infos.value_ref();
 		(!infos.removed).then(|| infos.size as u32)
 	}
 
@@ -444,15 +453,15 @@ impl OverlayedChanges {
 		let value = match child_info {
 			ChildInfo::ParentKeyId(_) => {
 				let map = self.children.get(child_info.storage_key())?;
-				map.0.get(key)?.value().map(|v| v.len() as u32)
+				map.changes.get(key)?.value().map(|v| v.len() as u32)
 			},
 			ChildInfo::BTree(info) => {
 				let map = self.btrees.get(&info.name)?;
-				let info = map.1.value_ref();
+				let info = map.infos.value_ref();
 				if info.removed {
 					return Some(None)
 				}
-				map.0.get(key)?.value().map(|v| v.len() as u32)
+				map.changes.get(key)?.value().map(|v| v.len() as u32)
 			},
 			ChildInfo::Blob(info) => {
 				if key.len() > 0 {
@@ -495,22 +504,22 @@ impl OverlayedChanges {
 		match child_info {
 			ChildInfo::ParentKeyId(_) => {
 				let storage_key = child_info.storage_key().to_vec();
-				let (changeset, info) = self
-					.children
-					.entry(storage_key)
-					.or_insert_with(|| (top.spawn_child(), child_info.clone()));
-				let updatable = info.try_update(child_info);
+				let child = self.children.entry(storage_key).or_insert_with(|| ChildChanges {
+					changes: top.spawn_child(),
+					infos: child_info.clone(),
+				});
+				let updatable = child.infos.try_update(child_info);
 				debug_assert!(updatable);
-				changeset.set(key.to_vec(), val.map(Vec::from));
+				child.changes.set(key.to_vec(), val.map(Vec::from));
 				true
 			},
 			ChildInfo::BTree(infos) =>
-				if let Some((changeset, info)) = self.btrees.get_mut(&infos.name) {
-					if info.value_ref().removed {
+				if let Some(BtreeChanges { changes, infos }) = self.btrees.get_mut(&infos.name) {
+					if infos.value_ref().removed {
 						return false
 					}
-					let has_root = info.value_ref().root.is_some();
-					let (existing, changed) = changeset
+					let has_root = infos.value_ref().root.is_some();
+					let (existing, changed) = changes
 						.get(key)
 						.map(|v| {
 							(
@@ -523,7 +532,7 @@ impl OverlayedChanges {
 						(existing && val.is_none()) ||
 						(!existing && val.is_some())
 					{
-						let infos = info.modify_value();
+						let infos = infos.modify_value();
 						if changed {
 							infos.root = None;
 						}
@@ -533,7 +542,7 @@ impl OverlayedChanges {
 							infos.size -= 1;
 						}
 					}
-					changeset.set(key.to_vec(), val.map(Vec::from));
+					changes.set(key.to_vec(), val.map(Vec::from));
 					true
 				} else {
 					false
@@ -554,7 +563,7 @@ impl OverlayedChanges {
 			return false
 		};
 
-		let Some((changeset, info)) = self.blobs.get_mut(name) else {
+		let Some(BlobChanges {changes, infos}) = self.blobs.get_mut(name) else {
 			return false;
 		};
 
@@ -571,8 +580,8 @@ impl OverlayedChanges {
 		let (chunk_end, chunk_end_offset) = blob_chunk_end_index(end);
 
 		let update_size = end as u32 > previous_len;
-		if update_size || info.value_ref().hash.is_some() {
-			let info = info.modify_value();
+		if update_size || infos.value_ref().hash.is_some() {
+			let info = infos.modify_value();
 			info.hash = None;
 			if update_size {
 				info.size = end;
@@ -580,18 +589,18 @@ impl OverlayedChanges {
 		}
 
 		if chunk_start == chunk_end {
-			let chunk = changeset.modify_chunk(chunk_start);
+			let chunk = changes.modify_chunk(chunk_start);
 			chunk[chunk_start_offset..chunk_end_offset].copy_from_slice(value);
 		} else {
-			let chunk = changeset.modify_chunk(chunk_start);
+			let chunk = changes.modify_chunk(chunk_start);
 			let mut offset = BLOB_CHUNK_SIZE - chunk_start_offset;
 			chunk[chunk_start_offset..].copy_from_slice(&value[..offset]);
 			for i in chunk_start + 1..chunk_end {
-				let chunk = changeset.modify_chunk(i);
+				let chunk = changes.modify_chunk(i);
 				chunk[..].copy_from_slice(&value[offset..offset + BLOB_CHUNK_SIZE]);
 				offset += BLOB_CHUNK_SIZE;
 			}
-			let chunk = changeset.modify_chunk(chunk_end);
+			let chunk = changes.modify_chunk(chunk_end);
 			chunk[..chunk_end_offset].copy_from_slice(&value[offset..]);
 		}
 		true
@@ -602,7 +611,7 @@ impl OverlayedChanges {
 			return false;
 		};
 
-		let Some((changeset, info)) = self.blobs.get_mut(name) else {
+		let Some(blob) = self.blobs.get_mut(name) else {
 			return false;
 		};
 		if new_len >= previous_len {
@@ -612,9 +621,9 @@ impl OverlayedChanges {
 		let (chunk_start, chunk_start_offset) = blob_chunk_start_index(new_len as usize);
 		let chunk_start = if chunk_start_offset == 0 { chunk_start } else { chunk_start + 1 };
 
-		changeset.truncate_clean(chunk_start);
+		blob.changes.truncate_clean(chunk_start);
 
-		let info = info.modify_value();
+		let info = blob.infos.modify_value();
 		info.hash = None;
 		info.size = new_len as usize;
 
@@ -629,15 +638,18 @@ impl OverlayedChanges {
 		let top = &self.top;
 		match child_info {
 			ChildInfo::ParentKeyId(_) => {
-				let (changeset, info) = self
+				let child = self
 					.children
 					.entry(storage_key)
 					// could also return None here, but this does not impact
 					// this kind of child trie where empty trie is never stored.
-					.or_insert_with(|| (top.spawn_child(), child_info.clone()));
-				let updatable = info.try_update(child_info);
+					.or_insert_with(|| ChildChanges {
+						changes: top.spawn_child(),
+						infos: child_info.clone(),
+					});
+				let updatable = child.infos.try_update(child_info);
 				debug_assert!(updatable);
-				changeset.clear_where(|_, _| true)
+				child.changes.clear_where(|_, _| true)
 			},
 			ChildInfo::Blob(info) => self.clear_blob_storage(&info.name, false).0,
 			ChildInfo::BTree(info) => self.clear_btree_storage(&info.name, false).0,
@@ -651,28 +663,28 @@ impl OverlayedChanges {
 	) -> (u32, Option<(OverlayedChangeSetBlob, bool, Option<Vec<u8>>)>) {
 		let top = &self.top;
 		if let Some(entry) = self.blobs.get_mut(name) {
-			if !entry.1.value_ref().removed {
-				let info = entry.1.modify_value();
+			if !entry.infos.value_ref().removed {
+				let info = entry.infos.modify_value();
 				let result = info.size;
 				info.removed = true;
 				info.size = 0;
 				info.hash = None;
-				let mut last = sp_std::mem::replace(&mut entry.0, top.spawn_blob());
-				let moved = if let Some(current_key) = entry.1.take_is_previous_moved_from() {
+				let mut last = sp_std::mem::replace(&mut entry.changes, top.spawn_blob());
+				let moved = if let Some(current_key) = entry.infos.take_is_previous_moved_from() {
 					if move_old_state {
 						Some((last, false, Some(current_key)))
 					} else {
 						let _ = last.rollback_transaction();
-						entry.1.set_moved_from(current_key, Some(last));
+						entry.infos.set_moved_from(current_key, Some(last));
 						None
 					}
-				} else if entry.1.need_keep_origin() {
+				} else if entry.infos.need_keep_origin() {
 					if move_old_state {
-						entry.1.set_moved_to();
+						entry.infos.set_moved_to();
 						Some((last, true, None))
 					} else {
 						let _ = last.rollback_transaction();
-						entry.1.set_last_removed(last);
+						entry.infos.set_last_removed(last);
 						None
 					}
 				} else {
@@ -694,30 +706,30 @@ impl OverlayedChanges {
 	) -> (u32, Option<(OverlayedChangeSet, bool, Option<Vec<u8>>)>) {
 		let top = &self.top;
 		if let Some(entry) = self.btrees.get_mut(name) {
-			if !entry.1.value_ref().removed {
-				let info = entry.1.modify_value();
+			if !entry.infos.value_ref().removed {
+				let info = entry.infos.modify_value();
 				let result = info.size;
 				info.removed = true;
 				info.size = 0;
 				info.root = None;
-				let mut last = sp_std::mem::replace(&mut entry.0, top.spawn_child());
+				let mut last = sp_std::mem::replace(&mut entry.changes, top.spawn_child());
 				// TODO the guard_no_runtime_transaction may be covered by the need_keep
-				let moved = if let Some(current_key) = entry.1.take_is_previous_moved_from() {
+				let moved = if let Some(current_key) = entry.infos.take_is_previous_moved_from() {
 					if move_old_state {
-						entry.1.set_moved_to();
+						entry.infos.set_moved_to();
 						Some((last, false, Some(current_key)))
 					} else {
 						let _ = last.rollback_transaction();
-						entry.1.set_moved_from(current_key, Some(last));
+						entry.infos.set_moved_from(current_key, Some(last));
 						None
 					}
-				} else if entry.1.need_keep_origin() {
+				} else if entry.infos.need_keep_origin() {
 					if move_old_state {
-						entry.1.set_moved_to();
+						entry.infos.set_moved_to();
 						Some((last, true, None))
 					} else {
 						let _ = last.rollback_transaction();
-						entry.1.set_last_removed(last);
+						entry.infos.set_last_removed(last);
 						None
 					}
 				} else {
@@ -745,13 +757,13 @@ impl OverlayedChanges {
 	pub(crate) fn clear_child_prefix(&mut self, child_info: &ChildInfo, prefix: &[u8]) -> u32 {
 		let storage_key = child_info.storage_key().to_vec();
 		let top = &self.top;
-		let (changeset, info) = self
-			.children
-			.entry(storage_key)
-			.or_insert_with(|| (top.spawn_child(), child_info.clone()));
-		let updatable = info.try_update(child_info);
+		let child = self.children.entry(storage_key).or_insert_with(|| ChildChanges {
+			changes: top.spawn_child(),
+			infos: child_info.clone(),
+		});
+		let updatable = child.infos.try_update(child_info);
 		debug_assert!(updatable);
-		changeset.clear_where(|key, _| key.starts_with(prefix))
+		child.changes.clear_where(|key, _| key.starts_with(prefix))
 	}
 
 	/// A value of zero means that no transaction is open and changes are committed on write.
@@ -769,16 +781,16 @@ impl OverlayedChanges {
 	pub fn start_transaction(&mut self) {
 		self.context.start_transaction();
 		self.top.start_transaction();
-		for (_, (changeset, _)) in self.children.iter_mut() {
-			changeset.start_transaction();
+		for (_, child) in self.children.iter_mut() {
+			child.changes.start_transaction();
 		}
-		for (_, (changeset, infos)) in self.btrees.iter_mut() {
-			infos.start_transaction();
-			changeset.start_transaction();
+		for (_, btree) in self.btrees.iter_mut() {
+			btree.infos.start_transaction();
+			btree.changes.start_transaction();
 		}
-		for (_, (changeset, infos)) in self.blobs.iter_mut() {
-			infos.start_transaction();
-			changeset.start_transaction();
+		for (_, blob) in self.blobs.iter_mut() {
+			blob.infos.start_transaction();
+			blob.changes.start_transaction();
 		}
 		self.offchain.overlay_mut().start_transaction();
 	}
@@ -791,34 +803,35 @@ impl OverlayedChanges {
 		self.context.rollback_transaction()?;
 
 		self.top.rollback_transaction()?;
-		retain_map(&mut self.children, |_, (changeset, _)| {
-			changeset
+		retain_map(&mut self.children, |_, child| {
+			child
+				.changes
 				.rollback_transaction()
 				.expect("Top and children changesets are started in lockstep; qed");
-			!changeset.is_empty()
+			!child.changes.is_empty()
 		});
 
 		let mut moved_from = Vec::new();
-		retain_map(&mut self.btrees, |_, (changeset, infos)| {
+		retain_map(&mut self.btrees, |_, BtreeChanges { changes, infos }| {
 			if let Some(from) = infos.take_is_previous_moved_from() {
-				changeset
+				changes
 					.rollback_transaction()
 					.expect("Top and children changesets are started in lockstep; qed");
 				// Note this spawn is not worknig if origin is current, but moved from
 				// implies Removed or Empty.
-				let change = sp_std::mem::replace(changeset, self.top.spawn_child());
+				let change = sp_std::mem::replace(changes, self.top.spawn_child());
 				moved_from.push((from, change));
 			}
 			if let Some(others) = infos.take_others_previous_moved_from() {
 				moved_from.extend(others.into_iter());
 			}
 			if let Some(from) = infos.take_is_previous_moved_from() {
-				changeset
+				changes
 					.rollback_transaction()
 					.expect("Top and children changesets are started in lockstep; qed");
 				// Note this spawn is not worknig if origin is current, but moved from
 				// implies Removed or Empty.
-				let change = sp_std::mem::replace(changeset, self.top.spawn_child());
+				let change = sp_std::mem::replace(changes, self.top.spawn_child());
 				moved_from.push((from, change));
 			}
 
@@ -828,12 +841,12 @@ impl OverlayedChanges {
 					clean = true;
 				},
 				None | Some(OriginEntry::Current) => {
-					changeset
+					changes
 						.rollback_transaction()
 						.expect("Top and children changesets are started in lockstep; qed");
 				},
 				Some(OriginEntry::Removed(last_removed)) => {
-					*changeset = last_removed;
+					*changes = last_removed;
 				},
 				Some(OriginEntry::MovedTo) => {
 					// will get new info from moved from in second step
@@ -846,33 +859,33 @@ impl OverlayedChanges {
 		});
 		for (at, state) in moved_from.into_iter() {
 			if let Some(entry) = self.btrees.get_mut(&at) {
-				entry.0 = state;
+				entry.changes = state;
 			} else {
 				crate::warn!(target: "runtime", "Moving to non existing entry should not happen.");
 			}
 		}
 
 		let mut moved_from = Vec::new();
-		retain_map(&mut self.blobs, |_, (changeset, infos)| {
+		retain_map(&mut self.blobs, |_, BlobChanges { changes, infos }| {
 			if let Some(from) = infos.take_is_previous_moved_from() {
-				changeset
+				changes
 					.rollback_transaction()
 					.expect("Top and children changesets are started in lockstep; qed");
 				// Note this spawn is not worknig if origin is current, but moved from
 				// implies Removed or Empty.
-				let change = sp_std::mem::replace(changeset, self.top.spawn_blob());
+				let change = sp_std::mem::replace(changes, self.top.spawn_blob());
 				moved_from.push((from, change));
 			}
 			if let Some(others) = infos.take_others_previous_moved_from() {
 				moved_from.extend(others.into_iter());
 			}
 			if let Some(from) = infos.take_is_previous_moved_from() {
-				changeset
+				changes
 					.rollback_transaction()
 					.expect("Top and children changesets are started in lockstep; qed");
 				// Note this spawn is not worknig if origin is current, but moved from
 				// implies Removed or Empty.
-				let change = sp_std::mem::replace(changeset, self.top.spawn_blob());
+				let change = sp_std::mem::replace(changes, self.top.spawn_blob());
 				moved_from.push((from, change));
 			}
 
@@ -882,12 +895,12 @@ impl OverlayedChanges {
 					clean = true;
 				},
 				None | Some(OriginEntry::Current) => {
-					changeset
+					changes
 						.rollback_transaction()
 						.expect("Top and children changesets are started in lockstep; qed");
 				},
 				Some(OriginEntry::Removed(last_removed)) => {
-					*changeset = last_removed;
+					*changes = last_removed;
 				},
 				Some(OriginEntry::MovedTo) => {
 					// will get new info from moved from in second step
@@ -900,7 +913,7 @@ impl OverlayedChanges {
 		});
 		for (at, state) in moved_from.into_iter() {
 			if let Some(entry) = self.blobs.get_mut(&at) {
-				entry.0 = state;
+				entry.changes = state;
 			} else {
 				crate::warn!(target: "runtime", "Moving to non existing entry should not happen.");
 			}
@@ -920,26 +933,29 @@ impl OverlayedChanges {
 	pub fn commit_transaction(&mut self) -> Result<(), NoOpenTransaction> {
 		self.context.commit_transaction()?;
 		self.top.commit_transaction()?;
-		for (_, (changeset, _)) in self.children.iter_mut() {
-			changeset
+		for (_, child) in self.children.iter_mut() {
+			child
+				.changes
 				.commit_transaction()
 				.expect("Top and children changesets are started in lockstep; qed");
 		}
 
-		for (_, (changeset, infos)) in self.btrees.iter_mut() {
-			infos
+		for (_, btree) in self.btrees.iter_mut() {
+			btree
+				.infos
 				.commit_transaction()
 				.expect("Top and children changesets are started in lockstep; qed");
-			changeset
+			btree
+				.changes
 				.commit_transaction()
 				.expect("Top and children changesets are started in lockstep; qed");
 		}
 
-		for (_, (changeset, infos)) in self.blobs.iter_mut() {
-			infos
+		for (_, blob) in self.blobs.iter_mut() {
+			blob.infos
 				.commit_transaction()
 				.expect("Top and children changesets are started in lockstep; qed");
-			changeset
+			blob.changes
 				.commit_transaction()
 				.expect("Top and children changesets are started in lockstep; qed");
 		}
@@ -997,12 +1013,14 @@ impl OverlayedChanges {
 			take(&mut self.top).drain_committed(),
 			take(&mut self.children)
 				.into_iter()
-				.map(|(key, (val, info))| (key, (val.drain_committed(), info))),
-			take(&mut self.btrees)
-				.into_iter()
-				.map(|(_key, (val, info))| (info.drain_committed(), val.drain_committed())),
-			take(&mut self.blobs).into_iter().filter_map(|(_key, (val, info))| {
-				if let Some((iter, info)) = Self::blob_chunks_into_committed(val, info) {
+				.map(|(key, child)| (key, (child.changes.drain_committed(), child.infos))),
+			take(&mut self.btrees).into_iter().map(|(_key, btree)| {
+				(btree.infos.drain_committed(), btree.changes.drain_committed())
+			}),
+			take(&mut self.blobs).into_iter().filter_map(|(_key, blob)| {
+				if let Some((iter, info)) =
+					Self::blob_chunks_into_committed(blob.changes, blob.infos)
+				{
 					// TODO this is too costy, just send the info not concatenated ???
 					let blob: Blob = blob_from_chunks(iter, info.size);
 					Some((info, blob))
@@ -1030,12 +1048,12 @@ impl OverlayedChanges {
 	pub fn children(
 		&self,
 	) -> impl Iterator<Item = (impl Iterator<Item = (&StorageKey, &OverlayedValue)>, &ChildInfo)> {
-		self.children.values().map(|v| (v.0.changes(), &v.1))
+		self.children.values().map(|v| (v.changes.changes(), &v.infos))
 	}
 
 	/// Get an iterator over all child changes as seen by the current transaction.
 	pub fn blob_storages(&self) -> impl Iterator<Item = (impl Iterator<Item = &[u8]>, &BlobMeta)> {
-		self.blobs.iter().filter_map(|(_name, blob)| Self::blob_chunks_inner(blob))
+		self.blobs.iter().filter_map(|(_name, blob)| blob.chunks())
 	}
 
 	/// Get an iterator over all top changes as been by the current transaction.
@@ -1048,7 +1066,7 @@ impl OverlayedChanges {
 		&self,
 		key: &[u8],
 	) -> Option<(impl Iterator<Item = (&StorageKey, &OverlayedValue)>, &ChildInfo)> {
-		self.children.get(key).map(|(overlay, info)| (overlay.changes(), info))
+		self.children.get(key).map(|child| (child.changes.changes(), &child.infos))
 	}
 
 	/// Get an optional iterator over all btree changes stored under the supplied key.
@@ -1056,9 +1074,9 @@ impl OverlayedChanges {
 		&self,
 		name: &[u8],
 	) -> Option<(impl Iterator<Item = (&StorageKey, &OverlayedValue)>, &BtreeMeta)> {
-		self.btrees.get(name).and_then(|(overlay, info)| {
-			let info = info.value_ref();
-			(!info.removed).then(|| (overlay.changes(), info))
+		self.btrees.get(name).and_then(|btree| {
+			let info = btree.infos.value_ref();
+			(!info.removed).then(|| (btree.changes.changes(), info))
 		})
 	}
 
@@ -1166,7 +1184,7 @@ impl OverlayedChanges {
 			ChildInfo::ParentKeyId(_) => Some(
 				self.children
 					.get(child_info.storage_key())
-					.map(|(overlay, _)| overlay.changes_after(key))
+					.map(|child| child.changes.changes_after(key))
 					.into_iter()
 					.flatten(),
 			),
@@ -1203,12 +1221,12 @@ impl OverlayedChanges {
 			ChildInfo::BTree(info) => self
 				.btrees
 				.get(info.name.as_slice())
-				.map(|btree| !btree.1.value_ref().removed)
+				.map(|btree| !btree.infos.value_ref().removed)
 				.unwrap_or(false),
 			ChildInfo::Blob(info) => self
 				.blobs
 				.get(info.name.as_slice())
-				.map(|blob| !blob.1.value_ref().removed)
+				.map(|blob| !blob.infos.value_ref().removed)
 				.unwrap_or(false),
 		}
 	}
@@ -1225,12 +1243,13 @@ impl OverlayedChanges {
 					self.clear_btree_storage(&info.name, false);
 				}
 				let top = &self.top;
-				let entry = self.btrees.entry(info.name.clone()).or_insert_with(|| {
-					(top.spawn_child(), top.spawn_info(BtreeMeta::from(info.clone())))
+				let entry = self.btrees.entry(info.name.clone()).or_insert_with(|| BtreeChanges {
+					changes: top.spawn_child(),
+					infos: top.spawn_info(BtreeMeta::from(info.clone())),
 				});
 				// even if same content we register and
 				// update.
-				let stored = entry.1.modify_value();
+				let stored = entry.infos.modify_value();
 				if stored.infos.structure != info.structure {
 					stored.root = None;
 				}
@@ -1254,13 +1273,14 @@ impl OverlayedChanges {
 					self.clear_blob_storage(&info.name, false);
 				}
 				let top = &self.top;
-				let entry = self.blobs.entry(info.name.clone()).or_insert_with(|| {
-					(top.spawn_blob(), top.spawn_info(BlobMeta::from(info.clone())))
+				let entry = self.blobs.entry(info.name.clone()).or_insert_with(|| BlobChanges {
+					changes: top.spawn_blob(),
+					infos: top.spawn_info(BlobMeta::from(info.clone())),
 				});
 
 				// even if same content we register and
 				// update.
-				let stored = entry.1.modify_value();
+				let stored = entry.infos.modify_value();
 				if clear_existing {
 					stored.size = 0;
 					stored.hash = None;
@@ -1290,7 +1310,7 @@ impl OverlayedChanges {
 		let Some(entry) = self.btrees.get_mut(name) else {
 			return
 		};
-		let entry = entry.1.modify_value();
+		let entry = entry.infos.modify_value();
 		debug_assert!(!entry.removed);
 		entry.root = Some(root);
 	}
@@ -1301,7 +1321,7 @@ impl OverlayedChanges {
 		let Some(entry) = self.blobs.get_mut(name) else {
 			return
 		};
-		let entry = entry.1.modify_value();
+		let entry = entry.infos.modify_value();
 		debug_assert!(!entry.removed);
 		entry.hash = Some(hash);
 	}
@@ -1317,7 +1337,7 @@ impl OverlayedChanges {
 					return false
 				}
 				let info_dest = if let Some(origin) = self.btrees.get(&info.name) {
-					let mut info_dest = origin.1.value_ref().clone();
+					let mut info_dest = origin.infos.value_ref().clone();
 					if info_dest.removed {
 						return false
 					};
@@ -1332,16 +1352,18 @@ impl OverlayedChanges {
 				let Some(origin) = self.btrees.get(&info.name) else {
 					return false
 				};
-				let origin = &origin.0 as *const OverlayedChangeSet;
+				let origin = &origin.changes as *const OverlayedChangeSet;
 
 				let top = &self.top;
-				let entry = self.btrees.entry(target_name.to_vec()).or_insert_with(|| {
-					(top.spawn_child(), top.spawn_info(BtreeMeta::from(info.clone())))
-				});
+				let entry =
+					self.btrees.entry(target_name.to_vec()).or_insert_with(|| BtreeChanges {
+						changes: top.spawn_child(),
+						infos: top.spawn_info(BtreeMeta::from(info.clone())),
+					});
 
 				// even if same content we register and
 				// update.
-				let dest = entry.1.modify_value();
+				let dest = entry.infos.modify_value();
 				*dest = info_dest;
 
 				// Access pointer to origin as we know btree
@@ -1350,7 +1372,7 @@ impl OverlayedChanges {
 				let origin = unsafe { &*origin };
 				for (key, value) in origin.changes() {
 					if let Some(value) = value.value_ref() {
-						let dest = entry.0.modify(key.clone(), Default::default);
+						let dest = entry.changes.modify(key.clone(), Default::default);
 						*dest = Some(value.clone());
 					}
 				}
@@ -1361,7 +1383,7 @@ impl OverlayedChanges {
 					return false
 				}
 				let info_dest = if let Some(origin) = self.blobs.get(&info.name) {
-					let mut info_dest = origin.1.value_ref().clone();
+					let mut info_dest = origin.infos.value_ref().clone();
 					if info_dest.removed {
 						return false
 					};
@@ -1377,29 +1399,26 @@ impl OverlayedChanges {
 					return false
 				};
 
-				let origin = origin
-					as *const (
-						OverlayedChangeSetBlob,
-						OverlayedInfos<BlobMeta, OverlayedChangeSetBlob>,
-					);
+				let origin = origin as *const BlobChanges;
 
 				let top = &self.top;
-				let entry = self.blobs.entry(target_name.to_vec()).or_insert_with(|| {
-					(top.spawn_blob(), top.spawn_info(BlobMeta::from(info.clone())))
+				let entry = self.blobs.entry(target_name.to_vec()).or_insert_with(|| BlobChanges {
+					changes: top.spawn_blob(),
+					infos: top.spawn_info(BlobMeta::from(info.clone())),
 				});
 
 				// even if same content we register and
 				// update.
-				let dest = entry.1.modify_value();
+				let dest = entry.infos.modify_value();
 				*dest = info_dest;
 
 				// Access pointer to origin as we know btree
 				// implementation do not change this one when
 				// he create an entry.
 				let origin = unsafe { &*origin };
-				if let Some(chunks) = Self::blob_chunks_inner(origin) {
+				if let Some(chunks) = origin.chunks() {
 					for (i, value) in chunks.0.enumerate() {
-						let chunk = entry.0.modify_chunk(i as u32);
+						let chunk = entry.changes.modify_chunk(i as u32);
 						chunk[..value.len()].copy_from_slice(value);
 					}
 				}
@@ -1419,7 +1438,7 @@ impl OverlayedChanges {
 					return false
 				}
 				let info_dest = if let Some(origin) = self.btrees.get(&info.name) {
-					let mut info_dest = origin.1.value_ref().clone();
+					let mut info_dest = origin.infos.value_ref().clone();
 					if info_dest.removed {
 						return false
 					};
@@ -1436,20 +1455,22 @@ impl OverlayedChanges {
 				self.clear_btree_storage(target_name, false);
 
 				let top = &self.top;
-				let entry = self.btrees.entry(target_name.to_vec()).or_insert_with(|| {
-					(top.spawn_child(), top.spawn_info(BtreeMeta::from(info.clone())))
-				});
+				let entry =
+					self.btrees.entry(target_name.to_vec()).or_insert_with(|| BtreeChanges {
+						changes: top.spawn_child(),
+						infos: top.spawn_info(BtreeMeta::from(info.clone())),
+					});
 
 				// even if same content we register and
 				// update.
-				let dest = entry.1.modify_value();
+				let dest = entry.infos.modify_value();
 				*dest = info_dest;
 
-				entry.0 = state;
+				entry.changes = state;
 				if ref_origin {
-					entry.1.set_moved_from(info.name.clone(), None);
+					entry.infos.set_moved_from(info.name.clone(), None);
 				} else if let Some(from) = proxy_origin {
-					entry.1.set_moved_from(from.clone(), None);
+					entry.infos.set_moved_from(from.clone(), None);
 				}
 				true
 			},
@@ -1458,7 +1479,7 @@ impl OverlayedChanges {
 					return false
 				}
 				let info_dest = if let Some(origin) = self.blobs.get(&info.name) {
-					let mut info_dest = origin.1.value_ref().clone();
+					let mut info_dest = origin.infos.value_ref().clone();
 					if info_dest.removed {
 						return false
 					};
@@ -1475,20 +1496,21 @@ impl OverlayedChanges {
 				self.clear_blob_storage(target_name, false);
 
 				let top = &self.top;
-				let entry = self.blobs.entry(target_name.to_vec()).or_insert_with(|| {
-					(top.spawn_blob(), top.spawn_info(BlobMeta::from(info.clone())))
+				let entry = self.blobs.entry(target_name.to_vec()).or_insert_with(|| BlobChanges {
+					changes: top.spawn_blob(),
+					infos: top.spawn_info(BlobMeta::from(info.clone())),
 				});
 
 				// even if same content we register and
 				// update.
-				let dest = entry.1.modify_value();
+				let dest = entry.infos.modify_value();
 				*dest = info_dest;
 
-				entry.0 = state;
+				entry.changes = state;
 				if ref_origin {
-					entry.1.set_moved_from(info.name.clone(), None);
+					entry.infos.set_moved_from(info.name.clone(), None);
 				} else if let Some(from) = proxy_origin {
-					entry.1.set_moved_from(from.clone(), None);
+					entry.infos.set_moved_from(from.clone(), None);
 				}
 				true
 			},
@@ -1500,21 +1522,31 @@ impl OverlayedChanges {
 impl From<sp_core::storage::Storage> for OverlayedChanges {
 	fn from(storage: sp_core::storage::Storage) -> Self {
 		let top: OverlayedChangeSet = storage.top.into();
-		let btrees: Map<Name, (OverlayedChangeSet, OverlayedInfos<BtreeMeta, OverlayedChangeSet>)> =
-			storage
-				.btree_storages
-				.into_iter()
-				// TODO overlay also with btree infos and root
-				// TODO add btree info in overlayedchangeset?
-				.map(|(k, v)| (k, (v.data.into(), top.spawn_info(BtreeMeta::from(v.info)))))
-				.collect();
-		let blobs: Map<
-			Name,
-			(OverlayedChangeSetBlob, OverlayedInfos<BlobMeta, OverlayedChangeSetBlob>),
-		> = storage
+		let btrees: Map<Name, BtreeChanges> = storage
+			.btree_storages
+			.into_iter()
+			.map(|(k, v)| {
+				(
+					k,
+					BtreeChanges {
+						changes: v.data.into(),
+						infos: top.spawn_info(BtreeMeta::from(v.info)),
+					},
+				)
+			})
+			.collect();
+		let blobs: Map<Name, BlobChanges> = storage
 			.blob_storages
 			.into_iter()
-			.map(|(k, v)| (k, (v.data.into(), top.spawn_info(BlobMeta::from(v.info)))))
+			.map(|(k, v)| {
+				(
+					k,
+					BlobChanges {
+						changes: v.data.into(),
+						infos: top.spawn_info(BlobMeta::from(v.info)),
+					},
+				)
+			})
 			.collect();
 		Self {
 			context: Default::default(),
@@ -1522,7 +1554,7 @@ impl From<sp_core::storage::Storage> for OverlayedChanges {
 			children: storage
 				.children_default
 				.into_iter()
-				.map(|(k, v)| (k, (v.data.into(), v.child_info)))
+				.map(|(k, v)| (k, ChildChanges { changes: v.data.into(), infos: v.child_info }))
 				.collect(),
 			btrees,
 			blobs,
@@ -1530,7 +1562,30 @@ impl From<sp_core::storage::Storage> for OverlayedChanges {
 			collect_extrinsics: Default::default(),
 			transaction_index_ops: Default::default(),
 			stats: Default::default(),
+			#[cfg(feature = "std")]
+			hashers: Default::default(),
 		}
+	}
+}
+
+impl BlobChanges {
+	pub(crate) fn chunks<'a>(&'a self) -> Option<(impl Iterator<Item = &'a [u8]>, &'a BlobMeta)> {
+		let BlobChanges { changes: blob, infos } = self;
+		let infos = infos.value_ref();
+		if infos.removed {
+			return None
+		}
+
+		let (chunk_end, chunk_end_offset) = blob_chunk_end_index(infos.size);
+
+		let nb_chunk = if chunk_end == 0 && chunk_end_offset == 0 { 0 } else { chunk_end + 1 };
+		let iter = (0..nb_chunk).into_iter().map(move |at| {
+			let end_chunk = if at == chunk_end { chunk_end_offset } else { BLOB_CHUNK_SIZE };
+			let chunk = &blob.get(at).value_ref().as_ref()[..end_chunk];
+			chunk
+		});
+
+		Some((iter, infos))
 	}
 }
 

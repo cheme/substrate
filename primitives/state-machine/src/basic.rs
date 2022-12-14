@@ -30,7 +30,7 @@ use sp_core::{
 		ChildInfo, ChildType, StateVersion, Storage, StorageBtree, StorageChild, TrackedStorageKey,
 	},
 	traits::Externalities,
-	Blake2Hasher, HashersExternalities,
+	Blake2Hasher,
 };
 use sp_externalities::{result_from_slice, Extension, Extensions, MultiRemovalResults};
 use sp_trie::{empty_child_trie_root, HashKey, LayoutV0, LayoutV1, TrieConfiguration};
@@ -44,7 +44,6 @@ use std::{
 #[derive(Debug)]
 pub struct BasicExternalities {
 	overlay: OverlayedChanges,
-	hashers: HashersExternalities,
 	extensions: Extensions,
 }
 
@@ -52,11 +51,7 @@ impl BasicExternalities {
 	/// Create a new instance of `BasicExternalities`
 	pub fn new(inner: Storage) -> Self {
 		debug_assert!(!<Blake2Hasher as sp_core::Hashers>::IS_USING_HOST);
-		BasicExternalities {
-			overlay: inner.into(),
-			hashers: HashersExternalities::new(),
-			extensions: Default::default(),
-		}
+		BasicExternalities { overlay: inner.into(), extensions: Default::default() }
 	}
 
 	/// New basic externalities with empty storage.
@@ -539,19 +534,19 @@ impl Externalities for BasicExternalities {
 	}
 
 	fn get_hasher(&mut self, algorithm: Hash32Algorithm) -> Option<u32> {
-		self.hashers.get_hasher(algorithm)
+		self.overlay.hashers.get_hasher(algorithm)
 	}
 
 	fn drop_hasher(&mut self, hasher: Option<u32>) {
-		self.hashers.drop_hasher(hasher)
+		self.overlay.hashers.drop_hasher(hasher)
 	}
 
 	fn hasher_update(&mut self, hasher: u32, data: &[u8]) -> bool {
-		self.hashers.hasher_update(hasher, data)
+		self.overlay.hashers.hasher_update(hasher, data)
 	}
 
 	fn hasher_finalize(&mut self, hasher: u32) -> Option<[u8; 32]> {
-		self.hashers.hasher_finalize(hasher)
+		self.overlay.hashers.hasher_finalize(hasher)
 	}
 }
 

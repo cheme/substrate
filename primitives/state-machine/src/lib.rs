@@ -163,7 +163,7 @@ mod execution {
 		hexdisplay::HexDisplay,
 		storage::{ChildInfo, ChildType, PrefixedStorageKey},
 		traits::{CodeExecutor, ReadRuntimeVersionExt, RuntimeCode, SpawnNamed},
-		Hashers, HashersExternalities,
+		Hashers,
 	};
 	use sp_externalities::Extensions;
 	use std::{
@@ -287,7 +287,6 @@ mod execution {
 		method: &'a str,
 		call_data: &'a [u8],
 		overlay: &'a mut OverlayedChanges,
-		hashers: &'a mut HashersExternalities,
 		extensions: Extensions,
 		storage_transaction_cache: Option<&'a mut StorageTransactionCache<B::Transaction, H>>,
 		runtime_code: &'a RuntimeCode<'a>,
@@ -319,7 +318,6 @@ mod execution {
 		pub fn new(
 			backend: &'a B,
 			overlay: &'a mut OverlayedChanges,
-			hashers: &'a mut HashersExternalities,
 			exec: &'a Exec,
 			method: &'a str,
 			call_data: &'a [u8],
@@ -337,7 +335,6 @@ mod execution {
 				call_data,
 				extensions,
 				overlay,
-				hashers,
 				storage_transaction_cache: None,
 				runtime_code,
 				stats: StateMachineStats::default(),
@@ -392,13 +389,7 @@ mod execution {
 				.enter_runtime()
 				.expect("StateMachine is never called from the runtime; qed");
 
-			let mut ext = Ext::new(
-				self.overlay,
-				self.hashers,
-				cache,
-				self.backend,
-				Some(&mut self.extensions),
-			);
+			let mut ext = Ext::new(self.overlay, cache, self.backend, Some(&mut self.extensions));
 
 			let ext_id = ext.id;
 
@@ -519,7 +510,6 @@ mod execution {
 	pub fn prove_execution<B, H, Exec, Spawn>(
 		backend: &mut B,
 		overlay: &mut OverlayedChanges,
-		hashers: &mut HashersExternalities,
 		exec: &Exec,
 		spawn_handle: Spawn,
 		method: &str,
@@ -537,7 +527,6 @@ mod execution {
 		prove_execution_on_trie_backend::<_, _, _, _>(
 			trie_backend,
 			overlay,
-			hashers,
 			exec,
 			spawn_handle,
 			method,
@@ -559,7 +548,6 @@ mod execution {
 	pub fn prove_execution_on_trie_backend<S, H, Exec, Spawn>(
 		trie_backend: &TrieBackend<S, H>,
 		overlay: &mut OverlayedChanges,
-		hashers: &mut HashersExternalities,
 		exec: &Exec,
 		spawn_handle: Spawn,
 		method: &str,
@@ -580,7 +568,6 @@ mod execution {
 		let result = StateMachine::<_, H, Exec>::new(
 			&proving_backend,
 			overlay,
-			hashers,
 			exec,
 			method,
 			call_data,
@@ -602,7 +589,6 @@ mod execution {
 		root: H::Out,
 		proof: StorageProof,
 		overlay: &mut OverlayedChanges,
-		hashers: &mut HashersExternalities,
 		exec: &Exec,
 		spawn_handle: Spawn,
 		method: &str,
@@ -619,7 +605,6 @@ mod execution {
 		execution_proof_check_on_trie_backend::<_, _, _>(
 			&trie_backend,
 			overlay,
-			hashers,
 			exec,
 			spawn_handle,
 			method,
@@ -632,7 +617,6 @@ mod execution {
 	pub fn execution_proof_check_on_trie_backend<H, Exec, Spawn>(
 		trie_backend: &TrieBackend<MemoryDB<H>, H>,
 		overlay: &mut OverlayedChanges,
-		hashers: &mut HashersExternalities,
 		exec: &Exec,
 		spawn_handle: Spawn,
 		method: &str,
@@ -648,7 +632,6 @@ mod execution {
 		StateMachine::<_, H, Exec>::new(
 			trie_backend,
 			overlay,
-			hashers,
 			exec,
 			method,
 			call_data,

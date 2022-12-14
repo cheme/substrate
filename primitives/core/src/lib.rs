@@ -637,6 +637,7 @@ pub fn hash32_with_algorithm_inline(data: &[u8], algo: Hash32Algorithm) -> [u8; 
 
 /// Hasher state (when processing in multiple steps).
 #[cfg(feature = "full_crypto")]
+#[derive(Clone)]
 pub enum Hash32State {
 	/// Blake2b hasher, 256 bits version.
 	Blake2b256(crate::hashing::Blake2b256State),
@@ -669,7 +670,7 @@ impl Hash32State {
 
 /// Base implementation for hashers externalities.
 #[cfg(feature = "full_crypto")]
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct HashersExternalities(Vec<Option<Hash32State>>);
 
 #[cfg(feature = "std")]

@@ -55,6 +55,7 @@ pub fn blake2_256(data: &[u8]) -> [u8; 32] {
 }
 
 /// State for precessing blake2b 256 in multiple steps.
+#[derive(Clone)]
 pub struct Blake2b256State(Blake2b256);
 
 impl Blake2b256State {

@@ -29,7 +29,7 @@ use sp_core::{
 	},
 	testing::TaskExecutor,
 	traits::TaskExecutorExt,
-	Hashers, HashersExternalities,
+	Hashers,
 };
 use sp_externalities::{Extension, ExtensionStore, Extensions};
 use sp_trie::StorageProof;
@@ -46,7 +46,6 @@ where
 {
 	/// The overlay changed storage.
 	overlay: OverlayedChanges,
-	hashers: HashersExternalities,
 	offchain_db: TestPersistentOffchainDB,
 	storage_transaction_cache:
 		StorageTransactionCache<<InMemoryBackend<H> as Backend<H>>::Transaction, H>,
@@ -67,7 +66,6 @@ where
 	pub fn ext(&mut self) -> Ext<H, InMemoryBackend<H>> {
 		Ext::new(
 			&mut self.overlay,
-			&mut self.hashers,
 			&mut self.storage_transaction_cache,
 			&self.backend,
 			Some(&mut self.extensions),
@@ -114,7 +112,6 @@ where
 
 		TestExternalities {
 			overlay: OverlayedChanges::default(),
-			hashers: HashersExternalities::default(),
 			offchain_db,
 			extensions,
 			backend,
@@ -210,7 +207,6 @@ where
 			.build();
 		let mut proving_ext = Ext::new(
 			&mut self.overlay,
-			&mut self.hashers,
 			&mut self.storage_transaction_cache,
 			&proving_backend,
 			Some(&mut self.extensions),
