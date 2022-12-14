@@ -17,7 +17,7 @@
 
 //! Substrate Blake2b Hasher implementation
 
-use crate::{hash32_with_algorithm_inline, Hash32State};
+use crate::hash32_with_algorithm_inline;
 use sp_storage::transient::Hash32Algorithm;
 
 pub mod blake2 {
@@ -25,7 +25,7 @@ pub mod blake2 {
 	use crate::hash::H256;
 	use hash256_std_hasher::Hash256StdHasher;
 	use hash_db::Hasher;
-	use sp_storage::transient::{HasherState, Hashers};
+	use sp_storage::transient::Hashers;
 
 	/// Concrete implementation of Hasher using Blake2b 256-bit hashes
 	#[derive(Debug)]
@@ -42,34 +42,26 @@ pub mod blake2 {
 	}
 
 	impl Hashers for Blake2Hasher {
-		const IS_HOST: bool = false;
-		type HasherState = Hash32State;
+		const IS_USING_HOST: bool = false;
 
 		fn hash_with(data: &[u8], algo: Hash32Algorithm) -> [u8; 32] {
 			hash32_with_algorithm_inline(data, algo)
 		}
 
-		fn hash_state_with(algo: Hash32Algorithm) -> Option<HasherState<Self::HasherState>> {
-			Some(HasherState::Local(Hash32State::new(algo)))
+		fn hash_state_with(_algo: Hash32Algorithm) -> Option<u32> {
+			unreachable!()
 		}
 
-		fn hash_update(data: &[u8], state: &mut HasherState<Self::HasherState>) -> bool {
-			let HasherState::Local(state) = state else {
-				return false;
-			};
-			state.update(data);
-			true
+		fn hash_update(_state: u32, _data: &[u8]) -> bool {
+			unreachable!()
 		}
 
-		fn hash_finalize(state: HasherState<Self::HasherState>) -> Option<[u8; 32]> {
-			let HasherState::Local(state) = state else {
-				return None;
-			};
-			Some(state.finalize())
+		fn hash_finalize(_state: u32) -> Option<[u8; 32]> {
+			unreachable!()
 		}
 
-		fn hash_drop(_state: Option<HasherState<Self::HasherState>>) {
-			()
+		fn hash_drop(_state: Option<u32>) {
+			unreachable!()
 		}
 	}
 }
@@ -79,7 +71,7 @@ pub mod keccak {
 	use crate::hash::H256;
 	use hash256_std_hasher::Hash256StdHasher;
 	use hash_db::Hasher;
-	use sp_storage::transient::{HasherState, Hashers};
+	use sp_storage::transient::Hashers;
 
 	/// Concrete implementation of Hasher using Keccak 256-bit hashes
 	#[derive(Debug)]
@@ -96,34 +88,26 @@ pub mod keccak {
 	}
 
 	impl Hashers for KeccakHasher {
-		const IS_HOST: bool = false;
-		type HasherState = Hash32State;
+		const IS_USING_HOST: bool = false;
 
 		fn hash_with(data: &[u8], algo: Hash32Algorithm) -> [u8; 32] {
 			hash32_with_algorithm_inline(data, algo)
 		}
 
-		fn hash_state_with(algo: Hash32Algorithm) -> Option<HasherState<Self::HasherState>> {
-			Some(HasherState::Local(Hash32State::new(algo)))
+		fn hash_state_with(_algo: Hash32Algorithm) -> Option<u32> {
+			unreachable!()
 		}
 
-		fn hash_update(data: &[u8], state: &mut HasherState<Self::HasherState>) -> bool {
-			let HasherState::Local(state) = state else {
-				return false;
-			};
-			state.update(data);
-			true
+		fn hash_update(_state: u32, _data: &[u8]) -> bool {
+			unreachable!()
 		}
 
-		fn hash_finalize(state: HasherState<Self::HasherState>) -> Option<[u8; 32]> {
-			let HasherState::Local(state) = state else {
-				return None;
-			};
-			Some(state.finalize())
+		fn hash_finalize(_state: u32) -> Option<[u8; 32]> {
+			unreachable!()
 		}
 
-		fn hash_drop(_state: Option<HasherState<Self::HasherState>>) {
-			()
+		fn hash_drop(_state: Option<u32>) {
+			unreachable!()
 		}
 	}
 }

@@ -44,13 +44,14 @@ use std::{
 #[derive(Debug)]
 pub struct BasicExternalities {
 	overlay: OverlayedChanges,
-	hashers: HashersExternalities<Blake2Hasher>,
+	hashers: HashersExternalities,
 	extensions: Extensions,
 }
 
 impl BasicExternalities {
 	/// Create a new instance of `BasicExternalities`
 	pub fn new(inner: Storage) -> Self {
+		debug_assert!(!<Blake2Hasher as sp_core::Hashers>::IS_USING_HOST);
 		BasicExternalities {
 			overlay: inner.into(),
 			hashers: HashersExternalities::new(),

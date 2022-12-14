@@ -455,7 +455,6 @@ pub enum ChildType {
 /// TODO rename this module and maybe in its own file
 pub mod transient {
 	use codec::{Decode, Encode};
-	use sp_std::marker::PhantomData;
 
 	/// `Mode` define if transient storage should keep
 	/// storage accessible.
@@ -507,14 +506,6 @@ pub mod transient {
 		// TODO some binary trie one(s)
 	}
 
-	/// State for a hasher.
-	/// TODO try remove again
-	pub enum HasherState<S> {
-		Host(u32, PhantomData<S>),
-		#[cfg(feature = "std")]
-		Local(S),
-	}
-
 	/// Trait describing an object that can hash with multiple hash_db hashers
 	/// given a 32 bytes output.
 	///
@@ -525,25 +516,23 @@ pub mod transient {
 	/// It actually got not much to do with hasher, but this makes
 	/// refactoring faster (it could be another trait).
 	pub trait Hashers: hash_db::Hasher {
-		/// Indicate if we should try to use a host function state.
-		const IS_HOST: bool;
-		/// State while processing a hash.
-		type HasherState;
+		/// Indicate if we the hasher uses host functions.
+		const IS_USING_HOST: bool;
 
 		/// Compute the hash of the provided slice of bytes returning the calculated hash.
 		fn hash_with(data: &[u8], algo: Hash32Algorithm) -> [u8; 32];
 		/// Get hasher.
-		fn hash_state_with(algo: Hash32Algorithm) -> Option<HasherState<Self::HasherState>>;
+		fn hash_state_with(algo: Hash32Algorithm) -> Option<u32>;
 		/// Advance hashing with more bytes.
 		/// Return true on success, false on failure.
-		fn hash_update(data: &[u8], state: &mut HasherState<Self::HasherState>) -> bool;
+		fn hash_update(state: u32, data: &[u8]) -> bool;
 		/// Remove hasher state explicitely.
 		/// When using `None` remove all know hasher constext (only make
 		/// sense in the context of calling host function through this api).
-		fn hash_drop(state: Option<HasherState<Self::HasherState>>);
+		fn hash_drop(state: Option<u32>);
 		/// Finish hashing and get hash.
 		/// Return None on failure.
-		fn hash_finalize(state: HasherState<Self::HasherState>) -> Option<[u8; 32]>;
+		fn hash_finalize(state: u32) -> Option<[u8; 32]>;
 	}
 }
 

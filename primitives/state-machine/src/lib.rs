@@ -287,7 +287,7 @@ mod execution {
 		method: &'a str,
 		call_data: &'a [u8],
 		overlay: &'a mut OverlayedChanges,
-		hashers: &'a mut HashersExternalities<H>,
+		hashers: &'a mut HashersExternalities,
 		extensions: Extensions,
 		storage_transaction_cache: Option<&'a mut StorageTransactionCache<B::Transaction, H>>,
 		runtime_code: &'a RuntimeCode<'a>,
@@ -319,7 +319,7 @@ mod execution {
 		pub fn new(
 			backend: &'a B,
 			overlay: &'a mut OverlayedChanges,
-			hashers: &'a mut HashersExternalities<H>,
+			hashers: &'a mut HashersExternalities,
 			exec: &'a Exec,
 			method: &'a str,
 			call_data: &'a [u8],
@@ -519,7 +519,7 @@ mod execution {
 	pub fn prove_execution<B, H, Exec, Spawn>(
 		backend: &mut B,
 		overlay: &mut OverlayedChanges,
-		hashers: &mut HashersExternalities<H>,
+		hashers: &mut HashersExternalities,
 		exec: &Exec,
 		spawn_handle: Spawn,
 		method: &str,
@@ -559,7 +559,7 @@ mod execution {
 	pub fn prove_execution_on_trie_backend<S, H, Exec, Spawn>(
 		trie_backend: &TrieBackend<S, H>,
 		overlay: &mut OverlayedChanges,
-		hashers: &mut HashersExternalities<H>,
+		hashers: &mut HashersExternalities,
 		exec: &Exec,
 		spawn_handle: Spawn,
 		method: &str,
@@ -602,7 +602,7 @@ mod execution {
 		root: H::Out,
 		proof: StorageProof,
 		overlay: &mut OverlayedChanges,
-		hashers: &mut HashersExternalities<H>,
+		hashers: &mut HashersExternalities,
 		exec: &Exec,
 		spawn_handle: Spawn,
 		method: &str,
@@ -632,7 +632,7 @@ mod execution {
 	pub fn execution_proof_check_on_trie_backend<H, Exec, Spawn>(
 		trie_backend: &TrieBackend<MemoryDB<H>, H>,
 		overlay: &mut OverlayedChanges,
-		hashers: &mut HashersExternalities<H>,
+		hashers: &mut HashersExternalities,
 		exec: &Exec,
 		spawn_handle: Spawn,
 		method: &str,

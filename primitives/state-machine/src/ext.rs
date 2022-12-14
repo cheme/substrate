@@ -29,8 +29,10 @@ use sp_core::{
 		well_known_keys::is_child_storage_key,
 		ChildInfo, StateVersion, TrackedStorageKey,
 	},
-	Hashers, HashersExternalities,
+	Hashers,
 };
+#[cfg(feature = "std")]
+use sp_core::HashersExternalities;
 use sp_externalities::{
 	result_from_slice, result_from_vec, Extension, ExtensionStore, Externalities,
 	MultiRemovalResults,
@@ -51,10 +53,7 @@ use std::error;
 #[cfg(feature = "std")]
 macro_rules! get_hasher {
 	($s:ident, $a:expr) => {
-		$s.hashers
-			.as_mut()
-			.map(|h| h.get_hasher($a))
-			.unwrap_or_else(|| H::hash_state_with($a))
+		$s.hashers.get_hasher($a)
 	};
 }
 
@@ -68,10 +67,7 @@ macro_rules! get_hasher {
 #[cfg(feature = "std")]
 macro_rules! drop_hasher {
 	($s:ident, $h:expr) => {
-		$s.hashers
-			.as_mut()
-			.map(|h| h.drop_hasher($h))
-			.unwrap_or_else(|| H::hash_drop($h))
+		$s.hashers.drop_hasher($h)
 	};
 }
 
@@ -85,27 +81,21 @@ macro_rules! drop_hasher {
 #[cfg(feature = "std")]
 macro_rules! hasher_update {
 	($s:ident, $h:expr, $d:expr) => {
-		$s.hashers
-			.as_mut()
-			.map(|h| h.hasher_update($h, $d))
-			.unwrap_or_else(|| H::hash_update($d, &mut $h))
+		$s.hashers.hasher_update($h, $d)
 	};
 }
 
 #[cfg(not(feature = "std"))]
 macro_rules! hasher_update {
 	($s:ident, $h:expr, $d:expr) => {
-		H::hash_update($d, &mut $h)
+		H::hash_update($h, $d)
 	};
 }
 
 #[cfg(feature = "std")]
 macro_rules! hasher_finalize {
 	($s:ident, $h:expr) => {
-		$s.hashers
-			.as_mut()
-			.map(|h| h.hasher_finalize($h))
-			.unwrap_or_else(|| H::hash_finalize($h))
+		$s.hashers.hasher_finalize($h)
 	};
 }
 
@@ -178,8 +168,9 @@ where
 	backend: &'a B,
 	/// The cache for the storage transactions.
 	storage_transaction_cache: &'a mut StorageTransactionCache<B::Transaction, H>,
-	/// Hashers
-	hashers: &'a mut HashersExternalities<H>,
+	/// Hashers.
+	#[cfg(feature = "std")]
+	hashers: &'a mut HashersExternalities,
 	/// Extensions registered with this instance.
 	#[cfg(feature = "std")]
 	extensions: Option<OverlayedExtensions<'a>>,
@@ -197,6 +188,7 @@ where
 		storage_transaction_cache: &'a mut StorageTransactionCache<B::Transaction, H>,
 		backend: &'a B,
 	) -> Self {
+		debug_assert!(H::IS_USING_HOST);
 		Ext { overlay, backend, id: 0, storage_transaction_cache }
 	}
 
@@ -204,11 +196,12 @@ where
 	#[cfg(feature = "std")]
 	pub fn new(
 		overlay: &'a mut OverlayedChanges,
-		hashers: &'a mut HashersExternalities<H>,
+		hashers: &'a mut HashersExternalities,
 		storage_transaction_cache: &'a mut StorageTransactionCache<B::Transaction, H>,
 		backend: &'a B,
 		extensions: Option<&'a mut sp_externalities::Extensions>,
 	) -> Self {
+		debug_assert!(!H::IS_USING_HOST);
 		Self {
 			overlay,
 			backend,
@@ -782,7 +775,7 @@ where
 			let Some(algorithm) = info.infos.algorithm else {
 				return Vec::new()
 			};
-			let Some(mut state) = get_hasher!(self, algorithm) else {
+			let Some(state) = get_hasher!(self, algorithm) else {
 				// get a handle even if we run single chunk (easier to specify failure:
 				// no condition no cache asumption).
 				return Vec::new()
@@ -1094,7 +1087,7 @@ where
 		drop_hasher!(self, hasher)
 	}
 
-	fn hasher_update(&mut self, mut hasher: u32, data: &[u8]) -> bool {
+	fn hasher_update(&mut self, hasher: u32, data: &[u8]) -> bool {
 		hasher_update!(self, hasher, data)
 	}
 
