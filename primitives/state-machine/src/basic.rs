@@ -364,7 +364,7 @@ impl Externalities for BasicExternalities {
 					// cached
 					return root.encode()
 				}
-				let result = match info.infos.structure {
+				let result = match info.infos.algorithm {
 					Some(Root32Structure::SubstrateDefault) => {
 						let delta = data
 							.into_iter()

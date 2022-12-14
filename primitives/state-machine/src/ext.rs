@@ -733,7 +733,7 @@ where
 					);
 					return root.clone()
 				}
-				match info.infos.structure {
+				match info.infos.algorithm {
 					Some(Root32Structure::SubstrateDefault) => {
 						let delta = data.into_iter().filter_map(|(k, v)| v.value().map(|v| (k, v)));
 						sp_trie::child_trie_root::<LayoutV1<H>, _, _, _>(delta).encode()

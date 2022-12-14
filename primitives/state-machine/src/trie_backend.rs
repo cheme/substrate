@@ -365,7 +365,7 @@ where
 	use sp_trie::empty_child_trie_root;
 	let is_default_trie = match child_info {
 		ChildInfo::ParentKeyId(..) => true,
-		ChildInfo::BTree(info) => match info.structure {
+		ChildInfo::BTree(info) => match info.algorithm {
 			Some(sp_core::storage::transient::Root32Structure::SubstrateDefault) => true,
 			None => false,
 		},

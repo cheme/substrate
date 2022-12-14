@@ -328,12 +328,12 @@ pub fn root(child_info: &ChildInfo, version: StateVersion) -> Vec<u8> {
 		ChildInfo::ParentKeyId(..) =>
 			sp_io::default_child_storage::root(child_info.storage_key(), version),
 		ChildInfo::BTree(btree) => btree
-			.structure
+			.algorithm
 			.clone()
-			.and_then(|structure| {
-				sp_io::btree_storage::root32(child_info.storage_key(), structure.into())
+			.and_then(|algorithm| {
+				sp_io::btree_storage::root32(child_info.storage_key(), algorithm.into())
 			})
-			.unwrap_or_else(|| match btree.structure {
+			.unwrap_or_else(|| match btree.algorithm {
 				None => {
 					log::error!(
 						target: "runtime::storage",

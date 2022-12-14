@@ -457,7 +457,6 @@ impl<K: Ord + Hash + Clone, V> Transactional for OverlayedMap<K, V> {
 	}
 }
 
-
 impl OverlayedContext {
 	/// Call this before transfering control to the runtime.
 	///
@@ -984,7 +983,6 @@ impl OverlayedChangeSet {
 		self.changes.range::<[u8], _>(range).map(|(k, v)| (k.as_slice(), v))
 	}
 }
-
 
 #[cfg(test)]
 mod test {

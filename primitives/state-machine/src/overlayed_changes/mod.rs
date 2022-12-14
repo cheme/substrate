@@ -30,7 +30,8 @@ use sp_core::HashersExternalities;
 use sp_core::{
 	offchain::OffchainOverlayedChange,
 	storage::{
-		Blob as BlobInfo, Btree as BtreeInfo, ChildInfo, Name, StateVersion, BLOB_CHUNK_SIZE,
+		Blob as BlobInfo, Btree as BtreeInfo, ChildInfo, Name, StateVersion, TransientInfo,
+		BLOB_CHUNK_SIZE,
 	},
 };
 #[cfg(feature = "std")]
@@ -588,7 +589,7 @@ impl Changes {
 	) -> (u32, Option<(OverlayedChangeSetBlob, bool, Option<Vec<u8>>)>) {
 		let top = &self.top;
 		if let Some(entry) = self.blobs.get_mut(name) {
-			entry.clear_movable_storage(move_old_state, || top.spawn_blob())
+			entry.clear_movable_storage(move_old_state, &|| top.spawn_blob())
 		} else {
 			(0, None)
 		}
@@ -601,7 +602,7 @@ impl Changes {
 	) -> (u32, Option<(OverlayedChangeSet, bool, Option<Vec<u8>>)>) {
 		let top = &self.top;
 		if let Some(entry) = self.btrees.get_mut(name) {
-			entry.clear_movable_storage(move_old_state, || top.spawn_child())
+			entry.clear_movable_storage(move_old_state, &|| top.spawn_child())
 		} else {
 			(0, None)
 		}
@@ -1113,7 +1114,7 @@ impl Changes {
 				// even if same content we register and
 				// update.
 				let stored = entry.infos.modify_value();
-				if stored.infos.structure != info.structure {
+				if stored.infos.algorithm != info.algorithm {
 					stored.cached_hash = None;
 				}
 				// TODO put in in a and_modify?? so only when existing entry?
@@ -1192,101 +1193,24 @@ impl Changes {
 	/// Copy current content of a storage to another one.
 	/// If target exists it is replaced by this new content.
 	pub fn storage_copy(&mut self, info: &ChildInfo, target_name: &[u8]) -> bool {
+		let top = &self.top;
 		match info {
 			// Copy not supported.
 			ChildInfo::ParentKeyId(_) => false,
-			ChildInfo::BTree(info) => {
-				if &info.name == target_name {
-					return false
-				}
-				let info_dest = if let Some(origin) = self.btrees.get(&info.name) {
-					let mut info_dest = origin.infos.value_ref().clone();
-					if info_dest.removed {
-						return false
-					};
-					info_dest.infos.name = target_name.to_vec();
-					info_dest
-				} else {
-					return false
-				};
-
-				self.clear_btree_storage(target_name, false);
-
-				let Some(origin) = self.btrees.get(&info.name) else {
-					return false
-				};
-				let origin = &origin.changes as *const OverlayedChangeSet;
-
-				let top = &self.top;
-				let entry =
-					self.btrees.entry(target_name.to_vec()).or_insert_with(|| BtreeChanges {
-						changes: top.spawn_child(),
-						infos: top.spawn_info(BtreeMeta::from(info.clone())),
-					});
-
-				// even if same content we register and
-				// update.
-				let dest = entry.infos.modify_value();
-				*dest = info_dest;
-
-				// Access pointer to origin as we know btree
-				// implementation do not change this one when
-				// he create an entry.
-				let origin = unsafe { &*origin };
-				for (key, value) in origin.changes() {
-					if let Some(value) = value.value_ref() {
-						let dest = entry.changes.modify(key.clone(), Default::default);
-						*dest = Some(value.clone());
-					}
-				}
-				true
-			},
-			ChildInfo::Blob(info) => {
-				if &info.name == target_name {
-					return false
-				}
-				let info_dest = if let Some(origin) = self.blobs.get(&info.name) {
-					let mut info_dest = origin.infos.value_ref().clone();
-					if info_dest.removed {
-						return false
-					};
-					info_dest.infos.name = target_name.to_vec();
-					info_dest
-				} else {
-					return false
-				};
-
-				self.clear_blob_storage(target_name, false);
-
-				let Some(origin) = self.blobs.get(&info.name) else {
-					return false
-				};
-
-				let origin = origin as *const BlobChanges;
-
-				let top = &self.top;
-				let entry = self.blobs.entry(target_name.to_vec()).or_insert_with(|| BlobChanges {
-					changes: top.spawn_blob(),
-					infos: top.spawn_info(BlobMeta::from(info.clone())),
-				});
-
-				// even if same content we register and
-				// update.
-				let dest = entry.infos.modify_value();
-				*dest = info_dest;
-
-				// Access pointer to origin as we know btree
-				// implementation do not change this one when
-				// he create an entry.
-				let origin = unsafe { &*origin };
-				if let Some(chunks) = origin.chunks() {
-					for (i, value) in chunks.0.enumerate() {
-						let chunk = entry.changes.modify_chunk(i as u32);
-						chunk[..value.len()].copy_from_slice(value);
-					}
-				}
-				true
-			},
+			ChildInfo::BTree(info) => BtreeChanges::copy_movable_storage(
+				&mut self.btrees,
+				&info,
+				target_name,
+				&|| top.spawn_child(),
+				&|| top.spawn_info(BtreeMeta::from(info.clone())),
+			),
+			ChildInfo::Blob(info) => BlobChanges::copy_movable_storage(
+				&mut self.blobs,
+				&info,
+				target_name,
+				&|| top.spawn_blob(),
+				&|| top.spawn_info(BlobMeta::from(info.clone())),
+			),
 		}
 	}
 
@@ -1393,15 +1317,42 @@ pub trait Transactional {
 	fn rollback_transaction(&mut self) -> Result<bool, NoOpenTransaction>;
 }
 
-impl<C, M> MovableStorage<C, M> 
-	where
-		M: Clone,
-		C: Transactional,
+/// Common behavior between transient storage contents, technical trait to factor code.
+pub(crate) trait TransientContentCommon<M>: Sized {
+	fn copy_on_cleared_from(&mut self, from: &MovableStorage<Self, M>);
+}
+
+impl TransientContentCommon<BtreeInfo> for OverlayedChangeSet {
+	fn copy_on_cleared_from(&mut self, from: &MovableStorage<Self, BtreeInfo>) {
+		for (key, value) in from.changes.changes() {
+			if let Some(value) = value.value_ref() {
+				let dest = self.modify(key.clone(), Default::default);
+				*dest = Some(value.clone());
+			}
+		}
+	}
+}
+
+impl TransientContentCommon<BlobInfo> for OverlayedChangeSetBlob {
+	fn copy_on_cleared_from(&mut self, from: &MovableStorage<Self, BlobInfo>) {
+		if let Some(chunks) = from.chunks() {
+			for (i, value) in chunks.0.enumerate() {
+				let chunk = self.modify_chunk(i as u32);
+				chunk[..value.len()].copy_from_slice(value);
+			}
+		}
+	}
+}
+
+impl<C, A> MovableStorage<C, TransientInfo<A>>
+where
+	A: Clone,
+	C: Transactional + TransientContentCommon<TransientInfo<A>>,
 {
 	fn clear_movable_storage(
 		&mut self,
 		move_old_state: bool,
-		spawn_changes: impl FnOnce() -> C,
+		spawn_changes: &impl Fn() -> C,
 	) -> (u32, Option<(C, bool, Option<Vec<u8>>)>) {
 		if !self.infos.value_ref().removed {
 			let info = self.infos.modify_value();
@@ -1434,6 +1385,53 @@ impl<C, M> MovableStorage<C, M>
 		} else {
 			(0, None)
 		}
+	}
+
+	fn copy_movable_storage(
+		map: &mut Map<Name, Self>,
+		info: &TransientInfo<A>,
+		target_name: &[u8],
+		spawn_changes: &impl Fn() -> C,
+		spawn_infos: &impl Fn() -> OverlayedInfos<MovableMeta<TransientInfo<A>>, C>,
+	) -> bool {
+		if &info.name == target_name {
+			return false
+		}
+		let info_dest = if let Some(origin) = map.get(&info.name) {
+			let mut info_dest = origin.infos.value_ref().clone();
+			if info_dest.removed {
+				return false
+			};
+			info_dest.infos.name = target_name.to_vec();
+			info_dest
+		} else {
+			return false
+		};
+
+		if let Some(entry) = map.get_mut(target_name) {
+			entry.clear_movable_storage(false, spawn_changes);
+		}
+
+		let Some(origin) = map.get(&info.name) else {
+			return false
+		};
+		let origin = origin as *const MovableStorage<C, TransientInfo<A>>;
+
+		let entry = map
+			.entry(target_name.to_vec())
+			.or_insert_with(|| MovableStorage { changes: spawn_changes(), infos: spawn_infos() });
+
+		// even if same content we register and
+		// update.
+		let dest = entry.infos.modify_value();
+		*dest = info_dest;
+
+		// Access pointer to origin as we know btree
+		// implementation do not change this one when
+		// he create an entry.
+		let origin: &_ = unsafe { &*origin };
+		entry.changes.copy_on_cleared_from(origin);
+		true
 	}
 }
 

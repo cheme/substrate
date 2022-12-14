@@ -311,9 +311,9 @@ impl ChildInfo {
 	pub fn new_btree(
 		name: &[u8],
 		mode: Option<transient::Mode>,
-		structure: Option<transient::Root32Structure>,
+		algorithm: Option<transient::Root32Structure>,
 	) -> Self {
-		ChildInfo::BTree(Btree { name: name.to_vec(), mode, structure })
+		ChildInfo::BTree(TransientInfo { name: name.to_vec(), mode, algorithm })
 	}
 
 	/// Instantiates child information for a default child trie
@@ -337,7 +337,7 @@ impl ChildInfo {
 		mode: Option<transient::Mode>,
 		algorithm: Option<transient::Hash32Algorithm>,
 	) -> Self {
-		ChildInfo::Blob(Blob { name: name.to_vec(), mode, algorithm })
+		ChildInfo::Blob(TransientInfo { name: name.to_vec(), mode, algorithm })
 	}
 
 	/// Try to update with another instance, return false if both instance
@@ -617,10 +617,10 @@ impl ChildTrieParentKeyId {
 	}
 }
 
-/// BTree defining infos.
+/// Transient defining infos.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "std", derive(PartialEq, Eq, Ord, Encode, Decode))]
-pub struct Btree {
+pub struct TransientInfo<A> {
 	/// Name of the transient storage.
 	pub name: Name,
 
@@ -629,11 +629,17 @@ pub struct Btree {
 	pub mode: Option<transient::Mode>,
 
 	/// Structure to apply for root.
-	pub structure: Option<transient::Root32Structure>,
+	pub algorithm: Option<A>,
 }
 
+/// Btree defining infos.
+pub type Btree = TransientInfo<transient::Root32Structure>;
+
+/// Blob defining infos.
+pub type Blob = TransientInfo<transient::Hash32Algorithm>;
+
 #[cfg(feature = "std")]
-impl sp_std::hash::Hash for Btree {
+impl<A> sp_std::hash::Hash for TransientInfo<A> {
 	fn hash<H>(&self, state: &mut H)
 	where
 		H: sp_std::hash::Hasher,
@@ -643,66 +649,22 @@ impl sp_std::hash::Hash for Btree {
 }
 
 #[cfg(feature = "std")]
-impl PartialOrd for Btree {
-	fn partial_cmp(&self, other: &Btree) -> Option<sp_std::cmp::Ordering> {
+impl<A: PartialEq> PartialOrd for TransientInfo<A> {
+	fn partial_cmp(&self, other: &Self) -> Option<sp_std::cmp::Ordering> {
 		self.name.partial_cmp(&other.name)
 	}
 }
 
-impl Btree {
+impl<A: Clone> TransientInfo<A> {
 	/// Try to update with another instance, return false if both instance
 	/// are not compatible.
-	pub fn try_update(&mut self, other: &Btree) -> bool {
-		let Btree { name, mode, structure } = self;
-		let Btree { name: o_name, mode: o_mode, structure: o_structure } = other;
-		// root method can differ
-		*structure = o_structure.clone();
-		name == o_name && mode == o_mode
-	}
-}
+	pub fn try_update(&mut self, other: &Self) -> bool {
+		let Self { name, mode, algorithm } = self;
 
-/// Blob definining infos.
-#[derive(Debug, Clone)]
-#[cfg_attr(feature = "std", derive(PartialEq, Eq, Ord, Encode, Decode))]
-pub struct Blob {
-	/// Name of the transient storage.
-	pub name: Vec<u8>,
-
-	/// Storage mode. This must be defined when
-	/// initializing a storage, could be omitted aferward.
-	pub mode: Option<transient::Mode>,
-
-	/// Algorithm to apply for hashing.
-	pub algorithm: Option<transient::Hash32Algorithm>,
-}
-
-impl Blob {
-	/// Try to update with another instance, return false if both instance
-	/// are not compatible.
-	pub fn try_update(&mut self, other: &Blob) -> bool {
-		let Blob { name, mode, algorithm } = self;
-
-		let Blob { name: o_name, mode: o_mode, algorithm: o_algorithm } = other;
-		// hash method can differ (changing to change next call to storage root).
+		let Self { name: o_name, mode: o_mode, algorithm: o_algorithm } = other;
+		// hash/root method can differ (changing to change next call to storage root).
 		*algorithm = o_algorithm.clone();
 		name == o_name && if o_mode.is_some() { mode == o_mode } else { true }
-	}
-}
-
-#[cfg(feature = "std")]
-impl sp_std::hash::Hash for Blob {
-	fn hash<H>(&self, state: &mut H)
-	where
-		H: sp_std::hash::Hasher,
-	{
-		self.name.hash(state)
-	}
-}
-
-#[cfg(feature = "std")]
-impl PartialOrd for Blob {
-	fn partial_cmp(&self, other: &Blob) -> Option<sp_std::cmp::Ordering> {
-		self.name.partial_cmp(&other.name)
 	}
 }
 
