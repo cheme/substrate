@@ -17,9 +17,7 @@
 
 //! Basic implementation for Externalities.
 
-use crate::{
-	overlayed_changes::blob_from_chunks, Backend, OverlayedChanges, StorageKey, StorageValue,
-};
+use crate::{overlayed_changes::blob_from_chunks, Backend, Changes, StorageKey, StorageValue};
 use codec::Encode;
 use hash_db::Hasher;
 use log::warn;
@@ -43,7 +41,7 @@ use std::{
 /// Simple Map-based Externalities impl.
 #[derive(Debug)]
 pub struct BasicExternalities {
-	overlay: OverlayedChanges,
+	overlay: Changes,
 	extensions: Extensions,
 }
 

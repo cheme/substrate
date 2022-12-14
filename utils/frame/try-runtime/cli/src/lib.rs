@@ -295,7 +295,7 @@ use sp_runtime::{
 	traits::{Block as BlockT, NumberFor},
 	DeserializeOwned,
 };
-use sp_state_machine::{OverlayedChanges, StateMachine, TrieBackendBuilder};
+use sp_state_machine::{Changes, StateMachine, TrieBackendBuilder};
 use sp_version::StateVersion;
 use std::{fmt::Debug, path::PathBuf, str::FromStr};
 use substrate_rpc_client::{ws_client, StateApi};
@@ -726,7 +726,7 @@ pub(crate) fn state_machine_call<Block: BlockT, D: NativeExecutionDispatch + 'st
 	method: &'static str,
 	data: &[u8],
 	extensions: Extensions,
-) -> sc_cli::Result<(OverlayedChanges, Vec<u8>)> {
+) -> sc_cli::Result<(Changes, Vec<u8>)> {
 	let mut changes = Default::default();
 	let encoded_results = StateMachine::new(
 		&ext.backend,
@@ -756,7 +756,7 @@ pub(crate) fn state_machine_call_with_proof<Block: BlockT, D: NativeExecutionDis
 	method: &'static str,
 	data: &[u8],
 	extensions: Extensions,
-) -> sc_cli::Result<(OverlayedChanges, Vec<u8>)> {
+) -> sc_cli::Result<(Changes, Vec<u8>)> {
 	use parity_scale_codec::Encode;
 	use sp_core::hexdisplay::HexDisplay;
 

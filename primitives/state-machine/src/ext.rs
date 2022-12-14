@@ -19,7 +19,7 @@
 
 #[cfg(feature = "std")]
 use crate::overlayed_changes::OverlayedExtensions;
-use crate::{backend::Backend, IndexOperation, OverlayedChanges, StorageKey, StorageValue};
+use crate::{backend::Backend, Changes, IndexOperation, StorageKey, StorageValue};
 use codec::{Decode, Encode, EncodeAppend};
 #[cfg(feature = "std")]
 use sp_core::hexdisplay::HexDisplay;
@@ -161,7 +161,7 @@ where
 	/// Pseudo-unique id used for tracing.
 	pub id: u16,
 	/// The overlayed changes to write to.
-	overlay: &'a mut OverlayedChanges,
+	overlay: &'a mut Changes,
 	/// The storage backend to read from.
 	backend: &'a B,
 	/// The cache for the storage transactions.
@@ -179,7 +179,7 @@ where
 	/// Create a new `Ext`.
 	#[cfg(not(feature = "std"))]
 	pub fn new(
-		overlay: &'a mut OverlayedChanges,
+		overlay: &'a mut Changes,
 		storage_transaction_cache: &'a mut StorageTransactionCache<B::Transaction, H>,
 		backend: &'a B,
 	) -> Self {
@@ -190,7 +190,7 @@ where
 	/// Create a new `Ext` from overlayed changes and read-only backend
 	#[cfg(feature = "std")]
 	pub fn new(
-		overlay: &'a mut OverlayedChanges,
+		overlay: &'a mut Changes,
 		storage_transaction_cache: &'a mut StorageTransactionCache<B::Transaction, H>,
 		backend: &'a B,
 		extensions: Option<&'a mut sp_externalities::Extensions>,
@@ -1254,7 +1254,7 @@ mod tests {
 	#[test]
 	fn next_storage_key_works() {
 		let mut cache = StorageTransactionCache::default();
-		let mut overlay = OverlayedChanges::default();
+		let mut overlay = Changes::default();
 		overlay.set_storage(vec![20], None);
 		overlay.set_storage(vec![30], Some(vec![31]));
 		let backend = (
@@ -1297,7 +1297,7 @@ mod tests {
 	#[test]
 	fn next_storage_key_works_with_a_lot_empty_values_in_overlay() {
 		let mut cache = StorageTransactionCache::default();
-		let mut overlay = OverlayedChanges::default();
+		let mut overlay = Changes::default();
 		overlay.set_storage(vec![20], None);
 		overlay.set_storage(vec![21], None);
 		overlay.set_storage(vec![22], None);
@@ -1334,7 +1334,7 @@ mod tests {
 		let child_info = &child_info;
 
 		let mut cache = StorageTransactionCache::default();
-		let mut overlay = OverlayedChanges::default();
+		let mut overlay = Changes::default();
 		overlay.set_child_storage(child_info, &[20], None);
 		overlay.set_child_storage(child_info, &[30], Some(&[31]));
 		let backend = (
@@ -1389,7 +1389,7 @@ mod tests {
 		let child_info = ChildInfo::new_default(b"Child1");
 		let child_info = &child_info;
 		let mut cache = StorageTransactionCache::default();
-		let mut overlay = OverlayedChanges::default();
+		let mut overlay = Changes::default();
 		overlay.set_child_storage(child_info, &[20], None);
 		overlay.set_child_storage(child_info, &[30], Some(&[31]));
 		let backend = (
@@ -1437,7 +1437,7 @@ mod tests {
 		let child_info = ChildInfo::new_default(b"Child1");
 		let child_info = &child_info;
 		let mut cache = StorageTransactionCache::default();
-		let mut overlay = OverlayedChanges::default();
+		let mut overlay = Changes::default();
 		let backend = (
 			Storage {
 				top: map![],

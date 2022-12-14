@@ -18,8 +18,8 @@
 //! Test implementation for Externalities.
 
 use crate::{
-	backend::Backend, ext::Ext, InMemoryBackend, OverlayedChanges, StorageKey,
-	StorageTransactionCache, StorageValue, TrieBackendBuilder,
+	backend::Backend, ext::Ext, Changes, InMemoryBackend, StorageKey, StorageTransactionCache,
+	StorageValue, TrieBackendBuilder,
 };
 use sp_core::{
 	offchain::testing::TestPersistentOffchainDB,
@@ -45,7 +45,7 @@ where
 	H::Out: codec::Codec + Ord,
 {
 	/// The overlay changed storage.
-	overlay: OverlayedChanges,
+	overlay: Changes,
 	offchain_db: TestPersistentOffchainDB,
 	storage_transaction_cache:
 		StorageTransactionCache<<InMemoryBackend<H> as Backend<H>>::Transaction, H>,
@@ -111,7 +111,7 @@ where
 		let backend = (storage, state_version).into();
 
 		TestExternalities {
-			overlay: OverlayedChanges::default(),
+			overlay: Changes::default(),
 			offchain_db,
 			extensions,
 			backend,
@@ -121,7 +121,7 @@ where
 	}
 
 	/// Returns the overlayed changes.
-	pub fn overlayed_changes(&self) -> &OverlayedChanges {
+	pub fn overlayed_changes(&self) -> &Changes {
 		&self.overlay
 	}
 
