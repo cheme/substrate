@@ -194,9 +194,9 @@ pub struct StorageBlob {
 	pub data: Vec<u8>,
 	/// Associated info.
 	pub info: Blob,
-	/// Last calculated hash matching
+	/// Last calculated encoded hash matching
 	/// info hash.
-	pub hash: Option<[u8; 32]>,
+	pub hash: Option<Vec<u8>>,
 }
 
 /// Child trie storage data.
@@ -207,9 +207,9 @@ pub struct StorageBtree {
 	pub data: StorageMap,
 	/// Associated info.
 	pub info: Btree,
-	/// Last calculated root matching
+	/// Last calculated encoded root matching
 	/// info algorithm.
-	pub root: Option<[u8; 32]>,
+	pub root: Option<Vec<u8>>,
 }
 
 /// Storage change set

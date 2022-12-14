@@ -721,7 +721,7 @@ where
 			let result = if let Some((data, info)) =
 				self.overlay.btree_changes(child_info.storage_key())
 			{
-				if let Some(root) = info.root.as_ref() {
+				if let Some(root) = info.cached_hash.as_ref() {
 					// cached
 					trace!(
 						target: "state",
@@ -731,7 +731,7 @@ where
 						storage_root = %HexDisplay::from(&root.as_ref()),
 						cached = true,
 					);
-					return root.encode()
+					return root.clone()
 				}
 				match info.infos.structure {
 					Some(Root32Structure::SubstrateDefault) => {
@@ -772,7 +772,7 @@ where
 				// no condition no cache asumption).
 				return Vec::new()
 			};
-			if let Some(hash) = info.hash.as_ref() {
+			if let Some(hash) = info.cached_hash.as_ref() {
 				// cached
 				trace!(
 					target: "state",
@@ -783,7 +783,7 @@ where
 					cached = true,
 				);
 				drop_hasher!(self, Some(state));
-				return hash.encode()
+				return hash.clone()
 			}
 
 			let result = if let Some(chunk) = chunks.next() {
@@ -813,6 +813,7 @@ where
 				H::hash_with(&[], algorithm)
 			};
 
+			let result = result.encode();
 			self.overlay.cache_blob_hash(child_info.storage_key(), result.clone());
 			trace!(
 				target: "state",
@@ -822,7 +823,7 @@ where
 				storage_root = %HexDisplay::from(&result),
 				cached = false,
 			);
-			return result.encode()
+			return result
 		}
 
 		if self.storage_transaction_cache.transaction_storage_root.is_some() {

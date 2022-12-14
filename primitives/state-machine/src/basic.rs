@@ -107,7 +107,7 @@ impl BasicExternalities {
 						sp_core::storage::StorageBlob {
 							data: blob_from_chunks(iter, i.size),
 							info: i.infos.clone(),
-							hash: i.hash.clone(),
+							hash: i.cached_hash.clone(),
 						},
 					)
 				})
@@ -360,7 +360,7 @@ impl Externalities for BasicExternalities {
 					// still
 					return Vec::new()
 				};
-				if let Some(root) = info.root.as_ref() {
+				if let Some(root) = info.cached_hash.as_ref() {
 					// cached
 					return root.encode()
 				}
@@ -386,7 +386,7 @@ impl Externalities for BasicExternalities {
 					// still
 					return Vec::new()
 				};
-				if let Some(hash) = info.hash.as_ref() {
+				if let Some(hash) = info.cached_hash.as_ref() {
 					// cached
 					return hash.encode()
 				}
@@ -407,8 +407,9 @@ impl Externalities for BasicExternalities {
 					None => return Vec::new(),
 				};
 
+				let result = result.encode();
 				self.overlay.cache_blob_hash(child_info.storage_key(), result.clone());
-				return result.encode()
+				return result
 			},
 		}
 

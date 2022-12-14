@@ -715,19 +715,19 @@ impl OverlayedChangeSetBlob {
 		&self,
 		start: u32,
 		limit: Option<u32>,
-		size: usize, 
+		size: usize,
 		stats: &StateMachineStats,
 	) -> Vec<u8> {
 		let start = start as usize;
 		if start >= size {
-			return Vec::new();
+			return Vec::new()
 		}
 		let size_slice = size - start;
 		let size_slice =
-		sp_std::cmp::min(size_slice, limit.map(|l| l as usize).unwrap_or(size_slice));
+			sp_std::cmp::min(size_slice, limit.map(|l| l as usize).unwrap_or(size_slice));
 		let end = start + size_slice;
 		if end == start {
-			return Vec::new();
+			return Vec::new()
 		}
 
 		let (chunk_start, chunk_start_offset) = super::blob_chunk_start_index(start);
@@ -735,8 +735,7 @@ impl OverlayedChangeSetBlob {
 		let mut result = Vec::with_capacity(size_slice);
 		if chunk_start == chunk_end {
 			result.extend_from_slice(
-				&self.get(chunk_start).value_ref().as_ref()
-					[chunk_start_offset..chunk_end_offset],
+				&self.get(chunk_start).value_ref().as_ref()[chunk_start_offset..chunk_end_offset],
 			)
 		} else {
 			result.extend_from_slice(
@@ -745,9 +744,7 @@ impl OverlayedChangeSetBlob {
 			for at in chunk_start + 1..chunk_end {
 				result.extend_from_slice(self.get(at).value_ref().as_ref());
 			}
-			result.extend_from_slice(
-				&self.get(chunk_end).value_ref().as_ref()[..chunk_end_offset],
-			);
+			result.extend_from_slice(&self.get(chunk_end).value_ref().as_ref()[..chunk_end_offset]);
 		}
 		stats.tally_read_modified(result.len() as u64);
 		result

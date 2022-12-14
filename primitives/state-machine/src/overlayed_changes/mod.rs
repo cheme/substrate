@@ -111,55 +111,37 @@ struct ChildChanges {
 	infos: ChildInfo,
 }
 
-/// Changes for blob storage.
-/// TODO move methods in this struct when possible
+/// Changes for movable transient stoarge.
 #[derive(Debug, Clone)]
-pub(crate) struct BlobChanges {
-	changes: OverlayedChangeSetBlob,
-	infos: OverlayedInfos<BlobMeta, OverlayedChangeSetBlob>,
+pub(crate) struct MovableStorage<C, M> {
+	changes: C,
+	infos: OverlayedInfos<MovableMeta<M>, C>,
 }
 
+/// Changes for blob storage.
+pub(crate) type BlobChanges = MovableStorage<OverlayedChangeSetBlob, BlobInfo>;
+
 /// Changes for btree storage.
-/// TODO move methods in this struct when possible
+pub(crate) type BtreeChanges = MovableStorage<OverlayedChangeSet, BtreeInfo>;
+
+/// Info attached to a transient movable storage.
 #[derive(Debug, Clone)]
-struct BtreeChanges {
-	changes: OverlayedChangeSet,
-	infos: OverlayedInfos<BtreeMeta, OverlayedChangeSet>,
+pub struct MovableMeta<M> {
+	pub infos: M,
+	pub size: usize,
+	pub cached_hash: Option<Vec<u8>>,
+	pub removed: bool,
 }
 
 /// Info attached to a transient btree storage.
-#[derive(Debug, Clone)]
-pub struct BtreeMeta {
-	pub infos: BtreeInfo,
-	// TODO this additional info will mark extrinsic
-	// technical change: TODO probably remove this
-	// extrinsics first anyway (otherwhise use two
-	// modify_value variants).
-	pub size: usize,
-	pub root: Option<Vec<u8>>,
-	pub removed: bool,
-}
+pub type BtreeMeta = MovableMeta<BtreeInfo>;
 
-impl From<BtreeInfo> for BtreeMeta {
-	fn from(infos: BtreeInfo) -> Self {
-		Self { infos, size: 0, root: None, removed: false }
-	}
-}
+/// Info attached to a transient blob storage.
+pub type BlobMeta = MovableMeta<BlobInfo>;
 
-/// Info attached to a Blob storage.
-#[derive(Debug, Clone)]
-pub struct BlobMeta {
-	pub infos: BlobInfo,
-	// TODO same remark as btree
-	// TODO u32??
-	pub size: usize,
-	pub hash: Option<[u8; 32]>,
-	pub removed: bool,
-}
-
-impl From<BlobInfo> for BlobMeta {
-	fn from(infos: BlobInfo) -> Self {
-		Self { infos, hash: None, size: 0, removed: false }
+impl<M> From<M> for MovableMeta<M> {
+	fn from(infos: M) -> Self {
+		Self { infos, size: 0, cached_hash: None, removed: false }
 	}
 }
 
@@ -474,7 +456,7 @@ impl Changes {
 					if infos.value_ref().removed {
 						return false
 					}
-					let has_root = infos.value_ref().root.is_some();
+					let has_root = infos.value_ref().cached_hash.is_some();
 					let (existing, changed) = changes
 						.get(key)
 						.map(|v| {
@@ -490,7 +472,7 @@ impl Changes {
 					{
 						let infos = infos.modify_value();
 						if changed {
-							infos.root = None;
+							infos.cached_hash = None;
 						}
 						if val.is_some() {
 							infos.size += 1;
@@ -533,9 +515,9 @@ impl Changes {
 		}
 
 		let update_size = end as u32 > previous_len;
-		if update_size || infos.value_ref().hash.is_some() {
+		if update_size || infos.value_ref().cached_hash.is_some() {
 			let info = infos.modify_value();
-			info.hash = None;
+			info.cached_hash = None;
 			if update_size {
 				info.size = end;
 			}
@@ -567,7 +549,7 @@ impl Changes {
 		blob.changes.truncate_clean(chunk_start);
 
 		let info = blob.infos.modify_value();
-		info.hash = None;
+		info.cached_hash = None;
 		info.size = new_len as usize;
 
 		true
@@ -611,7 +593,7 @@ impl Changes {
 				let result = info.size;
 				info.removed = true;
 				info.size = 0;
-				info.hash = None;
+				info.cached_hash = None;
 				let mut last = sp_std::mem::replace(&mut entry.changes, top.spawn_blob());
 				let moved = if let Some(current_key) = entry.infos.take_is_previous_moved_from() {
 					if move_old_state {
@@ -654,7 +636,7 @@ impl Changes {
 				let result = info.size;
 				info.removed = true;
 				info.size = 0;
-				info.root = None;
+				info.cached_hash = None;
 				let mut last = sp_std::mem::replace(&mut entry.changes, top.spawn_child());
 				// TODO the guard_no_runtime_transaction may be covered by the need_keep
 				let moved = if let Some(current_key) = entry.infos.take_is_previous_moved_from() {
@@ -1194,7 +1176,7 @@ impl Changes {
 				// update.
 				let stored = entry.infos.modify_value();
 				if stored.infos.structure != info.structure {
-					stored.root = None;
+					stored.cached_hash = None;
 				}
 				// TODO put in in a and_modify?? so only when existing entry?
 				// TODO try update function is rather unclear: just explicitely
@@ -1226,10 +1208,10 @@ impl Changes {
 				let stored = entry.infos.modify_value();
 				if clear_existing {
 					stored.size = 0;
-					stored.hash = None;
+					stored.cached_hash = None;
 				}
 				if stored.infos.algorithm != info.algorithm {
-					stored.hash = None;
+					stored.cached_hash = None;
 				}
 
 				let success = if stored.removed {
@@ -1255,18 +1237,18 @@ impl Changes {
 		};
 		let entry = entry.infos.modify_value();
 		debug_assert!(!entry.removed);
-		entry.root = Some(root);
+		entry.cached_hash = Some(root);
 	}
 
 	/// Cache hash.
 	/// Do nothing on failure.
-	pub fn cache_blob_hash(&mut self, name: &[u8], hash: [u8; 32]) {
+	pub fn cache_blob_hash(&mut self, name: &[u8], hash: Vec<u8>) {
 		let Some(entry) = self.blobs.get_mut(name) else {
 			return
 		};
 		let entry = entry.infos.modify_value();
 		debug_assert!(!entry.removed);
-		entry.hash = Some(hash);
+		entry.cached_hash = Some(hash);
 	}
 
 	/// Copy current content of a storage to another one.
