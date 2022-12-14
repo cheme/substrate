@@ -240,15 +240,23 @@ pub trait Externalities: ExtensionStore {
 
 	/// Get the trie root of a child storage map.
 	///
+	///
+	///
+	/// For default child storage:
+	///
 	/// This will also update the value of the child storage keys in the top-level storage map.
 	///
 	/// If the storage root equals the default hash as defined by the trie, the key in the top-level
 	/// storage map will be removed.
+	///
+	/// Returns empty root for missing storage.
+	///
+	/// For transient storage only return root or hash if the storage exists.
 	fn child_storage_root(
 		&mut self,
 		child_info: &ChildInfo,
 		state_version: StateVersion,
-	) -> Vec<u8>;
+	) -> Option<Vec<u8>>;
 
 	/// Append storage item.
 	///
@@ -465,9 +473,7 @@ pub trait Externalities: ExtensionStore {
 		if !self.update_storage_info(info.clone(), false) {
 			return None
 		}
-		let hash = self.child_storage_root(&info, StateVersion::V1);
-		// TODO don't like this copy: change prototype to return Vec<u8>? -> then no
-		// need to restrict to 32 bytes
+		let hash = self.child_storage_root(&info, StateVersion::V1)?;
 		let mut result = [0u8; 32];
 		result.copy_from_slice(hash.as_slice());
 		Some(result)
@@ -584,9 +590,7 @@ pub trait Externalities: ExtensionStore {
 		if !self.update_storage_info(info.clone(), false) {
 			return None
 		}
-		let root = self.child_storage_root(&info, StateVersion::V1);
-		// TODO don't like this copy: change prototype to return Vec<u8>? -> then no
-		// need to restrict to 32 bytes
+		let root = self.child_storage_root(&info, StateVersion::V1)?;
 		let mut result = [0u8; 32];
 		result.copy_from_slice(root.as_slice());
 		Some(result)

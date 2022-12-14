@@ -582,11 +582,7 @@ impl Changes {
 		}
 	}
 
-	fn clear_blob_storage(
-		&mut self,
-		name: &[u8],
-		move_old_state: bool,
-	) -> u32 {
+	fn clear_blob_storage(&mut self, name: &[u8], move_old_state: bool) -> u32 {
 		let top = &self.top;
 		if let Some(entry) = self.blobs.get_mut(name) {
 			entry.clear_movable_storage(move_old_state, &|| top.spawn_blob()).0
@@ -595,11 +591,7 @@ impl Changes {
 		}
 	}
 
-	fn clear_btree_storage(
-		&mut self,
-		name: &[u8],
-		move_old_state: bool,
-	) -> u32 {
+	fn clear_btree_storage(&mut self, name: &[u8], move_old_state: bool) -> u32 {
 		let top = &self.top;
 		if let Some(entry) = self.btrees.get_mut(name) {
 			entry.clear_movable_storage(move_old_state, &|| top.spawn_child()).0

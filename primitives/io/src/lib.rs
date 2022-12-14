@@ -478,6 +478,7 @@ pub trait DefaultChildStorage {
 	fn root(&mut self, storage_key: &[u8]) -> Vec<u8> {
 		let child_info = ChildInfo::new_default(storage_key);
 		self.child_storage_root(&child_info, StateVersion::V0)
+			.expect("Root always calculated for default storage.")
 	}
 
 	/// Default child root calculation.
@@ -490,6 +491,7 @@ pub trait DefaultChildStorage {
 	fn root(&mut self, storage_key: &[u8], version: StateVersion) -> Vec<u8> {
 		let child_info = ChildInfo::new_default(storage_key);
 		self.child_storage_root(&child_info, version)
+			.expect("Root always calculated for default storage.")
 	}
 
 	/// Child storage key iteration.

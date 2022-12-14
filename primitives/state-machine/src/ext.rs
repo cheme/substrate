@@ -712,7 +712,7 @@ where
 		&mut self,
 		child_info: &ChildInfo,
 		state_version: StateVersion,
-	) -> Vec<u8> {
+	) -> Option<Vec<u8>> {
 		let _guard = guard();
 		let storage_key = child_info.storage_key();
 		let prefixed_storage_key = child_info.prefixed_storage_key();
@@ -731,19 +731,17 @@ where
 						storage_root = %HexDisplay::from(&root.as_ref()),
 						cached = true,
 					);
-					return root.clone()
+					return Some(root.clone())
 				}
 				match info.infos.algorithm {
 					Some(Root32Structure::SubstrateDefault) => {
 						let delta = data.into_iter().filter_map(|(k, v)| v.value().map(|v| (k, v)));
 						sp_trie::child_trie_root::<LayoutV1<H>, _, _, _>(delta).encode()
 					},
-					None => Vec::new(),
+					None => return None,
 				}
 			} else {
-				// TODO change function proto to return None?? we check before calling it but
-				// still
-				Vec::new()
+				return None
 			};
 
 			self.overlay.cache_btree_root(child_info.storage_key(), result.clone());
@@ -755,22 +753,20 @@ where
 				storage_root = %HexDisplay::from(&result),
 				cached = false,
 			);
-			return result
+			return Some(result)
 		}
 
 		if let ChildInfo::Blob(..) = child_info {
 			let Some((mut chunks, info)) = self.overlay.blobs.get(child_info.storage_key()).and_then(|b| b.chunks()) else {
-				// TODO change function proto to return None?? we check before calling it but
-				// still
-				return Vec::new()
+				return None
 			};
 			let Some(algorithm) = info.infos.algorithm else {
-				return Vec::new()
+				return None
 			};
 			let Some(state) = get_hasher!(self, algorithm) else {
 				// get a handle even if we run single chunk (easier to specify failure:
 				// no condition no cache asumption).
-				return Vec::new()
+				return None
 			};
 			if let Some(hash) = info.cached_hash.as_ref() {
 				// cached
@@ -783,7 +779,7 @@ where
 					cached = true,
 				);
 				drop_hasher!(self, Some(state));
-				return hash.clone()
+				return Some(hash.clone())
 			}
 
 			let result = if let Some(chunk) = chunks.next() {
@@ -793,19 +789,19 @@ where
 				} else {
 					if !hasher_update!(self, state, &chunk[..]) {
 						drop_hasher!(self, Some(state));
-						return Vec::new()
+						return None
 					}
 					for chunk in chunks {
 						if !hasher_update!(self, state, &chunk[..]) {
 							drop_hasher!(self, Some(state));
-							return Vec::new()
+							return None
 						}
 					}
 					if let Some(hash) = self.hasher_finalize(state) {
 						hash
 					} else {
 						drop_hasher!(self, Some(state));
-						return Vec::new() // TODO proper err
+						return None
 					}
 				}
 			} else {
@@ -823,7 +819,7 @@ where
 				storage_root = %HexDisplay::from(&result),
 				cached = false,
 			);
-			return result
+			return Some(result)
 		}
 
 		if self.storage_transaction_cache.transaction_storage_root.is_some() {
@@ -840,7 +836,7 @@ where
 				storage_root = %HexDisplay::from(&root.as_ref()),
 				cached = true,
 			);
-			root.encode()
+			Some(root.encode())
 		} else {
 			let root = if let Some((changes, info)) = self.overlay.child_changes(storage_key) {
 				let delta = changes.map(|(k, v)| (k.as_ref(), v.value().map(AsRef::as_ref)));
@@ -871,7 +867,7 @@ where
 					cached = false,
 				);
 
-				root
+				Some(root)
 			} else {
 				// empty overlay
 				let root = self
@@ -889,7 +885,7 @@ where
 					cached = false,
 				);
 
-				root.encode()
+				Some(root.encode())
 			}
 		}
 	}

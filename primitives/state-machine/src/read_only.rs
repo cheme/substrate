@@ -227,7 +227,7 @@ where
 		&mut self,
 		_child_info: &ChildInfo,
 		_state_version: StateVersion,
-	) -> Vec<u8> {
+	) -> Option<Vec<u8>> {
 		unimplemented!("child_storage_root is not supported in ReadOnlyExternalities")
 	}
 

@@ -331,11 +331,12 @@ impl Externalities for BasicExternalities {
 		// type of child trie support.
 		let empty_hash = empty_child_trie_root::<LayoutV1<Blake2Hasher>>();
 		for child_info in self.overlay.children().map(|d| d.1.clone()).collect::<Vec<_>>() {
-			let child_root = self.child_storage_root(&child_info, state_version);
-			if empty_hash[..] == child_root[..] {
-				top.remove(child_info.prefixed_storage_key().as_slice());
-			} else {
-				top.insert(child_info.prefixed_storage_key().into_inner(), child_root);
+			if let Some(child_root) = self.child_storage_root(&child_info, state_version) {
+				if empty_hash[..] == child_root[..] {
+					top.remove(child_info.prefixed_storage_key().as_slice());
+				} else {
+					top.insert(child_info.prefixed_storage_key().into_inner(), child_root);
+				}
 			}
 		}
 
@@ -349,20 +350,18 @@ impl Externalities for BasicExternalities {
 		&mut self,
 		child_info: &ChildInfo,
 		state_version: StateVersion,
-	) -> Vec<u8> {
+	) -> Option<Vec<u8>> {
 		match child_info.child_type() {
 			ChildType::ParentKeyId => (),
 			ChildType::Btree => {
 				let Some((data, info)) =
 					self.overlay.btree_changes(child_info.storage_key()) else
 				{
-					// TODO change function proto to return None?? we check before calling it but
-					// still
-					return Vec::new()
+					return None
 				};
 				if let Some(root) = info.cached_hash.as_ref() {
 					// cached
-					return root.encode()
+					return Some(root.encode())
 				}
 				let result = match info.infos.algorithm {
 					Some(Root32Structure::SubstrateDefault) => {
@@ -374,21 +373,19 @@ impl Externalities for BasicExternalities {
 							.0
 							.encode()
 					},
-					None => return Vec::new(),
+					None => return None,
 				};
 
 				self.overlay.cache_btree_root(child_info.storage_key(), result.clone());
-				return result
+				return Some(result)
 			},
 			ChildType::Blob => {
 				let Some((mut chunks, info)) = self.overlay.blob_chunks(child_info.storage_key()) else {
-					// TODO change function proto to return None?? we check before calling it but
-					// still
-					return Vec::new()
+					return None
 				};
 				if let Some(hash) = info.cached_hash.as_ref() {
 					// cached
-					return hash.encode()
+					return Some(hash.encode())
 				}
 
 				let result = match info.infos.algorithm {
@@ -404,16 +401,16 @@ impl Externalities for BasicExternalities {
 							sp_std::mem::drop(chunks);
 							sp_core::hash32_with_algorithm_inline(&[], algorithm)
 						},
-					None => return Vec::new(),
+					None => return None,
 				};
 
 				let result = result.encode();
 				self.overlay.cache_blob_hash(child_info.storage_key(), result.clone());
-				return result
+				return Some(result)
 			},
 		}
 
-		if let Some((data, child_info)) = self.overlay.child_changes(child_info.storage_key()) {
+		Some(if let Some((data, child_info)) = self.overlay.child_changes(child_info.storage_key()) {
 			let delta =
 				data.into_iter().map(|(k, v)| (k.as_ref(), v.value().map(|v| v.as_slice())));
 			crate::in_memory_backend::new_in_mem::<Blake2Hasher, HashKey<_>>()
@@ -422,7 +419,7 @@ impl Externalities for BasicExternalities {
 		} else {
 			empty_child_trie_root::<LayoutV1<Blake2Hasher>>()
 		}
-		.encode()
+		.encode())
 	}
 
 	fn storage_start_transaction(&mut self) {
