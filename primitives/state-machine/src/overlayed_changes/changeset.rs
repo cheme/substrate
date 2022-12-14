@@ -17,7 +17,7 @@
 
 //! Houses the code that implements the transactional overlay storage.
 
-use super::{StorageKey, StorageValue};
+use super::{StorageKey, StorageValue, Transactional};
 
 use crate::stats::StateMachineStats;
 use smallvec::SmallVec;
@@ -400,14 +400,6 @@ impl<K: Ord + Hash + Clone, V> OverlayedMap<K, V> {
 		self.dirty_keys.push(Default::default());
 	}
 
-	/// Rollback the last transaction started by `start_transaction`.
-	///
-	/// Any changes made during that transaction are discarded. Returns an error if
-	/// there is no open transaction that can be rolled back.
-	pub fn rollback_transaction(&mut self) -> Result<(), NoOpenTransaction> {
-		self.close_transaction(true)
-	}
-
 	/// Commit the last transaction started by `start_transaction`.
 	///
 	/// Any changes made during that transaction are committed. Returns an error if
@@ -457,6 +449,14 @@ impl<K: Ord + Hash + Clone, V> OverlayedMap<K, V> {
 		Ok(())
 	}
 }
+
+impl<K: Ord + Hash + Clone, V> Transactional for OverlayedMap<K, V> {
+	fn rollback_transaction(&mut self) -> Result<bool, NoOpenTransaction> {
+		self.close_transaction(true)?;
+		Ok(self.changes.is_empty())
+	}
+}
+
 
 impl OverlayedContext {
 	/// Call this before transfering control to the runtime.
@@ -665,19 +665,6 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 		self.dirty_infos.push(Default::default());
 	}
 
-	/// Rollback the last transaction started by `start_transaction`.
-	///
-	/// Any changes made during that transaction are discarded. Returns an error if
-	/// there is no open transaction that can be rolled back.
-	/// TODO remove the returned bool (we now use the origin Empty)
-	#[must_use = "When empty returned, the object need to be dropped."]
-	pub fn rollback_transaction(&mut self) -> Result<bool, NoOpenTransaction> {
-		if self.dirty_infos.pop().ok_or(NoOpenTransaction)? {
-			self.infos.pop_transaction();
-		}
-		Ok(self.infos.transactions.is_empty())
-	}
-
 	/// Commit the last transaction started by `start_transaction`.
 	///
 	/// Any changes made during that transaction are committed. Returns an error if
@@ -706,6 +693,15 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 			}
 		}
 		Ok(())
+	}
+}
+
+impl<I: Clone, M> Transactional for OverlayedInfos<I, M> {
+	fn rollback_transaction(&mut self) -> Result<bool, NoOpenTransaction> {
+		if self.dirty_infos.pop().ok_or(NoOpenTransaction)? {
+			self.infos.pop_transaction();
+		}
+		Ok(self.infos.transactions.is_empty())
 	}
 }
 
@@ -864,14 +860,6 @@ impl OverlayedChangeSetBlob {
 		self.dirty.push(Default::default());
 	}
 
-	/// Rollback the last transaction started by `start_transaction`.
-	///
-	/// Any changes made during that transaction are discarded. Returns an error if
-	/// there is no open transaction that can be rolled back.
-	pub fn rollback_transaction(&mut self) -> Result<(), NoOpenTransaction> {
-		self.close_transaction(true)
-	}
-
 	/// Commit the last transaction started by `start_transaction`.
 	///
 	/// Any changes made during that transaction are committed. Returns an error if
@@ -917,6 +905,13 @@ impl OverlayedChangeSetBlob {
 		}
 
 		Ok(())
+	}
+}
+
+impl Transactional for OverlayedChangeSetBlob {
+	fn rollback_transaction(&mut self) -> Result<bool, NoOpenTransaction> {
+		self.close_transaction(true)?;
+		Ok(self.chunks.is_empty())
 	}
 }
 
@@ -989,6 +984,7 @@ impl OverlayedChangeSet {
 		self.changes.range::<[u8], _>(range).map(|(k, v)| (k.as_slice(), v))
 	}
 }
+
 
 #[cfg(test)]
 mod test {

@@ -588,37 +588,7 @@ impl Changes {
 	) -> (u32, Option<(OverlayedChangeSetBlob, bool, Option<Vec<u8>>)>) {
 		let top = &self.top;
 		if let Some(entry) = self.blobs.get_mut(name) {
-			if !entry.infos.value_ref().removed {
-				let info = entry.infos.modify_value();
-				let result = info.size;
-				info.removed = true;
-				info.size = 0;
-				info.cached_hash = None;
-				let mut last = sp_std::mem::replace(&mut entry.changes, top.spawn_blob());
-				let moved = if let Some(current_key) = entry.infos.take_is_previous_moved_from() {
-					if move_old_state {
-						Some((last, false, Some(current_key)))
-					} else {
-						let _ = last.rollback_transaction();
-						entry.infos.set_moved_from(current_key, Some(last));
-						None
-					}
-				} else if entry.infos.need_keep_origin() {
-					if move_old_state {
-						entry.infos.set_moved_to();
-						Some((last, true, None))
-					} else {
-						let _ = last.rollback_transaction();
-						entry.infos.set_last_removed(last);
-						None
-					}
-				} else {
-					move_old_state.then(|| (last, false, None))
-				};
-				(result as u32, moved)
-			} else {
-				(0, None)
-			}
+			entry.clear_movable_storage(move_old_state, || top.spawn_blob())
 		} else {
 			(0, None)
 		}
@@ -631,39 +601,7 @@ impl Changes {
 	) -> (u32, Option<(OverlayedChangeSet, bool, Option<Vec<u8>>)>) {
 		let top = &self.top;
 		if let Some(entry) = self.btrees.get_mut(name) {
-			if !entry.infos.value_ref().removed {
-				let info = entry.infos.modify_value();
-				let result = info.size;
-				info.removed = true;
-				info.size = 0;
-				info.cached_hash = None;
-				let mut last = sp_std::mem::replace(&mut entry.changes, top.spawn_child());
-				// TODO the guard_no_runtime_transaction may be covered by the need_keep
-				let moved = if let Some(current_key) = entry.infos.take_is_previous_moved_from() {
-					if move_old_state {
-						entry.infos.set_moved_to();
-						Some((last, false, Some(current_key)))
-					} else {
-						let _ = last.rollback_transaction();
-						entry.infos.set_moved_from(current_key, Some(last));
-						None
-					}
-				} else if entry.infos.need_keep_origin() {
-					if move_old_state {
-						entry.infos.set_moved_to();
-						Some((last, true, None))
-					} else {
-						let _ = last.rollback_transaction();
-						entry.infos.set_last_removed(last);
-						None
-					}
-				} else {
-					move_old_state.then(|| (last, false, None))
-				};
-				(result as u32, moved)
-			} else {
-				(0, None)
-			}
+			entry.clear_movable_storage(move_old_state, || top.spawn_child())
 		} else {
 			(0, None)
 		}
@@ -1439,6 +1377,62 @@ impl Changes {
 				}
 				true
 			},
+		}
+	}
+}
+
+// TODO use properly and everywhere
+/// Storage transaction layers support.
+pub trait Transactional {
+	/// Rollback the last transaction started by `start_transaction`.
+	///
+	/// Any changes made during that transaction are discarded. Returns an error if
+	/// there is no open transaction that can be rolled back.
+	/// Returns `true` if no remaining content (no overlay and content same as initial one).
+	#[must_use = "When empty returned, the object need to be acted upon."]
+	fn rollback_transaction(&mut self) -> Result<bool, NoOpenTransaction>;
+}
+
+impl<C, M> MovableStorage<C, M> 
+	where
+		M: Clone,
+		C: Transactional,
+{
+	fn clear_movable_storage(
+		&mut self,
+		move_old_state: bool,
+		spawn_changes: impl FnOnce() -> C,
+	) -> (u32, Option<(C, bool, Option<Vec<u8>>)>) {
+		if !self.infos.value_ref().removed {
+			let info = self.infos.modify_value();
+			let result = info.size;
+			info.removed = true;
+			info.size = 0;
+			info.cached_hash = None;
+			let mut last = sp_std::mem::replace(&mut self.changes, spawn_changes());
+			let moved = if let Some(current_key) = self.infos.take_is_previous_moved_from() {
+				if move_old_state {
+					Some((last, false, Some(current_key)))
+				} else {
+					let _ = last.rollback_transaction();
+					self.infos.set_moved_from(current_key, Some(last));
+					None
+				}
+			} else if self.infos.need_keep_origin() {
+				if move_old_state {
+					self.infos.set_moved_to();
+					Some((last, true, None))
+				} else {
+					let _ = last.rollback_transaction();
+					self.infos.set_last_removed(last);
+					None
+				}
+			} else {
+				move_old_state.then(|| (last, false, None))
+			};
+			(result as u32, moved)
+		} else {
+			(0, None)
 		}
 	}
 }
