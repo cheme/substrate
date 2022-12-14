@@ -454,7 +454,7 @@ where
 		count: u32,
 	) -> Option<Vec<StorageKey>> {
 		match child_info {
-			ChildInfo::BTree(_) => {
+			ChildInfo::Btree(_) => {
 				let iter = self.overlay.child_iter_after(child_info, key)?;
 
 				let mut result = Vec::with_capacity(count as usize);
@@ -717,7 +717,7 @@ where
 		let storage_key = child_info.storage_key();
 		let prefixed_storage_key = child_info.prefixed_storage_key();
 
-		if let ChildInfo::BTree(..) = child_info {
+		if let ChildInfo::Btree(..) = child_info {
 			let result = if let Some((data, info)) =
 				self.overlay.btree_changes(child_info.storage_key())
 			{

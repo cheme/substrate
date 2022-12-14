@@ -327,7 +327,7 @@ pub fn root(child_info: &ChildInfo, version: StateVersion) -> Vec<u8> {
 	match &child_info {
 		ChildInfo::ParentKeyId(..) =>
 			sp_io::default_child_storage::root(child_info.storage_key(), version),
-		ChildInfo::BTree(btree) => btree
+		ChildInfo::Btree(btree) => btree
 			.algorithm
 			.clone()
 			.and_then(|algorithm| {

@@ -478,7 +478,7 @@ pub trait Externalities: ExtensionStore {
 	fn map_new(&mut self, name: &[u8], mode: TransientMode) {
 		// TODO rem func and move to io
 		self.update_storage_info(
-			ChildInfo::BTree(BtreeInfo { name: name.to_vec(), mode: Some(mode), algorithm: None }),
+			ChildInfo::Btree(BtreeInfo { name: name.to_vec(), mode: Some(mode), algorithm: None }),
 			true,
 		);
 	}
@@ -575,7 +575,7 @@ pub trait Externalities: ExtensionStore {
 	/// Calculates and returns the root of the data structure structure containing the items held in
 	/// the map name. Returns None if map name does not exist.
 	fn map_root32(&mut self, name: &[u8], algorithm: Root32Structure) -> Option<[u8; 32]> {
-		let info = ChildInfo::BTree(BtreeInfo {
+		let info = ChildInfo::Btree(BtreeInfo {
 			name: name.to_vec(),
 			mode: None,
 			algorithm: Some(algorithm),
@@ -725,5 +725,5 @@ pub fn blob_info_from_name(name: &[u8]) -> ChildInfo {
 }
 
 pub fn btree_info_from_name(name: &[u8]) -> ChildInfo {
-	ChildInfo::BTree(BtreeInfo { name: name.to_vec(), mode: None, algorithm: None })
+	ChildInfo::Btree(BtreeInfo { name: name.to_vec(), mode: None, algorithm: None })
 }

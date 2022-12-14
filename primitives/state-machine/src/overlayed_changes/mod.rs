@@ -314,7 +314,7 @@ impl Changes {
 				let map = self.children.get(child_info.storage_key())?;
 				map.changes.storage(key, start, limit, &self.stats)?.map(Cow::Borrowed)
 			},
-			ChildInfo::BTree(info) => {
+			ChildInfo::Btree(info) => {
 				let map = self.btrees.get(&info.name)?;
 				if map.infos.value_ref().removed {
 					return Some(None)
@@ -394,7 +394,7 @@ impl Changes {
 				let map = self.children.get(child_info.storage_key())?;
 				map.changes.get(key)?.value().map(|v| v.len() as u32)
 			},
-			ChildInfo::BTree(info) => {
+			ChildInfo::Btree(info) => {
 				let map = self.btrees.get(&info.name)?;
 				let info = map.infos.value_ref();
 				if info.removed {
@@ -452,7 +452,7 @@ impl Changes {
 				child.changes.set(key.to_vec(), val.map(Vec::from));
 				true
 			},
-			ChildInfo::BTree(infos) =>
+			ChildInfo::Btree(infos) =>
 				if let Some(BtreeChanges { changes, infos }) = self.btrees.get_mut(&infos.name) {
 					if infos.value_ref().removed {
 						return false
@@ -577,8 +577,8 @@ impl Changes {
 				debug_assert!(updatable);
 				child.changes.clear_where(|_, _| true)
 			},
-			ChildInfo::Blob(info) => self.clear_blob_storage(&info.name, false).0,
-			ChildInfo::BTree(info) => self.clear_btree_storage(&info.name, false).0,
+			ChildInfo::Blob(info) => self.clear_blob_storage(&info.name, false),
+			ChildInfo::Btree(info) => self.clear_btree_storage(&info.name, false),
 		}
 	}
 
@@ -586,12 +586,12 @@ impl Changes {
 		&mut self,
 		name: &[u8],
 		move_old_state: bool,
-	) -> (u32, Option<(OverlayedChangeSetBlob, bool, Option<Vec<u8>>)>) {
+	) -> u32 {
 		let top = &self.top;
 		if let Some(entry) = self.blobs.get_mut(name) {
-			entry.clear_movable_storage(move_old_state, &|| top.spawn_blob())
+			entry.clear_movable_storage(move_old_state, &|| top.spawn_blob()).0
 		} else {
-			(0, None)
+			0
 		}
 	}
 
@@ -599,12 +599,12 @@ impl Changes {
 		&mut self,
 		name: &[u8],
 		move_old_state: bool,
-	) -> (u32, Option<(OverlayedChangeSet, bool, Option<Vec<u8>>)>) {
+	) -> u32 {
 		let top = &self.top;
 		if let Some(entry) = self.btrees.get_mut(name) {
-			entry.clear_movable_storage(move_old_state, &|| top.spawn_child())
+			entry.clear_movable_storage(move_old_state, &|| top.spawn_child()).0
 		} else {
-			(0, None)
+			0
 		}
 	}
 
@@ -1052,7 +1052,7 @@ impl Changes {
 					.into_iter()
 					.flatten(),
 			),
-			ChildInfo::BTree(_infos) => None,
+			ChildInfo::Btree(_infos) => None,
 			ChildInfo::Blob(_infos) => None,
 		}
 	}
@@ -1082,7 +1082,7 @@ impl Changes {
 			// default child storage are viewed as always existing
 			// with empty root.
 			ChildInfo::ParentKeyId(_) => true,
-			ChildInfo::BTree(info) => self
+			ChildInfo::Btree(info) => self
 				.btrees
 				.get(info.name.as_slice())
 				.map(|btree| !btree.infos.value_ref().removed)
@@ -1102,7 +1102,7 @@ impl Changes {
 			// No update info for default child storage,
 			// its existence is only related to its content.
 			ChildInfo::ParentKeyId(_) => false,
-			ChildInfo::BTree(info) => {
+			ChildInfo::Btree(info) => {
 				if clear_existing {
 					self.clear_btree_storage(&info.name, false);
 				}
@@ -1197,7 +1197,7 @@ impl Changes {
 		match info {
 			// Copy not supported.
 			ChildInfo::ParentKeyId(_) => false,
-			ChildInfo::BTree(info) => BtreeChanges::copy_movable_storage(
+			ChildInfo::Btree(info) => BtreeChanges::copy_movable_storage(
 				&mut self.btrees,
 				&info,
 				target_name,
@@ -1217,90 +1217,24 @@ impl Changes {
 	/// Move a storage to a different name.
 	/// If target exists it is replaced by this new content.
 	pub fn storage_move(&mut self, info: &ChildInfo, target_name: &[u8]) -> bool {
+		let top = &self.top;
 		match info {
 			// Move not supported.
 			ChildInfo::ParentKeyId(_) => false,
-			ChildInfo::BTree(info) => {
-				if &info.name == target_name {
-					return false
-				}
-				let info_dest = if let Some(origin) = self.btrees.get(&info.name) {
-					let mut info_dest = origin.infos.value_ref().clone();
-					if info_dest.removed {
-						return false
-					};
-					info_dest.infos.name = target_name.to_vec();
-					info_dest
-				} else {
-					return false
-				};
-
-				let Some((state, ref_origin, proxy_origin)) = self.clear_btree_storage(&info.name, true).1 else {
-					return false
-				};
-
-				self.clear_btree_storage(target_name, false);
-
-				let top = &self.top;
-				let entry =
-					self.btrees.entry(target_name.to_vec()).or_insert_with(|| BtreeChanges {
-						changes: top.spawn_child(),
-						infos: top.spawn_info(BtreeMeta::from(info.clone())),
-					});
-
-				// even if same content we register and
-				// update.
-				let dest = entry.infos.modify_value();
-				*dest = info_dest;
-
-				entry.changes = state;
-				if ref_origin {
-					entry.infos.set_moved_from(info.name.clone(), None);
-				} else if let Some(from) = proxy_origin {
-					entry.infos.set_moved_from(from.clone(), None);
-				}
-				true
-			},
-			ChildInfo::Blob(info) => {
-				if &info.name == target_name {
-					return false
-				}
-				let info_dest = if let Some(origin) = self.blobs.get(&info.name) {
-					let mut info_dest = origin.infos.value_ref().clone();
-					if info_dest.removed {
-						return false
-					};
-					info_dest.infos.name = target_name.to_vec();
-					info_dest
-				} else {
-					return false
-				};
-
-				let Some((state, ref_origin, proxy_origin)) = self.clear_blob_storage(&info.name, true).1 else {
-					return false
-				};
-
-				self.clear_blob_storage(target_name, false);
-
-				let top = &self.top;
-				let entry = self.blobs.entry(target_name.to_vec()).or_insert_with(|| BlobChanges {
-					changes: top.spawn_blob(),
-					infos: top.spawn_info(BlobMeta::from(info.clone())),
-				});
-
-				// even if same content we register and
-				// update.
-				let dest = entry.infos.modify_value();
-				*dest = info_dest;
-
-				entry.changes = state;
-				if ref_origin {
-					entry.infos.set_moved_from(info.name.clone(), None);
-				} else if let Some(from) = proxy_origin {
-					entry.infos.set_moved_from(from.clone(), None);
-				}
-				true
-			},
+			ChildInfo::Btree(info) => BtreeChanges::move_movable_storage(
+				&mut self.btrees,
+				&info,
+				target_name,
+				&|| top.spawn_child(),
+				&|| top.spawn_info(BtreeMeta::from(info.clone())),
+			),
+			ChildInfo::Blob(info) => BlobChanges::move_movable_storage(
+				&mut self.blobs,
+				&info,
+				target_name,
+				&|| top.spawn_blob(),
+				&|| top.spawn_info(BlobMeta::from(info.clone())),
+			),
 		}
 	}
 }
@@ -1419,7 +1353,7 @@ where
 
 		let entry = map
 			.entry(target_name.to_vec())
-			.or_insert_with(|| MovableStorage { changes: spawn_changes(), infos: spawn_infos() });
+			.or_insert_with(|| Self { changes: spawn_changes(), infos: spawn_infos() });
 
 		// even if same content we register and
 		// update.
@@ -1431,6 +1365,54 @@ where
 		// he create an entry.
 		let origin: &_ = unsafe { &*origin };
 		entry.changes.copy_on_cleared_from(origin);
+		true
+	}
+
+	fn move_movable_storage(
+		map: &mut Map<Name, Self>,
+		info: &TransientInfo<A>,
+		target_name: &[u8],
+		spawn_changes: &impl Fn() -> C,
+		spawn_infos: &impl Fn() -> OverlayedInfos<MovableMeta<TransientInfo<A>>, C>,
+	) -> bool {
+		if &info.name == target_name {
+			return false
+		}
+		let info_dest = if let Some(origin) = map.get(&info.name) {
+			let mut info_dest = origin.infos.value_ref().clone();
+			if info_dest.removed {
+				return false
+			};
+			info_dest.infos.name = target_name.to_vec();
+			info_dest
+		} else {
+			return false
+		};
+
+		let Some((state, ref_origin, proxy_origin))	 = map.get_mut(&info.name)
+			.and_then(|entry| entry.clear_movable_storage(true, spawn_changes).1) else {
+			return false
+		};
+
+		if let Some(entry) = map.get_mut(target_name) {
+			entry.clear_movable_storage(false, spawn_changes);
+		}
+
+		let entry = map
+			.entry(target_name.to_vec())
+			.or_insert_with(|| Self { changes: spawn_changes(), infos: spawn_infos() });
+
+		// even if same content we register and
+		// update.
+		let dest = entry.infos.modify_value();
+		*dest = info_dest;
+
+		entry.changes = state;
+		if ref_origin {
+			entry.infos.set_moved_from(info.name.clone(), None);
+		} else if let Some(from) = proxy_origin {
+			entry.infos.set_moved_from(from.clone(), None);
+		}
 		true
 	}
 }

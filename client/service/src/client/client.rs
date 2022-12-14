@@ -646,7 +646,7 @@ where
 															name: storage_key.to_vec(),
 															// only archive make sense to sync
 															mode: Some(sp_core::storage::transient::Mode::Archive),
-															structure: None,
+															algorithm: None,
 														},
 														root: None,
 													}

@@ -300,8 +300,7 @@ pub enum ChildInfo {
 	/// This is the one used by default.
 	ParentKeyId(ChildTrieParentKeyId),
 	/// BTree storage info.
-	/// TODO rename to Btree (no upercase T)
-	BTree(Btree),
+	Btree(Btree),
 	/// Blob storage.
 	Blob(Blob),
 }
@@ -313,7 +312,7 @@ impl ChildInfo {
 		mode: Option<transient::Mode>,
 		algorithm: Option<transient::Root32Structure>,
 	) -> Self {
-		ChildInfo::BTree(TransientInfo { name: name.to_vec(), mode, algorithm })
+		ChildInfo::Btree(TransientInfo { name: name.to_vec(), mode, algorithm })
 	}
 
 	/// Instantiates child information for a default child trie
@@ -351,8 +350,8 @@ impl ChildInfo {
 				} else {
 					false
 				},
-			ChildInfo::BTree(btree) =>
-				if let ChildInfo::BTree(other) = other {
+			ChildInfo::Btree(btree) =>
+				if let ChildInfo::Btree(other) = other {
 					btree.try_update(other)
 				} else {
 					false
@@ -366,7 +365,7 @@ impl ChildInfo {
 	pub fn keyspace(&self) -> &[u8] {
 		match self {
 			ChildInfo::ParentKeyId(..) => self.storage_key(),
-			ChildInfo::BTree(..) => self.storage_key(),
+			ChildInfo::Btree(..) => self.storage_key(),
 			ChildInfo::Blob(..) => self.storage_key(),
 		}
 	}
@@ -377,7 +376,7 @@ impl ChildInfo {
 	pub fn storage_key(&self) -> &[u8] {
 		match self {
 			ChildInfo::ParentKeyId(ChildTrieParentKeyId { data }) => &data[..],
-			ChildInfo::BTree(btree) => &btree.name[..],
+			ChildInfo::Btree(btree) => &btree.name[..],
 			ChildInfo::Blob(blob) => &blob.name[..],
 		}
 	}
@@ -388,7 +387,7 @@ impl ChildInfo {
 		match self {
 			ChildInfo::ParentKeyId(ChildTrieParentKeyId { data }) =>
 				ChildType::ParentKeyId.new_prefixed_key(data.as_slice()),
-			ChildInfo::BTree(btree) => ChildType::Btree.new_prefixed_key(btree.name.as_slice()),
+			ChildInfo::Btree(btree) => ChildType::Btree.new_prefixed_key(btree.name.as_slice()),
 			ChildInfo::Blob(blob) => ChildType::Blob.new_prefixed_key(blob.name.as_slice()),
 		}
 	}
@@ -401,7 +400,7 @@ impl ChildInfo {
 				ChildType::ParentKeyId.do_prefix_key(&mut data);
 				PrefixedStorageKey(data)
 			},
-			ChildInfo::BTree(mut btree) => {
+			ChildInfo::Btree(mut btree) => {
 				ChildType::Btree.do_prefix_key(&mut btree.name);
 				PrefixedStorageKey(btree.name)
 			},
@@ -416,7 +415,7 @@ impl ChildInfo {
 	pub fn child_type(&self) -> ChildType {
 		match self {
 			ChildInfo::ParentKeyId(..) => ChildType::ParentKeyId,
-			ChildInfo::BTree(..) => ChildType::Btree,
+			ChildInfo::Btree(..) => ChildType::Btree,
 			ChildInfo::Blob(..) => ChildType::Blob,
 		}
 	}
@@ -612,7 +611,7 @@ impl ChildTrieParentKeyId {
 	pub fn try_update(&mut self, other: &ChildInfo) -> bool {
 		match other {
 			ChildInfo::ParentKeyId(other) => self.data[..] == other.data[..],
-			ChildInfo::BTree(..) | ChildInfo::Blob(..) => false,
+			ChildInfo::Btree(..) | ChildInfo::Blob(..) => false,
 		}
 	}
 }
