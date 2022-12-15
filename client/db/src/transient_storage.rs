@@ -32,11 +32,7 @@ use sp_blockchain::Result as ClientResult;
 use sp_database::Transaction;
 use sp_runtime::traits::{Block as BlockT, NumberFor};
 use sp_state_machine::{BlobsCollection, BtreesCollection};
-use std::{
-	collections::HashMap,
-	path::{Path, PathBuf},
-	sync::Arc,
-};
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 /// Plugin interface version.
 const PLUGIN_VERSION: u32 = 1;
@@ -67,6 +63,46 @@ pub type CanonicalizeFn = unsafe extern "C" fn(hash: *const u8, number: *const c
 /// A ffi function for the `drop_or_prune` callback.
 pub type DropOrPruneFn = unsafe extern "C" fn(hash: *const u8, number: *const c_void) -> ErrorCode;
 
+/// A ffi function for the `commited_transient_changes` callback.
+pub type CommitedFn = unsafe extern "C" fn(hash: *const u8, number: *const c_void) -> ErrorCode;
+
+/// A ffi function for the `rollbacked_transient_changes` callback.
+pub type RollbackedFn = unsafe extern "C" fn(hash: *const u8, number: *const c_void) -> ErrorCode;
+/// Callback to different backends for transient storage
+/// when this can be added statically during client build.
+pub trait TransientStorageHook<Block: BlockT> {
+	/// Transient changes added to the client db transaction.
+	fn add_transient_changes(
+		&mut self,
+		hash: &Block::Hash,
+		number: &NumberFor<Block>,
+		btrees_changes: &BtreesCollection,
+		blobs_changes: &BlobsCollection,
+	) -> ClientResult<()>;
+	fn canonicalize(&mut self, hash: &Block::Hash, number: &NumberFor<Block>) -> ClientResult<()>;
+
+	/// Callback on pruning
+	fn drop_or_prune(
+		&mut self,
+		hash: &Block::Hash,
+		number: &NumberFor<Block>,
+	) -> ClientResult<()>;
+
+	/// Callback when transient changes are commited.
+	fn commited_transient_changes(
+		&mut self,
+		hash: &Block::Hash,
+		number: &NumberFor<Block>,
+	) -> ClientResult<()>;
+
+	/// Callback when transient changes are rollbacked.
+	fn rollbacked_transient_changes(
+		&mut self,
+		hash: &Block::Hash,
+		number: &NumberFor<Block>,
+	) -> ClientResult<()>;
+}
+
 /// A simple implementation of transient data indexing.
 /// This is meant to be use by default when no better implementation
 /// is attached, but do not try to be performant.
@@ -84,6 +120,7 @@ pub(super) struct TransientArchive<'a, Block: BlockT> {
 pub(super) struct TransientArchiveInMemory<Block: BlockT> {
 	infos: HashMap<Block::Hash, TransientBlockInfo<Block>>,
 	conf: TransientArchiveConfig,
+	hooks: Vec<Box<dyn TransientStorageHook<Block>>>,
 	plugins: Vec<(Library, PathBuf)>,
 }
 
@@ -107,7 +144,7 @@ pub struct TransientArchiveConfig {
 
 impl<Block: BlockT> TransientArchiveInMemory<Block> {
 	/// New in memory archive storage.
-	pub fn new(conf: TransientArchiveConfig) -> ClientResult<Self> {
+	pub fn new(conf: TransientArchiveConfig, hooks: Vec<Box<dyn TransientStorageHook<Block>>>) -> ClientResult<Self> {
 		let mut plugins = Vec::new();
 		for path in std::fs::read_dir(&conf.plugin_path).map_err(|err| {
 			sp_blockchain::Error::Storage(format!("Error opening storage plugin dir: {}", err))
@@ -151,6 +188,24 @@ impl<Block: BlockT> TransientArchiveInMemory<Block> {
 						path, err,
 					)))
 				}
+
+				let call: Result<Symbol<RollbackedFn>, _> =
+					lib.get(b"rollbacked_transient_changes\0");
+				if let Err(err) = call {
+					return Err(sp_blockchain::Error::Storage(format!(
+						"Plugin at {:?} could not load rollbacked_transient_changes {:?}",
+						path, err,
+					)))
+				}
+
+				let call: Result<Symbol<RollbackedFn>, _> =
+					lib.get(b"commited_transient_changes\0");
+				if let Err(err) = call {
+					return Err(sp_blockchain::Error::Storage(format!(
+						"Plugin at {:?} could not load commited_transient_changes {:?}",
+						path, err,
+					)))
+				}
 			};
 			plugins.push((lib, path.path()));
 		}
@@ -163,7 +218,7 @@ impl<Block: BlockT> TransientArchiveInMemory<Block> {
 				)))
 			}
 		}
-		Ok(TransientArchiveInMemory { infos: HashMap::new(), conf, plugins })
+		Ok(TransientArchiveInMemory { infos: HashMap::new(), conf, plugins, hooks})
 	}
 }
 
@@ -208,6 +263,9 @@ impl<'a, Block: BlockT> TransientArchive<'a, Block> {
 		blobs_changes: BlobsCollection,
 		tx: &mut Transaction<DbHash>,
 	) -> ClientResult<()> {
+		for hook in self.in_mem.hooks.iter_mut() {
+			hook.add_transient_changes(&self.hash, &self.number, &btrees_changes, &blobs_changes)?;
+		}
 		for lib in self.in_mem.plugins.iter_mut() {
 			unsafe {
 				let call: Symbol<AddChangeFn> =
@@ -259,6 +317,9 @@ impl<'a, Block: BlockT> TransientArchive<'a, Block> {
 
 	/// Block canonicalization call.
 	pub fn canonicalize(&mut self, tx: &mut Transaction<DbHash>) -> ClientResult<()> {
+		for hook in self.in_mem.hooks.iter_mut() {
+			hook.canonicalize(&self.hash, &self.number)?;
+		}
 		for lib in self.in_mem.plugins.iter_mut() {
 			unsafe {
 				let call: Symbol<CanonicalizeFn> =
@@ -303,6 +364,9 @@ impl<'a, Block: BlockT> TransientArchive<'a, Block> {
 	// And then have custom pruning duration here?
 	/// Out of state pruning range.
 	pub fn drop_or_prune(&mut self, tx: &mut Transaction<DbHash>) -> ClientResult<()> {
+		for hook in self.in_mem.hooks.iter_mut() {
+			hook.drop_or_prune(&self.hash, &self.number)?;
+		}
 		for lib in self.in_mem.plugins.iter_mut() {
 			unsafe {
 				let call: Symbol<DropOrPruneFn> =
@@ -384,6 +448,60 @@ impl<'a, Block: BlockT> TransientArchive<'a, Block> {
 					warn!("Invalid journal encoding, skipping pruning {:?}", self.hash);
 					return Ok(())
 				},
+			}
+		}
+		Ok(())
+	}
+
+	/// Changes where commited in db.
+	pub fn commited_transient_changes(&mut self) -> ClientResult<()> {
+		for hook in self.in_mem.hooks.iter_mut() {
+			hook.commited_transient_changes(&self.hash, &self.number)?;
+		}
+		for lib in self.in_mem.plugins.iter_mut() {
+			unsafe {
+				let call: Symbol<CommitedFn> =
+					lib.0.get(b"commited_transient_changes\0").expect("checked on loading");
+				let r = call(
+					self.hash.as_ref()[0] as *const _,
+					(&self.number as *const NumberFor<Block>).cast(),
+				);
+				if !did_succeed(r) {
+					error!("Error in plugin {:?} for commited_transient_changes call", lib.1);
+				}
+				if should_error(r) {
+					return Err(sp_blockchain::Error::Storage(format!(
+						"Error in plugin {:?} for commited_transient_changes call",
+						lib.1
+					)))
+				}
+			}
+		}
+		Ok(())
+	}
+
+	/// Changes where rollbacked in db.
+	pub fn rollbacked_transient_changes(&mut self) -> ClientResult<()> {
+		for hook in self.in_mem.hooks.iter_mut() {
+			hook.rollbacked_transient_changes(&self.hash, &self.number)?;
+		}
+		for lib in self.in_mem.plugins.iter_mut() {
+			unsafe {
+				let call: Symbol<RollbackedFn> =
+					lib.0.get(b"rollbacked_transient_changes\0").expect("checked on loading");
+				let r = call(
+					self.hash.as_ref()[0] as *const _,
+					(&self.number as *const NumberFor<Block>).cast(),
+				);
+				if !did_succeed(r) {
+					error!("Error in plugin {:?} for rollbacked_transient_changes call", lib.1);
+				}
+				if should_error(r) {
+					return Err(sp_blockchain::Error::Storage(format!(
+						"Error in plugin {:?} for rollbacked_transient_changes call",
+						lib.1
+					)))
+				}
 			}
 		}
 		Ok(())

@@ -1167,13 +1167,15 @@ impl<Block: BlockT> Backend<Block> {
 			.unwrap_or_else(|| "./storage_plugins".into());
 		plugin_path.pop();
 		plugin_path.push("storage_plugins");
+		// TODO config and hooks from service and cli.
+		let hooks = Vec::new();
 		let transient_in_memory =
 			RwLock::new(TransientArchiveInMemory::new(TransientArchiveConfig {
 				pruning: state_db.pruning_mode(),
 				plugin_path,
 				use_default_storage: true,
 				assert_nb_plugins: None,
-			})?);
+			}, hooks)?);
 		let storage_db =
 			StorageDb { db: db.clone(), state_db, prefix_keys: !db.supports_ref_counting() };
 
@@ -1394,6 +1396,7 @@ impl<Block: BlockT> Backend<Block> {
 	fn try_commit_operation(&self, mut operation: BlockImportOperation<Block>) -> ClientResult<()> {
 		let mut transaction = Transaction::new();
 		let mut finalization_displaced_leaves = None;
+		let mut touched_transient = None;
 
 		operation.apply_aux(&mut transaction);
 		operation.apply_offchain(&mut transaction);
@@ -1568,6 +1571,7 @@ impl<Block: BlockT> Backend<Block> {
 					operation.blobs_storage_updates,
 					&mut transaction,
 				)?;
+				touched_transient = Some((hash, parent_hash, number));
 
 				// Check if need to finalize. Genesis is always finalized instantly.
 				let finalized = number_u64 == 0 || pending_block.leaf_state.is_final();
@@ -1718,7 +1722,25 @@ impl<Block: BlockT> Backend<Block> {
 			}
 		}
 
-		self.storage.db.commit(transaction)?;
+		let r = self.storage.db.commit(transaction);
+
+		if let Some((hash, parent_hash, number)) = touched_transient {
+			let mut transient_storage = TransientArchive::<Block> {
+				in_mem: &mut *self.transient_in_memory.write(),
+				db: self.storage.db.clone(),
+				hash: &hash,
+				parent_hash: &parent_hash,
+				number: number,
+			};
+
+			if r.is_ok() {
+				transient_storage.commited_transient_changes()?;
+			} else {
+				transient_storage.rollbacked_transient_changes()?;
+			}
+		}
+
+		r?;
 
 		// Apply all in-memory state changes.
 		// Code beyond this point can't fail.
