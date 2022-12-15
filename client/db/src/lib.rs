@@ -51,6 +51,7 @@ use std::{
 	sync::Arc,
 };
 
+pub use crate::transient_storage::TransientArchiveConfig;
 use crate::{
 	record_stats_state::RecordStatsState,
 	stats::StateUsageStats,
@@ -1158,8 +1159,21 @@ impl<Block: BlockT> Backend<Block> {
 		let is_archive_pruning = state_pruning_used.is_archive();
 		let blockchain = BlockchainDb::new(db.clone())?;
 
+		// TODO should have its own conf
+		let mut plugin_path = config
+			.source
+			.path()
+			.map(Path::to_path_buf)
+			.unwrap_or_else(|| "./storage_plugins".into());
+		plugin_path.pop();
+		plugin_path.push("storage_plugins");
 		let transient_in_memory =
-			RwLock::new(TransientArchiveInMemory::new(state_db.pruning_mode()));
+			RwLock::new(TransientArchiveInMemory::new(TransientArchiveConfig {
+				pruning: state_db.pruning_mode(),
+				plugin_path,
+				use_default_storage: true,
+				assert_nb_plugins: None,
+			})?);
 		let storage_db =
 			StorageDb { db: db.clone(), state_db, prefix_keys: !db.supports_ref_counting() };
 
@@ -1372,7 +1386,7 @@ impl<Block: BlockT> Backend<Block> {
 				number: new_canonical.saturated_into(),
 				in_mem: &mut *self.transient_in_memory.write(),
 			};
-			transient_storage.canonicalize(transaction);
+			transient_storage.canonicalize(transaction)?;
 		}
 		Ok(())
 	}
@@ -1553,7 +1567,7 @@ impl<Block: BlockT> Backend<Block> {
 					operation.btrees_storage_updates,
 					operation.blobs_storage_updates,
 					&mut transaction,
-				);
+				)?;
 
 				// Check if need to finalize. Genesis is always finalized instantly.
 				let finalized = number_u64 == 0 || pending_block.leaf_state.is_final();
@@ -1746,7 +1760,7 @@ impl<Block: BlockT> Backend<Block> {
 				parent_hash: &f_parent,
 				number: f_num.clone(),
 			};
-			transient_storage.canonicalize(transaction);
+			transient_storage.canonicalize(transaction)?;
 		}
 
 		let lookup_key = utils::number_and_hash_to_lookup_key(f_num, f_hash)?;
@@ -1852,7 +1866,7 @@ impl<Block: BlockT> Backend<Block> {
 				parent_hash: &parent_hash,
 				number: number.clone(),
 			};
-			transient_storage.drop_or_prune(transaction);
+			transient_storage.drop_or_prune(transaction)?;
 		}
 
 		utils::remove_from_db(
