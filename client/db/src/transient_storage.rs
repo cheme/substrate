@@ -35,7 +35,7 @@ use sp_state_machine::{BlobsCollection, BtreesCollection};
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 /// Plugin interface version.
-const PLUGIN_VERSION: u32 = 1;
+pub const PLUGIN_VERSION: u32 = 1;
 
 /// Plugin error code.
 pub type ErrorCode = u8;
@@ -51,23 +51,27 @@ pub fn did_succeed(code: ErrorCode) -> bool {
 /// error code.
 /// For the `add_transient_changes` callback.
 pub type AddChangeFn = unsafe extern "C" fn(
-	hash: *const u8,
+	hash: *const c_void,
 	number: *const c_void,
 	btrees: *const c_void,
 	blobs: *const c_void,
 ) -> ErrorCode;
 
 /// A ffi function for the `canonicalize` callback.
-pub type CanonicalizeFn = unsafe extern "C" fn(hash: *const u8, number: *const c_void) -> ErrorCode;
+pub type CanonicalizeFn =
+	unsafe extern "C" fn(hash: *const c_void, number: *const c_void) -> ErrorCode;
 
 /// A ffi function for the `drop_or_prune` callback.
-pub type DropOrPruneFn = unsafe extern "C" fn(hash: *const u8, number: *const c_void) -> ErrorCode;
+pub type DropOrPruneFn =
+	unsafe extern "C" fn(hash: *const c_void, number: *const c_void) -> ErrorCode;
 
 /// A ffi function for the `commited_transient_changes` callback.
-pub type CommitedFn = unsafe extern "C" fn(hash: *const u8, number: *const c_void) -> ErrorCode;
+pub type CommitedFn = unsafe extern "C" fn(hash: *const c_void, number: *const c_void) -> ErrorCode;
 
 /// A ffi function for the `rollbacked_transient_changes` callback.
-pub type RollbackedFn = unsafe extern "C" fn(hash: *const u8, number: *const c_void) -> ErrorCode;
+pub type RollbackedFn =
+	unsafe extern "C" fn(hash: *const c_void, number: *const c_void) -> ErrorCode;
+
 /// Callback to different backends for transient storage
 /// when this can be added statically during client build.
 pub trait TransientStorageHook<Block: BlockT> {
@@ -79,14 +83,12 @@ pub trait TransientStorageHook<Block: BlockT> {
 		btrees_changes: &BtreesCollection,
 		blobs_changes: &BlobsCollection,
 	) -> ClientResult<()>;
+
+	/// Callback on canonicalize block.
 	fn canonicalize(&mut self, hash: &Block::Hash, number: &NumberFor<Block>) -> ClientResult<()>;
 
 	/// Callback on pruning
-	fn drop_or_prune(
-		&mut self,
-		hash: &Block::Hash,
-		number: &NumberFor<Block>,
-	) -> ClientResult<()>;
+	fn drop_or_prune(&mut self, hash: &Block::Hash, number: &NumberFor<Block>) -> ClientResult<()>;
 
 	/// Callback when transient changes are commited.
 	fn commited_transient_changes(
@@ -144,81 +146,101 @@ pub struct TransientArchiveConfig {
 
 impl<Block: BlockT> TransientArchiveInMemory<Block> {
 	/// New in memory archive storage.
-	pub fn new(conf: TransientArchiveConfig, hooks: Vec<Box<dyn TransientStorageHook<Block>>>) -> ClientResult<Self> {
-		let mut plugins = Vec::new();
-		for path in std::fs::read_dir(&conf.plugin_path).map_err(|err| {
-			sp_blockchain::Error::Storage(format!("Error opening storage plugin dir: {}", err))
-		})? {
-			let path = path.map_err(|err| {
-				sp_blockchain::Error::Storage(format!("Error entry storage plugin: {}", err))
-			})?;
-			let lib = unsafe {
-				libloading::Library::new(path.file_name()).map_err(|err| {
-					sp_blockchain::Error::Storage(format!("Error opening plugin file: {}", err))
-				})?
-			};
-			unsafe {
-				let plugin_version: Symbol<*const u32> = lib.get(b"PLUGIN_VERSION\0").unwrap();
-				if **plugin_version != PLUGIN_VERSION {
-					return Err(sp_blockchain::Error::Storage(format!(
-						"Plugin at {:?} with incompatible version, have {:?} expected {:?}",
-						path, **plugin_version, PLUGIN_VERSION
-					)))
-				}
-				let call: Result<Symbol<AddChangeFn>, _> = lib.get(b"add_transient_changes\0");
-				if let Err(err) = call {
-					return Err(sp_blockchain::Error::Storage(format!(
-						"Plugin at {:?} could not load add_transient_changes {:?}",
-						path, err,
-					)))
-				}
+	pub fn new(
+		conf: TransientArchiveConfig,
+		hooks: Vec<Box<dyn TransientStorageHook<Block>>>,
+	) -> ClientResult<Self> {
+		let mut result =
+			TransientArchiveInMemory { infos: HashMap::new(), conf, plugins: Vec::new(), hooks };
+		result.load_plugins(None)?;
+		Ok(result)
+	}
 
-				let call: Result<Symbol<CanonicalizeFn>, _> = lib.get(b"canonicalize\0");
-				if let Err(err) = call {
-					return Err(sp_blockchain::Error::Storage(format!(
-						"Plugin at {:?} could not load canonicalize {:?}",
-						path, err,
-					)))
-				}
+	pub(crate) fn load_plugins(
+		&mut self,
+		test_conf: Option<(&PathBuf, Option<usize>)>,
+	) -> ClientResult<()> {
+		let (path, expected) = if let Some(test) = test_conf {
+			test
+		} else {
+			(&self.conf.plugin_path, self.conf.assert_nb_plugins)
+		};
+		if path.is_dir() {
+			for path in std::fs::read_dir(path).map_err(|err| {
+				sp_blockchain::Error::Storage(format!("Error opening storage plugin dir: {}", err))
+			})? {
+				let path = path.map_err(|err| {
+					sp_blockchain::Error::Storage(format!("Error entry storage plugin: {}", err))
+				})?;
+				let path = path.path();
+				let lib = unsafe {
+					libloading::Library::new(&path).map_err(|err| {
+						sp_blockchain::Error::Storage(format!("Error opening plugin file: {}", err))
+					})?
+				};
+				unsafe {
+					let plugin_version: Symbol<*const u32> = lib.get(b"PLUGIN_VERSION\0").unwrap();
+					if **plugin_version != PLUGIN_VERSION {
+						return Err(sp_blockchain::Error::Storage(format!(
+							"Plugin at {:?} with incompatible version, have {:?} expected {:?}",
+							path, **plugin_version, PLUGIN_VERSION
+						)))
+					}
+					let call: Result<Symbol<AddChangeFn>, _> = lib.get(b"add_transient_changes\0");
+					if let Err(err) = call {
+						return Err(sp_blockchain::Error::Storage(format!(
+							"Plugin at {:?} could not load add_transient_changes {:?}",
+							path, err,
+						)))
+					}
 
-				let call: Result<Symbol<DropOrPruneFn>, _> = lib.get(b"drop_or_prune\0");
-				if let Err(err) = call {
-					return Err(sp_blockchain::Error::Storage(format!(
-						"Plugin at {:?} could not load drop_or_prune {:?}",
-						path, err,
-					)))
-				}
+					let call: Result<Symbol<CanonicalizeFn>, _> = lib.get(b"canonicalize\0");
+					if let Err(err) = call {
+						return Err(sp_blockchain::Error::Storage(format!(
+							"Plugin at {:?} could not load canonicalize {:?}",
+							path, err,
+						)))
+					}
 
-				let call: Result<Symbol<RollbackedFn>, _> =
-					lib.get(b"rollbacked_transient_changes\0");
-				if let Err(err) = call {
-					return Err(sp_blockchain::Error::Storage(format!(
-						"Plugin at {:?} could not load rollbacked_transient_changes {:?}",
-						path, err,
-					)))
-				}
+					let call: Result<Symbol<DropOrPruneFn>, _> = lib.get(b"drop_or_prune\0");
+					if let Err(err) = call {
+						return Err(sp_blockchain::Error::Storage(format!(
+							"Plugin at {:?} could not load drop_or_prune {:?}",
+							path, err,
+						)))
+					}
 
-				let call: Result<Symbol<RollbackedFn>, _> =
-					lib.get(b"commited_transient_changes\0");
-				if let Err(err) = call {
-					return Err(sp_blockchain::Error::Storage(format!(
-						"Plugin at {:?} could not load commited_transient_changes {:?}",
-						path, err,
-					)))
-				}
-			};
-			plugins.push((lib, path.path()));
+					let call: Result<Symbol<RollbackedFn>, _> =
+						lib.get(b"rollbacked_transient_changes\0");
+					if let Err(err) = call {
+						return Err(sp_blockchain::Error::Storage(format!(
+							"Plugin at {:?} could not load rollbacked_transient_changes {:?}",
+							path, err,
+						)))
+					}
+
+					let call: Result<Symbol<RollbackedFn>, _> =
+						lib.get(b"commited_transient_changes\0");
+					if let Err(err) = call {
+						return Err(sp_blockchain::Error::Storage(format!(
+							"Plugin at {:?} could not load commited_transient_changes {:?}",
+							path, err,
+						)))
+					}
+				};
+				self.plugins.push((lib, path));
+			}
 		}
-		if let Some(nb) = conf.assert_nb_plugins {
-			if plugins.len() != nb {
+		if let Some(nb) = expected {
+			if self.plugins.len() != nb {
 				return Err(sp_blockchain::Error::Storage(format!(
 					"Expected {:?} plugins for this client, incorrect number present {:?}.",
 					nb,
-					plugins.len()
+					self.plugins.len()
 				)))
 			}
 		}
-		Ok(TransientArchiveInMemory { infos: HashMap::new(), conf, plugins, hooks})
+		Ok(())
 	}
 }
 
@@ -271,7 +293,7 @@ impl<'a, Block: BlockT> TransientArchive<'a, Block> {
 				let call: Symbol<AddChangeFn> =
 					lib.0.get(b"add_transient_changes\0").expect("Checked on load");
 				let r = call(
-					self.hash.as_ref()[0] as *const _,
+					(self.hash as *const Block::Hash).cast(),
 					(&self.number as *const NumberFor<Block>).cast(),
 					(&btrees_changes as *const BtreesCollection).cast(),
 					(&blobs_changes as *const BlobsCollection).cast(),
@@ -325,7 +347,7 @@ impl<'a, Block: BlockT> TransientArchive<'a, Block> {
 				let call: Symbol<CanonicalizeFn> =
 					lib.0.get(b"canonicalize\0").expect("Checked on load");
 				let r = call(
-					self.hash.as_ref()[0] as *const _,
+					(self.hash as *const Block::Hash).cast(),
 					(&self.number as *const NumberFor<Block>).cast(),
 				);
 				if !did_succeed(r) {
@@ -372,7 +394,7 @@ impl<'a, Block: BlockT> TransientArchive<'a, Block> {
 				let call: Symbol<DropOrPruneFn> =
 					lib.0.get(b"drop_or_prune\0").expect("checked on loading");
 				let r = call(
-					self.hash.as_ref()[0] as *const _,
+					(self.hash as *const Block::Hash).cast(),
 					(&self.number as *const NumberFor<Block>).cast(),
 				);
 				if !did_succeed(r) {
@@ -463,7 +485,7 @@ impl<'a, Block: BlockT> TransientArchive<'a, Block> {
 				let call: Symbol<CommitedFn> =
 					lib.0.get(b"commited_transient_changes\0").expect("checked on loading");
 				let r = call(
-					self.hash.as_ref()[0] as *const _,
+					(self.hash as *const Block::Hash).cast(),
 					(&self.number as *const NumberFor<Block>).cast(),
 				);
 				if !did_succeed(r) {
@@ -490,7 +512,7 @@ impl<'a, Block: BlockT> TransientArchive<'a, Block> {
 				let call: Symbol<RollbackedFn> =
 					lib.0.get(b"rollbacked_transient_changes\0").expect("checked on loading");
 				let r = call(
-					self.hash.as_ref()[0] as *const _,
+					(self.hash as *const Block::Hash).cast(),
 					(&self.number as *const NumberFor<Block>).cast(),
 				);
 				if !did_succeed(r) {

@@ -34,6 +34,7 @@ members = [
 	"client/consensus/slots",
 	"client/consensus/uncles",
 	"client/db",
+	"client/db/example-plugin",
 	"client/executor",
 	"client/executor/common",
 	"client/executor/runtime-test",

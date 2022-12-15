@@ -51,7 +51,7 @@ use std::{
 	sync::Arc,
 };
 
-pub use crate::transient_storage::TransientArchiveConfig;
+pub use crate::transient_storage::{ErrorCode, TransientArchiveConfig, TransientStorageHook};
 use crate::{
 	record_stats_state::RecordStatsState,
 	stats::StateUsageStats,
@@ -1169,13 +1169,15 @@ impl<Block: BlockT> Backend<Block> {
 		plugin_path.push("storage_plugins");
 		// TODO config and hooks from service and cli.
 		let hooks = Vec::new();
-		let transient_in_memory =
-			RwLock::new(TransientArchiveInMemory::new(TransientArchiveConfig {
+		let transient_in_memory = RwLock::new(TransientArchiveInMemory::new(
+			TransientArchiveConfig {
 				pruning: state_db.pruning_mode(),
 				plugin_path,
 				use_default_storage: true,
 				assert_nb_plugins: None,
-			}, hooks)?);
+			},
+			hooks,
+		)?);
 		let storage_db =
 			StorageDb { db: db.clone(), state_db, prefix_keys: !db.supports_ref_counting() };
 
@@ -1730,7 +1732,7 @@ impl<Block: BlockT> Backend<Block> {
 				db: self.storage.db.clone(),
 				hash: &hash,
 				parent_hash: &parent_hash,
-				number: number,
+				number,
 			};
 
 			if r.is_ok() {
@@ -3914,5 +3916,49 @@ pub(crate) mod tests {
 		let block2 = insert_header(&backend, 2, block1, None, Default::default());
 		assert_eq!(backend.blockchain().leaves().unwrap(), vec![block2]);
 		assert_eq!(backend.blockchain().info().best_hash, block2);
+	}
+
+	#[cfg(feature = "test-plugin")]
+	#[test]
+	#[should_panic(expected = "Error in plugin")]
+	fn check_plugin_interface() {
+		let mut path = std::env::current_dir().unwrap();
+		path.push("plugin");
+		println!("{:?}", path);
+		let state_version = StateVersion::default();
+		let db = Backend::<Block>::new_test(2, 0);
+		db.transient_in_memory.write().load_plugins(Some((&path, Some(1)))).unwrap();
+
+		let mut op = db.begin_operation().unwrap();
+		let mut header = Header {
+			number: 0,
+			parent_hash: Default::default(),
+			state_root: Default::default(),
+			digest: Default::default(),
+			extrinsics_root: Default::default(),
+		};
+
+		let storage = vec![(vec![1, 3, 5], vec![2, 4, 6]), (vec![1, 2, 3], vec![9, 9, 9])];
+
+		header.state_root = op
+			.old_state
+			.storage_root(storage.iter().map(|(x, y)| (&x[..], Some(&y[..]))), state_version)
+			.0
+			.into();
+
+		op.reset_storage(
+			Storage {
+				top: storage.into_iter().collect(),
+				children_default: Default::default(),
+				btree_storages: Default::default(),
+				blob_storages: Default::default(),
+			},
+			state_version,
+		)
+		.unwrap();
+		op.set_block_data(header.clone(), Some(vec![]), None, None, NewBlockState::Best)
+			.unwrap();
+
+		db.commit_operation(op).unwrap();
 	}
 }
