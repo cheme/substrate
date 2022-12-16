@@ -59,7 +59,7 @@ pub struct StorageChangeSet {
 	btrees_changes: Arc<[(StorageKey, Option<Vec<(StorageKey, Option<StorageData>)>>)]>,
 	filter: Keys,
 	child_filters: ChildKeys,
-	blobs_filter: Keys,
+	blobs_filters: Keys,
 	btrees_filters: ChildKeys,
 }
 
@@ -75,10 +75,13 @@ type ChildKeys = Option<HashMap<StorageKey, Option<HashSet<StorageKey>>>>;
 
 impl StorageChangeSet {
 	/// Convert the change set into iterator over storage items.
-	/// TODO rem?
 	pub fn iter(
 		&self,
-	) -> impl Iterator<Item = (Option<&StorageKey>, &StorageKey, Option<&StorageData>)> + '_ {
+	) -> (
+		impl Iterator<Item = (Option<&StorageKey>, &StorageKey, Option<&StorageData>)> + '_,
+		impl Iterator<Item = (&StorageKey, Option<(&StorageKey, Option<&StorageData>)>)> + '_,
+		impl Iterator<Item = (&StorageKey, Option<&StorageData>)> + '_,
+	) {
 		let top = self
 			.changes
 			.iter()
@@ -104,7 +107,37 @@ impl StorageChangeSet {
 				})
 			})
 			.flatten();
-		top.chain(children)
+		let btrees = self
+			.btrees_changes
+			.iter()
+			.filter_map(move |(sk, changes)| {
+				let Some(changes) = changes else {
+					// TODO notif for removal and add
+					return None;
+				};
+				self.btrees_filters.as_ref().and_then(|cf| {
+					cf.get(sk).map(|filter| {
+						changes
+							.iter()
+							.filter(move |&(key, _)| match filter {
+								Some(ref filter) => filter.contains(key),
+								None => true,
+							})
+							.map(move |(k, v)| (sk, Some((k, v.as_ref()))))
+					})
+				})
+			})
+			.flatten();
+		let blobs = self
+			.blobs_changes
+			.iter()
+			.filter(move |&(key, _)| match self.blobs_filters {
+				Some(ref filter) => filter.contains(key),
+				None => true,
+			})
+			.map(move |(k, v)| (k, v.as_ref()));
+
+		(top.chain(children), btrees, blobs)
 	}
 }
 

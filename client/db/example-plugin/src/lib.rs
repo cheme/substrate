@@ -25,7 +25,6 @@ use sp_blockchain::Result as ClientResult;
 use sp_runtime::{
 	testing::{Block as RawBlock, ExtrinsicWrapper},
 	traits::{Block as BlockT, NumberFor},
-	StateVersion,
 };
 use sp_state_machine::{BlobsCollection, BtreesCollection};
 

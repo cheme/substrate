@@ -349,7 +349,7 @@ impl Registry {
 					btrees_changes: btrees_changes.clone(),
 					filter: sink.keys.clone(),
 					child_filters: sink.child_keys.clone(),
-					blobs_filter: sink.blobs_keys.clone(),
+					blobs_filters: sink.blobs_keys.clone(),
 					btrees_filters: sink.btrees_keys.clone(),
 				};
 
