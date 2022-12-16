@@ -33,8 +33,10 @@ const PROOF_OVERLAY_NON_EMPTY: &str = "\
 	An OverlayValue is always created with at least one transaction and dropped as soon
 	as the last transaction is removed; qed";
 
-type DirtyKeysSets<K> = SmallVec<[Set<K>; 5]>;
-type DirtyInfos = SmallVec<[bool; 5]>;
+type Dirty<I> = SmallVec<[I; 5]>;
+type DirtyKeysSets<K> = Dirty<Set<K>>;
+type DirtyInfos = Dirty<bool>;
+type DirtyBlobChunks = Dirty<Set<usize>>;
 type Transactions<V> = SmallVec<[V; 5]>;
 type BlobChunk = [u8; BLOB_CHUNK_SIZE];
 
@@ -95,10 +97,7 @@ pub struct OverlayedChangeSetBlob {
 
 	/// Store indexes that where modified for a transaction layer
 	/// and if size did change.
-	/// TODO set of usize is not looking so good (storing range could be
-	/// more efficient).
-	/// TODO merge all dirty in a single Vec!!!
-	dirty: Vec<Set<usize>>,
+	dirty: DirtyBlobChunks,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -277,7 +276,7 @@ fn insert_dirty<K: Ord + Hash>(set: &mut DirtyKeysSets<K>, key: K) -> bool {
 }
 
 /// Same as `insert_dirty` but for indexed chunks.
-fn insert_dirty_chunk(set: &mut Vec<Set<usize>>, at: usize) -> bool {
+fn insert_dirty_chunk(set: &mut DirtyBlobChunks, at: usize) -> bool {
 	set.last_mut().map(|dk| dk.insert(at)).unwrap_or_default()
 }
 
