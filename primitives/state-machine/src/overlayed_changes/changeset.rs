@@ -299,46 +299,6 @@ fn set_dirty_infos(info: &mut DirtyInfos) -> bool {
 }
 
 impl<K: Ord + Hash + Clone, V> OverlayedMap<K, V> {
-	/// Create a new changeset at the same transaction state but without any contents.
-	///
-	/// This changeset might be created when there are already open transactions.
-	/// We need to catch up here so that the child is at the same transaction depth.
-	pub fn spawn_child(&self) -> Self {
-		use sp_std::iter::repeat;
-		Self {
-			changes: Default::default(),
-			dirty_keys: repeat(Set::new()).take(self.transaction_depth()).collect(),
-		}
-	}
-
-	/// Create a new blob chunk set at the same transaction state but without any contents.
-	///
-	/// This changeset might be created when there are already open transactions.
-	/// We need to catch up here so that the child is at the same transaction depth.
-	pub fn spawn_blob(&self) -> OverlayedChangeSetBlob {
-		use sp_std::iter::repeat;
-		OverlayedChangeSetBlob {
-			chunks: Default::default(),
-			dirty: repeat(Set::new()).take(self.transaction_depth()).collect(),
-		}
-	}
-
-	/// Create a new info changeset at the same transaction state but without any contents.
-	///
-	/// This changeset might be created when there are already open transactions.
-	/// We need to catch up here so that the child is at the same transaction depth.
-	pub(crate) fn spawn_info<I, M>(&self, info: I) -> OverlayedInfos<I, M> {
-		use sp_std::iter::repeat;
-		let mut result = OverlayedInfos {
-			infos: OverlayedEntry { transactions: SmallVec::from_iter([info.into()]) },
-			dirty_infos: repeat(false).take(self.transaction_depth()).collect(),
-		};
-		result.dirty_infos.last_mut().map(|d| {
-			*d = true;
-		});
-		result
-	}
-
 	/// True if no changes at all are contained in the change set.
 	pub fn is_empty(&self) -> bool {
 		self.changes.is_empty()
@@ -458,6 +418,46 @@ impl<K: Ord + Hash + Clone, V> Transactional for OverlayedMap<K, V> {
 }
 
 impl OverlayedContext {
+	/// Create a new changeset at the same transaction state but without any contents.
+	///
+	/// This changeset might be created when there are already open transactions.
+	/// We need to catch up here so that the child is at the same transaction depth.
+	pub fn spawn_child<K: Clone, V>(&self) -> OverlayedMap<K, V> {
+		use sp_std::iter::repeat;
+		OverlayedMap {
+			changes: Default::default(),
+			dirty_keys: repeat(Set::new()).take(self.transaction_depth()).collect(),
+		}
+	}
+
+	/// Create a new blob chunk set at the same transaction state but without any contents.
+	///
+	/// This changeset might be created when there are already open transactions.
+	/// We need to catch up here so that the child is at the same transaction depth.
+	pub fn spawn_blob(&self) -> OverlayedChangeSetBlob {
+		use sp_std::iter::repeat;
+		OverlayedChangeSetBlob {
+			chunks: Default::default(),
+			dirty: repeat(Set::new()).take(self.transaction_depth()).collect(),
+		}
+	}
+
+	/// Create a new info changeset at the same transaction state but without any contents.
+	///
+	/// This changeset might be created when there are already open transactions.
+	/// We need to catch up here so that the child is at the same transaction depth.
+	pub(crate) fn spawn_info<I, M>(&self, info: I) -> OverlayedInfos<I, M> {
+		use sp_std::iter::repeat;
+		let mut result = OverlayedInfos {
+			infos: OverlayedEntry { transactions: SmallVec::from_iter([info.into()]) },
+			dirty_infos: repeat(false).take(self.transaction_depth()).collect(),
+		};
+		result.dirty_infos.last_mut().map(|d| {
+			*d = true;
+		});
+		result
+	}
+
 	/// Call this before transfering control to the runtime.
 	///
 	/// This protects all existing transactions from being removed by the runtime.

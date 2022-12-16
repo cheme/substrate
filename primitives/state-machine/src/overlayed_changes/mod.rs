@@ -438,13 +438,12 @@ impl Changes {
 	) -> bool {
 		let size_write = val.as_ref().map(|x| x.len() as u64).unwrap_or(0);
 		self.stats.tally_write_overlay(size_write);
-		let top = &self.top;
 
 		match child_info {
 			ChildInfo::ParentKeyId(_) => {
 				let storage_key = child_info.storage_key().to_vec();
 				let child = self.children.entry(storage_key).or_insert_with(|| ChildChanges {
-					changes: top.spawn_child(),
+					changes: self.context.spawn_child(),
 					infos: child_info.clone(),
 				});
 				let updatable = child.infos.try_update(child_info);
@@ -561,7 +560,7 @@ impl Changes {
 	/// Can be rolled back or committed when called inside a transaction.
 	pub(crate) fn clear_child_storage(&mut self, child_info: &ChildInfo) -> u32 {
 		let storage_key = child_info.storage_key().to_vec();
-		let top = &self.top;
+		let context = &self.context;
 		match child_info {
 			ChildInfo::ParentKeyId(_) => {
 				let child = self
@@ -570,7 +569,7 @@ impl Changes {
 					// could also return None here, but this does not impact
 					// this kind of child trie where empty trie is never stored.
 					.or_insert_with(|| ChildChanges {
-						changes: top.spawn_child(),
+						changes: context.spawn_child(),
 						infos: child_info.clone(),
 					});
 				let updatable = child.infos.try_update(child_info);
@@ -583,18 +582,18 @@ impl Changes {
 	}
 
 	fn clear_blob_storage(&mut self, name: &[u8], move_old_state: bool) -> u32 {
-		let top = &self.top;
+		let context = &self.context;
 		if let Some(entry) = self.blobs.get_mut(name) {
-			entry.clear_movable_storage(move_old_state, &|| top.spawn_blob()).0
+			entry.clear_movable_storage(move_old_state, &|| context.spawn_blob()).0
 		} else {
 			0
 		}
 	}
 
 	fn clear_btree_storage(&mut self, name: &[u8], move_old_state: bool) -> u32 {
-		let top = &self.top;
+		let context = &self.context;
 		if let Some(entry) = self.btrees.get_mut(name) {
-			entry.clear_movable_storage(move_old_state, &|| top.spawn_child()).0
+			entry.clear_movable_storage(move_old_state, &|| context.spawn_child()).0
 		} else {
 			0
 		}
@@ -612,9 +611,9 @@ impl Changes {
 	/// Can be rolled back or committed when called inside a transaction
 	pub(crate) fn clear_child_prefix(&mut self, child_info: &ChildInfo, prefix: &[u8]) -> u32 {
 		let storage_key = child_info.storage_key().to_vec();
-		let top = &self.top;
+		let context = &self.context;
 		let child = self.children.entry(storage_key).or_insert_with(|| ChildChanges {
-			changes: top.spawn_child(),
+			changes: context.spawn_child(),
 			infos: child_info.clone(),
 		});
 		let updatable = child.infos.try_update(child_info);
@@ -675,7 +674,7 @@ impl Changes {
 					.expect("Top and children changesets are started in lockstep; qed");
 				// Note this spawn is not worknig if origin is current, but moved from
 				// implies Removed or Empty.
-				let change = sp_std::mem::replace(changes, self.top.spawn_child());
+				let change = sp_std::mem::replace(changes, self.context.spawn_child());
 				moved_from.push((from, change));
 			}
 			if let Some(others) = infos.take_others_previous_moved_from() {
@@ -687,7 +686,7 @@ impl Changes {
 					.expect("Top and children changesets are started in lockstep; qed");
 				// Note this spawn is not worknig if origin is current, but moved from
 				// implies Removed or Empty.
-				let change = sp_std::mem::replace(changes, self.top.spawn_child());
+				let change = sp_std::mem::replace(changes, self.context.spawn_child());
 				moved_from.push((from, change));
 			}
 
@@ -729,7 +728,7 @@ impl Changes {
 					.expect("Top and children changesets are started in lockstep; qed");
 				// Note this spawn is not worknig if origin is current, but moved from
 				// implies Removed or Empty.
-				let change = sp_std::mem::replace(changes, self.top.spawn_blob());
+				let change = sp_std::mem::replace(changes, self.context.spawn_blob());
 				moved_from.push((from, change));
 			}
 			if let Some(others) = infos.take_others_previous_moved_from() {
@@ -741,7 +740,7 @@ impl Changes {
 					.expect("Top and children changesets are started in lockstep; qed");
 				// Note this spawn is not worknig if origin is current, but moved from
 				// implies Removed or Empty.
-				let change = sp_std::mem::replace(changes, self.top.spawn_blob());
+				let change = sp_std::mem::replace(changes, self.context.spawn_blob());
 				moved_from.push((from, change));
 			}
 
@@ -1098,10 +1097,10 @@ impl Changes {
 				if clear_existing {
 					self.clear_btree_storage(&info.name, false);
 				}
-				let top = &self.top;
+				let context = &self.context;
 				let entry = self.btrees.entry(info.name.clone()).or_insert_with(|| BtreeChanges {
-					changes: top.spawn_child(),
-					infos: top.spawn_info(BtreeMeta::from(info.clone())),
+					changes: context.spawn_child(),
+					infos: context.spawn_info(BtreeMeta::from(info.clone())),
 				});
 				// even if same content we register and
 				// update.
@@ -1128,10 +1127,10 @@ impl Changes {
 				if clear_existing {
 					self.clear_blob_storage(&info.name, false);
 				}
-				let top = &self.top;
+				let context = &self.context;
 				let entry = self.blobs.entry(info.name.clone()).or_insert_with(|| BlobChanges {
-					changes: top.spawn_blob(),
-					infos: top.spawn_info(BlobMeta::from(info.clone())),
+					changes: context.spawn_blob(),
+					infos: context.spawn_info(BlobMeta::from(info.clone())),
 				});
 
 				// even if same content we register and
@@ -1185,7 +1184,7 @@ impl Changes {
 	/// Copy current content of a storage to another one.
 	/// If target exists it is replaced by this new content.
 	pub fn storage_copy(&mut self, info: &ChildInfo, target_name: &[u8]) -> bool {
-		let top = &self.top;
+		let context = &self.context;
 		match info {
 			// Copy not supported.
 			ChildInfo::ParentKeyId(_) => false,
@@ -1193,15 +1192,15 @@ impl Changes {
 				&mut self.btrees,
 				&info,
 				target_name,
-				&|| top.spawn_child(),
-				&|| top.spawn_info(BtreeMeta::from(info.clone())),
+				&|| context.spawn_child(),
+				&|| context.spawn_info(BtreeMeta::from(info.clone())),
 			),
 			ChildInfo::Blob(info) => BlobChanges::copy_movable_storage(
 				&mut self.blobs,
 				&info,
 				target_name,
-				&|| top.spawn_blob(),
-				&|| top.spawn_info(BlobMeta::from(info.clone())),
+				&|| context.spawn_blob(),
+				&|| context.spawn_info(BlobMeta::from(info.clone())),
 			),
 		}
 	}
@@ -1209,7 +1208,7 @@ impl Changes {
 	/// Move a storage to a different name.
 	/// If target exists it is replaced by this new content.
 	pub fn storage_move(&mut self, info: &ChildInfo, target_name: &[u8]) -> bool {
-		let top = &self.top;
+		let context = &self.context;
 		match info {
 			// Move not supported.
 			ChildInfo::ParentKeyId(_) => false,
@@ -1217,15 +1216,15 @@ impl Changes {
 				&mut self.btrees,
 				&info,
 				target_name,
-				&|| top.spawn_child(),
-				&|| top.spawn_info(BtreeMeta::from(info.clone())),
+				&|| context.spawn_child(),
+				&|| context.spawn_info(BtreeMeta::from(info.clone())),
 			),
 			ChildInfo::Blob(info) => BlobChanges::move_movable_storage(
 				&mut self.blobs,
 				&info,
 				target_name,
-				&|| top.spawn_blob(),
-				&|| top.spawn_info(BlobMeta::from(info.clone())),
+				&|| context.spawn_blob(),
+				&|| context.spawn_info(BlobMeta::from(info.clone())),
 			),
 		}
 	}
@@ -1412,6 +1411,7 @@ where
 #[cfg(feature = "std")]
 impl From<sp_core::storage::Storage> for Changes {
 	fn from(storage: sp_core::storage::Storage) -> Self {
+		let context = OverlayedContext::default();
 		let top: OverlayedChangeSet = storage.top.into();
 		let btrees: Map<Name, BtreeChanges> = storage
 			.btree_storages
@@ -1421,7 +1421,7 @@ impl From<sp_core::storage::Storage> for Changes {
 					k,
 					BtreeChanges {
 						changes: v.data.into(),
-						infos: top.spawn_info(BtreeMeta::from(v.info)),
+						infos: context.spawn_info(BtreeMeta::from(v.info)),
 					},
 				)
 			})
@@ -1434,13 +1434,13 @@ impl From<sp_core::storage::Storage> for Changes {
 					k,
 					BlobChanges {
 						changes: v.data.into(),
-						infos: top.spawn_info(BlobMeta::from(v.info)),
+						infos: context.spawn_info(BlobMeta::from(v.info)),
 					},
 				)
 			})
 			.collect();
 		Self {
-			context: Default::default(),
+			context,
 			top,
 			children: storage
 				.children_default
