@@ -52,25 +52,41 @@ pub fn did_succeed(code: ErrorCode) -> bool {
 /// For the `add_transient_changes` callback.
 pub type AddChangeFn = unsafe extern "C" fn(
 	hash: *const c_void,
+	parent_hash: *const c_void,
 	number: *const c_void,
 	btrees: *const c_void,
 	blobs: *const c_void,
 ) -> ErrorCode;
 
 /// A ffi function for the `canonicalize` callback.
-pub type CanonicalizeFn =
-	unsafe extern "C" fn(hash: *const c_void, number: *const c_void) -> ErrorCode;
+pub type CanonicalizeFn = unsafe extern "C" fn(
+	hash: *const c_void,
+
+	parent_hash: *const c_void,
+	number: *const c_void,
+) -> ErrorCode;
 
 /// A ffi function for the `drop_or_prune` callback.
-pub type DropOrPruneFn =
-	unsafe extern "C" fn(hash: *const c_void, number: *const c_void) -> ErrorCode;
+pub type DropOrPruneFn = unsafe extern "C" fn(
+	hash: *const c_void,
+
+	parent_hash: *const c_void,
+	number: *const c_void,
+) -> ErrorCode;
 
 /// A ffi function for the `commited_transient_changes` callback.
-pub type CommitedFn = unsafe extern "C" fn(hash: *const c_void, number: *const c_void) -> ErrorCode;
+pub type CommitedFn = unsafe extern "C" fn(
+	hash: *const c_void,
+	parent_hash: *const c_void,
+	number: *const c_void,
+) -> ErrorCode;
 
 /// A ffi function for the `rollbacked_transient_changes` callback.
-pub type RollbackedFn =
-	unsafe extern "C" fn(hash: *const c_void, number: *const c_void) -> ErrorCode;
+pub type RollbackedFn = unsafe extern "C" fn(
+	hash: *const c_void,
+	parent_hash: *const c_void,
+	number: *const c_void,
+) -> ErrorCode;
 
 /// Callback to different backends for transient storage
 /// when this can be added statically during client build.
@@ -79,21 +95,33 @@ pub trait TransientStorageHook<Block: BlockT> {
 	fn add_transient_changes(
 		&mut self,
 		hash: &Block::Hash,
+		parent_hash: &Block::Hash,
 		number: &NumberFor<Block>,
 		btrees_changes: &BtreesCollection,
 		blobs_changes: &BlobsCollection,
 	) -> ClientResult<()>;
 
 	/// Callback on canonicalize block.
-	fn canonicalize(&mut self, hash: &Block::Hash, number: &NumberFor<Block>) -> ClientResult<()>;
+	fn canonicalize(
+		&mut self,
+		hash: &Block::Hash,
+		parent_hash: &Block::Hash,
+		number: &NumberFor<Block>,
+	) -> ClientResult<()>;
 
 	/// Callback on pruning
-	fn drop_or_prune(&mut self, hash: &Block::Hash, number: &NumberFor<Block>) -> ClientResult<()>;
+	fn drop_or_prune(
+		&mut self,
+		hash: &Block::Hash,
+		parent_hash: &Block::Hash,
+		number: &NumberFor<Block>,
+	) -> ClientResult<()>;
 
 	/// Callback when transient changes are commited.
 	fn commited_transient_changes(
 		&mut self,
 		hash: &Block::Hash,
+		parent_hash: &Block::Hash,
 		number: &NumberFor<Block>,
 	) -> ClientResult<()>;
 
@@ -101,6 +129,7 @@ pub trait TransientStorageHook<Block: BlockT> {
 	fn rollbacked_transient_changes(
 		&mut self,
 		hash: &Block::Hash,
+		parent_hash: &Block::Hash,
 		number: &NumberFor<Block>,
 	) -> ClientResult<()>;
 }
@@ -120,7 +149,7 @@ pub(super) struct TransientArchive<'a, Block: BlockT> {
 /// This is memory buffer before storing.
 /// Keep non-canonical infos.
 pub(super) struct TransientArchiveInMemory<Block: BlockT> {
-	infos: HashMap<Block::Hash, TransientBlockInfo<Block>>,
+	infos: HashMap<Block::Hash, TransientBlockInfo>,
 	conf: TransientArchiveConfig,
 	hooks: Vec<Box<dyn TransientStorageHook<Block>>>,
 	plugins: Vec<(Library, PathBuf)>,
@@ -244,29 +273,7 @@ impl<Block: BlockT> TransientArchiveInMemory<Block> {
 	}
 }
 
-/*
-/// Pointer in in memory chain struct just *mut.
-/// Could switch to safe `Arc<RwLock` later or less unsafe `Rc<Cell`.
-type TransientPtr<B> = Option<*mut TransientBlockInfo<B>>;
-*/
-
-/// Simple struct to keep trace of chain structure
-/// locally.
-/// The api could use fork tree, but this is also
-/// meant to be a simple example for other indexer.
-/// Some pointer are not necessary but will be if a persistence
-/// is needed (and we store deltas).
-struct TransientBlockInfo<Block: BlockT> {
-	hash: Block::Hash,
-	number: NumberFor<Block>, // Not strictly neccessary.
-	/*
-	parent_siblings: TransientPtr<Block>,
-	direct_parent: TransientPtr<Block>,
-	children_siblings: TransientPtr<Block>,
-	direct_children: Vec<TransientPtr<Block>>,
-	next_siblings: TransientPtr<Block>,
-	prev_siblings: TransientPtr<Block>,
-	*/
+struct TransientBlockInfo {
 	btrees_changes: BtreesCollection,
 	blobs_changes: BlobsCollection,
 }
@@ -286,7 +293,13 @@ impl<'a, Block: BlockT> TransientArchive<'a, Block> {
 		tx: &mut Transaction<DbHash>,
 	) -> ClientResult<()> {
 		for hook in self.in_mem.hooks.iter_mut() {
-			hook.add_transient_changes(&self.hash, &self.number, &btrees_changes, &blobs_changes)?;
+			hook.add_transient_changes(
+				&self.hash,
+				&self.parent_hash,
+				&self.number,
+				&btrees_changes,
+				&blobs_changes,
+			)?;
 		}
 		for lib in self.in_mem.plugins.iter_mut() {
 			unsafe {
@@ -294,6 +307,7 @@ impl<'a, Block: BlockT> TransientArchive<'a, Block> {
 					lib.0.get(b"add_transient_changes\0").expect("Checked on load");
 				let r = call(
 					(self.hash as *const Block::Hash).cast(),
+					(self.parent_hash as *const Block::Hash).cast(),
 					(&self.number as *const NumberFor<Block>).cast(),
 					(&btrees_changes as *const BtreesCollection).cast(),
 					(&blobs_changes as *const BlobsCollection).cast(),
@@ -321,12 +335,7 @@ impl<'a, Block: BlockT> TransientArchive<'a, Block> {
 			tx.set_from_vec(columns::AUX, &Self::journal_key(self.hash), journal);
 			return Ok(())
 		}
-		let info = TransientBlockInfo {
-			hash: self.hash.clone(),
-			number: self.number.clone(),
-			btrees_changes,
-			blobs_changes,
-		};
+		let info = TransientBlockInfo { btrees_changes, blobs_changes };
 
 		if self.in_mem.infos.insert(self.hash.clone(), info).is_some() {
 			warn!(
@@ -340,7 +349,7 @@ impl<'a, Block: BlockT> TransientArchive<'a, Block> {
 	/// Block canonicalization call.
 	pub fn canonicalize(&mut self, tx: &mut Transaction<DbHash>) -> ClientResult<()> {
 		for hook in self.in_mem.hooks.iter_mut() {
-			hook.canonicalize(&self.hash, &self.number)?;
+			hook.canonicalize(&self.hash, &self.parent_hash, &self.number)?;
 		}
 		for lib in self.in_mem.plugins.iter_mut() {
 			unsafe {
@@ -348,6 +357,7 @@ impl<'a, Block: BlockT> TransientArchive<'a, Block> {
 					lib.0.get(b"canonicalize\0").expect("Checked on load");
 				let r = call(
 					(self.hash as *const Block::Hash).cast(),
+					(self.parent_hash as *const Block::Hash).cast(),
 					(&self.number as *const NumberFor<Block>).cast(),
 				);
 				if !did_succeed(r) {
@@ -387,7 +397,7 @@ impl<'a, Block: BlockT> TransientArchive<'a, Block> {
 	/// Out of state pruning range.
 	pub fn drop_or_prune(&mut self, tx: &mut Transaction<DbHash>) -> ClientResult<()> {
 		for hook in self.in_mem.hooks.iter_mut() {
-			hook.drop_or_prune(&self.hash, &self.number)?;
+			hook.drop_or_prune(&self.hash, &self.parent_hash, &self.number)?;
 		}
 		for lib in self.in_mem.plugins.iter_mut() {
 			unsafe {
@@ -395,6 +405,7 @@ impl<'a, Block: BlockT> TransientArchive<'a, Block> {
 					lib.0.get(b"drop_or_prune\0").expect("checked on loading");
 				let r = call(
 					(self.hash as *const Block::Hash).cast(),
+					(self.parent_hash as *const Block::Hash).cast(),
 					(&self.number as *const NumberFor<Block>).cast(),
 				);
 				if !did_succeed(r) {
@@ -478,7 +489,7 @@ impl<'a, Block: BlockT> TransientArchive<'a, Block> {
 	/// Changes where commited in db.
 	pub fn commited_transient_changes(&mut self) -> ClientResult<()> {
 		for hook in self.in_mem.hooks.iter_mut() {
-			hook.commited_transient_changes(&self.hash, &self.number)?;
+			hook.commited_transient_changes(&self.hash, &self.parent_hash, &self.number)?;
 		}
 		for lib in self.in_mem.plugins.iter_mut() {
 			unsafe {
@@ -486,6 +497,7 @@ impl<'a, Block: BlockT> TransientArchive<'a, Block> {
 					lib.0.get(b"commited_transient_changes\0").expect("checked on loading");
 				let r = call(
 					(self.hash as *const Block::Hash).cast(),
+					(self.parent_hash as *const Block::Hash).cast(),
 					(&self.number as *const NumberFor<Block>).cast(),
 				);
 				if !did_succeed(r) {
@@ -505,7 +517,7 @@ impl<'a, Block: BlockT> TransientArchive<'a, Block> {
 	/// Changes where rollbacked in db.
 	pub fn rollbacked_transient_changes(&mut self) -> ClientResult<()> {
 		for hook in self.in_mem.hooks.iter_mut() {
-			hook.rollbacked_transient_changes(&self.hash, &self.number)?;
+			hook.rollbacked_transient_changes(&self.hash, &self.parent_hash, &self.number)?;
 		}
 		for lib in self.in_mem.plugins.iter_mut() {
 			unsafe {
@@ -513,6 +525,7 @@ impl<'a, Block: BlockT> TransientArchive<'a, Block> {
 					lib.0.get(b"rollbacked_transient_changes\0").expect("checked on loading");
 				let r = call(
 					(self.hash as *const Block::Hash).cast(),
+					(self.parent_hash as *const Block::Hash).cast(),
 					(&self.number as *const NumberFor<Block>).cast(),
 				);
 				if !did_succeed(r) {

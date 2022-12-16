@@ -833,6 +833,30 @@ impl<Block: BlockT> BlockImportOperation<Block> {
 			state_version,
 		);
 
+		self.btrees_storage_updates = storage
+			.btree_storages
+			.into_iter()
+			.filter_map(|(_, btree)| {
+				matches!(btree.info.mode, Some(sp_core::storage::transient::Mode::Archive)).then(
+					|| {
+						(
+							btree.info.into(),
+							btree.data.into_iter().map(|(k, v)| (k, Some(v))).collect(),
+						)
+					},
+				)
+			})
+			.collect();
+
+		self.blobs_storage_updates = storage
+			.blob_storages
+			.into_iter()
+			.filter_map(|(_, blob)| {
+				matches!(blob.info.mode, Some(sp_core::storage::transient::Mode::Archive))
+					.then(|| (blob.info.into(), blob.data))
+			})
+			.collect();
+
 		self.db_updates = transaction;
 		Ok(root)
 	}
@@ -2510,6 +2534,51 @@ impl<Block: BlockT> sc_client_api::backend::Backend<Block> for Backend<Block> {
 
 impl<Block: BlockT> sc_client_api::backend::LocalBackend<Block> for Backend<Block> {}
 
+/// To test data equality from a linked plugin.
+#[cfg(any(test, feature = "test-plugin"))]
+pub fn test_btrees_collection() -> std::collections::HashMap<Vec<u8>, sp_core::storage::StorageBtree>
+{
+	let mut result =
+		std::collections::HashMap::<Vec<u8>, sp_core::storage::StorageBtree>::default();
+	for i in 0..5 {
+		result.insert(
+			vec![i as u8; i],
+			sp_core::storage::StorageBtree {
+				data: (0..i).map(|i| (vec![i as u8; i], vec![i as u8; i])).collect(),
+				info: sp_core::storage::Btree {
+					name: vec![i as u8; i],
+					mode: Some(sp_core::storage::transient::Mode::Archive),
+					algorithm: None,
+				},
+				root: None,
+			},
+		);
+	}
+	result
+}
+
+/// To test data equality from a linked plugin.
+#[cfg(any(test, feature = "test-plugin"))]
+pub fn test_blobs_collection() -> std::collections::HashMap<Vec<u8>, sp_core::storage::StorageBlob>
+{
+	let mut result = std::collections::HashMap::<Vec<u8>, sp_core::storage::StorageBlob>::default();
+	for i in 0..5 {
+		result.insert(
+			vec![i as u8; i],
+			sp_core::storage::StorageBlob {
+				data: vec![i as u8; i],
+				info: sp_core::storage::Blob {
+					name: vec![i as u8; i],
+					mode: Some(sp_core::storage::transient::Mode::Archive),
+					algorithm: None,
+				},
+				hash: None,
+			},
+		);
+	}
+	result
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
 	use super::*;
@@ -3920,7 +3989,6 @@ pub(crate) mod tests {
 
 	#[cfg(feature = "test-plugin")]
 	#[test]
-	#[should_panic(expected = "Error in plugin")]
 	fn check_plugin_interface() {
 		let mut path = std::env::current_dir().unwrap();
 		path.push("plugin");
@@ -3950,8 +4018,8 @@ pub(crate) mod tests {
 			Storage {
 				top: storage.into_iter().collect(),
 				children_default: Default::default(),
-				btree_storages: Default::default(),
-				blob_storages: Default::default(),
+				btree_storages: super::test_btrees_collection(),
+				blob_storages: super::test_blobs_collection(),
 			},
 			state_version,
 		)
