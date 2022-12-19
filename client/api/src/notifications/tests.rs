@@ -46,14 +46,18 @@ impl From<TestChangeSet> for StorageChangeSet {
 			filter: None,
 			child_filters,
 			btrees_filters: None,
-			blobs_filter: None,
+			blobs_filters: None,
 		}
 	}
 }
 
 impl PartialEq for StorageChangeSet {
 	fn eq(&self, other: &Self) -> bool {
-		self.iter().eq(other.iter())
+		let (it0, it1, it2) = self.iter();
+		let (ot0, ot1, ot2) = other.iter();
+		it0.eq(ot0)
+			&& it1.eq(ot1)
+			&& it2.eq(ot2)
 	}
 }
 

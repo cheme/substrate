@@ -30,6 +30,7 @@
 )]
 
 use sp_std::vec::Vec;
+use sp_std::borrow::Cow;
 
 #[cfg(feature = "std")]
 use tracing;
@@ -128,8 +129,8 @@ impl From<MultiRemovalResults> for KillStorageResult {
 #[runtime_interface]
 pub trait Storage {
 	/// Returns the data for `key` in the storage or `None` if the key can not be found.
-	fn get(&self, key: &[u8]) -> Option<bytes::Bytes> {
-		self.storage(key, 0, None).map(|s| bytes::Bytes::from(s.to_vec()))
+	fn get(&mut self, key: &[u8]) -> Option<Vec<u8>> {
+		self.storage(key, 0, None).map(Into::into)
 	}
 
 	/// Get `key` from storage, placing the value into `value_out` and return the number of
@@ -137,7 +138,7 @@ pub trait Storage {
 	/// doesn't exist at all.
 	/// If `value_out` length is smaller than the returned length, only `value_out` length bytes
 	/// are copied into `value_out`.
-	fn read(&self, key: &[u8], value_out: &mut [u8], value_offset: u32) -> Option<u32> {
+	fn read(&mut self, key: &[u8], value_out: &mut [u8], value_offset: u32) -> Option<u32> {
 		self.storage(key, value_offset, None).map(|value| {
 			let written = std::cmp::min(value.len(), value_out.len());
 			value_out[..written].copy_from_slice(&value[..written]);
@@ -156,7 +157,7 @@ pub trait Storage {
 	}
 
 	/// Check whether the given `key` exists in storage.
-	fn exists(&self, key: &[u8]) -> bool {
+	fn exists(&mut self, key: &[u8]) -> bool {
 		self.exists_storage(key)
 	}
 
@@ -332,9 +333,9 @@ pub trait DefaultChildStorage {
 	///
 	/// Parameter `storage_key` is the unprefixed location of the root of the child trie in the
 	/// parent trie. Result is `None` if the value for `key` in the child storage can not be found.
-	fn get(&self, storage_key: &[u8], key: &[u8]) -> Option<Vec<u8>> {
+	fn get(&mut self, storage_key: &[u8], key: &[u8]) -> Option<Vec<u8>> {
 		let child_info = ChildInfo::new_default(storage_key);
-		self.child_storage(&child_info, key, 0, None).map(|s| s.to_vec())
+		self.child_storage(&child_info, key, 0, None).map(Into::into)
 	}
 
 	/// Allocation efficient variant of `get`.
@@ -345,7 +346,7 @@ pub trait DefaultChildStorage {
 	/// If `value_out` length is smaller than the returned length, only `value_out` length bytes
 	/// are copied into `value_out`.
 	fn read(
-		&self,
+		&mut self,
 		storage_key: &[u8],
 		key: &[u8],
 		value_out: &mut [u8],
@@ -421,7 +422,7 @@ pub trait DefaultChildStorage {
 	/// Check a child storage key.
 	///
 	/// Check whether the given `key` exists in default child defined at `storage_key`.
-	fn exists(&self, storage_key: &[u8], key: &[u8]) -> bool {
+	fn exists(&mut self, storage_key: &[u8], key: &[u8]) -> bool {
 		let child_info = ChildInfo::new_default(storage_key);
 		self.exists_child_storage(&child_info, key)
 	}
@@ -653,7 +654,7 @@ pub trait BlobStorage {
 	}
 
 	/// Returns true iff the blob name is present in execution state.
-	fn exists(&self, name: &[u8]) -> bool {
+	fn exists(&mut self, name: &[u8]) -> bool {
 		self.blob_exists(name)
 	}
 
@@ -708,7 +709,7 @@ pub trait BlobStorage {
 	/// Try to fill `value_out` buffer with blob content.
 	/// Returns false if blob do not exist or buffer len is bigger than u32::MAX.
 	/// Return the number of read bytes otherwhise.
-	fn read(&self, name: &[u8], value_out: &mut [u8], value_offset: u32) -> Option<u32> {
+	fn read(&mut self, name: &[u8], value_out: &mut [u8], value_offset: u32) -> Option<u32> {
 		let len = value_out.len();
 		if len > u32::MAX as usize {
 			return None
@@ -723,12 +724,12 @@ pub trait BlobStorage {
 	/// Get value for the blob.
 	/// Returns the full blob.
 	/// Returns `None` if the blob does not exist.
-	fn get(&self, name: &[u8]) -> Option<Vec<u8>> {
-		self.blob_get(name, None, 0)
+	fn get(&mut self, name: &[u8]) -> Option<Vec<u8>> {
+		self.blob_get(name, None, 0).map(Into::into)
 	}
 
 	/// Returns size of the blob for a given name, or `None` if the blob does not exist.
-	fn len(&self, name: &[u8]) -> Option<u32> {
+	fn len(&mut self, name: &[u8]) -> Option<u32> {
 		self.blob_len(name)
 	}
 
@@ -763,7 +764,7 @@ pub trait BtreeStorage {
 	}
 
 	/// Returns true iff the map name is present in execution state.
-	fn exists(&self, name: &[u8]) -> bool {
+	fn exists(&mut self, name: &[u8]) -> bool {
 		self.map_exists(name)
 	}
 
@@ -800,21 +801,21 @@ pub trait BtreeStorage {
 	}
 
 	/// Returns true iff the map name existsa and contains key.
-	fn contains(&self, name: &[u8], key: &[u8]) -> bool {
+	fn contains(&mut self, name: &[u8], key: &[u8]) -> bool {
 		self.map_contains(name, key)
 	}
 
 	/// Returns Some iff the map name exists and contains key.
 	/// If so, the inner value is that associated with key.
-	fn item_get(&self, name: &[u8], key: &[u8]) -> Option<Vec<u8>> {
-		self.map_item_get(name, key, None, 0)
+	fn item_get(&mut self, name: &[u8], key: &[u8]) -> Option<Vec<u8>> {
+		self.map_item_get(name, key, None, 0).map(Into::into)
 	}
 
 	/// If key exisit in map, try to fill `value_out` from a given offset, return the number of read
 	/// bytes or None if map did not exist.
 	/// Return None when buffer size is bigger than u32::MAX
 	fn item_read(
-		&self,
+		&mut self,
 		name: &[u8],
 		key: &[u8],
 		value_out: &mut [u8],
@@ -833,14 +834,14 @@ pub trait BtreeStorage {
 
 	/// Returns Some iff the map name exists and contains key. If so, the inner value is the length
 	/// of the value associated with key.
-	fn item_len(&self, name: &[u8], key: &[u8]) -> Option<u32> {
+	fn item_len(&mut self, name: &[u8], key: &[u8]) -> Option<u32> {
 		self.map_item_len(name, key)
 	}
 
 	/// Returns Some iff the map name exists and contains key. If so, the inner value is the value
 	/// associated with key when hashed with algorithm.
 	fn item_hash32(
-		&self,
+		&mut self,
 		name: &[u8],
 		key: &[u8],
 		algorithm: Crossing<Hash32Algorithm>,
@@ -851,7 +852,7 @@ pub trait BtreeStorage {
 	/// Returns Some iff the map name exists, None otherwise. If Some, then the inner value is the
 	/// number of items in the map name.
 	/// TODO consider u64?
-	fn count(&self, name: &[u8]) -> Option<u32> {
+	fn count(&mut self, name: &[u8]) -> Option<u32> {
 		self.map_count(name)
 	}
 
@@ -863,14 +864,14 @@ pub trait BtreeStorage {
 
 	/// Returns Some of a Vec of all items in the map name, sorted; or None if the map name does not
 	/// exist.
-	fn dump(&self, name: &[u8]) -> Option<Vec<(Vec<u8>, Vec<u8>)>> {
+	fn dump(&mut self, name: &[u8]) -> Option<Vec<(Vec<u8>, Vec<u8>)>> {
 		self.map_dump(name)
 	}
 
 	/// Returns Some of a Vec of all pairs of keys and values in the map name hashed with algorithm
 	/// and in order of the (unhashed) key; or None if the map name does not exist.
 	fn dump_hashed(
-		&self,
+		&mut self,
 		name: &[u8],
 		algorithm: Crossing<Hash32Algorithm>,
 	) -> Option<Vec<([u8; 32], [u8; 32])>> {
@@ -880,7 +881,7 @@ pub trait BtreeStorage {
 	/// Returns up to the next count keys in map name immediately following key. If fewer items
 	/// exist after key than count, then only the remaining items are returned. If the map name does
 	/// not exist then None is returned.
-	fn next_keys(&self, name: &[u8], key: &[u8], count: u32) -> Option<Vec<Vec<u8>>> {
+	fn next_keys(&mut self, name: &[u8], key: &[u8], count: u32) -> Option<Vec<Vec<u8>>> {
 		self.map_next_keys(name, key, count)
 	}
 }

@@ -167,6 +167,7 @@ mod execution {
 	};
 	use sp_externalities::Extensions;
 	use std::{
+		borrow::Cow,
 		collections::{HashMap, HashSet},
 		fmt,
 	};
@@ -1170,7 +1171,9 @@ mod execution {
 		H: Hashers,
 		H::Out: Ord + Codec,
 	{
-		proving_backend.storage(key).map_err(|e| Box::new(e) as Box<dyn Error>)
+		proving_backend
+			.storage(key)
+			.map_err(|e| Box::new(e) as Box<dyn Error>)
 	}
 
 	/// Check child storage read proof on pre-created proving backend.
@@ -1712,7 +1715,7 @@ mod tests {
 		let mut ext = Ext::new(&mut overlay, &mut cache, backend, None);
 
 		ext.set_child_storage(child_info, b"abc", b"def");
-		assert_eq!(ext.child_storage(child_info, b"abc", 0, None), Some(b"def".to_vec()));
+		assert_eq!(ext.child_storage(child_info, b"abc", 0, None), Some(b"def".into()));
 		let _ = ext.kill_child_storage(child_info, None, None);
 		assert_eq!(ext.child_storage(child_info, b"abc", 0, None), None);
 	}

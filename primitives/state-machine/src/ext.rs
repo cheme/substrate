@@ -32,7 +32,7 @@ use sp_core::{
 	Hashers,
 };
 use sp_externalities::{
-	result_from_slice, result_from_vec, Extension, ExtensionStore, Externalities,
+	result_from_vec, result_from_cow, result_from_slice, Extension, ExtensionStore, Externalities,
 	MultiRemovalResults,
 };
 use sp_trie::{empty_child_trie_root, LayoutV1};
@@ -40,6 +40,7 @@ use sp_trie::{empty_child_trie_root, LayoutV1};
 use crate::{log_error, trace, warn, StorageTransactionCache};
 use sp_std::{
 	any::{Any, TypeId},
+	borrow::Cow,
 	boxed::Box,
 	cmp::Ordering,
 	vec,
@@ -244,7 +245,7 @@ where
 		self.overlay.set_offchain_storage(key, value)
 	}
 
-	fn storage(&self, key: &[u8], start: u32, limit: Option<u32>) -> Option<StorageValue> {
+	fn storage(&mut self, key: &[u8], start: u32, limit: Option<u32>) -> Option<Cow<[u8]>> {
 		let _guard = guard();
 		let result = self
 			.overlay
@@ -268,7 +269,7 @@ where
 			result_encoded = %HexDisplay::from(
 				&result
 					.as_ref()
-					.map(|v| EncodeOpaqueValue(v.clone()))
+					.map(|v| EncodeOpaqueValue(v.clone().into_owned()))
 					.encode()
 			),
 		);
@@ -276,7 +277,7 @@ where
 		result
 	}
 
-	fn storage_hash(&self, key: &[u8]) -> Option<Vec<u8>> {
+	fn storage_hash(&mut self, key: &[u8]) -> Option<Vec<u8>> {
 		let _guard = guard();
 		let result = self
 			.overlay
@@ -295,18 +296,15 @@ where
 	}
 
 	fn child_storage(
-		&self,
+		&mut self,
 		child_info: &ChildInfo,
 		key: &[u8],
 		start: u32,
 		limit: Option<u32>,
-	) -> Option<StorageValue> {
+	) -> Option<Cow<[u8]>> {
 		let _guard = guard();
-		let result = self
-			.overlay
-			.child_storage(child_info, key, start, limit)
-			.map(|x| x.map(|x| x.to_vec()))
-			.unwrap_or_else(|| {
+		let result =
+			self.overlay.child_storage(child_info, key, start, limit).unwrap_or_else(|| {
 				result_from_vec(
 					self.backend.child_storage(child_info, key).expect(EXT_NOT_ALLOWED_TO_FAIL),
 					start,
@@ -326,7 +324,7 @@ where
 		result
 	}
 
-	fn child_value_size(&self, child_info: &ChildInfo, key: &[u8]) -> Option<u32> {
+	fn child_storage_len(&mut self, child_info: &ChildInfo, key: &[u8]) -> Option<u32> {
 		let _guard = guard();
 		let result = self.overlay.child_storage_len(child_info, key).unwrap_or_else(|| {
 			self.backend
@@ -347,7 +345,7 @@ where
 		result
 	}
 
-	fn child_storage_hash(&self, child_info: &ChildInfo, key: &[u8]) -> Option<Vec<u8>> {
+	fn child_storage_hash(&mut self, child_info: &ChildInfo, key: &[u8]) -> Option<Vec<u8>> {
 		let _guard = guard();
 		let result = self
 			.overlay
@@ -369,7 +367,7 @@ where
 		result.map(|r| r.encode())
 	}
 
-	fn exists_storage(&self, key: &[u8]) -> bool {
+	fn exists_storage(&mut self, key: &[u8]) -> bool {
 		let _guard = guard();
 		let result = match self.overlay.storage(key) {
 			Some(x) => x.is_some(),
@@ -387,7 +385,7 @@ where
 		result
 	}
 
-	fn exists_child_storage(&self, child_info: &ChildInfo, key: &[u8]) -> bool {
+	fn exists_child_storage(&mut self, child_info: &ChildInfo, key: &[u8]) -> bool {
 		let _guard = guard();
 
 		let result = match self.overlay.child_storage(child_info, key, 0, Some(0)) {
@@ -409,7 +407,7 @@ where
 		result
 	}
 
-	fn next_storage_key(&self, key: &[u8]) -> Option<StorageKey> {
+	fn next_storage_key(&mut self, key: &[u8]) -> Option<StorageKey> {
 		let mut next_backend_key =
 			self.backend.next_storage_key(key).expect(EXT_NOT_ALLOWED_TO_FAIL);
 		let mut overlay_changes = self.overlay.iter_after(key).peekable();
@@ -448,7 +446,7 @@ where
 	}
 
 	fn next_child_storage_key(
-		&self,
+		&mut self,
 		child_info: &ChildInfo,
 		key: &[u8],
 		count: u32,
@@ -677,7 +675,10 @@ where
 
 		let backend = &mut self.backend;
 		let current_value = self.overlay.value_mut_or_insert_with(&key, || {
-			backend.storage(&key).expect(EXT_NOT_ALLOWED_TO_FAIL).unwrap_or_default()
+			backend
+				.storage(&key)
+				.expect(EXT_NOT_ALLOWED_TO_FAIL)
+				.unwrap_or_default()
 		});
 		StorageAppend::new(current_value).append(value);
 	}
@@ -1000,7 +1001,7 @@ where
 		self.backend.get_read_and_written_keys()
 	}
 
-	fn storage_exists(&self, info: &ChildInfo) -> bool {
+	fn storage_exists(&mut self, info: &ChildInfo) -> bool {
 		// At this point no storage requires to check backend.
 		self.overlay.storage_exists(info)
 	}
@@ -1020,12 +1021,17 @@ where
 		self.overlay.storage_move(info, target_name)
 	}
 
-	fn map_count(&self, name: &[u8]) -> Option<u32> {
+	fn map_count(&mut self, name: &[u8]) -> Option<u32> {
 		// At this point no supported storage requires to clone backend.
 		self.overlay.map_count(name)
 	}
 
-	fn map_item_hash32(&self, name: &[u8], key: &[u8], algo: Hash32Algorithm) -> Option<[u8; 32]> {
+	fn map_item_hash32(
+		&mut self,
+		name: &[u8],
+		key: &[u8],
+		algo: Hash32Algorithm,
+	) -> Option<[u8; 32]> {
 		let info = sp_externalities::btree_info_from_name(name);
 		self.overlay
 			.child_storage(&info, key, 0, None)
@@ -1033,7 +1039,7 @@ where
 			.map(|v| H::hash_with(v.as_ref(), algo))
 	}
 
-	fn map_dump(&self, name: &[u8]) -> Option<Vec<(Vec<u8>, Vec<u8>)>> {
+	fn map_dump(&mut self, name: &[u8]) -> Option<Vec<(Vec<u8>, Vec<u8>)>> {
 		self.overlay.btree_changes(name).map(|(data, _info)| {
 			data.filter_map(|(k, v)| v.value_ref().as_ref().map(|v| (k.clone(), v.clone())))
 				.collect()
@@ -1041,7 +1047,7 @@ where
 	}
 
 	fn map_dump_hashed(
-		&self,
+		&mut self,
 		name: &[u8],
 		algorithm: Hash32Algorithm,
 	) -> Option<Vec<([u8; 32], [u8; 32])>> {
@@ -1055,7 +1061,7 @@ where
 		})
 	}
 
-	fn blob_len(&self, name: &[u8]) -> Option<u32> {
+	fn blob_len(&mut self, name: &[u8]) -> Option<u32> {
 		// At this point no supported storage requires to clone backend.
 		self.overlay.blob_len(name)
 	}

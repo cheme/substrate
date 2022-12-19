@@ -91,19 +91,19 @@ pub trait Externalities: ExtensionStore {
 	///
 	/// If a range is specified, only range of this value is returned.
 	/// When out of range, returned value is truncated.
-	fn storage(&self, key: &[u8], start: u32, limit: Option<u32>) -> Option<Vec<u8>>;
+	fn storage(&mut self, key: &[u8], start: u32, limit: Option<u32>) -> Option<Cow<[u8]>>;
 
 	/// Get storage value hash.
 	///
 	/// This may be optimized for large values.
-	fn storage_hash(&self, key: &[u8]) -> Option<Vec<u8>>;
+	fn storage_hash(&mut self, key: &[u8]) -> Option<Vec<u8>>;
 
 	/// Get child storage value hash.
 	///
 	/// This may be optimized for large values.
 	///
 	/// Returns an `Option` that holds the SCALE encoded hash.
-	fn child_storage_hash(&self, child_info: &ChildInfo, key: &[u8]) -> Option<Vec<u8>>;
+	fn child_storage_hash(&mut self, child_info: &ChildInfo, key: &[u8]) -> Option<Vec<u8>>;
 
 	/// Read child runtime storage.
 	///
@@ -111,14 +111,13 @@ pub trait Externalities: ExtensionStore {
 	/// When out of range, returned value is truncated.
 	///
 	/// Returns an `Option` that holds the value or part of the value.
-	/// TODO switch to return Cow (one less clone from overlay)?
-	fn child_storage(
-		&self,
+	fn child_storage<'a>(
+		&'a mut self,
 		child_info: &ChildInfo,
 		key: &[u8],
 		start: u32,
 		limit: Option<u32>,
-	) -> Option<Vec<u8>>;
+	) -> Option<Cow<'a, [u8]>>;
 
 	/// Set storage entry `key` of current contract being called (effective immediately).
 	fn set_storage(&mut self, key: Vec<u8>, value: Vec<u8>) {
@@ -146,25 +145,24 @@ pub trait Externalities: ExtensionStore {
 	}
 
 	/// Whether a storage entry exists.
-	fn exists_storage(&self, key: &[u8]) -> bool {
+	fn exists_storage(&mut self, key: &[u8]) -> bool {
 		self.storage(key, 0, Some(0)).is_some()
 	}
 
 	/// Whether a child storage entry exists.
-	fn exists_child_storage(&self, child_info: &ChildInfo, key: &[u8]) -> bool {
+	fn exists_child_storage(&mut self, child_info: &ChildInfo, key: &[u8]) -> bool {
 		self.child_storage(child_info, key, 0, Some(0)).is_some()
 	}
 
 	/// Get size of a value.
-	/// TODO rename child_storage_len??
-	fn child_value_size(&self, child_info: &ChildInfo, key: &[u8]) -> Option<u32>;
+	fn child_storage_len(&mut self, child_info: &ChildInfo, key: &[u8]) -> Option<u32>;
 
 	/// Returns the key immediately following the given key, if it exists.
-	fn next_storage_key(&self, key: &[u8]) -> Option<Vec<u8>>;
+	fn next_storage_key(&mut self, key: &[u8]) -> Option<Vec<u8>>;
 
 	/// Returns the keys immediately following the given key, in child storage.
 	fn next_child_storage_key(
-		&self,
+		&mut self,
 		child_info: &ChildInfo,
 		key: &[u8],
 		count: u32,
@@ -364,8 +362,8 @@ pub trait Externalities: ExtensionStore {
 	/// Return true if unchanged.
 	fn update_storage_info(&mut self, info: ChildInfo, clear_existing: bool) -> bool;
 
-	/// Get info for a given storage key.
-	fn storage_exists(&self, info: &ChildInfo) -> bool;
+	/// Check if a given storage was created.
+	fn storage_exists(&mut self, info: &ChildInfo) -> bool;
 
 	/// Copy a storage current content and definition under a different name.
 	/// Overwrite target if a target exists.
@@ -393,7 +391,7 @@ pub trait Externalities: ExtensionStore {
 	}
 
 	/// Returns true iff the blob name is present in execution state.
-	fn blob_exists(&self, name: &[u8]) -> bool {
+	fn blob_exists(&mut self, name: &[u8]) -> bool {
 		let info = blob_info_from_name(name);
 		self.storage_exists(&info)
 	}
@@ -430,10 +428,13 @@ pub trait Externalities: ExtensionStore {
 	/// Read bytes starting at a given offset, if offset is out of range, return
 	/// an empty bytes vector.
 	/// Returns `None` if the blob does not exist.
-	/// // TODO try returning &[u8] since transient is in mem or Cow<'a, [u8]> for
-	/// case we write blob as file or other considerations.
 	/// TODO could be replace by child get
-	fn blob_get(&self, name: &[u8], limit: Option<u32>, value_offset: u32) -> Option<Vec<u8>> {
+	fn blob_get(
+		&mut self,
+		name: &[u8],
+		limit: Option<u32>,
+		value_offset: u32,
+	) -> Option<Cow<[u8]>> {
 		let info = blob_info_from_name(name);
 		self.child_storage(&info, &[], value_offset, limit)
 	}
@@ -460,7 +461,7 @@ pub trait Externalities: ExtensionStore {
 	fn blob_truncate(&mut self, name: &[u8], new_size: u32) -> bool;
 
 	/// Returns size of the blob for a given name, or `None` if the blob does not exist.
-	fn blob_len(&self, name: &[u8]) -> Option<u32>;
+	fn blob_len(&mut self, name: &[u8]) -> Option<u32>;
 
 	/// If blob exists, return it's hash for a given algorithm.
 	fn blob_hash32(&mut self, name: &[u8], algorithm: Hash32Algorithm) -> Option<[u8; 32]> {
@@ -490,7 +491,7 @@ pub trait Externalities: ExtensionStore {
 	}
 
 	/// Returns true iff the map name is present in execution state.
-	fn map_exists(&self, name: &[u8]) -> bool {
+	fn map_exists(&mut self, name: &[u8]) -> bool {
 		let info = btree_info_from_name(name);
 		self.storage_exists(&info)
 	}
@@ -538,7 +539,7 @@ pub trait Externalities: ExtensionStore {
 	}
 
 	/// Returns true iff the map name existsa and contains key.
-	fn map_contains(&self, name: &[u8], key: &[u8]) -> bool {
+	fn map_contains(&mut self, name: &[u8], key: &[u8]) -> bool {
 		let info = btree_info_from_name(name);
 		self.exists_child_storage(&info, key)
 	}
@@ -548,27 +549,27 @@ pub trait Externalities: ExtensionStore {
 	/// If limit is specified, only that many bytes are returned.
 	/// Offset start bytes are also skipped from return value.
 	fn map_item_get(
-		&self,
+		&mut self,
 		name: &[u8],
 		key: &[u8],
 		limit: Option<u32>,
 		value_offset: u32,
-	) -> Option<Vec<u8>> {
+	) -> Option<Cow<[u8]>> {
 		let info = btree_info_from_name(name);
 		self.child_storage(&info, key, value_offset, limit)
 	}
 
 	/// Returns Some iff the map name exists and contains key. If so, the inner value is the length
 	/// of the value associated with key.
-	fn map_item_len(&self, name: &[u8], key: &[u8]) -> Option<u32> {
+	fn map_item_len(&mut self, name: &[u8], key: &[u8]) -> Option<u32> {
 		let info = btree_info_from_name(name);
-		self.child_value_size(&info, key)
+		self.child_storage_len(&info, key)
 	}
 
 	/// Returns Some iff the map name exists and contains key. If so, the inner value is the value
 	/// associated with key when hashed with algorithm.
 	fn map_item_hash32(
-		&self,
+		&mut self,
 		name: &[u8],
 		key: &[u8],
 		algorithm: Hash32Algorithm,
@@ -576,7 +577,7 @@ pub trait Externalities: ExtensionStore {
 
 	/// Returns Some iff the map name exists, None otherwise. If Some, then the inner value is the
 	/// number of items in the map name.
-	fn map_count(&self, name: &[u8]) -> Option<u32>;
+	fn map_count(&mut self, name: &[u8]) -> Option<u32>;
 
 	/// Calculates and returns the root of the data structure structure containing the items held in
 	/// the map name. Returns None if map name does not exist.
@@ -599,21 +600,21 @@ pub trait Externalities: ExtensionStore {
 	/// Returns up to the next count keys in map name immediately following key. If fewer items
 	/// exist after key than count, then only the remaining items are returned. If the map name does
 	/// not exist then None is returned.
-	fn map_next_keys(&self, name: &[u8], key: &[u8], count: u32) -> Option<Vec<Vec<u8>>> {
+	fn map_next_keys(&mut self, name: &[u8], key: &[u8], count: u32) -> Option<Vec<Vec<u8>>> {
 		let info = btree_info_from_name(name);
 		self.next_child_storage_key(&info, key, count)
 	}
 
 	/// Returns Some of a Vec of all items in the map name, sorted; or None if the map name does not
 	/// exist.
-	fn map_dump(&self, name: &[u8]) -> Option<Vec<(Vec<u8>, Vec<u8>)>>;
+	fn map_dump(&mut self, name: &[u8]) -> Option<Vec<(Vec<u8>, Vec<u8>)>>;
 
 	/// Returns Some of a Vec of all pairs of keys and values in the map name hashed with algorithm
 	/// and in order of the (unhashed) key; or None if the map name does not exist.
 	/// TODO question hashing key (except for equality checking, issue here is we don't have
 	/// preimage).
 	fn map_dump_hashed(
-		&self,
+		&mut self,
 		name: &[u8],
 		algorithm: Hash32Algorithm,
 	) -> Option<Vec<([u8; 32], [u8; 32])>>;
@@ -670,8 +671,12 @@ impl ExternalitiesExt for &mut dyn Externalities {
 }
 
 /// Utility to extract range from accessed value.
-pub fn result_from_slice(value: Option<&[u8]>, start: u32, limit: Option<u32>) -> Option<Vec<u8>> {
-	range_slice(value, start, limit).map(|s| s.to_vec())
+pub fn result_from_slice(
+	value: Option<&[u8]>,
+	start: u32,
+	limit: Option<u32>,
+) -> Option<Cow<[u8]>> {
+	range_slice(value, start, limit).map(|s| s.into())
 }
 
 pub fn range_slice(value: Option<&[u8]>, start: u32, limit: Option<u32>) -> Option<&[u8]> {
@@ -695,7 +700,11 @@ pub fn range_slice(value: Option<&[u8]>, start: u32, limit: Option<u32>) -> Opti
 }
 
 /// Utility to extract range from accessed value.
-pub fn result_from_vec(value: Option<Vec<u8>>, start: u32, limit: Option<u32>) -> Option<Vec<u8>> {
+pub fn result_from_vec(
+	value: Option<Vec<u8>>,
+	start: u32,
+	limit: Option<u32>,
+) -> Option<Cow<'static, [u8]>> {
 	value.map(|mut value| {
 		let start = start as usize;
 		if let Some(limit) = limit {
@@ -707,17 +716,16 @@ pub fn result_from_vec(value: Option<Vec<u8>>, start: u32, limit: Option<u32>) -
 		if start < value.len() {
 			value = value.split_off(start);
 		}
-		value
+		value.into()
 	})
 }
 
 /// Utility to extract range from accessed value.
-/// TODO looks unused
 pub fn result_from_cow(
 	value: Option<Cow<[u8]>>,
 	start: u32,
 	limit: Option<u32>,
-) -> Option<Vec<u8>> {
+) -> Option<Cow<[u8]>> {
 	match value? {
 		Cow::Owned(owned) => result_from_vec(Some(owned), start, limit),
 		Cow::Borrowed(borrowed) => result_from_slice(Some(borrowed), start, limit),

@@ -34,6 +34,7 @@ use sp_externalities::{result_from_slice, Extension, Extensions, MultiRemovalRes
 use sp_trie::{empty_child_trie_root, HashKey, LayoutV0, LayoutV1, TrieConfiguration};
 use std::{
 	any::{Any, TypeId},
+	borrow::Cow,
 	collections::BTreeMap,
 	iter::FromIterator,
 };
@@ -199,43 +200,41 @@ impl From<BTreeMap<StorageKey, StorageValue>> for BasicExternalities {
 impl Externalities for BasicExternalities {
 	fn set_offchain_storage(&mut self, _key: &[u8], _value: Option<&[u8]>) {}
 
-	fn storage(&self, key: &[u8], start: u32, limit: Option<u32>) -> Option<StorageValue> {
+	fn storage(&mut self, key: &[u8], start: u32, limit: Option<u32>) -> Option<Cow<[u8]>> {
 		self.overlay.storage(key).and_then(|v| result_from_slice(v, start, limit))
 	}
 
-	fn storage_hash(&self, key: &[u8]) -> Option<Vec<u8>> {
+	fn storage_hash(&mut self, key: &[u8]) -> Option<Vec<u8>> {
 		self.overlay.storage(key).flatten().map(|v| Blake2Hasher::hash(v).encode())
 	}
 
 	fn child_storage(
-		&self,
+		&mut self,
 		child_info: &ChildInfo,
 		key: &[u8],
 		start: u32,
 		limit: Option<u32>,
-	) -> Option<StorageValue> {
-		self.overlay
-			.child_storage(child_info, key, start, limit)
-			.and_then(|v| v.map(|v| v.to_vec()))
+	) -> Option<Cow<[u8]>> {
+		self.overlay.child_storage(child_info, key, start, limit).flatten()
 	}
 
-	fn child_value_size(&self, child_info: &ChildInfo, key: &[u8]) -> Option<u32> {
+	fn child_storage_len(&mut self, child_info: &ChildInfo, key: &[u8]) -> Option<u32> {
 		self.overlay.child_storage_len(child_info, key).flatten()
 	}
 
-	fn child_storage_hash(&self, child_info: &ChildInfo, key: &[u8]) -> Option<Vec<u8>> {
+	fn child_storage_hash(&mut self, child_info: &ChildInfo, key: &[u8]) -> Option<Vec<u8>> {
 		self.overlay
 			.child_storage(child_info, key, 0, None)
 			.flatten()
 			.map(|v| Blake2Hasher::hash(v.as_ref()).encode())
 	}
 
-	fn next_storage_key(&self, key: &[u8]) -> Option<StorageKey> {
+	fn next_storage_key(&mut self, key: &[u8]) -> Option<StorageKey> {
 		self.overlay.iter_after(key).find_map(|(k, v)| v.value().map(|_| k.to_vec()))
 	}
 
 	fn next_child_storage_key(
-		&self,
+		&mut self,
 		child_info: &ChildInfo,
 		key: &[u8],
 		count: u32,
@@ -458,7 +457,7 @@ impl Externalities for BasicExternalities {
 		unimplemented!("get_read_and_written_keys is not supported in Basic")
 	}
 
-	fn storage_exists(&self, info: &ChildInfo) -> bool {
+	fn storage_exists(&mut self, info: &ChildInfo) -> bool {
 		// At this point no storage requires to check backend.
 		self.overlay.storage_exists(info)
 	}
@@ -478,12 +477,17 @@ impl Externalities for BasicExternalities {
 		self.overlay.storage_move(info, target_name)
 	}
 
-	fn map_count(&self, name: &[u8]) -> Option<u32> {
+	fn map_count(&mut self, name: &[u8]) -> Option<u32> {
 		// At this point no supported storage requires to clone backend.
 		self.overlay.map_count(name)
 	}
 
-	fn map_item_hash32(&self, name: &[u8], key: &[u8], algo: Hash32Algorithm) -> Option<[u8; 32]> {
+	fn map_item_hash32(
+		&mut self,
+		name: &[u8],
+		key: &[u8],
+		algo: Hash32Algorithm,
+	) -> Option<[u8; 32]> {
 		let info = sp_externalities::btree_info_from_name(name);
 		self.overlay
 			.child_storage(&info, key, 0, None)
@@ -491,7 +495,7 @@ impl Externalities for BasicExternalities {
 			.map(|v| sp_core::hash32_with_algorithm_inline(v.as_ref(), algo))
 	}
 
-	fn map_dump(&self, name: &[u8]) -> Option<Vec<(Vec<u8>, Vec<u8>)>> {
+	fn map_dump(&mut self, name: &[u8]) -> Option<Vec<(Vec<u8>, Vec<u8>)>> {
 		self.overlay.btree_changes(name).map(|(data, _info)| {
 			data.filter_map(|(k, v)| v.value_ref().as_ref().map(|v| (k.clone(), v.clone())))
 				.collect()
@@ -499,7 +503,7 @@ impl Externalities for BasicExternalities {
 	}
 
 	fn map_dump_hashed(
-		&self,
+		&mut self,
 		name: &[u8],
 		algorithm: Hash32Algorithm,
 	) -> Option<Vec<([u8; 32], [u8; 32])>> {
@@ -516,7 +520,7 @@ impl Externalities for BasicExternalities {
 		})
 	}
 
-	fn blob_len(&self, name: &[u8]) -> Option<u32> {
+	fn blob_len(&mut self, name: &[u8]) -> Option<u32> {
 		// At this point no supported storage requires to clone backend.
 		self.overlay.blob_len(name)
 	}

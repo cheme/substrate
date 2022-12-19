@@ -276,6 +276,57 @@ impl<T: 'static + Encode> IntoFFIValue for [T] {
 	}
 }
 
+/* TODO??
+impl<'a> RIType for Cow<'a, [u8]> {
+	type FFIType = u64;
+}
+
+
+#[cfg(feature = "std")]
+impl<'a> IntoFFIValue for Cow<'a, [u8]> {
+	fn into_ffi_value(self, context: &mut dyn FunctionContext) -> Result<u64> {
+		let ptr = context.allocate_memory(self.as_ref().len() as u32)?;
+		context.write_memory(ptr, &self)?;
+
+		Ok(pack_ptr_and_len(ptr.into(), self.len() as u32))
+	}
+}
+
+#[cfg(not(feature = "std"))]
+impl<'a> IntoFFIValue for Cow<'a, [u8]> {
+	type Owned = Vec<u8>;
+
+	fn into_ffi_value(&self) -> WrappedFFIValue<u64, Vec<u8>> {
+		self[..].into_ffi_value()
+	}
+}
+
+#[cfg(feature = "std")]
+impl<'a> FromFFIValue for Cow<'a, [u8]> {
+	type SelfInstance = Vec<u8>;
+
+	fn from_ffi_value(context: &mut dyn FunctionContext, arg: u64) -> Result<Vec<u8>> {
+		<[u8] as FromFFIValue>::from_ffi_value(context, arg)
+	}
+}
+
+#[cfg(not(feature = "std"))]
+impl<'a> FromFFIValue for Cow<'a, T> {
+	fn from_ffi_value(arg: u64) -> Cow<'static, T> {
+		let (ptr, len) = unpack_ptr_and_len(arg);
+		let len = len as usize;
+
+		if len == 0 {
+			return Vec::new()
+		}
+
+		let data = unsafe { Vec::from_raw_parts(ptr as *mut u8, len, len) };
+
+		Cow::Owned(unsafe { mem::transmute(data) })
+	}
+}
+*/
+
 /// Implement the traits for the `[u8; N]` arrays, where `N` is the input to this macro.
 macro_rules! impl_traits_for_arrays {
 	(
