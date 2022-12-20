@@ -36,7 +36,7 @@ pub use sp_arithmetic::traits::{
 	CheckedShr, CheckedSub, IntegerSquareRoot, One, SaturatedConversion, Saturating,
 	UniqueSaturatedFrom, UniqueSaturatedInto, Zero,
 };
-use sp_core::{self, storage::StateVersion, Hasher, Hashers, RuntimeDebug, TypeId};
+use sp_core::{self, storage::StateVersion, Hasher, HasherHandle, Hashers, RuntimeDebug, TypeId};
 #[doc(hidden)]
 pub use sp_core::{
 	parameter_types, ConstBool, ConstI128, ConstI16, ConstI32, ConstI64, ConstI8, ConstU128,
@@ -724,19 +724,19 @@ impl Hashers for BlakeTwo256 {
 		hash32_with_algorithm_hosts(data, algo)
 	}
 
-	fn hash_state_with(algo: Hash32Algorithm) -> Option<u32> {
+	fn hash_state_with(algo: Hash32Algorithm) -> Option<HasherHandle> {
 		sp_io::hashing::get_hasher(algo.into())
 	}
 
-	fn hash_update(state: u32, data: &[u8]) -> bool {
+	fn hash_update(state: HasherHandle, data: &[u8]) -> bool {
 		sp_io::hashing::hasher_update(state, data)
 	}
 
-	fn hash_finalize(state: u32) -> Option<[u8; 32]> {
+	fn hash_finalize(state: HasherHandle) -> Option<[u8; 32]> {
 		sp_io::hashing::hasher_finalize(state)
 	}
 
-	fn hash_drop(state: Option<u32>) {
+	fn hash_drop(state: Option<HasherHandle>) {
 		sp_io::hashing::drop_hasher(state)
 	}
 }
@@ -776,19 +776,19 @@ impl Hashers for Keccak256 {
 		hash32_with_algorithm_hosts(data, algo)
 	}
 
-	fn hash_state_with(algo: Hash32Algorithm) -> Option<u32> {
+	fn hash_state_with(algo: Hash32Algorithm) -> Option<HasherHandle> {
 		sp_io::hashing::get_hasher(algo.into())
 	}
 
-	fn hash_update(state: u32, data: &[u8]) -> bool {
+	fn hash_update(state: HasherHandle, data: &[u8]) -> bool {
 		sp_io::hashing::hasher_update(state, data)
 	}
 
-	fn hash_finalize(state: u32) -> Option<[u8; 32]> {
+	fn hash_finalize(state: HasherHandle) -> Option<[u8; 32]> {
 		sp_io::hashing::hasher_finalize(state)
 	}
 
-	fn hash_drop(state: Option<u32>) {
+	fn hash_drop(state: Option<HasherHandle>) {
 		sp_io::hashing::drop_hasher(state)
 	}
 }

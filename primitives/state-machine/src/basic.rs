@@ -28,7 +28,7 @@ use sp_core::{
 		ChildInfo, ChildType, StateVersion, Storage, StorageBtree, StorageChild, TrackedStorageKey,
 	},
 	traits::Externalities,
-	Blake2Hasher,
+	Blake2Hasher, HasherHandle,
 };
 use sp_externalities::{result_from_slice, Extension, Extensions, MultiRemovalResults};
 use sp_trie::{empty_child_trie_root, HashKey, LayoutV0, LayoutV1, TrieConfiguration};
@@ -533,19 +533,19 @@ impl Externalities for BasicExternalities {
 		self.overlay.blob_truncate(name, new_size)
 	}
 
-	fn get_hasher(&mut self, algorithm: Hash32Algorithm) -> Option<u32> {
+	fn get_hasher(&mut self, algorithm: Hash32Algorithm) -> Option<HasherHandle> {
 		self.overlay.hashers.get_hasher(algorithm)
 	}
 
-	fn drop_hasher(&mut self, hasher: Option<u32>) {
+	fn drop_hasher(&mut self, hasher: Option<HasherHandle>) {
 		self.overlay.hashers.drop_hasher(hasher)
 	}
 
-	fn hasher_update(&mut self, hasher: u32, data: &[u8]) -> bool {
+	fn hasher_update(&mut self, hasher: HasherHandle, data: &[u8]) -> bool {
 		self.overlay.hashers.hasher_update(hasher, data)
 	}
 
-	fn hasher_finalize(&mut self, hasher: u32) -> Option<[u8; 32]> {
+	fn hasher_finalize(&mut self, hasher: HasherHandle) -> Option<[u8; 32]> {
 		self.overlay.hashers.hasher_finalize(hasher)
 	}
 }

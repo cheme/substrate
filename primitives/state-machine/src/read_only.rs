@@ -23,6 +23,7 @@ use hash_db::Hasher;
 use sp_core::{
 	storage::{transient::Hash32Algorithm, ChildInfo, ChildType, StateVersion, TrackedStorageKey},
 	traits::Externalities,
+	HasherHandle,
 };
 use sp_externalities::{result_from_vec, MultiRemovalResults};
 use std::{
@@ -336,19 +337,19 @@ where
 		false
 	}
 
-	fn get_hasher(&mut self, _algorithm: Hash32Algorithm) -> Option<u32> {
+	fn get_hasher(&mut self, _algorithm: Hash32Algorithm) -> Option<HasherHandle> {
 		unimplemented!("get_hasher is not supported in ReadOnlyExternalities")
 	}
 
-	fn drop_hasher(&mut self, _hasher: Option<u32>) {
+	fn drop_hasher(&mut self, _hasher: Option<HasherHandle>) {
 		unimplemented!("drop_hasher is not supported in ReadOnlyExternalities")
 	}
 
-	fn hasher_update(&mut self, _hasher: u32, _data: &[u8]) -> bool {
+	fn hasher_update(&mut self, _hasher: HasherHandle, _data: &[u8]) -> bool {
 		unimplemented!("hasher_update is not supported in ReadOnlyExternalities")
 	}
 
-	fn hasher_finalize(&mut self, _hasher: u32) -> Option<[u8; 32]> {
+	fn hasher_finalize(&mut self, _hasher: HasherHandle) -> Option<[u8; 32]> {
 		unimplemented!("hasher_finalize is not supported in ReadOnlyExternalities")
 	}
 }

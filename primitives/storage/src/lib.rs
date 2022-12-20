@@ -505,6 +505,12 @@ pub mod transient {
 		// TODO some binary trie one(s)
 	}
 
+	/// Opaque wrapper around a host allocated hasher state.
+	/// `Encode` and `Decode` are here for technical reason only.
+	#[derive(PartialEq, Eq, Clone, Copy, Encode, Decode)]
+	#[repr(transparent)]
+	pub struct HasherHandle(u32);
+
 	/// Trait describing an object that can hash with multiple hash_db hashers
 	/// given a 32 bytes output.
 	///
@@ -521,17 +527,17 @@ pub mod transient {
 		/// Compute the hash of the provided slice of bytes returning the calculated hash.
 		fn hash_with(data: &[u8], algo: Hash32Algorithm) -> [u8; 32];
 		/// Get hasher.
-		fn hash_state_with(algo: Hash32Algorithm) -> Option<u32>;
+		fn hash_state_with(algo: Hash32Algorithm) -> Option<HasherHandle>;
 		/// Advance hashing with more bytes.
 		/// Return true on success, false on failure.
-		fn hash_update(state: u32, data: &[u8]) -> bool;
+		fn hash_update(state: HasherHandle, data: &[u8]) -> bool;
 		/// Remove hasher state explicitely.
 		/// When using `None` remove all know hasher constext (only make
 		/// sense in the context of calling host function through this api).
-		fn hash_drop(state: Option<u32>);
+		fn hash_drop(state: Option<HasherHandle>);
 		/// Finish hashing and get hash.
 		/// Return None on failure.
-		fn hash_finalize(state: u32) -> Option<[u8; 32]>;
+		fn hash_finalize(state: HasherHandle) -> Option<[u8; 32]>;
 	}
 }
 

@@ -29,7 +29,7 @@ use sp_core::{
 		well_known_keys::is_child_storage_key,
 		ChildInfo, StateVersion, TrackedStorageKey,
 	},
-	Hashers,
+	HasherHandle, Hashers,
 };
 use sp_externalities::{
 	result_from_slice, result_from_vec, Extension, ExtensionStore, Externalities,
@@ -1071,19 +1071,19 @@ where
 		self.overlay.blob_truncate(name, new_size)
 	}
 
-	fn get_hasher(&mut self, algorithm: Hash32Algorithm) -> Option<u32> {
+	fn get_hasher(&mut self, algorithm: Hash32Algorithm) -> Option<HasherHandle> {
 		get_hasher!(self, algorithm)
 	}
 
-	fn drop_hasher(&mut self, hasher: Option<u32>) {
+	fn drop_hasher(&mut self, hasher: Option<HasherHandle>) {
 		drop_hasher!(self, hasher)
 	}
 
-	fn hasher_update(&mut self, hasher: u32, data: &[u8]) -> bool {
+	fn hasher_update(&mut self, hasher: HasherHandle, data: &[u8]) -> bool {
 		hasher_update!(self, hasher, data)
 	}
 
-	fn hasher_finalize(&mut self, hasher: u32) -> Option<[u8; 32]> {
+	fn hasher_finalize(&mut self, hasher: HasherHandle) -> Option<[u8; 32]> {
 		hasher_finalize!(self, hasher)
 	}
 }

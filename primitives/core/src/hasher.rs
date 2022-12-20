@@ -18,7 +18,7 @@
 //! Substrate Blake2b Hasher implementation
 
 use crate::hash32_with_algorithm_inline;
-use sp_storage::transient::Hash32Algorithm;
+use sp_storage::transient::{Hash32Algorithm, HasherHandle};
 
 pub mod blake2 {
 	use super::*;
@@ -48,19 +48,19 @@ pub mod blake2 {
 			hash32_with_algorithm_inline(data, algo)
 		}
 
-		fn hash_state_with(_algo: Hash32Algorithm) -> Option<u32> {
+		fn hash_state_with(_algo: Hash32Algorithm) -> Option<HasherHandle> {
 			unreachable!()
 		}
 
-		fn hash_update(_state: u32, _data: &[u8]) -> bool {
+		fn hash_update(_state: HasherHandle, _data: &[u8]) -> bool {
 			unreachable!()
 		}
 
-		fn hash_finalize(_state: u32) -> Option<[u8; 32]> {
+		fn hash_finalize(_state: HasherHandle) -> Option<[u8; 32]> {
 			unreachable!()
 		}
 
-		fn hash_drop(_state: Option<u32>) {
+		fn hash_drop(_state: Option<HasherHandle>) {
 			unreachable!()
 		}
 	}
@@ -94,19 +94,19 @@ pub mod keccak {
 			hash32_with_algorithm_inline(data, algo)
 		}
 
-		fn hash_state_with(_algo: Hash32Algorithm) -> Option<u32> {
+		fn hash_state_with(_algo: Hash32Algorithm) -> Option<HasherHandle> {
 			unreachable!()
 		}
 
-		fn hash_update(_state: u32, _data: &[u8]) -> bool {
+		fn hash_update(_state: HasherHandle, _data: &[u8]) -> bool {
 			unreachable!()
 		}
 
-		fn hash_finalize(_state: u32) -> Option<[u8; 32]> {
+		fn hash_finalize(_state: HasherHandle) -> Option<[u8; 32]> {
 			unreachable!()
 		}
 
-		fn hash_drop(_state: Option<u32>) {
+		fn hash_drop(_state: Option<HasherHandle>) {
 			unreachable!()
 		}
 	}
