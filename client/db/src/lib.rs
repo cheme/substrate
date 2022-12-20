@@ -1380,11 +1380,22 @@ impl<Block: BlockT> Backend<Block> {
 		while best_number.saturating_sub(best_canonical()) > self.canonicalization_delay {
 			let to_canonicalize = best_canonical() + 1;
 
-			let (hash_to_canonicalize, parent_hash, number) = sc_client_api::blockchain::HeaderBackend::header(
+			let hash_to_canonicalize = sc_client_api::blockchain::HeaderBackend::hash(
 				&self.blockchain,
-				BlockId::Number(to_canonicalize.saturated_into()),
+				to_canonicalize.saturated_into(),
 			)?
-			.map(|header| (header.hash(), *header.parent_hash(), *header.number()))
+			.ok_or_else(|| {
+					let best_hash = info.best_hash;
+
+				sp_blockchain::Error::Backend(format!(
+					"Can't canonicalize missing block number #{to_canonicalize} when for best block {best_hash:?} (#{best_number})",
+				))
+			})?;
+			let (parent_hash, number) = sc_client_api::blockchain::HeaderBackend::header(
+				&self.blockchain,
+				hash_to_canonicalize,
+			)?
+			.map(|header| (*header.parent_hash(), *header.number()))
 			.ok_or_else(|| {
 				let best_hash = info.best_hash;
 
@@ -1894,20 +1905,24 @@ impl<Block: BlockT> Backend<Block> {
 		id: BlockId<Block>,
 	) -> ClientResult<()> {
 		debug!(target: "db", "Removing block #{}", id);
-		if let Some(header) =
-			sc_client_api::blockchain::HeaderBackend::header(&self.blockchain, id)?
+		if let Some(hash) =
+			sc_client_api::blockchain::HeaderBackend::block_hash_from_id(&self.blockchain, &id)?
 		{
-			let number = header.number();
-			let hash = header.hash();
-			let parent_hash = header.parent_hash();
-			let mut transient_storage = TransientArchive::<Block> {
-				in_mem: &mut *self.transient_in_memory.write(),
-				db: self.storage.db.clone(),
-				hash: &hash,
-				parent_hash: &parent_hash,
-				number: number.clone(),
-			};
-			transient_storage.drop_or_prune(transaction)?;
+			if let Some(header) =
+				sc_client_api::blockchain::HeaderBackend::header(&self.blockchain, hash)?
+			{
+				let number = header.number();
+				let hash = header.hash();
+				let parent_hash = header.parent_hash();
+				let mut transient_storage = TransientArchive::<Block> {
+					in_mem: &mut *self.transient_in_memory.write(),
+					db: self.storage.db.clone(),
+					hash: &hash,
+					parent_hash: &parent_hash,
+					number: number.clone(),
+				};
+				transient_storage.drop_or_prune(transaction)?;
+			}
 		}
 
 		utils::remove_from_db(
