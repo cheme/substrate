@@ -30,7 +30,6 @@
 )]
 
 use sp_std::vec::Vec;
-use sp_std::borrow::Cow;
 
 #[cfg(feature = "std")]
 use tracing;
@@ -130,25 +129,7 @@ impl From<MultiRemovalResults> for KillStorageResult {
 pub trait Storage {
 	/// Returns the data for `key` in the storage or `None` if the key can not be found.
 	fn get(&mut self, key: &[u8]) -> Option<Vec<u8>> {
-		match self.storage(key, 0, None) {
-			Some(Cow::Owned(v)) => Some(v),
-			Some(Cow::Borrowed(r)) => {
-				let r: &[u8] = r;
-				let length = r.len();
-				let r: *const u8 = r.as_ptr();
-				// dirty, but got quite some rework to pass &[u8] without useless clone.
-				// ffi will only read the as_ref of this ill instantiated Vec.
-				//
-				//
-		//
-		// Actually this approach is bad as we get outside the environmental mutex: really
-		// need to rework to run the convertion to ffi inside the with_externalities call.
-		// (but then we can just implement for Cow. (also (*const u8, usize) would be way
-		// better that this Vec).
-				Some(unsafe { sp_std::vec::Vec::from_raw_parts(r.cast_mut(), length, length) })
-			},
-			None => None,
-		}
+		self.storage(key, 0, None).map(Into::into)
 	}
 
 	/// Get `key` from storage, placing the value into `value_out` and return the number of
