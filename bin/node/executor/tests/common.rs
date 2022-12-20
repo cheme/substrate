@@ -106,7 +106,10 @@ pub fn executor_call(
 ) -> (Result<Vec<u8>>, bool) {
 	let mut t = t.ext();
 
-	let code = t.storage(sp_core::storage::well_known_keys::CODE, 0, None).unwrap().into_owned();
+	let code = t
+		.storage(sp_core::storage::well_known_keys::CODE, 0, None)
+		.unwrap()
+		.into_owned();
 	let heap_pages = t.storage(sp_core::storage::well_known_keys::HEAP_PAGES, 0, None);
 	let heap_pages = heap_pages.and_then(|hp| Decode::decode(&mut &hp[..]).ok());
 	let hash = sp_core::blake2_256(&code).to_vec();

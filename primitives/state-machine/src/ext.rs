@@ -32,7 +32,7 @@ use sp_core::{
 	Hashers,
 };
 use sp_externalities::{
-	result_from_vec, result_from_cow, result_from_slice, Extension, ExtensionStore, Externalities,
+	result_from_slice, result_from_vec, Extension, ExtensionStore, Externalities,
 	MultiRemovalResults,
 };
 use sp_trie::{empty_child_trie_root, LayoutV1};
@@ -675,10 +675,7 @@ where
 
 		let backend = &mut self.backend;
 		let current_value = self.overlay.value_mut_or_insert_with(&key, || {
-			backend
-				.storage(&key)
-				.expect(EXT_NOT_ALLOWED_TO_FAIL)
-				.unwrap_or_default()
+			backend.storage(&key).expect(EXT_NOT_ALLOWED_TO_FAIL).unwrap_or_default()
 		});
 		StorageAppend::new(current_value).append(value);
 	}

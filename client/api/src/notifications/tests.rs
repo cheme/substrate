@@ -55,9 +55,7 @@ impl PartialEq for StorageChangeSet {
 	fn eq(&self, other: &Self) -> bool {
 		let (it0, it1, it2) = self.iter();
 		let (ot0, ot1, ot2) = other.iter();
-		it0.eq(ot0)
-			&& it1.eq(ot1)
-			&& it2.eq(ot2)
+		it0.eq(ot0) && it1.eq(ot1) && it2.eq(ot2)
 	}
 }
 

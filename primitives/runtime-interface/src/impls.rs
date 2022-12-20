@@ -276,20 +276,6 @@ impl<T: 'static + Encode> IntoFFIValue for [T] {
 	}
 }
 
-impl<'a> RIType for Cow<'a, [u8]> {
-	type FFIType = u64;
-}
-
-#[cfg(feature = "std")]
-impl<'a> IntoFFIValue for Cow<'a, [u8]> {
-	fn into_ffi_value(self, context: &mut dyn FunctionContext) -> Result<u64> {
-		let ptr = context.allocate_memory(self.as_ref().len() as u32)?;
-		context.write_memory(ptr, &self)?;
-
-		Ok(pack_ptr_and_len(ptr.into(), self.len() as u32))
-	}
-}
-
 /// Implement the traits for the `[u8; N]` arrays, where `N` is the input to this macro.
 macro_rules! impl_traits_for_arrays {
 	(

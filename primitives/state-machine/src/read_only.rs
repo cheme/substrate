@@ -24,7 +24,7 @@ use sp_core::{
 	storage::{transient::Hash32Algorithm, ChildInfo, ChildType, StateVersion, TrackedStorageKey},
 	traits::Externalities,
 };
-use sp_externalities::{result_from_vec, result_from_cow, MultiRemovalResults};
+use sp_externalities::{result_from_vec, MultiRemovalResults};
 use std::{
 	any::{Any, TypeId},
 	borrow::Cow,
