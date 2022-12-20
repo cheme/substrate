@@ -29,7 +29,7 @@
 	doc = "Substrate's runtime standard library as compiled without Rust's standard library."
 )]
 
-use sp_std::{borrow::Cow, vec::Vec};
+use sp_std::vec::Vec;
 
 #[cfg(feature = "std")]
 use tracing;

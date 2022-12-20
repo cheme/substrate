@@ -35,7 +35,6 @@ const PROOF_OVERLAY_NON_EMPTY: &str = "\
 
 type Dirty<I> = SmallVec<[I; 5]>;
 type DirtyKeysSets<K> = Dirty<Set<K>>;
-type DirtyInfos = Dirty<bool>;
 type DirtyBlobChunks = Dirty<Set<usize>>;
 type Transactions<V> = SmallVec<[V; 5]>;
 type BlobChunk = [u8; BLOB_CHUNK_SIZE];
@@ -165,15 +164,23 @@ struct InfoEntry<I, M> {
 	// When moving multiple times to a same name
 	// we keep origin.
 	others_moved_from: Option<Map<Vec<u8>, M>>,
+	// since we got a single value, we do not
+	// maintain a dirty set, but just store
+	// transaction depth.
+	// TODO could consider dirty set over
+	// all child storage (less transaction
+	// related access).
+	transaction_depth: usize,
 }
 
-impl<I, M> From<I> for InfoEntry<I, M> {
-	fn from(info: I) -> Self {
+impl<I, M> From<(I, &OverlayedContext)> for InfoEntry<I, M> {
+	fn from((info, context): (I, &OverlayedContext)) -> Self {
 		InfoEntry {
 			info,
 			origin: OriginEntry::Empty,
 			moved_from_current: None,
 			others_moved_from: None,
+			transaction_depth: context.transaction_depth(),
 		}
 	}
 }
@@ -183,8 +190,6 @@ impl<I, M> From<I> for InfoEntry<I, M> {
 pub(crate) struct OverlayedInfos<I, M> {
 	/// Internal infos.
 	infos: OverlayedEntry<InfoEntry<I, M>>,
-	/// Changes for infos.
-	dirty_infos: DirtyInfos,
 }
 
 #[cfg(feature = "std")]
@@ -278,23 +283,6 @@ fn insert_dirty<K: Ord + Hash>(set: &mut DirtyKeysSets<K>, key: K) -> bool {
 /// Same as `insert_dirty` but for indexed chunks.
 fn insert_dirty_chunk(set: &mut DirtyBlobChunks, at: usize) -> bool {
 	set.last_mut().map(|dk| dk.insert(at)).unwrap_or_default()
-}
-
-/// Mark info change value as dirty.
-///
-/// Returns true iff we are currently have at least one open transaction and if this
-/// is the first write to the given key that transaction.
-fn set_dirty_infos(info: &mut DirtyInfos) -> bool {
-	info.last_mut()
-		.map(|written| {
-			if *written {
-				false
-			} else {
-				*written = true;
-				true
-			}
-		})
-		.unwrap_or_default()
 }
 
 impl<K: Ord + Hash + Clone, V> OverlayedMap<K, V> {
@@ -441,20 +429,11 @@ impl OverlayedContext {
 		}
 	}
 
-	/// Create a new info changeset at the same transaction state but without any contents.
-	///
-	/// This changeset might be created when there are already open transactions.
-	/// We need to catch up here so that the child is at the same transaction depth.
+	/// Create a new info changeset.
 	pub(crate) fn spawn_info<I, M>(&self, info: I) -> OverlayedInfos<I, M> {
-		use sp_std::iter::repeat;
-		let mut result = OverlayedInfos {
-			infos: OverlayedEntry { transactions: SmallVec::from_iter([info.into()]) },
-			dirty_infos: repeat(false).take(self.transaction_depth()).collect(),
-		};
-		result.dirty_infos.last_mut().map(|d| {
-			*d = true;
-		});
-		result
+		OverlayedInfos {
+			infos: OverlayedEntry { transactions: SmallVec::from_iter([(info, self).into()]) },
+		}
 	}
 
 	/// Call this before transfering control to the runtime.
@@ -542,11 +521,17 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 	/// current transaction.
 	#[must_use = "A change was registered, so this value MUST be modified."]
 	#[inline]
-	pub fn modify_value(&mut self) -> &mut I {
+	pub fn modify_value(&mut self, context: &OverlayedContext) -> &mut I {
 		debug_assert!(!self.infos.transactions.is_empty());
-		if set_dirty_infos(&mut self.dirty_infos) {
+		if self
+			.infos
+			.transactions
+			.last()
+			.map(|info| info.transaction_depth != context.transaction_depth())
+			.unwrap_or(true)
+		{
 			let infos = self.infos.value_mut();
-			let mut value: InfoEntry<I, M> = infos.info.clone().into();
+			let mut value: InfoEntry<I, M> = (infos.info.clone(), context).into();
 			value.origin = OriginEntry::Current;
 			// first write, add a layer
 			self.infos.transactions.push(value);
@@ -556,8 +541,14 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 	}
 
 	/// Check if we should store origin for a possible rollback.
-	pub fn need_keep_origin(&self) -> bool {
-		if self.dirty_infos.last().copied().unwrap_or(true) {
+	pub fn need_keep_origin(&self, context: &OverlayedContext) -> bool {
+		if self
+			.infos
+			.transactions
+			.last()
+			.map(|info| info.transaction_depth == context.transaction_depth())
+			.unwrap_or(true)
+		{
 			match &self.infos.value_ref().origin {
 				OriginEntry::Current => true,
 				_ => false,
@@ -571,8 +562,14 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 	}
 
 	/// Take is previous moved from origin.
-	pub fn take_is_previous_moved_from(&mut self) -> Option<Vec<u8>> {
-		if self.dirty_infos.last().copied().unwrap_or(false) {
+	pub fn take_is_previous_moved_from(&mut self, transaction_depth: usize) -> Option<Vec<u8>> {
+		if self
+			.infos
+			.transactions
+			.last()
+			.map(|info| info.transaction_depth == transaction_depth)
+			.unwrap_or(false)
+		{
 			self.infos.value_mut().moved_from_current.take()
 		} else {
 			None
@@ -580,8 +577,17 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 	}
 
 	/// Take is previous moved from origin.
-	pub fn take_others_previous_moved_from(&mut self) -> Option<Map<Vec<u8>, M>> {
-		if self.dirty_infos.last().copied().unwrap_or(false) {
+	pub fn take_others_previous_moved_from(
+		&mut self,
+		transaction_depth: usize,
+	) -> Option<Map<Vec<u8>, M>> {
+		if self
+			.infos
+			.transactions
+			.last()
+			.map(|info| info.transaction_depth == transaction_depth)
+			.unwrap_or(false)
+		{
 			self.infos.value_mut().others_moved_from.take()
 		} else {
 			None
@@ -589,8 +595,14 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 	}
 
 	/// Take last_removed of current transaction layer.
-	pub(crate) fn take_last_origin(&mut self) -> Option<OriginEntry<M>> {
-		if self.dirty_infos.last().copied().unwrap_or(false) {
+	pub(crate) fn take_last_origin(&mut self, transaction_depth: usize) -> Option<OriginEntry<M>> {
+		if self
+			.infos
+			.transactions
+			.last()
+			.map(|info| info.transaction_depth == transaction_depth)
+			.unwrap_or(false)
+		{
 			let infos = self.infos.value_mut();
 			Some(if let &OriginEntry::Empty = &infos.origin {
 				OriginEntry::Empty
@@ -603,11 +615,17 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 	}
 
 	/// Set last_removed in current transaction layer.
-	pub fn set_last_removed(&mut self, last_removed: M) {
-		if set_dirty_infos(&mut self.dirty_infos) {
+	pub fn set_last_removed(&mut self, last_removed: M, context: &OverlayedContext) {
+		if self
+			.infos
+			.transactions
+			.last()
+			.map(|info| info.transaction_depth != context.transaction_depth())
+			.unwrap_or(true)
+		{
 			let info = self.infos.value_ref().info.clone();
 			// first write, add a layer
-			self.infos.transactions.push(info.into());
+			self.infos.transactions.push((info, context).into());
 		}
 
 		let infos = self.infos.value_mut();
@@ -616,11 +634,17 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 	}
 
 	/// Set moved_to in current transaction layer.
-	pub fn set_moved_to(&mut self) {
-		if set_dirty_infos(&mut self.dirty_infos) {
+	pub fn set_moved_to(&mut self, context: &OverlayedContext) {
+		if self
+			.infos
+			.transactions
+			.last()
+			.map(|info| info.transaction_depth != context.transaction_depth())
+			.unwrap_or(true)
+		{
 			let info = self.infos.value_ref().info.clone();
 			// first write, add a layer
-			self.infos.transactions.push(info.into());
+			self.infos.transactions.push((info, context).into());
 		}
 
 		let infos = self.infos.value_mut();
@@ -629,11 +653,22 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 	}
 
 	/// Set moved_to in current transaction layer.
-	pub fn set_moved_from(&mut self, moved_from_name: Vec<u8>, moved_from_state: Option<M>) {
-		if set_dirty_infos(&mut self.dirty_infos) {
+	pub fn set_moved_from(
+		&mut self,
+		moved_from_name: Vec<u8>,
+		moved_from_state: Option<M>,
+		context: &OverlayedContext,
+	) {
+		if self
+			.infos
+			.transactions
+			.last()
+			.map(|info| info.transaction_depth != context.transaction_depth())
+			.unwrap_or(true)
+		{
 			let info = self.infos.value_ref().info.clone();
 			// first write, add a layer
-			self.infos.transactions.push(info.into());
+			self.infos.transactions.push((info, context).into());
 		}
 
 		let infos = self.infos.value_mut();
@@ -652,33 +687,30 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 		}
 	}
 
-	/// Start a new nested transaction.
-	///
-	/// This allows to either commit or roll back all changes that were made while this
-	/// transaction was open. Any transaction must be closed by either `commit_transaction`
-	/// or `rollback_transaction` before this overlay can be converted into storage changes.
-	///
-	/// Changes made without any open transaction are committed immediately.
-	pub fn start_transaction(&mut self) {
-		self.dirty_infos.push(Default::default());
-	}
-
 	/// Commit the last transaction started by `start_transaction`.
 	///
 	/// Any changes made during that transaction are committed. Returns an error if
 	/// there is no open transaction that can be committed.
-	pub fn commit_transaction(&mut self) -> Result<(), NoOpenTransaction> {
-		if self.dirty_infos.pop().ok_or(NoOpenTransaction)? {
-			let need_merge = if let Some(prev) = self.dirty_infos.last_mut() {
-				if *prev {
-					false
-				} else {
-					*prev = true;
-					true
+	pub fn commit_transaction(
+		&mut self,
+		transaction_depth: usize,
+	) -> Result<(), NoOpenTransaction> {
+		if self
+			.infos
+			.transactions
+			.last()
+			.map(|info| info.transaction_depth == transaction_depth)
+			.ok_or(NoOpenTransaction)?
+		{
+			let nb_transactions = self.infos.transactions.len();
+			let mut need_merge = false;
+			if nb_transactions > 1 {
+				if let Some(prev) = self.infos.transactions.get(nb_transactions - 2) {
+					if prev.transaction_depth + 1 == transaction_depth {
+						need_merge = true;
+					}
 				}
-			} else {
-				self.infos.transactions.len() > 1
-			};
+			}
 
 			// We only need to merge if there is an pre-existing value. It may be a value from
 			// the previous transaction or a value committed without any open transaction.
@@ -688,18 +720,27 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 				// same for moved from.
 				// Only keep the current info.
 				self.infos.value_mut().info = dropped_tx.info;
+			} else {
+				self.infos.transactions.last_mut().map(|info| info.transaction_depth -= 1);
 			}
 		}
 		Ok(())
 	}
 }
 
-impl<I: Clone, M> Transactional for OverlayedInfos<I, M> {
+impl<I: Clone, M> Transactional for (&mut OverlayedInfos<I, M>, usize) {
 	fn rollback_transaction(&mut self) -> Result<bool, NoOpenTransaction> {
-		if self.dirty_infos.pop().ok_or(NoOpenTransaction)? {
-			self.infos.pop_transaction();
+		let (info, transaction_depth) = self;
+		if info
+			.infos
+			.transactions
+			.last()
+			.map(|info| info.transaction_depth == *transaction_depth)
+			.ok_or(NoOpenTransaction)?
+		{
+			info.infos.pop_transaction();
 		}
-		Ok(self.infos.transactions.is_empty())
+		Ok(info.infos.transactions.is_empty())
 	}
 }
 

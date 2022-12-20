@@ -1271,7 +1271,7 @@ mod tests {
 		)
 			.into();
 
-		let ext = TestExt::new(&mut overlay, &mut cache, &backend, None);
+		let mut ext = TestExt::new(&mut overlay, &mut cache, &backend, None);
 
 		// next_backend < next_overlay
 		assert_eq!(ext.next_storage_key(&[5]), Some(vec![10]));
@@ -1287,7 +1287,7 @@ mod tests {
 
 		drop(ext);
 		overlay.set_storage(vec![50], Some(vec![50]));
-		let ext = TestExt::new(&mut overlay, &mut cache, &backend, None);
+		let mut ext = TestExt::new(&mut overlay, &mut cache, &backend, None);
 
 		// next_overlay exist but next_backend doesn't exist
 		assert_eq!(ext.next_storage_key(&[40]), Some(vec![50]));
@@ -1320,7 +1320,7 @@ mod tests {
 		)
 			.into();
 
-		let ext = TestExt::new(&mut overlay, &mut cache, &backend, None);
+		let mut ext = TestExt::new(&mut overlay, &mut cache, &backend, None);
 
 		assert_eq!(ext.next_storage_key(&[5]), Some(vec![30]));
 
@@ -1356,7 +1356,7 @@ mod tests {
 		)
 			.into();
 
-		let ext = TestExt::new(&mut overlay, &mut cache, &backend, None);
+		let mut ext = TestExt::new(&mut overlay, &mut cache, &backend, None);
 
 		assert_eq!(
 			ext.next_child_storage_key(child_info, &[5], 10),
@@ -1377,7 +1377,7 @@ mod tests {
 
 		drop(ext);
 		overlay.set_child_storage(child_info, &[50], Some(&[50]));
-		let ext = TestExt::new(&mut overlay, &mut cache, &backend, None);
+		let mut ext = TestExt::new(&mut overlay, &mut cache, &backend, None);
 
 		// next_overlay exist but next_backend doesn't exist
 		assert_eq!(ext.next_child_storage_key(child_info, &[40], 1), Some(vec![vec![50]]));
@@ -1411,11 +1411,11 @@ mod tests {
 		)
 			.into();
 
-		let ext = TestExt::new(&mut overlay, &mut cache, &backend, None);
+		let mut ext = TestExt::new(&mut overlay, &mut cache, &backend, None);
 
-		assert_eq!(ext.child_storage(child_info, &[10], 0, None), Some(vec![10, 1, 2]));
-		assert_eq!(ext.child_storage(child_info, &[10], 1, Some(1)), Some(vec![1]));
-		assert_eq!(ext.child_storage(child_info, &[10], 1, Some(2)), Some(vec![1, 2]));
+		assert_eq!(ext.child_storage(child_info, &[10], 0, None), Some(vec![10, 1, 2].into()));
+		assert_eq!(ext.child_storage(child_info, &[10], 1, Some(1)), Some(vec![1].into()));
+		assert_eq!(ext.child_storage(child_info, &[10], 1, Some(2)), Some(vec![1, 2].into()));
 		assert_eq!(
 			ext.child_storage_hash(child_info, &[10]),
 			Some(Blake2Hasher::hash(&[10, 1, 2]).as_ref().to_vec()),
@@ -1424,7 +1424,7 @@ mod tests {
 		assert_eq!(ext.child_storage(child_info, &[20], 0, None), None);
 		assert_eq!(ext.child_storage_hash(child_info, &[20]), None);
 
-		assert_eq!(ext.child_storage(child_info, &[30], 0, None), Some(vec![31]));
+		assert_eq!(ext.child_storage(child_info, &[30], 0, None), Some(vec![31].into()));
 		assert_eq!(
 			ext.child_storage_hash(child_info, &[30]),
 			Some(Blake2Hasher::hash(&[31]).as_ref().to_vec()),
@@ -1469,8 +1469,8 @@ mod tests {
 		let mut under_prefix = well_known_keys::CHILD_STORAGE_KEY_PREFIX.to_vec();
 		under_prefix.extend(b"path");
 		let _ = ext.clear_prefix(&well_known_keys::CHILD_STORAGE_KEY_PREFIX[..4], None, None);
-		assert_eq!(ext.child_storage(child_info, &[30], 0, None), Some(vec![40]));
-		assert_eq!(ext.storage(not_under_prefix.as_slice(), 0, None), Some(vec![10]));
+		assert_eq!(ext.child_storage(child_info, &[30], 0, None), Some(vec![40].into()));
+		assert_eq!(ext.storage(not_under_prefix.as_slice(), 0, None), Some(vec![10].into()));
 		let _ = ext.clear_prefix(&not_under_prefix[..5], None, None);
 		assert_eq!(ext.storage(not_under_prefix.as_slice(), 0, None), None);
 	}

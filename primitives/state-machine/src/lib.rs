@@ -1712,7 +1712,7 @@ mod tests {
 		let mut ext = Ext::new(&mut overlay, &mut cache, backend, None);
 
 		ext.set_child_storage(child_info, b"abc", b"def");
-		assert_eq!(ext.child_storage(child_info, b"abc", 0, None), Some(b"def".into()));
+		assert_eq!(ext.child_storage(child_info, b"abc", 0, None), Some(b"def"[..].into()));
 		let _ = ext.kill_child_storage(child_info, None, None);
 		assert_eq!(ext.child_storage(child_info, b"abc", 0, None), None);
 	}
@@ -1732,7 +1732,7 @@ mod tests {
 		assert_eq!(ext.child_storage(child_info, b"abc", 0, None), None);
 		assert!(ext.update_storage_info(child_info.clone(), true));
 		assert!(ext.set_child_storage(child_info, b"abc", b"def"));
-		assert_eq!(ext.child_storage(child_info, b"abc", 0, None), Some(b"def".to_vec()));
+		assert_eq!(ext.child_storage(child_info, b"abc", 0, None), Some(b"def"[..].into()));
 		let _ = ext.kill_child_storage(child_info, None, None);
 		assert_eq!(ext.child_storage(child_info, b"abc", 0, None), None);
 	}
@@ -1751,7 +1751,7 @@ mod tests {
 			ext.storage_append(key.clone(), reference_data[0].encode());
 			assert_eq!(
 				ext.storage(key.as_slice(), 0, None),
-				Some(vec![reference_data[0].clone()].encode())
+				Some(vec![reference_data[0].clone()].encode().into())
 			);
 		}
 		overlay.start_transaction();
@@ -1761,14 +1761,14 @@ mod tests {
 			for i in reference_data.iter().skip(1) {
 				ext.storage_append(key.clone(), i.encode());
 			}
-			assert_eq!(ext.storage(key.as_slice(), 0, None), Some(reference_data.encode()));
+			assert_eq!(ext.storage(key.as_slice(), 0, None), Some(reference_data.encode().into()));
 		}
 		overlay.rollback_transaction().unwrap();
 		{
-			let ext = Ext::new(&mut overlay, &mut cache, backend, None);
+			let mut ext = Ext::new(&mut overlay, &mut cache, backend, None);
 			assert_eq!(
 				ext.storage(key.as_slice(), 0, None),
-				Some(vec![reference_data[0].clone()].encode())
+				Some(vec![reference_data[0].clone()].encode().into())
 			);
 		}
 	}
@@ -1802,14 +1802,14 @@ mod tests {
 
 			assert_eq!(
 				ext.storage(key.as_slice(), 0, None),
-				Some(vec![Item::InitializationItem].encode())
+				Some(vec![Item::InitializationItem].encode().into())
 			);
 
 			ext.storage_append(key.clone(), Item::DiscardedItem.encode());
 
 			assert_eq!(
 				ext.storage(key.as_slice(), 0, None),
-				Some(vec![Item::InitializationItem, Item::DiscardedItem].encode()),
+				Some(vec![Item::InitializationItem, Item::DiscardedItem].encode().into()),
 			);
 		}
 		overlay.rollback_transaction().unwrap();
@@ -1820,24 +1820,24 @@ mod tests {
 
 			assert_eq!(
 				ext.storage(key.as_slice(), 0, None),
-				Some(vec![Item::InitializationItem].encode())
+				Some(vec![Item::InitializationItem].encode().into())
 			);
 
 			ext.storage_append(key.clone(), Item::CommitedItem.encode());
 
 			assert_eq!(
 				ext.storage(key.as_slice(), 0, None),
-				Some(vec![Item::InitializationItem, Item::CommitedItem].encode()),
+				Some(vec![Item::InitializationItem, Item::CommitedItem].encode().into()),
 			);
 		}
 		overlay.start_transaction();
 
 		// Then only initlaization item and second (committed) item should persist.
 		{
-			let ext = Ext::new(&mut overlay, &mut cache, backend, None);
+			let mut ext = Ext::new(&mut overlay, &mut cache, backend, None);
 			assert_eq!(
 				ext.storage(key.as_slice(), 0, None),
-				Some(vec![Item::InitializationItem, Item::CommitedItem].encode()),
+				Some(vec![Item::InitializationItem, Item::CommitedItem].encode().into()),
 			);
 		}
 	}
@@ -2261,8 +2261,8 @@ mod tests {
 		{
 			let mut cache = StorageTransactionCache::default();
 			let mut ext = Ext::new(&mut overlay, &mut cache, backend, None);
-			assert_eq!(ext.storage(b"bbb", 0, None), Some(vec![]));
-			assert_eq!(ext.storage(b"ccc", 0, None), Some(vec![]));
+			assert_eq!(ext.storage(b"bbb", 0, None), Some(vec![].into()));
+			assert_eq!(ext.storage(b"ccc", 0, None), Some(vec![].into()));
 			ext.clear_storage(b"ccc");
 			assert_eq!(ext.storage(b"ccc", 0, None), None);
 		}
@@ -2298,24 +2298,24 @@ mod tests {
 			let mut cache = StorageTransactionCache::default();
 			let mut ext = Ext::new(&mut overlay, &mut cache, backend, None);
 			ext.blob_new(blob2.storage_key(), sp_core::storage::transient::Mode::Drop);
-			assert_eq!(ext.blob_get(blob1.storage_key(), Some(1), 1), Some(vec![1]));
+			assert_eq!(ext.blob_get(blob1.storage_key(), Some(1), 1), Some(vec![1].into()));
 			assert!(ext.blob_exists(blob1.storage_key()));
 			assert!(!ext.blob_exists(blob3.storage_key()));
 			ext.storage_start_transaction();
 			assert!(ext.blob_clone(blob1.storage_key(), blob3.storage_key()));
-			assert_eq!(ext.blob_get(blob3.storage_key(), Some(8), 1), Some(vec![1, 2]));
+			assert_eq!(ext.blob_get(blob3.storage_key(), Some(8), 1), Some(vec![1, 2].into()));
 			assert!(ext.blob_delete(blob1.storage_key()));
 			assert!(!ext.blob_exists(blob1.storage_key()));
 			assert_eq!(ext.blob_get(blob1.storage_key(), Some(8), 1), None);
 			ext.storage_start_transaction();
 			assert!(ext.blob_rename(blob3.storage_key(), blob1.storage_key()));
-			assert_eq!(ext.blob_get(blob1.storage_key(), Some(1), 1), Some(vec![1]));
+			assert_eq!(ext.blob_get(blob1.storage_key(), Some(1), 1), Some(vec![1].into()));
 			assert!(!ext.blob_exists(blob3.storage_key()));
 			assert_eq!(ext.blob_get(blob3.storage_key(), Some(8), 1), None);
 			assert_eq!(ext.blob_len(blob1.storage_key()), Some(3));
 			assert!(!ext.blob_truncate(blob1.storage_key(), 5));
 			assert!(ext.blob_truncate(blob1.storage_key(), 1));
-			assert_eq!(ext.blob_get(blob1.storage_key(), None, 0), Some(vec![0]));
+			assert_eq!(ext.blob_get(blob1.storage_key(), None, 0), Some(vec![0].into()));
 			assert_eq!(ext.blob_len(blob1.storage_key()), Some(1));
 			use hash_db::Hasher;
 			let value_hash = BlakeTwo256::hash(&[0]);
@@ -2347,7 +2347,7 @@ mod tests {
 			assert!(!ext.blob_exists(blob1.storage_key()));
 			assert_eq!(ext.blob_get(blob1.storage_key(), Some(8), 1), None);
 			ext.storage_rollback_transaction().unwrap();
-			assert_eq!(ext.blob_get(blob1.storage_key(), Some(1), 1), Some(vec![1]));
+			assert_eq!(ext.blob_get(blob1.storage_key(), Some(1), 1), Some(vec![1].into()));
 			assert!(ext.blob_exists(blob1.storage_key()));
 			assert!(!ext.blob_exists(blob3.storage_key()));
 		}

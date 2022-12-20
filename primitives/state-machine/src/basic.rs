@@ -603,8 +603,8 @@ mod tests {
 		let code = vec![1, 2, 3];
 		ext.set_storage(CODE.to_vec(), code.clone());
 
-		assert_eq!(&ext.storage(CODE, 0, None).unwrap(), &code);
-		assert_eq!(&ext.storage(CODE, 1, Some(1)).unwrap(), &code[1..2]);
+		assert_eq!(ext.storage(CODE, 0, None), Some(code[..].into()));
+		assert_eq!(ext.storage(CODE, 1, Some(1)), Some(code[1..2].into()));
 	}
 
 	#[test]
@@ -623,10 +623,10 @@ mod tests {
 			blob_storages: map![],
 		});
 
-		assert_eq!(ext.child_storage(child_info, b"doe", 0, None), Some(b"reindeer".to_vec()));
+		assert_eq!(ext.child_storage(child_info, b"doe", 0, None), Some(b"reindeer"[..].into()));
 
 		ext.set_child_storage(child_info, b"dog", b"puppy");
-		assert_eq!(ext.child_storage(child_info, b"dog", 0, None), Some(b"puppy".to_vec()));
+		assert_eq!(ext.child_storage(child_info, b"dog", 0, None), Some(b"puppy"[..].into()));
 
 		ext.clear_child_storage(child_info, b"dog");
 		assert_eq!(ext.child_storage(child_info, b"dog", 0, None), None);
