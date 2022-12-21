@@ -32,7 +32,7 @@ pub use sp_core::storage::{
 /// Return the value of the item in storage under `key`, or `None` if there is no explicit entry.
 pub fn get<T: Decode + Sized>(child_info: &ChildInfo, key: &[u8]) -> Option<T> {
 	match child_info.child_type() {
-		ChildType::ParentKeyId => {
+		ChildType::Default => {
 			let storage_key = child_info.storage_key();
 			sp_io::default_child_storage::get(storage_key, key).and_then(|v| {
 				Decode::decode(&mut &v[..]).map(Some).unwrap_or_else(|_| {
@@ -73,7 +73,7 @@ pub fn read_blob<T: Decode + Sized>(
 	entry_number: u32,
 ) -> Option<T> {
 	match child_info.child_type() {
-		ChildType::ParentKeyId => None,
+		ChildType::Default => None,
 		ChildType::Btree => None,
 		ChildType::Blob => {
 			let storage_key = child_info.storage_key();
@@ -123,7 +123,7 @@ pub fn get_or_else<T: Decode + Sized, F: FnOnce() -> T>(
 /// Put `value` in storage under `key`.
 pub fn put<T: Encode>(child_info: &ChildInfo, key: &[u8], value: &T) {
 	match child_info.child_type() {
-		ChildType::ParentKeyId => value.using_encoded(|slice| {
+		ChildType::Default => value.using_encoded(|slice| {
 			sp_io::default_child_storage::set(child_info.storage_key(), key, slice)
 		}),
 		ChildType::Btree => value.using_encoded(|slice| {
@@ -136,7 +136,7 @@ pub fn put<T: Encode>(child_info: &ChildInfo, key: &[u8], value: &T) {
 /// Push a value to a append only child state.
 pub fn push<T: Encode>(child_info: &ChildInfo, value: &T) -> bool {
 	match child_info.child_type() {
-		ChildType::ParentKeyId => false,
+		ChildType::Default => false,
 		ChildType::Btree => false,
 		ChildType::Blob => value.using_encoded(|slice| {
 			if let Some(at) = sp_io::blob_storage::len(child_info.storage_key()) {
@@ -182,8 +182,7 @@ pub fn take_or_else<T: Codec + Sized, F: FnOnce() -> T>(
 /// Check to see if `key` has an explicit entry in storage.
 pub fn exists(child_info: &ChildInfo, key: &[u8]) -> bool {
 	match child_info.child_type() {
-		ChildType::ParentKeyId =>
-			sp_io::default_child_storage::exists(child_info.storage_key(), key),
+		ChildType::Default => sp_io::default_child_storage::exists(child_info.storage_key(), key),
 		ChildType::Btree => sp_io::btree_storage::contains(child_info.storage_key(), key),
 		ChildType::Blob => false,
 	}
@@ -211,7 +210,7 @@ pub fn exists(child_info: &ChildInfo, key: &[u8]) -> bool {
 #[deprecated = "Use `clear_storage` instead"]
 pub fn kill_storage(child_info: &ChildInfo, limit: Option<u32>) -> KillStorageResult {
 	match child_info.child_type() {
-		ChildType::ParentKeyId =>
+		ChildType::Default =>
 			sp_io::default_child_storage::storage_kill(child_info.storage_key(), limit),
 		ChildType::Btree =>
 			if limit.is_some() {
@@ -265,7 +264,7 @@ pub fn clear_storage(
 	// enabled.
 	// sp_io::default_child_storage::storage_kill(prefix, maybe_limit, maybe_cursor)
 	let r = match child_info.child_type() {
-		ChildType::ParentKeyId =>
+		ChildType::Default =>
 			sp_io::default_child_storage::storage_kill(child_info.storage_key(), maybe_limit),
 		ChildType::Btree => {
 			let maybe_cursor = maybe_cursor.map(Vec::from);
@@ -291,7 +290,7 @@ pub fn clear_storage(
 /// Ensure `key` has no explicit entry in storage.
 pub fn kill(child_info: &ChildInfo, key: &[u8]) {
 	match child_info.child_type() {
-		ChildType::ParentKeyId => {
+		ChildType::Default => {
 			sp_io::default_child_storage::clear(child_info.storage_key(), key);
 		},
 		ChildType::Btree => {
@@ -304,7 +303,7 @@ pub fn kill(child_info: &ChildInfo, key: &[u8]) {
 /// Get a Vec of bytes from storage.
 pub fn get_raw(child_info: &ChildInfo, key: &[u8]) -> Option<Vec<u8>> {
 	match child_info.child_type() {
-		ChildType::ParentKeyId => sp_io::default_child_storage::get(child_info.storage_key(), key),
+		ChildType::Default => sp_io::default_child_storage::get(child_info.storage_key(), key),
 		ChildType::Btree => sp_io::btree_storage::item_get(child_info.storage_key(), key),
 		ChildType::Blob => None,
 	}
@@ -313,7 +312,7 @@ pub fn get_raw(child_info: &ChildInfo, key: &[u8]) -> Option<Vec<u8>> {
 /// Put a raw byte slice into storage.
 pub fn put_raw(child_info: &ChildInfo, key: &[u8], value: &[u8]) {
 	match child_info.child_type() {
-		ChildType::ParentKeyId =>
+		ChildType::Default =>
 			sp_io::default_child_storage::set(child_info.storage_key(), key, value),
 		ChildType::Btree => {
 			sp_io::btree_storage::insert(child_info.storage_key(), key, value);
@@ -325,7 +324,7 @@ pub fn put_raw(child_info: &ChildInfo, key: &[u8], value: &[u8]) {
 /// Calculate current child root value.
 pub fn root(child_info: &ChildInfo, version: StateVersion) -> Option<Vec<u8>> {
 	match &child_info {
-		ChildInfo::ParentKeyId(..) =>
+		ChildInfo::Default(..) =>
 			Some(sp_io::default_child_storage::root(child_info.storage_key(), version)),
 		ChildInfo::Btree(btree) => btree.algorithm.clone().and_then(|algorithm| {
 			sp_io::btree_storage::root32(child_info.storage_key(), algorithm.into()).map(Into::into)
@@ -339,7 +338,7 @@ pub fn root(child_info: &ChildInfo, version: StateVersion) -> Option<Vec<u8>> {
 /// Return the length in bytes of the value without reading it. `None` if it does not exist.
 pub fn len(child_info: &ChildInfo, key: &[u8]) -> Option<u32> {
 	match child_info.child_type() {
-		ChildType::ParentKeyId => {
+		ChildType::Default => {
 			let mut buffer = [0; 0];
 			sp_io::default_child_storage::read(child_info.storage_key(), key, &mut buffer, 0)
 		},

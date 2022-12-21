@@ -140,7 +140,8 @@ impl substrate_test_client::GenesisInit for GenesisParameters {
 					child_content.data.clone().into_iter().collect(),
 					sp_runtime::StateVersion::V1,
 				);
-			let prefixed_storage_key = child_content.child_info.prefixed_storage_key();
+			let prefixed_storage_key =
+				ChildType::Default.new_prefixed_key(&child_content.info.name);
 			(prefixed_storage_key.into_inner(), state_root.encode())
 		});
 		let child_roots_dummy = storage.btree_storages.iter().map(|(_sk, _child_content)| {
@@ -236,19 +237,14 @@ pub trait TestClientBuilderExt<B>: Sized {
 		let key = key.into();
 		assert!(!storage_key.is_empty());
 		assert!(!key.is_empty());
-		let child_map = match child_info.child_type() {
-			ChildType::ParentKeyId => &mut self.genesis_init_mut().extra_storage.children_default,
-			ChildType::Blob | ChildType::Btree => {
-				log::warn!("Skipping transient storage for genesis.");
-				return self
-			},
+		let ChildInfo::Default(info) = child_info else {
+			log::warn!("Skipping transient storage for genesis.");
+			return self
 		};
+		let child_map = &mut self.genesis_init_mut().extra_storage.children_default;
 		child_map
 			.entry(storage_key)
-			.or_insert_with(|| StorageChild {
-				data: Default::default(),
-				child_info: child_info.clone(),
-			})
+			.or_insert_with(|| StorageChild { data: Default::default(), info: info.clone() })
 			.data
 			.insert(key, value.into());
 		self

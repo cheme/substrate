@@ -41,7 +41,7 @@ use futures::{future::Future, stream::StreamExt};
 use sc_client_api::BlockchainEvents;
 use sc_service::client::{ClientConfig, LocalCallExecutor};
 use serde::Deserialize;
-use sp_core::storage::{ChildInfo, ChildType};
+use sp_core::storage::DefaultChild;
 use sp_runtime::{codec::Encode, traits::Block as BlockT, OpaqueExtrinsic};
 use std::{
 	collections::{HashMap, HashSet},
@@ -146,14 +146,14 @@ impl<Block: BlockT, ExecutorDispatch, Backend, G: GenesisInit>
 	/// Extend child storage
 	pub fn add_child_storage(
 		mut self,
-		child_info: &ChildInfo,
+		child_info: &DefaultChild,
 		key: impl AsRef<[u8]>,
 		value: impl AsRef<[u8]>,
 	) -> Self {
-		let storage_key = child_info.storage_key();
-		let entry = self.child_storage_extension.entry(storage_key.to_vec()).or_insert_with(|| {
-			StorageChild { data: Default::default(), child_info: child_info.clone() }
-		});
+		let entry = self
+			.child_storage_extension
+			.entry(child_info.name.clone())
+			.or_insert_with(|| StorageChild { data: Default::default(), info: child_info.clone() });
 		entry.data.insert(key.as_ref().to_vec(), value.as_ref().to_vec());
 		self
 	}
@@ -207,29 +207,21 @@ impl<Block: BlockT, ExecutorDispatch, Backend, G: GenesisInit>
 		Backend: sc_client_api::backend::Backend<Block>,
 		<Backend as sc_client_api::backend::Backend<Block>>::OffchainStorage: 'static,
 	{
-		let storage =
-			{
-				let mut storage = self.genesis_init.genesis_storage();
-				// Add some child storage keys.
-				for (key, child_content) in self.child_storage_extension {
-					match child_content.child_info.child_type() {
-						ChildType::ParentKeyId => {
-							storage.children_default.insert(
-								key,
-								StorageChild {
-									data: child_content.data.into_iter().collect(),
-									child_info: child_content.child_info,
-								},
-							);
-						},
-						ChildType::Blob | ChildType::Btree => {
-							log::warn!("Trying to insert transient storage in test state, ignoring content.");
-						},
-					}
-				}
+		let storage = {
+			let mut storage = self.genesis_init.genesis_storage();
+			// Add some child storage keys.
+			for (key, child_content) in self.child_storage_extension {
+				storage.children_default.insert(
+					key,
+					StorageChild {
+						data: child_content.data.into_iter().collect(),
+						info: child_content.info,
+					},
+				);
+			}
 
-				storage
-			};
+			storage
+		};
 
 		let client_config = ClientConfig {
 			offchain_indexing_api: self.enable_offchain_indexing_api,

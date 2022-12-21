@@ -335,13 +335,10 @@ where
 		child_info: &ChildInfo,
 		delta: impl Iterator<Item = (&'a [u8], Option<&'a [u8]>)>,
 		state_version: StateVersion,
-	) -> (H::Out, bool, Self::Transaction)
-	where
-		H::Out: Ord,
-	{
+	) -> (H::Out, bool, Self::Transaction) {
 		match child_info.child_type() {
-			ChildType::ParentKeyId =>
-				self.essence.child_storage_root(child_info, delta, state_version),
+			ChildType::Default =>
+				self.default_child_storage_root(child_info.storage_key(), delta, state_version),
 			ChildType::Blob | ChildType::Btree => unreachable!("No backend for transient storage"),
 		}
 	}
@@ -357,27 +354,30 @@ where
 	}
 }
 
+impl<S: TrieBackendStorage<H>, H: Hasher, C: AsLocalTrieCache<H> + Send + Sync> TrieBackend<S, H, C>
+where
+	H::Out: Ord + Codec,
+{
+	/// Storage root variant for default child state.
+	pub fn default_child_storage_root<'a>(
+		&self,
+		name: &[u8],
+		delta: impl Iterator<Item = (&'a [u8], Option<&'a [u8]>)>,
+		state_version: StateVersion,
+	) -> (H::Out, bool, S::Overlay) {
+		self.essence.default_child_storage_root(name, delta, state_version)
+	}
+}
+
 /// Empty child root for a given child info and state version.
-pub fn empty_child_trie_root<H>(child_info: &ChildInfo, state_version: StateVersion) -> H::Out
+pub fn default_empty_child_trie_root<H>(state_version: StateVersion) -> H::Out
 where
 	H: Hasher,
 {
 	use sp_trie::empty_child_trie_root;
-	let is_default_trie = match child_info {
-		ChildInfo::ParentKeyId(..) => true,
-		ChildInfo::Btree(info) => match info.algorithm {
-			Some(sp_core::storage::transient::Root32Structure::SubstrateDefault) => true,
-			None => false,
-		},
-		ChildInfo::Blob(_) => false,
-	};
-	if is_default_trie {
-		match state_version {
-			StateVersion::V0 => empty_child_trie_root::<LayoutV0<H>>(),
-			StateVersion::V1 => empty_child_trie_root::<LayoutV1<H>>(),
-		}
-	} else {
-		Default::default()
+	match state_version {
+		StateVersion::V0 => empty_child_trie_root::<LayoutV0<H>>(),
+		StateVersion::V1 => empty_child_trie_root::<LayoutV1<H>>(),
 	}
 }
 
@@ -417,7 +417,7 @@ pub mod tests {
 
 	use super::*;
 	use codec::Encode;
-	use sp_core::H256;
+	use sp_core::{storage::DefaultChild, H256};
 	use sp_runtime::traits::BlakeTwo256;
 	use sp_trie::{
 		cache::{CacheSize, SharedTrieCache},
@@ -870,10 +870,8 @@ pub mod tests {
 		proof_recorded_and_checked_with_child_inner(StateVersion::V1);
 	}
 	fn proof_recorded_and_checked_with_child_inner(state_version: StateVersion) {
-		let child_info_1 = ChildInfo::new_default(b"sub1");
-		let child_info_2 = ChildInfo::new_default(b"sub2");
-		let child_info_1 = &child_info_1;
-		let child_info_2 = &child_info_2;
+		let child_info_1 = DefaultChild::new(b"sub1");
+		let child_info_2 = DefaultChild::new(b"sub2");
 		let contents = vec![
 			(None, (0..64).map(|i| (vec![i], Some(vec![i]))).collect::<Vec<_>>()),
 			(Some(child_info_1.clone()), (28..65).map(|i| (vec![i], Some(vec![i]))).collect()),
@@ -881,7 +879,7 @@ pub mod tests {
 		];
 		let in_memory = new_in_mem::<BlakeTwo256, PrefixedKey<BlakeTwo256>>();
 		let in_memory = in_memory.update(contents, state_version);
-		let child_storage_keys = vec![child_info_1.to_owned(), child_info_2.to_owned()];
+		let child_storage_keys = vec![child_info_1.clone(), child_info_2.clone()];
 		let in_memory_root = in_memory
 			.full_storage_root(
 				std::iter::empty(),
@@ -889,6 +887,12 @@ pub mod tests {
 				state_version,
 			)
 			.0;
+
+		let child_info_1 = ChildInfo::Default(child_info_1);
+		let child_info_2 = ChildInfo::Default(child_info_2);
+		let child_info_1 = &child_info_1;
+		let child_info_2 = &child_info_2;
+
 		(0..64).for_each(|i| assert_eq!(in_memory.storage(&[i]).unwrap().unwrap(), vec![i]));
 		(28..65).for_each(|i| {
 			assert_eq!(in_memory.child_storage(child_info_1, &[i]).unwrap().unwrap(), vec![i])
@@ -971,8 +975,7 @@ pub mod tests {
 		child_proof_recording_with_edge_cases_works_inner(StateVersion::V1);
 	}
 	fn child_proof_recording_with_edge_cases_works_inner(state_version: StateVersion) {
-		let child_info_1 = ChildInfo::new_default(b"sub1");
-		let child_info_1 = &child_info_1;
+		let child_info_1 = DefaultChild::new(b"sub1");
 		let contents = vec![
 			(None, (0..64).map(|i| (vec![i], Some(vec![i]))).collect::<Vec<_>>()),
 			(
@@ -995,6 +998,8 @@ pub mod tests {
 			)
 			.0;
 
+		let child_info_1 = ChildInfo::Default(child_info_1);
+		let child_info_1 = &child_info_1;
 		let child_1_root =
 			in_memory.child_storage_root(child_info_1, std::iter::empty(), state_version).0;
 		let trie = in_memory.as_trie_backend();
@@ -1163,10 +1168,8 @@ pub mod tests {
 		let child_trie_1_val = vec![2; 1024];
 		let child_trie_2_val = vec![3; 1024];
 
-		let child_info_1 = ChildInfo::new_default(b"sub1");
-		let child_info_2 = ChildInfo::new_default(b"sub2");
-		let child_info_1 = &child_info_1;
-		let child_info_2 = &child_info_2;
+		let child_info_1 = DefaultChild::new(b"sub1");
+		let child_info_2 = DefaultChild::new(b"sub2");
 		let contents = vec![
 			(None, vec![(key.clone(), Some(top_trie_val.clone()))]),
 			(Some(child_info_1.clone()), vec![(key.clone(), Some(child_trie_1_val.clone()))]),
@@ -1182,6 +1185,11 @@ pub mod tests {
 				state_version,
 			)
 			.0;
+		let child_info_1 = ChildInfo::Default(child_info_1);
+		let child_info_2 = ChildInfo::Default(child_info_2);
+		let child_info_1 = &child_info_1;
+		let child_info_2 = &child_info_2;
+
 		assert_eq!(in_memory.storage(&key).unwrap().unwrap(), top_trie_val);
 		assert_eq!(in_memory.child_storage(child_info_1, &key).unwrap().unwrap(), child_trie_1_val);
 		assert_eq!(in_memory.child_storage(child_info_2, &key).unwrap().unwrap(), child_trie_2_val);

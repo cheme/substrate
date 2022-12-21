@@ -834,7 +834,7 @@ mod execution {
 				let storage_key = PrefixedStorageKey::new_ref(storage_key);
 				(
 					Some(match ChildType::from_prefixed_key(storage_key) {
-						Some((ChildType::ParentKeyId, storage_key)) =>
+						Some((ChildType::Default, storage_key)) =>
 							ChildInfo::new_default(storage_key),
 						Some((ChildType::Btree, _))
 						| Some((ChildType::Blob, _)) => {
@@ -1271,7 +1271,7 @@ mod execution {
 				let storage_key = PrefixedStorageKey::new_ref(storage_key);
 				(
 					Some(match ChildType::from_prefixed_key(storage_key) {
-						Some((ChildType::ParentKeyId, storage_key)) =>
+						Some((ChildType::Default, storage_key)) =>
 							ChildInfo::new_default(storage_key),
 Some((ChildType::Btree, _)) | Some((ChildType::Blob, _)) => return Err(Box::new("Invalid range start child trie key, reserved for transient storage.")),
 						None => return Err(Box::new("Invalid range start child trie key.")),
@@ -1356,7 +1356,7 @@ mod tests {
 	use codec::Encode;
 	use sp_core::{
 		map,
-		storage::{ChildInfo, StateVersion},
+		storage::{ChildInfo, DefaultChild, StateVersion},
 		testing::TaskExecutor,
 		traits::{CodeExecutor, Externalities, RuntimeCode},
 	};
@@ -1612,7 +1612,7 @@ mod tests {
 
 	#[test]
 	fn limited_child_kill_works() {
-		let child_info = ChildInfo::new_default(b"sub1");
+		let child_info = DefaultChild::new(b"sub1");
 		let initial: HashMap<_, BTreeMap<_, _>> = map![
 			Some(child_info.clone()) => map![
 				b"a".to_vec() => b"0".to_vec(),
@@ -1623,6 +1623,7 @@ mod tests {
 		];
 		let backend = InMemoryBackend::<BlakeTwo256>::from((initial, StateVersion::default()));
 
+		let child_info = ChildInfo::Default(child_info);
 		let mut overlay = Changes::default();
 		overlay.set_child_storage(&child_info, b"1", Some(b"1312"));
 		overlay.set_child_storage(&child_info, b"2", Some(b"1312"));
@@ -1655,7 +1656,7 @@ mod tests {
 
 	#[test]
 	fn limited_child_kill_off_by_one_works() {
-		let child_info = ChildInfo::new_default(b"sub1");
+		let child_info = DefaultChild::new(b"sub1");
 		let initial: HashMap<_, BTreeMap<_, _>> = map![
 			Some(child_info.clone()) => map![
 				b"a".to_vec() => b"0".to_vec(),
@@ -1664,6 +1665,7 @@ mod tests {
 				b"d".to_vec() => b"3".to_vec()
 			],
 		];
+		let child_info = ChildInfo::Default(child_info);
 		let backend = InMemoryBackend::<BlakeTwo256>::from((initial, StateVersion::default()));
 		let mut overlay = Changes::default();
 		let mut cache = StorageTransactionCache::default();
@@ -1685,7 +1687,7 @@ mod tests {
 
 	#[test]
 	fn limited_child_kill_off_by_one_works_without_limit() {
-		let child_info = ChildInfo::new_default(b"sub1");
+		let child_info = DefaultChild::new(b"sub1");
 		let initial: HashMap<_, BTreeMap<_, _>> = map![
 			Some(child_info.clone()) => map![
 				b"a".to_vec() => b"0".to_vec(),
@@ -1694,6 +1696,7 @@ mod tests {
 				b"d".to_vec() => b"3".to_vec()
 			],
 		];
+		let child_info = ChildInfo::Default(child_info);
 		let backend = InMemoryBackend::<BlakeTwo256>::from((initial, StateVersion::default()));
 		let mut overlay = Changes::default();
 		let mut cache = StorageTransactionCache::default();
@@ -1916,7 +1919,7 @@ mod tests {
 	#[test]
 	fn child_read_compact_stress_test() {
 		use rand::{rngs::SmallRng, RngCore, SeedableRng};
-		let mut storage: HashMap<Option<ChildInfo>, BTreeMap<StorageKey, StorageValue>> =
+		let mut storage: HashMap<Option<DefaultChild>, BTreeMap<StorageKey, StorageValue>> =
 			Default::default();
 		let mut seed = [0; 32];
 		for i in 0..50u32 {
@@ -1930,7 +1933,7 @@ mod tests {
 				let key_len = 1 + (rand.next_u32() % 10);
 				let mut key = vec![0; key_len as usize];
 				rand.fill_bytes(&mut key[..]);
-				let child_info = ChildInfo::new_default(key.as_slice());
+				let child_info = DefaultChild::new(key);
 				let nb_item = 1 + rand.next_u32() % 25;
 				let mut items = BTreeMap::new();
 				for item in 0..nb_item {
@@ -1956,13 +1959,14 @@ mod tests {
 					let key_len = 1 + (rand.next_u32() % 10);
 					let mut key = vec![0; key_len as usize];
 					rand.fill_bytes(&mut key[..]);
-					ChildInfo::new_default(key.as_slice())
+					DefaultChild::new(key)
 				} else {
 					child_infos[rand.next_u32() as usize % nb_child_trie].clone()
 				};
 
 				if let Some(values) = storage.get(&Some(child_info.clone())) {
 					for _ in 0..(1 + values.len() / 2) {
+						let child_info = ChildInfo::Default(child_info.clone());
 						let ix = rand.next_u32() as usize % values.len();
 						for (i, (key, value)) in values.iter().enumerate() {
 							if i == ix {
@@ -1984,6 +1988,7 @@ mod tests {
 					}
 				}
 				for _ in 0..4 {
+					let child_info = ChildInfo::Default(child_info.clone());
 					let key_len = 1 + (rand.next_u32() % 10);
 					let mut key = vec![0; key_len as usize];
 					rand.fill_bytes(&mut key[..]);
@@ -2156,11 +2161,11 @@ mod tests {
 	}
 	fn compact_multiple_child_trie_inner(state_version: StateVersion) -> usize {
 		// this root will be queried
-		let child_info1 = ChildInfo::new_default(b"sub1");
+		let child_info1 = DefaultChild::new(b"sub1");
 		// this root will not be include in proof
-		let child_info2 = ChildInfo::new_default(b"sub2");
+		let child_info2 = DefaultChild::new(b"sub2");
 		// this root will be include in proof
-		let child_info3 = ChildInfo::new_default(b"sub");
+		let child_info3 = DefaultChild::new(b"sub");
 		let remote_backend = trie_backend::tests::test_trie(state_version, None, None);
 		let long_vec: Vec<u8> = (0..1024usize).map(|_| 8u8).collect();
 		let (remote_root, transaction) = remote_backend.full_storage_root(
@@ -2193,6 +2198,8 @@ mod tests {
 			.into_iter(),
 			state_version,
 		);
+		let child_info1 = ChildInfo::Default(child_info1);
+
 		let mut remote_storage = remote_backend.backend_storage().clone();
 		remote_storage.consolidate(transaction);
 		let remote_backend = TrieBackendBuilder::new(remote_storage, remote_root).build();

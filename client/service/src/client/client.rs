@@ -59,8 +59,8 @@ use sp_consensus::{BlockOrigin, BlockStatus, Error as ConsensusError};
 
 use sc_utils::mpsc::{tracing_unbounded, TracingUnboundedSender};
 use sp_core::storage::{
-	well_known_keys, ChildInfo, ChildType, PrefixedStorageKey, Storage, StorageBlob, StorageBtree,
-	StorageChild, StorageData, StorageKey,
+	well_known_keys, ChildInfo, ChildType, DefaultChild, PrefixedStorageKey, Storage, StorageBlob,
+	StorageBtree, StorageChild, StorageData, StorageKey,
 };
 #[cfg(feature = "test-helpers")]
 use sp_keystore::SyncCryptoStorePtr;
@@ -621,13 +621,13 @@ where
 								for parent_storage in state.parent_storage_keys {
 									let storage_key = PrefixedStorageKey::new_ref(&parent_storage);
 									match ChildType::from_prefixed_key(&storage_key) {
-										Some((ChildType::ParentKeyId, storage_key)) => {
+										Some((ChildType::Default, storage_key)) => {
 											let entry = storage
 												.children_default
 												.entry(storage_key.to_vec())
 												.or_insert_with(|| StorageChild {
 													data: Default::default(),
-													child_info: ChildInfo::new_default(storage_key),
+													info: DefaultChild::new(storage_key),
 												});
 											for (key, value) in state.key_values.into_iter() {
 												entry.data.insert(key, value);
@@ -1280,8 +1280,7 @@ where
 		let child_info = |storage_key: &Vec<u8>| -> sp_blockchain::Result<ChildInfo> {
 			let storage_key = PrefixedStorageKey::new_ref(storage_key);
 			match ChildType::from_prefixed_key(storage_key) {
-				Some((ChildType::ParentKeyId, storage_key)) =>
-					Ok(ChildInfo::new_default(storage_key)),
+				Some((ChildType::Default, storage_key)) => Ok(ChildInfo::new_default(storage_key)),
 				// TODO have a function to fetch transient content
 				// (btree could be here but awkward as this is meant
 				// to be state at block start).

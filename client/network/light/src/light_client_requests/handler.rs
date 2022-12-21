@@ -252,7 +252,7 @@ where
 
 		let prefixed_key = PrefixedStorageKey::new_ref(&request.storage_key);
 		let child_info = match ChildType::from_prefixed_key(prefixed_key) {
-			Some((ChildType::ParentKeyId, storage_key)) => Ok(ChildInfo::new_default(storage_key)),
+			Some((ChildType::Default, storage_key)) => Ok(ChildInfo::new_default(storage_key)),
 			// TODO do some proof over a given storage root, would be a different
 			// api.
 			Some((ChildType::Btree, _)) | Some((ChildType::Blob, _)) =>

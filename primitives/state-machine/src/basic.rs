@@ -73,23 +73,13 @@ impl BasicExternalities {
 				data: iter
 					.filter_map(|(k, v)| v.value().map(|v| (k.to_vec(), v.to_vec())))
 					.collect(),
-				child_info: i.clone(),
+				info: i.clone(),
 			};
-			match i.child_type() {
-				ChildType::ParentKeyId => {
-					children_default.insert(i.storage_key().to_vec(), child);
-				},
-				ChildType::Btree => {
-					// TODO audit usage here: transient should generally
-					// not be in storage (unless that is what is passed
-					// to client, then sure but only when we get Mode::Archive.
-					// mark as unimplemented for now
-					unimplemented!();
-					//btree_storages.insert(i.storage_key().to_vec(), child);
-				},
-				_ => unreachable!(),
-			}
+			children_default.insert(i.name.clone(), child);
 		});
+
+		// TODO do we init btree and blob, even if transient (can be
+		// usefull for testing and others).
 
 		Storage {
 			top: self
@@ -329,12 +319,13 @@ impl Externalities for BasicExternalities {
 		// empty root for all child trie. Using null storage key until multiple
 		// type of child trie support.
 		let empty_hash = empty_child_trie_root::<LayoutV1<Blake2Hasher>>();
-		for child_info in self.overlay.children().map(|d| d.1.clone()).collect::<Vec<_>>() {
-			if let Some(child_root) = self.child_storage_root(&child_info, state_version) {
+		for info in self.overlay.children().map(|d| d.1.clone()).collect::<Vec<_>>() {
+			if let Some(child_root) = self.default_child_storage_root(&info.name, state_version) {
+				let parent_key = ChildType::Default.new_prefixed_key(&info.name);
 				if empty_hash[..] == child_root[..] {
-					top.remove(child_info.prefixed_storage_key().as_slice());
+					top.remove(parent_key.as_slice());
 				} else {
-					top.insert(child_info.prefixed_storage_key().into_inner(), child_root);
+					top.insert(parent_key.into_inner(), child_root);
 				}
 			}
 		}
@@ -351,7 +342,7 @@ impl Externalities for BasicExternalities {
 		state_version: StateVersion,
 	) -> Option<Vec<u8>> {
 		match child_info.child_type() {
-			ChildType::ParentKeyId => (),
+			ChildType::Default => (),
 			ChildType::Btree => {
 				let Some((data, info)) =
 					self.overlay.btree_changes(child_info.storage_key()) else
@@ -409,16 +400,10 @@ impl Externalities for BasicExternalities {
 			},
 		}
 
-		Some(if let Some((data, child_info)) = self.overlay.child_changes(child_info.storage_key()) {
-			let delta =
-				data.into_iter().map(|(k, v)| (k.as_ref(), v.value().map(|v| v.as_slice())));
-			crate::in_memory_backend::new_in_mem::<Blake2Hasher, HashKey<_>>()
-				.child_storage_root(&child_info, delta, state_version)
-				.0
-		} else {
-			empty_child_trie_root::<LayoutV1<Blake2Hasher>>()
-		}
-		.encode())
+		let ChildInfo::Default(info) = child_info else {
+			return None; // actually unreachable
+		};
+		self.default_child_storage_root(&info.name, state_version)
 	}
 
 	fn storage_start_transaction(&mut self) {
@@ -550,6 +535,27 @@ impl Externalities for BasicExternalities {
 	}
 }
 
+impl BasicExternalities {
+	fn default_child_storage_root(
+		&mut self,
+		name: &[u8],
+		state_version: StateVersion,
+	) -> Option<Vec<u8>> {
+		Some(
+			if let Some((data, _child_info)) = self.overlay.child_changes(name) {
+				let delta =
+					data.into_iter().map(|(k, v)| (k.as_ref(), v.value().map(|v| v.as_slice())));
+				crate::in_memory_backend::new_in_mem::<Blake2Hasher, HashKey<_>>()
+					.default_child_storage_root(name, delta, state_version)
+					.0
+			} else {
+				empty_child_trie_root::<LayoutV1<Blake2Hasher>>()
+			}
+			.encode(),
+		)
+	}
+}
+
 impl sp_externalities::ExtensionStore for BasicExternalities {
 	fn extension_by_type_id(&mut self, type_id: TypeId) -> Option<&mut dyn Any> {
 		self.extensions.get_mut(type_id)
@@ -580,7 +586,7 @@ mod tests {
 	use super::*;
 	use sp_core::{
 		map,
-		storage::{well_known_keys::CODE, Storage, StorageChild},
+		storage::{well_known_keys::CODE, DefaultChild, Storage, StorageChild},
 	};
 
 	#[test]
@@ -609,20 +615,21 @@ mod tests {
 
 	#[test]
 	fn children_works() {
-		let child_info = ChildInfo::new_default(b"storage_key");
-		let child_info = &child_info;
+		let child_info = DefaultChild::new(b"storage_key");
 		let mut ext = BasicExternalities::new(Storage {
 			top: Default::default(),
 			children_default: map![
-				child_info.storage_key().to_vec() => StorageChild {
+				child_info.name.clone() => StorageChild {
 					data: map![	b"doe".to_vec() => b"reindeer".to_vec()	],
-					child_info: child_info.to_owned(),
+					info: child_info.clone(),
 				}
 			],
 			btree_storages: map![],
 			blob_storages: map![],
 		});
 
+		let child_info = ChildInfo::Default(child_info);
+		let child_info = &child_info;
 		assert_eq!(ext.child_storage(child_info, b"doe", 0, None), Some(b"reindeer"[..].into()));
 
 		ext.set_child_storage(child_info, b"dog", b"puppy");
@@ -637,24 +644,25 @@ mod tests {
 
 	#[test]
 	fn kill_child_storage_returns_num_elements_removed() {
-		let child_info = ChildInfo::new_default(b"storage_key");
-		let child_info = &child_info;
+		let child_info = DefaultChild::new(b"storage_key");
 		let mut ext = BasicExternalities::new(Storage {
 			top: Default::default(),
 			children_default: map![
-				child_info.storage_key().to_vec() => StorageChild {
+				child_info.name.clone() => StorageChild {
 					data: map![
 						b"doe".to_vec() => b"reindeer".to_vec(),
 						b"dog".to_vec() => b"puppy".to_vec(),
 						b"hello".to_vec() => b"world".to_vec(),
 					],
-					child_info: child_info.to_owned(),
+					info: child_info.clone(),
 				}
 			],
 			btree_storages: map![],
 			blob_storages: map![],
 		});
 
+		let child_info = ChildInfo::Default(child_info);
+		let child_info = &child_info;
 		let res = ext.kill_child_storage(child_info, None, None);
 		assert_eq!(res.deconstruct(), (None, 3, 3, 3));
 	}

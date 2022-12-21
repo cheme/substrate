@@ -30,8 +30,8 @@ use sp_core::HashersExternalities;
 use sp_core::{
 	offchain::OffchainOverlayedChange,
 	storage::{
-		Blob as BlobInfo, Btree as BtreeInfo, ChildInfo, Name, StateVersion, TransientInfo,
-		BLOB_CHUNK_SIZE,
+		Blob as BlobInfo, Btree as BtreeInfo, ChildInfo, DefaultChild, Name, StateVersion,
+		TransientInfo, BLOB_CHUNK_SIZE,
 	},
 };
 #[cfg(feature = "std")]
@@ -109,7 +109,7 @@ pub struct Changes {
 #[derive(Debug, Clone)]
 struct ChildChanges {
 	changes: OverlayedChangeSet,
-	infos: ChildInfo,
+	infos: DefaultChild,
 }
 
 /// Changes for movable transient stoarge.
@@ -310,7 +310,7 @@ impl Changes {
 		limit: Option<u32>,
 	) -> Option<Option<Cow<[u8]>>> {
 		let value = match child_info {
-			ChildInfo::ParentKeyId(_) => {
+			ChildInfo::Default(_) => {
 				let map = self.children.get(child_info.storage_key())?;
 				map.changes.storage(key, start, limit, &self.stats)?.map(Cow::Borrowed)
 			},
@@ -390,7 +390,7 @@ impl Changes {
 	/// Length of value at a given storage key.
 	pub fn child_storage_len(&self, child_info: &ChildInfo, key: &[u8]) -> Option<Option<u32>> {
 		let value = match child_info {
-			ChildInfo::ParentKeyId(_) => {
+			ChildInfo::Default(_) => {
 				let map = self.children.get(child_info.storage_key())?;
 				map.changes.get(key)?.value().map(|v| v.len() as u32)
 			},
@@ -440,51 +440,48 @@ impl Changes {
 		self.stats.tally_write_overlay(size_write);
 
 		match child_info {
-			ChildInfo::ParentKeyId(_) => {
+			ChildInfo::Default(info) => {
 				let storage_key = child_info.storage_key().to_vec();
 				let child = self.children.entry(storage_key).or_insert_with(|| ChildChanges {
 					changes: self.context.spawn_child(),
-					infos: child_info.clone(),
+					infos: info.clone(),
 				});
-				let updatable = child.infos.try_update(child_info);
+				let updatable = child.infos.try_update(&info);
 				debug_assert!(updatable);
 				child.changes.set(key.to_vec(), val.map(Vec::from));
 				true
 			},
-			ChildInfo::Btree(infos) =>
-				if let Some(BtreeChanges { changes, infos }) = self.btrees.get_mut(&infos.name) {
-					if infos.value_ref().removed {
-						return false
+			ChildInfo::Btree(infos) => {
+				let Some(BtreeChanges { changes, infos }) = self.btrees.get_mut(&infos.name) else {
+					return false;
+				};
+				if infos.value_ref().removed {
+					return false
+				}
+				let has_root = infos.value_ref().cached_hash.is_some();
+				let (existing, changed) = changes
+					.get(key)
+					.map(|v| {
+						(v.value_ref().is_some(), v.value_ref().as_ref().map(Vec::as_slice) == val)
+					})
+					.unwrap_or((false, true));
+				if (has_root && changed) ||
+					(existing && val.is_none()) ||
+					(!existing && val.is_some())
+				{
+					let infos = infos.modify_value(&self.context);
+					if changed {
+						infos.cached_hash = None;
 					}
-					let has_root = infos.value_ref().cached_hash.is_some();
-					let (existing, changed) = changes
-						.get(key)
-						.map(|v| {
-							(
-								v.value_ref().is_some(),
-								v.value_ref().as_ref().map(Vec::as_slice) == val,
-							)
-						})
-						.unwrap_or((false, true));
-					if (has_root && changed) ||
-						(existing && val.is_none()) ||
-						(!existing && val.is_some())
-					{
-						let infos = infos.modify_value(&self.context);
-						if changed {
-							infos.cached_hash = None;
-						}
-						if val.is_some() {
-							infos.size += 1;
-						} else {
-							infos.size -= 1;
-						}
+					if val.is_some() {
+						infos.size += 1;
+					} else {
+						infos.size -= 1;
 					}
-					changes.set(key.to_vec(), val.map(Vec::from));
-					true
-				} else {
-					false
-				},
+				}
+				changes.set(key.to_vec(), val.map(Vec::from));
+				true
+			},
 			ChildInfo::Blob(_) => {
 				crate::warn!(target: "runtime", "Attempt to use set child on a blob, ignoring.");
 				false
@@ -562,7 +559,7 @@ impl Changes {
 		let storage_key = child_info.storage_key().to_vec();
 		let context = &self.context;
 		match child_info {
-			ChildInfo::ParentKeyId(_) => {
+			ChildInfo::Default(info) => {
 				let child = self
 					.children
 					.entry(storage_key)
@@ -570,9 +567,9 @@ impl Changes {
 					// this kind of child trie where empty trie is never stored.
 					.or_insert_with(|| ChildChanges {
 						changes: context.spawn_child(),
-						infos: child_info.clone(),
+						infos: info.clone(),
 					});
-				let updatable = child.infos.try_update(child_info);
+				let updatable = child.infos.try_update(&info);
 				debug_assert!(updatable);
 				child.changes.clear_where(|_, _| true)
 			},
@@ -583,24 +580,22 @@ impl Changes {
 
 	fn clear_blob_storage(&mut self, name: &[u8], move_old_state: bool) -> u32 {
 		let context = &self.context;
-		if let Some(entry) = self.blobs.get_mut(name) {
-			entry
-				.clear_movable_storage(move_old_state, &|| context.spawn_blob(), &self.context)
-				.0
-		} else {
-			0
-		}
+		let Some(entry) = self.blobs.get_mut(name) else {
+			return 0;
+		};
+		entry
+			.clear_movable_storage(move_old_state, &|| context.spawn_blob(), &self.context)
+			.0
 	}
 
 	fn clear_btree_storage(&mut self, name: &[u8], move_old_state: bool) -> u32 {
 		let context = &self.context;
-		if let Some(entry) = self.btrees.get_mut(name) {
-			entry
-				.clear_movable_storage(move_old_state, &|| context.spawn_child(), &self.context)
-				.0
-		} else {
-			0
-		}
+		let Some(entry) = self.btrees.get_mut(name) else {
+			return 0;
+		};
+		entry
+			.clear_movable_storage(move_old_state, &|| context.spawn_child(), &self.context)
+			.0
 	}
 
 	/// Removes all key-value pairs which keys share the given prefix.
@@ -614,15 +609,28 @@ impl Changes {
 	///
 	/// Can be rolled back or committed when called inside a transaction
 	pub(crate) fn clear_child_prefix(&mut self, child_info: &ChildInfo, prefix: &[u8]) -> u32 {
-		let storage_key = child_info.storage_key().to_vec();
 		let context = &self.context;
-		let child = self.children.entry(storage_key).or_insert_with(|| ChildChanges {
-			changes: context.spawn_child(),
-			infos: child_info.clone(),
-		});
-		let updatable = child.infos.try_update(child_info);
-		debug_assert!(updatable);
-		child.changes.clear_where(|key, _| key.starts_with(prefix))
+		match child_info {
+			ChildInfo::Default(info) => {
+				let child = self.children.entry(info.name.clone()).or_insert_with(|| {
+					ChildChanges { changes: context.spawn_child(), infos: info.clone() }
+				});
+				let updatable = child.infos.try_update(&info);
+				debug_assert!(updatable);
+				child.changes.clear_where(|key, _| key.starts_with(prefix))
+			},
+			ChildInfo::Btree(info) => {
+				let Some(BtreeChanges { changes, infos }) = self.btrees.get_mut(&info.name) else {
+					return 0
+				};
+				if infos.value_ref().removed {
+					return 0
+				}
+
+				changes.clear_where(|key, _| key.starts_with(prefix))
+			},
+			ChildInfo::Blob(_info) => 0,
+		}
 	}
 
 	/// A value of zero means that no transaction is open and changes are committed on write.
@@ -861,7 +869,7 @@ impl Changes {
 		impl Iterator<
 			Item = (
 				StorageKey,
-				(impl Iterator<Item = (StorageKey, Option<StorageValue>)>, ChildInfo),
+				(impl Iterator<Item = (StorageKey, Option<StorageValue>)>, DefaultChild),
 			),
 		>,
 		impl Iterator<Item = (BtreeMeta, impl Iterator<Item = (StorageKey, Option<StorageValue>)>)>,
@@ -907,7 +915,8 @@ impl Changes {
 	/// Get an iterator over all child changes as seen by the current transaction.
 	pub fn children(
 		&self,
-	) -> impl Iterator<Item = (impl Iterator<Item = (&StorageKey, &OverlayedValue)>, &ChildInfo)> {
+	) -> impl Iterator<Item = (impl Iterator<Item = (&StorageKey, &OverlayedValue)>, &DefaultChild)>
+	{
 		self.children.values().map(|v| (v.changes.changes(), &v.infos))
 	}
 
@@ -925,7 +934,7 @@ impl Changes {
 	pub fn child_changes(
 		&self,
 		key: &[u8],
-	) -> Option<(impl Iterator<Item = (&StorageKey, &OverlayedValue)>, &ChildInfo)> {
+	) -> Option<(impl Iterator<Item = (&StorageKey, &OverlayedValue)>, &DefaultChild)> {
 		self.children.get(key).map(|child| (child.changes.changes(), &child.infos))
 	}
 
@@ -1041,7 +1050,7 @@ impl Changes {
 		key: &[u8],
 	) -> Option<impl Iterator<Item = (&[u8], &OverlayedValue)>> {
 		match child_info {
-			ChildInfo::ParentKeyId(_) => Some(
+			ChildInfo::Default(_) => Some(
 				self.children
 					.get(child_info.storage_key())
 					.map(|child| child.changes.changes_after(key))
@@ -1077,7 +1086,7 @@ impl Changes {
 		match info {
 			// default child storage are viewed as always existing
 			// with empty root.
-			ChildInfo::ParentKeyId(_) => true,
+			ChildInfo::Default(_) => true,
 			ChildInfo::Btree(info) => self
 				.btrees
 				.get(info.name.as_slice())
@@ -1097,7 +1106,7 @@ impl Changes {
 		match info {
 			// No update info for default child storage,
 			// its existence is only related to its content.
-			ChildInfo::ParentKeyId(_) => false,
+			ChildInfo::Default(_) => false,
 			ChildInfo::Btree(info) => {
 				if clear_existing {
 					self.clear_btree_storage(&info.name, false);
@@ -1192,7 +1201,7 @@ impl Changes {
 		let context = &self.context;
 		match info {
 			// Copy not supported.
-			ChildInfo::ParentKeyId(_) => false,
+			ChildInfo::Default(_) => false,
 			ChildInfo::Btree(info) => BtreeChanges::copy_movable_storage(
 				&mut self.btrees,
 				&info,
@@ -1218,7 +1227,7 @@ impl Changes {
 		let context = &self.context;
 		match info {
 			// Move not supported.
-			ChildInfo::ParentKeyId(_) => false,
+			ChildInfo::Default(_) => false,
 			ChildInfo::Btree(info) => BtreeChanges::move_movable_storage(
 				&mut self.btrees,
 				&info,
@@ -1459,7 +1468,7 @@ impl From<sp_core::storage::Storage> for Changes {
 			children: storage
 				.children_default
 				.into_iter()
-				.map(|(k, v)| (k, ChildChanges { changes: v.data.into(), infos: v.child_info }))
+				.map(|(k, v)| (k, ChildChanges { changes: v.data.into(), infos: v.info }))
 				.collect(),
 			btrees,
 			blobs,

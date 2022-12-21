@@ -165,10 +165,8 @@ pub type StorageMap = std::collections::BTreeMap<Vec<u8>, Vec<u8>>;
 pub struct StorageChild {
 	/// Child data for storage.
 	pub data: StorageMap,
-	/// Associated child info for a child
-	/// trie.
-	/// TODO change to the one for default
-	pub child_info: ChildInfo,
+	/// Associated default child trie info.
+	pub info: DefaultChild,
 }
 
 /// Struct containing data needed for a storage.
@@ -178,7 +176,7 @@ pub struct Storage {
 	/// Top trie storage data.
 	pub top: StorageMap,
 	/// Children trie storage data. Key does not include prefix, only for the `default` trie kind,
-	/// of `ChildType::ParentKeyId` type.
+	/// of `ChildType::Default` type.
 	pub children_default: std::collections::HashMap<Vec<u8>, StorageChild>,
 	/// Changes for btree storages.
 	pub btree_storages: std::collections::HashMap<Name, StorageBtree>,
@@ -298,7 +296,7 @@ pub type Name = Vec<u8>;
 #[cfg_attr(feature = "std", derive(PartialEq, Eq, Hash, PartialOrd, Ord, Encode, Decode))]
 pub enum ChildInfo {
 	/// This is the one used by default.
-	ParentKeyId(ChildTrieParentKeyId),
+	Default(DefaultChild),
 	/// BTree storage info.
 	Btree(Btree),
 	/// Blob storage.
@@ -316,16 +314,16 @@ impl ChildInfo {
 	}
 
 	/// Instantiates child information for a default child trie
-	/// of kind `ChildType::ParentKeyId`, using an unprefixed parent
+	/// of kind `ChildType::Default`, using an unprefixed parent
 	/// storage key.
 	pub fn new_default(storage_key: &[u8]) -> Self {
-		let data = storage_key.to_vec();
-		ChildInfo::ParentKeyId(ChildTrieParentKeyId { data })
+		let name = storage_key.to_vec();
+		ChildInfo::Default(DefaultChild { name })
 	}
 
 	/// Same as `new_default` but with `Vec<u8>` as input.
 	pub fn new_default_from_vec(storage_key: Vec<u8>) -> Self {
-		ChildInfo::ParentKeyId(ChildTrieParentKeyId { data: storage_key })
+		ChildInfo::Default(DefaultChild { name: storage_key })
 	}
 
 	/// Instantiates child information for a storage
@@ -342,20 +340,12 @@ impl ChildInfo {
 	/// Try to update with another instance, return false if both instance
 	/// are not compatible.
 	pub fn try_update(&mut self, other: &ChildInfo) -> bool {
-		match self {
-			ChildInfo::ParentKeyId(child_trie) => child_trie.try_update(other),
-			ChildInfo::Blob(blob) =>
-				if let ChildInfo::Blob(other) = other {
-					blob.try_update(other)
-				} else {
-					false
-				},
-			ChildInfo::Btree(btree) =>
-				if let ChildInfo::Btree(other) = other {
-					btree.try_update(other)
-				} else {
-					false
-				},
+		match (self, other) {
+			(ChildInfo::Default(child_trie), ChildInfo::Default(other)) =>
+				child_trie.try_update(other),
+			(ChildInfo::Blob(blob), ChildInfo::Blob(other)) => blob.try_update(other),
+			(ChildInfo::Btree(btree), ChildInfo::Btree(other)) => btree.try_update(other),
+			_ => false,
 		}
 	}
 
@@ -364,7 +354,7 @@ impl ChildInfo {
 	/// depends on the type of child info use. For `ChildInfo::Default` it is and need to be.
 	pub fn keyspace(&self) -> &[u8] {
 		match self {
-			ChildInfo::ParentKeyId(..) => self.storage_key(),
+			ChildInfo::Default(..) => self.storage_key(),
 			ChildInfo::Btree(..) => self.storage_key(),
 			ChildInfo::Blob(..) => self.storage_key(),
 		}
@@ -375,7 +365,7 @@ impl ChildInfo {
 	/// child trie.
 	pub fn storage_key(&self) -> &[u8] {
 		match self {
-			ChildInfo::ParentKeyId(ChildTrieParentKeyId { data }) => &data[..],
+			ChildInfo::Default(DefaultChild { name }) => &name[..],
 			ChildInfo::Btree(btree) => &btree.name[..],
 			ChildInfo::Blob(blob) => &blob.name[..],
 		}
@@ -385,8 +375,8 @@ impl ChildInfo {
 	/// this trie.
 	pub fn prefixed_storage_key(&self) -> PrefixedStorageKey {
 		match self {
-			ChildInfo::ParentKeyId(ChildTrieParentKeyId { data }) =>
-				ChildType::ParentKeyId.new_prefixed_key(data.as_slice()),
+			ChildInfo::Default(DefaultChild { name }) =>
+				ChildType::Default.new_prefixed_key(name.as_slice()),
 			ChildInfo::Btree(btree) => ChildType::Btree.new_prefixed_key(btree.name.as_slice()),
 			ChildInfo::Blob(blob) => ChildType::Blob.new_prefixed_key(blob.name.as_slice()),
 		}
@@ -396,9 +386,9 @@ impl ChildInfo {
 	/// this trie.
 	pub fn into_prefixed_storage_key(self) -> PrefixedStorageKey {
 		match self {
-			ChildInfo::ParentKeyId(ChildTrieParentKeyId { mut data }) => {
-				ChildType::ParentKeyId.do_prefix_key(&mut data);
-				PrefixedStorageKey(data)
+			ChildInfo::Default(DefaultChild { mut name }) => {
+				ChildType::Default.do_prefix_key(&mut name);
+				PrefixedStorageKey(name)
 			},
 			ChildInfo::Btree(mut btree) => {
 				ChildType::Btree.do_prefix_key(&mut btree.name);
@@ -414,7 +404,7 @@ impl ChildInfo {
 	/// Returns the type for this child info.
 	pub fn child_type(&self) -> ChildType {
 		match self {
-			ChildInfo::ParentKeyId(..) => ChildType::ParentKeyId,
+			ChildInfo::Default(..) => ChildType::Default,
 			ChildInfo::Btree(..) => ChildType::Btree,
 			ChildInfo::Blob(..) => ChildType::Blob,
 		}
@@ -432,7 +422,7 @@ pub enum ChildType {
 	/// only be used once, its parent key is used as a child trie unique id.
 	/// Child state is automatically attached to the parent state on parent
 	/// root calculation.
-	ParentKeyId = 1,
+	Default = 1,
 	/// Ordered key value child state.
 	///
 	/// Run as a transient storage: it's state will not be accessible between
@@ -545,7 +535,7 @@ impl ChildType {
 	/// Try to get a child type from its `u32` representation.
 	pub fn new(repr: u32) -> Option<ChildType> {
 		Some(match repr {
-			r if r == ChildType::ParentKeyId as u32 => ChildType::ParentKeyId,
+			r if r == ChildType::Default as u32 => ChildType::Default,
 			_ => return None,
 		})
 	}
@@ -561,13 +551,13 @@ impl ChildType {
 				None
 			}
 		};
-		match_type(storage_key, ChildType::ParentKeyId)
+		match_type(storage_key, ChildType::Default)
 			.or_else(|| match_type(storage_key, ChildType::Btree))
 			.or_else(|| match_type(storage_key, ChildType::Blob))
 	}
 
 	/// Produce a prefixed key for a given child type.
-	fn new_prefixed_key(&self, key: &[u8]) -> PrefixedStorageKey {
+	pub fn new_prefixed_key(&self, key: &[u8]) -> PrefixedStorageKey {
 		let parent_prefix = self.parent_prefix();
 		let mut result = Vec::with_capacity(parent_prefix.len() + key.len());
 		result.extend_from_slice(parent_prefix);
@@ -590,7 +580,7 @@ impl ChildType {
 	/// is one.
 	pub fn parent_prefix(&self) -> &'static [u8] {
 		match self {
-			&ChildType::ParentKeyId => well_known_keys::DEFAULT_CHILD_STORAGE_KEY_PREFIX,
+			&ChildType::Default => well_known_keys::DEFAULT_CHILD_STORAGE_KEY_PREFIX,
 			&ChildType::Btree => well_known_keys::BTREE_STORAGE_KEY_PREFIX,
 			&ChildType::Blob => well_known_keys::BLOB_STORAGE_KEY_PREFIX,
 		}
@@ -606,19 +596,21 @@ impl ChildType {
 /// avoid any unique id to be prefixed by an other unique id.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "std", derive(PartialEq, Eq, Hash, PartialOrd, Ord, Encode, Decode))]
-pub struct ChildTrieParentKeyId {
+pub struct DefaultChild {
 	/// Data is the storage key without prefix.
-	data: Vec<u8>,
+	pub name: Name,
 }
 
-impl ChildTrieParentKeyId {
+impl DefaultChild {
+	/// Instantiate with name
+	pub fn new(name: impl AsRef<[u8]>) -> Self {
+		DefaultChild { name: name.as_ref().into() }
+	}
+
 	/// Try to update with another instance, return false if both instance
 	/// are not compatible.
-	pub fn try_update(&mut self, other: &ChildInfo) -> bool {
-		match other {
-			ChildInfo::ParentKeyId(other) => self.data[..] == other.data[..],
-			ChildInfo::Btree(..) | ChildInfo::Blob(..) => false,
-		}
+	pub fn try_update(&mut self, other: &Self) -> bool {
+		self.name[..] == other.name[..]
 	}
 }
 

@@ -23,7 +23,7 @@ use frame_support::traits::GenesisBuild;
 use sc_service::client::genesis;
 use sp_core::{
 	map,
-	storage::{well_known_keys, Storage},
+	storage::{well_known_keys, ChildType, Storage},
 };
 use sp_io::hashing::{blake2_256, twox_128};
 use sp_runtime::traits::{Block as BlockT, Hash as HashT, Header as HeaderT};
@@ -102,7 +102,7 @@ pub fn insert_genesis_block(storage: &mut Storage) -> sp_core::hash::H256 {
 				child_content.data.clone().into_iter().collect(),
 				sp_runtime::StateVersion::V1,
 			);
-		let prefixed_storage_key = child_content.child_info.prefixed_storage_key();
+		let prefixed_storage_key = ChildType::Default.new_prefixed_key(&child_content.info.name);
 		(prefixed_storage_key.into_inner(), state_root.encode())
 	});
 	// add child roots to storage

@@ -507,7 +507,7 @@ where
 
 		let child_delta = storage.children_default.values().map(|child_content| {
 			(
-				&child_content.child_info,
+				&child_content.info,
 				child_content.data.iter().map(|(k, v)| (k.as_ref(), Some(v.as_ref()))),
 			)
 		});
