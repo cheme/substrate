@@ -90,6 +90,10 @@ pub(super) fn twox_128(bytes: Vec<u8>) -> TokenStream {
 	bytes_to_array(sp_core_hashing::twox_128(bytes.as_slice()))
 }
 
+pub(super) fn blake3(bytes: Vec<u8>) -> TokenStream {
+	bytes_to_array(sp_core_hashing::blake3(bytes.as_slice()))
+}
+
 pub(super) fn blake2b_512(bytes: Vec<u8>) -> TokenStream {
 	bytes_to_array(sp_core_hashing::blake2_512(bytes.as_slice()))
 }

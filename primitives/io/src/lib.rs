@@ -1399,6 +1399,11 @@ pub trait Hashing {
 		sp_core::hashing::blake2_256(data)
 	}
 
+	/// Conduct Blake3 hash.
+	fn blake3(data: &[u8]) -> [u8; 32] {
+		sp_core::hashing::blake3(data)
+	}
+
 	/// Conduct four XX hashes to give a 256-bit result.
 	fn twox_256(data: &[u8]) -> [u8; 32] {
 		sp_core::hashing::twox_256(data)

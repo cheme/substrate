@@ -713,6 +713,7 @@ use sp_core::Hash32Algorithm;
 fn hash32_with_algorithm_hosts(data: &[u8], algo: Hash32Algorithm) -> [u8; 32] {
 	match algo {
 		Hash32Algorithm::Blake2b256 => sp_io::hashing::blake2_256(data).into(),
+		Hash32Algorithm::Blake3 => sp_io::hashing::blake3(data).into(),
 	}
 }
 

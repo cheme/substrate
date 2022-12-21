@@ -36,6 +36,30 @@ mod test {
 	}
 
 	#[test]
+	fn blake3_256() { // TODO rename the other way (put _256 in functions and names)?
+		assert_eq!(sp_core_hashing_proc_macro::blake3!(b""), blake3(b"")[..]);
+		assert_eq!(sp_core_hashing_proc_macro::blake3!(b"test"), blake3(b"test")[..]);
+		assert_eq!(sp_core_hashing_proc_macro::blake3!(b""), blake3(b"")[..]);
+	}
+
+	#[test]
+	fn blake3_cached() {
+		let datas = &[
+			vec![0u8],
+			vec![],
+		];
+		for data in datas {
+			let mut hasher_cached = Blake3State::new(true);
+			let mut hasher_inline = Blake3State::new(false);
+			hasher_cached.update(&data[..]);
+			let hash_cached = hasher_cached.finalize();
+			hasher_inline.update(&data[..]);
+			let hash_inline = hasher_inline.finalize();
+			assert_eq!(hash_cached, hash_inline);
+		}
+	}
+
+	#[test]
 	fn keccak() {
 		assert_eq!(sp_core_hashing_proc_macro::keccak_256!(b"test"), keccak_256(b"test")[..]);
 		assert_eq!(sp_core_hashing_proc_macro::keccak_512!(b"test"), keccak_512(b"test")[..]);

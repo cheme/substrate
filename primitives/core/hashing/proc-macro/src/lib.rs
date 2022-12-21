@@ -56,6 +56,15 @@ mod impls;
 use impls::MultipleInputBytes;
 use proc_macro::TokenStream;
 
+/// Process a Blake3 hash of bytes parameter outputs a `[u8; 8]`.
+/// Multiple inputs are concatenated before hashing.
+/// Input can be identifier (name of identifier as bytes is used), byte string or
+/// array of bytes.
+#[proc_macro]
+pub fn blake3(input: TokenStream) -> TokenStream {
+	impls::blake3(syn::parse_macro_input!(input as MultipleInputBytes).concatenated())
+}
+
 /// Process a Blake2 64-bit hash of bytes parameter outputs a `[u8; 8]`.
 /// Multiple inputs are concatenated before hashing.
 /// Input can be identifier (name of identifier as bytes is used), byte string or

@@ -632,6 +632,7 @@ pub use sp_storage::transient::{Hash32Algorithm, HasherHandle, Hashers};
 pub fn hash32_with_algorithm_inline(data: &[u8], algo: Hash32Algorithm) -> [u8; 32] {
 	match algo {
 		Hash32Algorithm::Blake2b256 => crate::hashing::blake2_256(data).into(),
+		Hash32Algorithm::Blake3 => crate::hashing::blake3(data).into(),
 	}
 }
 
@@ -641,6 +642,8 @@ pub fn hash32_with_algorithm_inline(data: &[u8], algo: Hash32Algorithm) -> [u8; 
 pub enum Hash32State {
 	/// Blake2b hasher, 256 bits version.
 	Blake2b256(crate::hashing::Blake2b256State),
+	/// Blake3 hasher.
+	Blake3(crate::hashing::Blake3State),
 }
 
 #[cfg(feature = "full_crypto")]
@@ -650,6 +653,8 @@ impl Hash32State {
 		match algo {
 			sp_storage::transient::Hash32Algorithm::Blake2b256 =>
 				Hash32State::Blake2b256(crate::hashing::Blake2b256State::new()),
+			sp_storage::transient::Hash32Algorithm::Blake3 =>
+				Hash32State::Blake3(crate::hashing::Blake3State::new(false)),
 		}
 	}
 
@@ -657,6 +662,7 @@ impl Hash32State {
 	pub fn update(&mut self, data: &[u8]) {
 		match self {
 			Hash32State::Blake2b256(blake) => blake.update(data),
+			Hash32State::Blake3(blake) => blake.update(data),
 		}
 	}
 
@@ -664,6 +670,7 @@ impl Hash32State {
 	pub fn finalize(self) -> [u8; 32] {
 		match self {
 			Hash32State::Blake2b256(blake) => blake.finalize(),
+			Hash32State::Blake3(blake) => blake.finalize(),
 		}
 	}
 }

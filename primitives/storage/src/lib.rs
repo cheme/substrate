@@ -483,11 +483,10 @@ pub mod transient {
 		/// Storage can be drop.
 		#[cfg_attr(feature = "std", codec(index = 0))]
 		Blake2b256,
-		// TODO all different runtime hash variants??
-		/* TODO +proof from rpc		/// Storage should be accessible.
-				#[codec(index = 1)]
-				Blake3,
-		*/
+		/// Storage should be accessible
+		/// (ability to create proof for it).
+		#[codec(index = 1)]
+		Blake3,
 	}
 
 	/// Hashing algorithm for transient blob.
