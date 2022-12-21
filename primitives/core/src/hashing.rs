@@ -36,7 +36,8 @@ mod test {
 	}
 
 	#[test]
-	fn blake3_256() { // TODO rename the other way (put _256 in functions and names)?
+	fn blake3_256() {
+		// TODO rename the other way (put _256 in functions and names)?
 		assert_eq!(sp_core_hashing_proc_macro::blake3!(b""), blake3(b"")[..]);
 		assert_eq!(sp_core_hashing_proc_macro::blake3!(b"test"), blake3(b"test")[..]);
 		assert_eq!(sp_core_hashing_proc_macro::blake3!(b""), blake3(b"")[..]);
@@ -44,10 +45,7 @@ mod test {
 
 	#[test]
 	fn blake3_cached() {
-		let datas = &[
-			vec![0u8],
-			vec![],
-		];
+		let datas = &[vec![0u8], vec![]];
 		for data in datas {
 			let mut hasher_cached = Blake3State::new(true);
 			let mut hasher_inline = Blake3State::new(false);

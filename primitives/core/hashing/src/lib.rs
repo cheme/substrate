@@ -57,7 +57,8 @@ impl Blake3State {
 	/// Start hashing.
 	pub fn new(with_merkle_cache: bool) -> Self {
 		if with_merkle_cache {
-			let mut hashes: alloc::collections::vec_deque::VecDeque<alloc::vec::Vec<CachedHash>> = Default::default();
+			let mut hashes: alloc::collections::vec_deque::VecDeque<alloc::vec::Vec<CachedHash>> =
+				Default::default();
 			hashes.push_front(alloc::vec![Default::default()]); // TODO root of [] instead (but need it as constant
 			Blake3State::Cached(CachedBlake3 {
 				hashes,
@@ -73,7 +74,9 @@ impl Blake3State {
 	/// Hash more content.
 	pub fn update(&mut self, data: &[u8]) {
 		match self {
-			Blake3State::Inline(hasher) => {hasher.update(data);},
+			Blake3State::Inline(hasher) => {
+				hasher.update(data);
+			},
 			Blake3State::Cached(cache) => cache.update(data),
 		}
 	}
@@ -154,7 +157,7 @@ impl CachedBlake3 {
 		let hash = state.finalize(at == 0); // TODO incorrect logic here
 
 		self.hashes[depth as usize][at as usize].hash = *hash.as_bytes();
-		self.hashes[depth as usize][at as usize].parent_processed = false; 
+		self.hashes[depth as usize][at as usize].parent_processed = false;
 	}
 
 	fn update(&mut self, mut data: &[u8]) {
@@ -197,49 +200,50 @@ impl CachedBlake3 {
 			unimplemented!() // ??
 		}
 		if self.all_processed {
-			return self.hashes[0][0].hash.clone();
+			return self.hashes[0][0].hash.clone()
 		}
 		for d in (1..self.hashes.len()).rev() {
-		// TODO pair iterate?
-		for i in (0..self.hashes.len()).rev() {
-			if !self.hashes[d][i].parent_processed {
-				self.hashes[d][i].parent_processed = true;
-				let pair = if i % 2 == 0 {
-					let right = (i + 1 < self.hashes.len()).then(|| {
-						self.hashes[d][i + 1].parent_processed = true;
-						self.hashes[d][i + 1].hash.clone()
-					});
-					(Some(self.hashes[d][i].hash.clone()), right)
-				} else {
-					let left = (i > 0).then(|| {
-						self.hashes[d][i - 1].parent_processed = true;
-						self.hashes[d][i - 1].hash.clone()
-					});
-					(left, Some(self.hashes[d][i].hash.clone()))
-				};
-				let parent_hash = match pair {
-					(Some(l), Some(r)) => {
-						// TODO should acually store state as left item in persistance.
-						let mut state = blake3_hash::guts::ChunkState::new(0); // TODO read counter logic and implement
-						state.update(&l[..]);
-						state.update(&r[..]);
-						*state.finalize(i == 1 || i == 2).as_bytes()
-					},
-					(Some(l), None) => l,
-					(None, Some(h)) => h,
-					(None, None) => unreachable!("empty checked above"),
-				};
-				let parent_depth = &mut self.hashes[d - 1];
-				let parent_index = i / 2;
-				// TODO there is certainly a vec function that resize
-				// with default
-				while parent_depth.len() <= parent as usize {
-					parent_depth.push(Default::default());
+			// TODO pair iterate?
+			for i in (0..self.hashes.len()).rev() {
+				if !self.hashes[d][i].parent_processed {
+					self.hashes[d][i].parent_processed = true;
+					let pair = if i % 2 == 0 {
+						let right = (i + 1 < self.hashes.len()).then(|| {
+							self.hashes[d][i + 1].parent_processed = true;
+							self.hashes[d][i + 1].hash.clone()
+						});
+						(Some(self.hashes[d][i].hash.clone()), right)
+					} else {
+						let left = (i > 0).then(|| {
+							self.hashes[d][i - 1].parent_processed = true;
+							self.hashes[d][i - 1].hash.clone()
+						});
+						(left, Some(self.hashes[d][i].hash.clone()))
+					};
+					let parent_hash = match pair {
+						(Some(l), Some(r)) => {
+							// TODO should acually store state as left item in persistance.
+							let mut state = blake3_hash::guts::ChunkState::new(0); // TODO read counter logic and implement
+							state.update(&l[..]);
+							state.update(&r[..]);
+							*state.finalize(i == 1 || i == 2).as_bytes()
+						},
+						(Some(l), None) => l,
+						(None, Some(h)) => h,
+						(None, None) => unreachable!("empty checked above"),
+					};
+					let parent_depth = &mut self.hashes[d - 1];
+					let parent_index = i / 2;
+					// TODO there is certainly a vec function that resize
+					// with default
+					while parent_depth.len() <= parent as usize {
+						parent_depth.push(Default::default());
+					}
+					parent_depth[parent_index as usize].hash = parent_hash;
+					parent_depth[parent_index as usize].parent_processed = false;
 				}
-				parent_depth[parent_index as usize].hash = parent_hash;
-				parent_depth[parent_index as usize].parent_processed = false;
 			}
-		}}
+		}
 		self.all_processed = true;
 		self.hashes[0][0].hash.clone()
 	}
