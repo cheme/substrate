@@ -45,7 +45,27 @@ mod test {
 
 	#[test]
 	fn blake3_cached() {
-		let datas = &[vec![0u8], vec![]];
+		fn data(len: usize) -> Vec<u8> {
+			let mut data = Vec::with_capacity(len);
+			for i in 0..len {
+				data.push((i % 7) as u8);
+			}
+			data
+		}
+		let datas = &[
+			data(0),
+			data(1),
+			data(64),   // one block aligned
+			data(100),  // multiple block single chunk
+			data(1024), // aligned single chunk
+			data(1100), // 2 chunk
+			data(2048),
+			data(3000), // 3 chunks
+			data(5000), // 4 chunks
+			data(7 * 1024),
+			data(13 * 1024),
+		];
+		//let datas = (0..1000).into_iter().map(|s| data(s * 1000));
 		for data in datas {
 			let mut hasher_cached = Blake3State::new(true);
 			let mut hasher_inline = Blake3State::new(false);
