@@ -25,7 +25,8 @@ use sp_core::{
 	storage::{
 		transient::{Hash32Algorithm, Root32Structure},
 		well_known_keys::is_child_storage_key,
-		ChildInfo, ChildType, StateVersion, Storage, StorageBtree, StorageChild, TrackedStorageKey,
+		ChildInfo, ChildType, StateVersion, Storage, StorageBtree, StorageDefaultChild,
+		TrackedStorageKey,
 	},
 	traits::Externalities,
 	Blake2Hasher, HasherHandle,
@@ -65,11 +66,11 @@ impl BasicExternalities {
 
 	/// Consume self and returns inner storages
 	pub fn into_storages(self) -> Storage {
-		let mut children_default: std::collections::HashMap<Vec<u8>, StorageChild> =
+		let mut children_default: std::collections::HashMap<Vec<u8>, StorageDefaultChild> =
 			Default::default();
 		let btree_storages: std::collections::HashMap<Vec<u8>, StorageBtree> = Default::default();
 		self.overlay.children().for_each(|(iter, i)| {
-			let child = StorageChild {
+			let child = StorageDefaultChild {
 				data: iter
 					.filter_map(|(k, v)| v.value().map(|v| (k.to_vec(), v.to_vec())))
 					.collect(),
@@ -586,7 +587,7 @@ mod tests {
 	use super::*;
 	use sp_core::{
 		map,
-		storage::{well_known_keys::CODE, DefaultChild, Storage, StorageChild},
+		storage::{well_known_keys::CODE, DefaultChild, Storage, StorageDefaultChild},
 	};
 
 	#[test]
@@ -619,7 +620,7 @@ mod tests {
 		let mut ext = BasicExternalities::new(Storage {
 			top: Default::default(),
 			children_default: map![
-				child_info.name.clone() => StorageChild {
+				child_info.name.clone() => StorageDefaultChild {
 					data: map![	b"doe".to_vec() => b"reindeer".to_vec()	],
 					info: child_info.clone(),
 				}
@@ -648,7 +649,7 @@ mod tests {
 		let mut ext = BasicExternalities::new(Storage {
 			top: Default::default(),
 			children_default: map![
-				child_info.name.clone() => StorageChild {
+				child_info.name.clone() => StorageDefaultChild {
 					data: map![
 						b"doe".to_vec() => b"reindeer".to_vec(),
 						b"dog".to_vec() => b"puppy".to_vec(),

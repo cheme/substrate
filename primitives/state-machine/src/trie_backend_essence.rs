@@ -503,7 +503,6 @@ where
 		let ChildInfo::Default(info) = child_info else {
 			return
 		};
-
 		let root = match self.default_child_root(info.name.as_slice()) {
 			Ok(Some(v)) => v,
 			// If the child trie doesn't exist, there is no need to continue.

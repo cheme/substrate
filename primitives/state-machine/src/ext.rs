@@ -1244,7 +1244,7 @@ mod tests {
 	use hash_db::Hasher;
 	use sp_core::{
 		map,
-		storage::{DefaultChild, Storage, StorageChild},
+		storage::{DefaultChild, Storage, StorageDefaultChild},
 		Blake2Hasher,
 	};
 
@@ -1337,7 +1337,7 @@ mod tests {
 			Storage {
 				top: map![],
 				children_default: map![
-					child_info.name.clone() => StorageChild {
+					child_info.name.clone() => StorageDefaultChild {
 						data: map![
 							vec![10] => vec![10],
 							vec![20] => vec![20],
@@ -1394,7 +1394,7 @@ mod tests {
 			Storage {
 				top: map![],
 				children_default: map![
-					child_info.name.clone() => StorageChild {
+					child_info.name.clone() => StorageDefaultChild {
 						data: map![
 							vec![10] => vec![10, 1, 2],
 							vec![20] => vec![20],
@@ -1445,7 +1445,7 @@ mod tests {
 			Storage {
 				top: map![],
 				children_default: map![
-					child_info.name.clone() => StorageChild {
+					child_info.name.clone() => StorageDefaultChild {
 						data: map![
 							vec![30] => vec![40]
 						],

@@ -96,20 +96,10 @@ pub struct Changes {
 	offchain: OffchainChanges,
 	/// Transaction index changes,
 	transaction_index_ops: Vec<IndexOperation>,
-	/// True if extrinsics stats must be collected.
-	collect_extrinsics: bool,
 	/// Collect statistic on this execution.
 	stats: StateMachineStats,
 	#[cfg(feature = "std")]
 	pub(crate) hashers: HashersExternalities,
-}
-
-/// Default child storage.
-/// TODO move methods in this struct when possible
-#[derive(Debug, Clone)]
-struct ChildChanges {
-	changes: OverlayedChangeSet,
-	infos: DefaultChild,
 }
 
 /// Changes for movable transient stoarge.
@@ -144,6 +134,13 @@ impl<M> From<M> for MovableMeta<M> {
 	fn from(infos: M) -> Self {
 		Self { infos, size: 0, cached_hash: None, removed: false }
 	}
+}
+
+/// Default child storage.
+#[derive(Debug, Clone)]
+struct ChildChanges {
+	changes: OverlayedChangeSet,
+	infos: DefaultChild,
 }
 
 /// Transaction index operation.
@@ -269,11 +266,6 @@ impl Changes {
 		self.top.is_empty() && self.children.is_empty()
 	}
 
-	/// Ask to collect/not to collect extrinsics indices where key(s) has been changed.
-	pub fn set_collect_extrinsics(&mut self, collect_extrinsics: bool) {
-		self.collect_extrinsics = collect_extrinsics;
-	}
-
 	/// Returns a double-Option: None if the key is unknown (i.e. and the query should be referred
 	/// to the backend); Some(None) if the key has been deleted. Some(Some(...)) for a key whose
 	/// value has been set.
@@ -301,7 +293,6 @@ impl Changes {
 	/// Returns a double-Option: None if the key is unknown (i.e. and the query should be referred
 	/// to the backend); Some(None) if the key has been deleted. Some(Some(...)) for a key whose
 	/// value has been set.
-	/// TODO we use Cow here just for the blob case, maybe just separate functions.
 	pub fn child_storage(
 		&self,
 		child_info: &ChildInfo,
@@ -1248,18 +1239,6 @@ impl Changes {
 	}
 }
 
-// TODO use properly and everywhere
-/// Storage transaction layers support.
-pub trait Transactional {
-	/// Rollback the last transaction started by `start_transaction`.
-	///
-	/// Any changes made during that transaction are discarded. Returns an error if
-	/// there is no open transaction that can be rolled back.
-	/// Returns `true` if no remaining content (no overlay and content same as initial one).
-	#[must_use = "When empty returned, the object need to be acted upon."]
-	fn rollback_transaction(&mut self) -> Result<bool, NoOpenTransaction>;
-}
-
 /// Common behavior between transient storage contents, technical trait to factor code.
 pub(crate) trait TransientContentCommon<M>: Sized {
 	fn copy_on_cleared_from(&mut self, from: &MovableStorage<Self, M>);
@@ -1431,6 +1410,17 @@ where
 	}
 }
 
+/// Storage transaction layers support.
+pub trait Transactional {
+	/// Rollback the last transaction started by `start_transaction`.
+	///
+	/// Any changes made during that transaction are discarded. Returns an error if
+	/// there is no open transaction that can be rolled back.
+	/// Returns `true` if no remaining content (no overlay and content same as initial one).
+	#[must_use = "When empty returned, the object need to be acted upon."]
+	fn rollback_transaction(&mut self) -> Result<bool, NoOpenTransaction>;
+}
+
 #[cfg(feature = "std")]
 impl From<sp_core::storage::Storage> for Changes {
 	fn from(storage: sp_core::storage::Storage) -> Self {
@@ -1473,7 +1463,6 @@ impl From<sp_core::storage::Storage> for Changes {
 			btrees,
 			blobs,
 			offchain: Default::default(),
-			collect_extrinsics: Default::default(),
 			transaction_index_ops: Default::default(),
 			stats: Default::default(),
 			#[cfg(feature = "std")]
