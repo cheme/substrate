@@ -660,24 +660,24 @@ impl Changes {
 		let start_depth = self.context.transaction_depth();
 		self.context.rollback_transaction()?;
 
-		self.top.rollback_transaction()?;
+		self.top.rollback_transaction(start_depth)?;
 		retain_map(&mut self.children, |_, child| {
 			child
 				.changes
-				.rollback_transaction()
+				.rollback_transaction(start_depth)
 				.expect("Top and children changesets are started in lockstep; qed");
 			!child.changes.is_empty()
 		});
 
 		let mut moved_from = Vec::new();
 		retain_map(&mut self.btrees, |_, BtreeChanges { changes, infos }| {
+			let mut is_moved_from = false;
 			if let Some(from) = infos.take_is_previous_moved_from(start_depth) {
 				changes
-					.rollback_transaction()
+					.rollback_transaction(start_depth)
 					.expect("Top and children changesets are started in lockstep; qed");
-				// Note this spawn is not worknig if origin is current, but moved from
-				// implies Removed or Empty.
 				let change = sp_std::mem::replace(changes, self.context.spawn_child());
+				is_moved_from = true;
 				moved_from.push((from, change));
 			}
 			if let Some(others) = infos.take_others_previous_moved_from(start_depth) {
@@ -685,7 +685,7 @@ impl Changes {
 			}
 			if let Some(from) = infos.take_is_previous_moved_from(start_depth) {
 				changes
-					.rollback_transaction()
+					.rollback_transaction(start_depth)
 					.expect("Top and children changesets are started in lockstep; qed");
 				// Note this spawn is not worknig if origin is current, but moved from
 				// implies Removed or Empty.
@@ -696,13 +696,16 @@ impl Changes {
 			let mut clean = false;
 			match infos.take_last_origin(start_depth) {
 				Some(OriginEntry::Empty) => {
+					// skipping rollback here assumes the state will be removed.
+					// TODO need testing or just rollback
 					clean = true;
 				},
-				None | Some(OriginEntry::Current) => {
-					changes
-						.rollback_transaction()
-						.expect("Top and children changesets are started in lockstep; qed");
-				},
+				None | Some(OriginEntry::Current) =>
+					if !is_moved_from {
+						changes
+							.rollback_transaction(start_depth)
+							.expect("Top and children changesets are started in lockstep; qed");
+					},
 				Some(OriginEntry::Removed(last_removed)) => {
 					*changes = last_removed;
 				},
@@ -710,8 +713,8 @@ impl Changes {
 					// will get new info from moved from in second step
 				},
 			}
-			let _ = (infos, start_depth)
-				.rollback_transaction()
+			let _ = infos
+				.rollback_transaction(start_depth)
 				.expect("Top and children changesets are started in lockstep; qed");
 			!clean
 		});
@@ -725,26 +728,17 @@ impl Changes {
 
 		let mut moved_from = Vec::new();
 		retain_map(&mut self.blobs, |_, BlobChanges { changes, infos }| {
+			let mut is_moved_from = false;
 			if let Some(from) = infos.take_is_previous_moved_from(start_depth) {
 				changes
-					.rollback_transaction()
+					.rollback_transaction(start_depth)
 					.expect("Top and children changesets are started in lockstep; qed");
-				// Note this spawn is not worknig if origin is current, but moved from
-				// implies Removed or Empty.
+				is_moved_from = true;
 				let change = sp_std::mem::replace(changes, self.context.spawn_blob());
 				moved_from.push((from, change));
 			}
 			if let Some(others) = infos.take_others_previous_moved_from(start_depth) {
 				moved_from.extend(others.into_iter());
-			}
-			if let Some(from) = infos.take_is_previous_moved_from(start_depth) {
-				changes
-					.rollback_transaction()
-					.expect("Top and children changesets are started in lockstep; qed");
-				// Note this spawn is not worknig if origin is current, but moved from
-				// implies Removed or Empty.
-				let change = sp_std::mem::replace(changes, self.context.spawn_blob());
-				moved_from.push((from, change));
 			}
 
 			let mut clean = false;
@@ -752,11 +746,12 @@ impl Changes {
 				Some(OriginEntry::Empty) => {
 					clean = true;
 				},
-				None | Some(OriginEntry::Current) => {
-					changes
-						.rollback_transaction()
-						.expect("Top and children changesets are started in lockstep; qed");
-				},
+				None | Some(OriginEntry::Current) =>
+					if !is_moved_from {
+						changes
+							.rollback_transaction(start_depth)
+							.expect("Top and children changesets are started in lockstep; qed");
+					},
 				Some(OriginEntry::Removed(last_removed)) => {
 					*changes = last_removed;
 				},
@@ -764,8 +759,8 @@ impl Changes {
 					// will get new info from moved from in second step
 				},
 			}
-			let _ = (infos, start_depth)
-				.rollback_transaction()
+			let _ = infos
+				.rollback_transaction(start_depth)
 				.expect("Top and children changesets are started in lockstep; qed");
 			!clean
 		});
@@ -779,7 +774,7 @@ impl Changes {
 
 		self.offchain
 			.overlay_mut()
-			.rollback_transaction()
+			.rollback_transaction(start_depth)
 			.expect("Top and offchain changesets are started in lockstep; qed");
 		Ok(())
 	}
@@ -791,11 +786,11 @@ impl Changes {
 	pub fn commit_transaction(&mut self) -> Result<(), NoOpenTransaction> {
 		let start_depth = self.context.transaction_depth();
 		self.context.commit_transaction()?;
-		self.top.commit_transaction()?;
+		self.top.commit_transaction(start_depth)?;
 		for (_, child) in self.children.iter_mut() {
 			child
 				.changes
-				.commit_transaction()
+				.commit_transaction(start_depth)
 				.expect("Top and children changesets are started in lockstep; qed");
 		}
 
@@ -806,7 +801,7 @@ impl Changes {
 				.expect("Top and children changesets are started in lockstep; qed");
 			btree
 				.changes
-				.commit_transaction()
+				.commit_transaction(start_depth)
 				.expect("Top and children changesets are started in lockstep; qed");
 		}
 
@@ -815,13 +810,13 @@ impl Changes {
 				.commit_transaction(start_depth)
 				.expect("Top and children changesets are started in lockstep; qed");
 			blob.changes
-				.commit_transaction()
+				.commit_transaction(start_depth)
 				.expect("Top and children changesets are started in lockstep; qed");
 		}
 
 		self.offchain
 			.overlay_mut()
-			.commit_transaction()
+			.commit_transaction(start_depth)
 			.expect("Top and offchain changesets are started in lockstep; qed");
 		Ok(())
 	}
@@ -1241,10 +1236,18 @@ impl Changes {
 
 /// Common behavior between transient storage contents, technical trait to factor code.
 pub(crate) trait TransientContentCommon<M>: Sized {
+	// TODO can just call on use (no need for trait in this case)
+	fn rollback_moved_state(&mut self, depth: usize) -> Result<(), NoOpenTransaction>;
+
 	fn copy_on_cleared_from(&mut self, from: &MovableStorage<Self, M>);
 }
 
 impl TransientContentCommon<BtreeInfo> for OverlayedChangeSet {
+	fn rollback_moved_state(&mut self, depth: usize) -> Result<(), NoOpenTransaction> {
+		let _ = self.rollback_transaction(depth)?;
+		Ok(())
+	}
+
 	fn copy_on_cleared_from(&mut self, from: &MovableStorage<Self, BtreeInfo>) {
 		for (key, value) in from.changes.changes() {
 			if let Some(value) = value.value_ref() {
@@ -1256,6 +1259,11 @@ impl TransientContentCommon<BtreeInfo> for OverlayedChangeSet {
 }
 
 impl TransientContentCommon<BlobInfo> for OverlayedChangeSetBlob {
+	fn rollback_moved_state(&mut self, depth: usize) -> Result<(), NoOpenTransaction> {
+		let _ = self.rollback_transaction(depth)?;
+		Ok(())
+	}
+
 	fn copy_on_cleared_from(&mut self, from: &MovableStorage<Self, BlobInfo>) {
 		if let Some(chunks) = from.chunks() {
 			for (i, value) in chunks.0.enumerate() {
@@ -1269,7 +1277,7 @@ impl TransientContentCommon<BlobInfo> for OverlayedChangeSetBlob {
 impl<C, A> MovableStorage<C, TransientInfo<A>>
 where
 	A: Clone,
-	C: Transactional + TransientContentCommon<TransientInfo<A>>,
+	C: TransientContentCommon<TransientInfo<A>>,
 {
 	fn clear_movable_storage(
 		&mut self,
@@ -1284,27 +1292,33 @@ where
 			info.size = 0;
 			info.cached_hash = None;
 			let mut last = sp_std::mem::replace(&mut self.changes, spawn_changes());
-			let moved = if let Some(current_key) =
-				self.infos.take_is_previous_moved_from(context.transaction_depth())
-			{
-				if move_old_state {
-					Some((last, false, Some(current_key)))
+			let depth = context.transaction_depth();
+			// No need to revert if no transaction
+			let moved = if depth != 0 {
+				if let Some(current_key) =
+					self.infos.take_is_previous_moved_from(context.transaction_depth())
+				{
+					if move_old_state {
+						Some((last, false, Some(current_key)))
+					} else {
+						last.rollback_moved_state(depth).expect("checked depth");
+						self.infos.set_moved_from(current_key, Some(last), context);
+						None
+					}
+				} else if self.infos.need_keep_origin(context) {
+					if move_old_state {
+						self.infos.set_moved_to(context);
+						Some((last, true, None))
+					} else {
+						last.rollback_moved_state(depth).expect("checked depth");
+						self.infos.set_last_removed(last, context);
+						None
+					}
 				} else {
-					let _ = last.rollback_transaction();
-					self.infos.set_moved_from(current_key, Some(last), context);
-					None
-				}
-			} else if self.infos.need_keep_origin(context) {
-				if move_old_state {
-					self.infos.set_moved_to(context);
-					Some((last, true, None))
-				} else {
-					let _ = last.rollback_transaction();
-					self.infos.set_last_removed(last, context);
-					None
+					move_old_state.then(|| (last, false, None))
 				}
 			} else {
-				move_old_state.then(|| (last, false, None))
+				None
 			};
 			(result as u32, moved)
 		} else {
@@ -1382,7 +1396,7 @@ where
 			return false
 		};
 
-		let Some((state, ref_origin, proxy_origin))	 = map.get_mut(&info.name)
+		let Some((state, ref_origin, proxy_origin)) = map.get_mut(&info.name)
 			.and_then(|entry| entry.clear_movable_storage(true, spawn_changes, context).1) else {
 			return false
 		};
@@ -1412,13 +1426,32 @@ where
 
 /// Storage transaction layers support.
 pub trait Transactional {
+	/// Should start transaction be call.
+	const REQUIRE_START_TRANSACTION: bool;
+
+	/// Start a new nested transaction.
+	///
+	/// This allows to either commit or roll back all changes that were made while this
+	/// transaction was open. Any transaction must be closed by either `commit_transaction`
+	/// or `rollback_transaction` before this overlay can be converted into storage changes.
+	///
+	/// Changes made without any open transaction are committed immediately.
+	fn start_transaction(&mut self);
+
+	/// Commit the last transaction started by `start_transaction`.
+	///
+	/// Any changes made during that transaction are committed. Returns an error if
+	/// there is no open transaction that can be committed.
+	fn commit_transaction(&mut self, transaction_depth: usize) -> Result<(), NoOpenTransaction>;
+
 	/// Rollback the last transaction started by `start_transaction`.
 	///
 	/// Any changes made during that transaction are discarded. Returns an error if
 	/// there is no open transaction that can be rolled back.
 	/// Returns `true` if no remaining content (no overlay and content same as initial one).
 	#[must_use = "When empty returned, the object need to be acted upon."]
-	fn rollback_transaction(&mut self) -> Result<bool, NoOpenTransaction>;
+	fn rollback_transaction(&mut self, transaction_depth: usize)
+		-> Result<bool, NoOpenTransaction>;
 }
 
 #[cfg(feature = "std")]
