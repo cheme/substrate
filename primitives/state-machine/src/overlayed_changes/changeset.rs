@@ -173,18 +173,6 @@ struct InfoEntry<I, M> {
 	transaction_depth: usize,
 }
 
-impl<I, M> From<(I, &OverlayedContext)> for InfoEntry<I, M> {
-	fn from((info, context): (I, &OverlayedContext)) -> Self {
-		InfoEntry {
-			info,
-			origin: OriginEntry::Empty,
-			moved_from_current: None,
-			others_moved_from: None,
-			transaction_depth: context.transaction_depth(),
-		}
-	}
-}
-
 /// Holds history of infos attached to a storage.
 #[derive(Debug, Clone)]
 pub(crate) struct OverlayedInfos<I, M> {
@@ -428,7 +416,19 @@ impl OverlayedContext {
 	/// Create a new info changeset.
 	pub(crate) fn spawn_info<I, M>(&self, info: I) -> OverlayedInfos<I, M> {
 		OverlayedInfos {
-			infos: OverlayedEntry { transactions: SmallVec::from_iter([(info, self).into()]) },
+			infos: OverlayedEntry {
+				transactions: SmallVec::from_iter([self.new_info(info, OriginEntry::Empty)]),
+			},
+		}
+	}
+
+	fn new_info<I, M>(&self, info: I, origin: OriginEntry<M>) -> InfoEntry<I, M> {
+		InfoEntry {
+			info,
+			origin,
+			moved_from_current: None,
+			others_moved_from: None,
+			transaction_depth: self.transaction_depth(),
 		}
 	}
 
@@ -522,16 +522,18 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 	#[inline]
 	pub fn modify_value(&mut self, context: &OverlayedContext) -> &mut I {
 		debug_assert!(!self.infos.transactions.is_empty());
+		let mut origin = OriginEntry::Current;
 		if self
 			.infos
 			.transactions
 			.last()
 			.map(|info| info.transaction_depth != context.transaction_depth())
-			.unwrap_or(true)
-		{
-			let infos = self.infos.value_mut();
-			let mut value: InfoEntry<I, M> = (infos.info.clone(), context).into();
-			value.origin = OriginEntry::Current;
+			.unwrap_or_else(|| {
+				origin = OriginEntry::Empty;
+				true
+			}) {
+			let infos = self.infos.value_ref();
+			let value: InfoEntry<I, M> = context.new_info(infos.info.clone(), origin);
 			// first write, add a layer
 			self.infos.transactions.push(value);
 		}
@@ -546,17 +548,14 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 			.transactions
 			.last()
 			.map(|info| info.transaction_depth == context.transaction_depth())
-			.unwrap_or(true)
+			.unwrap_or(false)
 		{
 			match &self.infos.value_ref().origin {
 				OriginEntry::Current => true,
 				_ => false,
 			}
 		} else {
-			match &self.infos.value_ref().origin {
-				OriginEntry::Empty => false,
-				_ => true,
-			}
+			false
 		}
 	}
 
@@ -623,11 +622,13 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 			.unwrap_or(true)
 		{
 			let info = self.infos.value_ref().info.clone();
-			// first write, add a layer
-			self.infos.transactions.push((info, context).into());
+			// first write, add a layer (any origin, will be replaced)
+			self.infos.transactions.push(context.new_info(info, OriginEntry::Current));
 		}
 
 		let infos = self.infos.value_mut();
+		// function should only be call if no current origin or current origin need
+		// to be restored which is only `current` (see `need_keep_origin`).
 		debug_assert!(matches!(infos.origin, OriginEntry::Current));
 		infos.origin = OriginEntry::Removed(last_removed);
 	}
@@ -642,27 +643,33 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 			.unwrap_or(true)
 		{
 			let info = self.infos.value_ref().info.clone();
-			// first write, add a layer
-			self.infos.transactions.push((info, context).into());
+			// first write, add a layer (any origin, will be replaced)
+			self.infos.transactions.push(context.new_info(info, OriginEntry::Current));
 		}
 
 		let infos = self.infos.value_mut();
+		// function should only be call if no current origin or current origin need
+		// to be restored which is only `current` (see `need_keep_origin`).
 		debug_assert!(matches!(infos.origin, OriginEntry::Current));
+		// Note MovedTo is very similar to Empty, just we don't clean entry.
 		infos.origin = OriginEntry::MovedTo;
 	}
 
 	/// Set moved_to in current transaction layer.
 	pub fn set_moved_from(&mut self, moved_from_name: Vec<u8>, context: &OverlayedContext) {
+		let mut origin = OriginEntry::Current;
 		if self
 			.infos
 			.transactions
 			.last()
 			.map(|info| info.transaction_depth != context.transaction_depth())
-			.unwrap_or(true)
-		{
+			.unwrap_or_else(|| {
+				origin = OriginEntry::Empty;
+				true
+			}) {
 			let info = self.infos.value_ref().info.clone();
 			// first write, add a layer
-			self.infos.transactions.push((info, context).into());
+			self.infos.transactions.push(context.new_info(info, origin));
 		}
 
 		let infos = self.infos.value_mut();
@@ -677,17 +684,13 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 		moved_from_state: M,
 		context: &OverlayedContext,
 	) {
-		if self
+		// already got a moved from, see `take_is_previous_moved_from`.
+		debug_assert!(self
 			.infos
 			.transactions
 			.last()
-			.map(|info| info.transaction_depth != context.transaction_depth())
-			.unwrap_or(true)
-		{
-			let info = self.infos.value_ref().info.clone();
-			// first write, add a layer
-			self.infos.transactions.push((info, context).into());
-		}
+			.map(|info| info.transaction_depth == context.transaction_depth())
+			.unwrap_or(false));
 
 		let infos = self.infos.value_mut();
 		if infos.others_moved_from.is_none() {

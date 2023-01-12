@@ -111,7 +111,7 @@ pub struct Changes {
 /// on the origin of the current layer of the source storage. Target state origin will be as
 /// previously describe if existing and removed, `Empty` otherwhise. Origin tracking is done by
 /// `set_moved_from`, and store into `moved_from_current`. If `moved_from_current` is already define
-/// (moving twice to same target in same transaction), we first use `set_others_moved_from` to keep
+/// (moving twice to same target in same transaction), we first use `set_other_moved_from` to keep
 /// trace of current state. If origin of the source storage is Empty, we do not track origin
 /// (rollback will just clear source and revert target to its removed state (or clear if no state).
 #[derive(Debug, Clone)]
