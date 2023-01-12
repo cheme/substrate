@@ -386,7 +386,7 @@ impl<'a, Block: BlockT> TransientArchive<'a, Block> {
 			self.write_blobs(info.blobs_changes, tx, &mut journal);
 			tx.set_from_vec(columns::AUX, &Self::journal_key(self.hash), journal);
 		} else {
-			warn!("Canonicalize miss transient info at {:?}: {:?}", self.hash, self.number);
+			debug!("Canonicalize, no transient info at {:?}: {:?}", self.hash, self.number);
 		}
 		Ok(())
 	}

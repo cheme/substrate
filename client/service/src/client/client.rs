@@ -660,7 +660,12 @@ where
 													}
 												});
 											debug_assert!(state.blob.is_none());
-											for (key, value) in state.key_values.into_iter() {
+											let key_values = if i + 1 == nb {
+												std::mem::take(&mut state.key_values)
+											} else {
+												state.key_values.clone()
+											};
+											for (key, value) in key_values.into_iter() {
 												entry.data.insert(key, value);
 											}
 										},
@@ -682,7 +687,15 @@ where
 													}
 												});
 											debug_assert!(state.key_values.is_empty());
-											entry.data = state.blob.unwrap_or_else(|| Vec::new());
+											if i + 1 == nb {
+												entry.data = std::mem::take(&mut state.blob)
+													.unwrap_or_else(|| Vec::new());
+											} else {
+												entry.data = state
+													.blob
+													.clone()
+													.unwrap_or_else(|| Vec::new());
+											}
 										},
 										None =>
 											return Err(Error::Backend(
