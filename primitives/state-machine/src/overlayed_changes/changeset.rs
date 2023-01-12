@@ -652,10 +652,29 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 	}
 
 	/// Set moved_to in current transaction layer.
-	pub fn set_moved_from(
+	pub fn set_moved_from(&mut self, moved_from_name: Vec<u8>, context: &OverlayedContext) {
+		if self
+			.infos
+			.transactions
+			.last()
+			.map(|info| info.transaction_depth != context.transaction_depth())
+			.unwrap_or(true)
+		{
+			let info = self.infos.value_ref().info.clone();
+			// first write, add a layer
+			self.infos.transactions.push((info, context).into());
+		}
+
+		let infos = self.infos.value_mut();
+		debug_assert!(infos.moved_from_current.is_none());
+		infos.moved_from_current = Some(moved_from_name);
+	}
+
+	/// Set moved_to in current transaction layer.
+	pub fn set_other_moved_from(
 		&mut self,
 		moved_from_name: Vec<u8>,
-		moved_from_state: Option<M>,
+		moved_from_state: M,
 		context: &OverlayedContext,
 	) {
 		if self
@@ -671,19 +690,14 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 		}
 
 		let infos = self.infos.value_mut();
-		if let Some(state) = moved_from_state {
-			if infos.others_moved_from.is_none() {
-				infos.others_moved_from = Some(Map::new());
-			}
-			infos
-				.others_moved_from
-				.as_mut()
-				.expect("Init above")
-				.insert(moved_from_name, state);
-		} else {
-			debug_assert!(infos.moved_from_current.is_none());
-			infos.moved_from_current = Some(moved_from_name);
+		if infos.others_moved_from.is_none() {
+			infos.others_moved_from = Some(Map::new());
 		}
+		infos
+			.others_moved_from
+			.as_mut()
+			.expect("Init above")
+			.insert(moved_from_name, moved_from_state);
 	}
 }
 

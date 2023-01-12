@@ -103,6 +103,17 @@ pub struct Changes {
 }
 
 /// Changes for movable transient stoarge.
+///
+/// Rollback of movable storage work by storing a deleted storage state with `set_last_removed` into
+/// the layer origin when origin is not `Empty` or not already storing a previous removed state. (if
+/// empty, the rollback will remove all content). Also moved storage are tracked by there previous
+/// location, so rollback can bring back state to the right place. Function `set_moved_to` is used
+/// on the origin of the current layer of the source storage. Target state origin will be as
+/// previously describe if existing and removed, `Empty` otherwhise. Origin tracking is done by
+/// `set_moved_from`, and store into `moved_from_current`. If `moved_from_current` is already define
+/// (moving twice to same target in same transaction), we first use `set_others_moved_from` to keep
+/// trace of current state. If origin of the source storage is Empty, we do not track origin
+/// (rollback will just clear source and revert target to its removed state (or clear if no state).
 #[derive(Debug, Clone)]
 pub(crate) struct MovableStorage<C, M> {
 	changes: C,
@@ -1309,7 +1320,7 @@ where
 						Some((last, false, Some(current_key)))
 					} else {
 						last.rollback_moved_state(depth).expect("checked depth");
-						self.infos.set_moved_from(current_key, Some(last), context);
+						self.infos.set_other_moved_from(current_key, last, context);
 						None
 					}
 				} else if self.infos.need_keep_origin(context) {
@@ -1423,9 +1434,9 @@ where
 
 		entry.changes = state;
 		if ref_origin {
-			entry.infos.set_moved_from(info.name.clone(), None, context);
+			entry.infos.set_moved_from(info.name.clone(), context);
 		} else if let Some(from) = proxy_origin {
-			entry.infos.set_moved_from(from.clone(), None, context);
+			entry.infos.set_moved_from(from.clone(), context);
 		}
 		true
 	}
