@@ -618,7 +618,10 @@ where
 									storage.top.insert(key, value);
 								}
 							} else {
-								for parent_storage in state.parent_storage_keys {
+								// No multiple level child state, look only first level.
+								if let Some(parent_storage) =
+									state.parent_storage_keys.into_iter().next()
+								{
 									let storage_key = PrefixedStorageKey::new_ref(&parent_storage);
 									match ChildType::from_prefixed_key(&storage_key) {
 										Some((ChildType::Default, storage_key)) => {
@@ -632,7 +635,6 @@ where
 											for (key, value) in state.key_values.into_iter() {
 												entry.data.insert(key, value);
 											}
-											break
 										},
 										Some((ChildType::Btree, storage_key)) => {
 											// TODO currently we don't warp synch this kind of info
@@ -656,7 +658,6 @@ where
 											for (key, value) in state.key_values.into_iter() {
 												entry.data.insert(key, value);
 											}
-											break
 										},
 										Some((ChildType::Blob, storage_key)) => {
 											// TODO currently we don't warp synch this kind of info
@@ -677,7 +678,6 @@ where
 												});
 											debug_assert!(state.key_values.is_empty());
 											entry.data = state.blob.unwrap_or_else(|| Vec::new());
-											break
 										},
 										None =>
 											return Err(Error::Backend(
