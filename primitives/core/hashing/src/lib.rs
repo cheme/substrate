@@ -50,14 +50,14 @@ pub enum Blake3State {
 	/// keep trace of merkle info,
 	/// allow random changes and proof
 	/// construction.
-	Cached(CachedBlake3),
+	Cached(CachedBlake3<VecHashes>),
 }
 
 impl Blake3State {
 	/// Start hashing.
 	pub fn new(with_merkle_cache: bool) -> Self {
 		if with_merkle_cache {
-			let mut hashes: alloc::vec::Vec<alloc::vec::Vec<CachedHash>> = Default::default();
+			let mut hashes: alloc::vec::Vec<VecHashes> = Default::default();
 			hashes.push(alloc::vec![Default::default()]); // TODO root of [] instead (but need it as constant
 			Blake3State::Cached(CachedBlake3 { hashes, size: 0, last_chunk: None, root: None })
 		} else {
@@ -85,7 +85,7 @@ impl Blake3State {
 }
 
 #[derive(Clone)]
-struct CachedHash {
+pub struct CachedHash {
 	hash: blake3_hash::Hash,
 	parent_processed: bool,
 	register_for_proof: bool,
@@ -101,17 +101,60 @@ impl Default for CachedHash {
 /// Uses more memory as it caches all calculated hashes from
 /// the internal binary tree.
 #[derive(Clone)]
-pub struct CachedBlake3 {
+pub struct CachedBlake3<Hashes> {
 	/// any hashes computed are kept for random changes.
 	/// Index is build from (depth, index_in_depth), with root at depth 0.
 	/// TODO the inner vec will grow uselessly for proofs: use some different struct in this case.
-	hashes: alloc::vec::Vec<alloc::vec::Vec<CachedHash>>,
+	hashes: alloc::vec::Vec<Hashes>,
 	/// size of processed content
 	size: u64,
 	/// Last chunk (only for update).
 	last_chunk: Option<blake3_hash::guts::ChunkState>,
 	/// Root, cannot use hashes as they are parent flag only.
 	root: Option<[u8; 32]>,
+}
+
+/// CachedHash at a given depth.
+trait CachedHashes {
+	fn empty() -> Self;
+	fn next_modified(&self, last: Option<usize>) -> Option<usize>;
+	fn get_cached(&self, ix: usize) -> Option<&CachedHash>;
+	// TODO cehck if can remplace by just ste_hash
+	fn get_cached_or_new_mut(&mut self, ix: usize) -> &mut CachedHash;
+}
+
+type VecHashes = alloc::vec::Vec<Option<CachedHash>>;
+
+impl CachedHashes for VecHashes {
+	fn empty() -> Self {
+		Default::default()
+	}
+
+	fn next_modified(&self, last: Option<usize>) -> Option<usize> {
+		let mut ix = last.map(|l| l + 1).unwrap_or(0);
+		loop {
+			match self.get(ix) {
+				Some(Some(cached)) if !cached.parent_processed => return Some(ix),
+				None => return None,
+				_ => (),
+			}
+			ix += 1;
+		}
+	}
+
+	fn get_cached(&self, ix: usize) -> Option<&CachedHash> {
+		self.get(ix).and_then(Option::as_ref)
+	}
+
+	fn get_cached_or_new_mut(&mut self, ix: usize) -> &mut CachedHash {
+		if ix >= self.len() {
+			self.resize(ix + 1, None);
+		}
+		if self[ix].is_none() {
+			self[ix] = Some(Default::default());
+		}
+		self[ix].as_mut().expect("init above")
+	}
 }
 
 #[inline(always)]
@@ -146,7 +189,7 @@ fn chunk_aligned(len: u64) -> bool {
 	(len % blake3_hash::guts::CHUNK_LEN as u64) == 0
 }
 
-impl CachedBlake3 {
+impl<Hashes: CachedHashes> CachedBlake3<Hashes> {
 	fn grow(&mut self, new_size: u64) {
 		let previous = chunk_index(self.size);
 		let new = chunk_index(new_size);
@@ -154,7 +197,7 @@ impl CachedBlake3 {
 		let new_depth = depth_and_index(new).0;
 		for _ in 0..new_depth - old_depth {
 			// TODO reverse hashes order to push
-			self.hashes.insert(0, Default::default());
+			self.hashes.insert(0, Hashes::empty());
 		}
 	}
 
@@ -198,11 +241,9 @@ impl CachedBlake3 {
 
 		let depth = self.hashes.len() - 1;
 		let at = at as usize;
-		while self.hashes[depth].len() <= at {
-			self.hashes[depth].push(Default::default());
-		}
-		self.hashes[depth][at].hash = state.finalize(false);
-		self.hashes[depth][at].parent_processed = false;
+		let mut hash = self.hashes[depth].get_cached_or_new_mut(at);
+		hash.hash = state.finalize(false);
+		hash.parent_processed = false;
 	}
 
 	fn update(&mut self, mut data: &[u8]) {
@@ -240,19 +281,21 @@ impl CachedBlake3 {
 		}
 
 		if let Some(last) = &mut self.last_chunk {
-			let hash = last.clone().finalize(false);
+			let hash_last = last.clone().finalize(false);
 			let hashes = self.hashes.last_mut().expect("`grow` has been called");
 			let at = chunk_index(self.size) as usize;
-			while hashes.len() <= at {
-				hashes.push(Default::default());
-			}
-			hashes[at].hash = hash;
-			hashes[at].parent_processed = false;
+			let mut hash = hashes.get_cached_or_new_mut(at);
+			hash.hash = hash_last;
+			hash.parent_processed = false;
 		}
+
+		let last_chunk = chunk_index(self.size);
 		for d in (1..self.hashes.len()).rev() {
-			// TODO pair iterate?
 			let mut skip_ix = None;
-			for i in 0..self.hashes[d].len() {
+			let len = (last_chunk >> (self.hashes.len() - 1 - d)) as usize + 1;
+			let mut last = None;
+			while let Some(i) = self.hashes[d].next_modified(last) {
+				last = Some(i);
 				let mut hashes = &mut self.hashes[d];
 				if let Some(skip) = skip_ix.take() {
 					if i == skip {
@@ -268,21 +311,23 @@ impl CachedBlake3 {
 					i - 1
 				};
 
-				let parent_hash = if i == hashes.len() - 1 {
-					if hashes[i].parent_processed {
+				let parent_hash = if i == len - 1 {
+					if hashes.get_cached(i).map(|h| h.parent_processed).unwrap_or(true) {
 						continue
 					}
-					hashes[i].parent_processed = true;
-					hashes[i].hash.clone()
+					let mut hash = hashes.get_cached_or_new_mut(i);
+					hash.parent_processed = true;
+					hash.hash.clone()
 				} else {
-					if hashes[i].parent_processed && hashes[i + 1].parent_processed {
+					if hashes.get_cached(i).map(|h| h.parent_processed).unwrap_or(true) &&
+						hashes.get_cached(i + 1).map(|h| h.parent_processed).unwrap_or(true)
+					{
 						continue
 					}
-
-					hashes[i].parent_processed = true;
-					hashes[i + 1].parent_processed = true;
-					let l = &hashes[i].hash;
-					let r = &hashes[i + 1].hash;
+					hashes.get_cached_or_new_mut(i).parent_processed = true;
+					hashes.get_cached_or_new_mut(i + 1).parent_processed = true;
+					let l = &hashes.get_cached(i).expect("new above").hash;
+					let r = &hashes.get_cached(i + 1).expect("new above").hash;
 
 					if d == 1 {
 						self.root = Some(*blake3_hash::guts::parent_cv(l, r, true).as_bytes());
@@ -291,21 +336,18 @@ impl CachedBlake3 {
 				};
 				let parent_depth = &mut self.hashes[d - 1];
 				let parent_index = i / 2;
-				// TODO there is certainly a vec function that resize
-				// with default
-				while parent_depth.len() <= parent_index as usize {
-					parent_depth.push(Default::default());
-				}
-				parent_depth[parent_index as usize].hash = parent_hash;
-				parent_depth[parent_index as usize].parent_processed = false;
+				let hash = parent_depth.get_cached_or_new_mut(parent_index);
+				hash.hash = parent_hash;
+				hash.parent_processed = false;
 			}
 		}
 		if let Some(root) = &self.root {
 			*root
 		} else {
-			let result = *self.hashes[0][0].hash.as_bytes();
+			// depth 1
+			let result = self.hashes[0].get_cached(0).expect("TODO").hash.as_bytes();
 			self.root = Some(result.clone());
-			result
+			*result
 		}
 	}
 }
