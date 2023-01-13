@@ -21,7 +21,7 @@ mod changeset;
 mod offchain;
 
 use self::changeset::{OriginEntry, OverlayedChangeSet, OverlayedChangeSetBlob, OverlayedInfos};
-use crate::{backend::Backend, stats::StateMachineStats, DefaultError};
+use crate::{backend::Backend, stats::StateMachineStats, warn, DefaultError};
 use codec::Encode;
 use hash_db::Hasher;
 pub use offchain::OffchainChanges;
@@ -30,8 +30,8 @@ use sp_core::HashersExternalities;
 use sp_core::{
 	offchain::OffchainOverlayedChange,
 	storage::{
-		Blob as BlobInfo, Btree as BtreeInfo, ChildInfo, Name, StateVersion, TransientInfo,
-		BLOB_CHUNK_SIZE,
+		Blob as BlobInfo, Btree as BtreeInfo, ChildInfo, DefaultChild, Name, StateVersion,
+		TransientInfo, BLOB_CHUNK_SIZE,
 	},
 };
 #[cfg(feature = "std")]
@@ -96,23 +96,24 @@ pub struct Changes {
 	offchain: OffchainChanges,
 	/// Transaction index changes,
 	transaction_index_ops: Vec<IndexOperation>,
-	/// True if extrinsics stats must be collected.
-	collect_extrinsics: bool,
 	/// Collect statistic on this execution.
 	stats: StateMachineStats,
 	#[cfg(feature = "std")]
 	pub(crate) hashers: HashersExternalities,
 }
 
-/// Default child storage.
-/// TODO move methods in this struct when possible
-#[derive(Debug, Clone)]
-struct ChildChanges {
-	changes: OverlayedChangeSet,
-	infos: ChildInfo,
-}
-
 /// Changes for movable transient stoarge.
+///
+/// Rollback of movable storage work by storing a deleted storage state with `set_last_removed` into
+/// the layer origin when origin is not `Empty` or not already storing a previous removed state. (if
+/// empty, the rollback will remove all content). Also moved storage are tracked by there previous
+/// location, so rollback can bring back state to the right place. Function `set_moved_to` is used
+/// on the origin of the current layer of the source storage. Target state origin will be as
+/// previously describe if existing and removed, `Empty` otherwhise. Origin tracking is done by
+/// `set_moved_from`, and store into `moved_from_current`. If `moved_from_current` is already define
+/// (moving twice to same target in same transaction), we first use `set_other_moved_from` to keep
+/// trace of current state. If origin of the source storage is Empty, we do not track origin
+/// (rollback will just clear source and revert target to its removed state (or clear if no state).
 #[derive(Debug, Clone)]
 pub(crate) struct MovableStorage<C, M> {
 	changes: C,
@@ -144,6 +145,13 @@ impl<M> From<M> for MovableMeta<M> {
 	fn from(infos: M) -> Self {
 		Self { infos, size: 0, cached_hash: None, removed: false }
 	}
+}
+
+/// Default child storage.
+#[derive(Debug, Clone)]
+struct ChildChanges {
+	changes: OverlayedChangeSet,
+	infos: DefaultChild,
 }
 
 /// Transaction index operation.
@@ -269,11 +277,6 @@ impl Changes {
 		self.top.is_empty() && self.children.is_empty()
 	}
 
-	/// Ask to collect/not to collect extrinsics indices where key(s) has been changed.
-	pub fn set_collect_extrinsics(&mut self, collect_extrinsics: bool) {
-		self.collect_extrinsics = collect_extrinsics;
-	}
-
 	/// Returns a double-Option: None if the key is unknown (i.e. and the query should be referred
 	/// to the backend); Some(None) if the key has been deleted. Some(Some(...)) for a key whose
 	/// value has been set.
@@ -301,7 +304,6 @@ impl Changes {
 	/// Returns a double-Option: None if the key is unknown (i.e. and the query should be referred
 	/// to the backend); Some(None) if the key has been deleted. Some(Some(...)) for a key whose
 	/// value has been set.
-	/// TODO we use Cow here just for the blob case, maybe just separate functions.
 	pub fn child_storage(
 		&self,
 		child_info: &ChildInfo,
@@ -310,7 +312,7 @@ impl Changes {
 		limit: Option<u32>,
 	) -> Option<Option<Cow<[u8]>>> {
 		let value = match child_info {
-			ChildInfo::ParentKeyId(_) => {
+			ChildInfo::Default(_) => {
 				let map = self.children.get(child_info.storage_key())?;
 				map.changes.storage(key, start, limit, &self.stats)?.map(Cow::Borrowed)
 			},
@@ -390,7 +392,7 @@ impl Changes {
 	/// Length of value at a given storage key.
 	pub fn child_storage_len(&self, child_info: &ChildInfo, key: &[u8]) -> Option<Option<u32>> {
 		let value = match child_info {
-			ChildInfo::ParentKeyId(_) => {
+			ChildInfo::Default(_) => {
 				let map = self.children.get(child_info.storage_key())?;
 				map.changes.get(key)?.value().map(|v| v.len() as u32)
 			},
@@ -440,51 +442,48 @@ impl Changes {
 		self.stats.tally_write_overlay(size_write);
 
 		match child_info {
-			ChildInfo::ParentKeyId(_) => {
+			ChildInfo::Default(info) => {
 				let storage_key = child_info.storage_key().to_vec();
 				let child = self.children.entry(storage_key).or_insert_with(|| ChildChanges {
 					changes: self.context.spawn_child(),
-					infos: child_info.clone(),
+					infos: info.clone(),
 				});
-				let updatable = child.infos.try_update(child_info);
+				let updatable = child.infos.try_update(&info);
 				debug_assert!(updatable);
 				child.changes.set(key.to_vec(), val.map(Vec::from));
 				true
 			},
-			ChildInfo::Btree(infos) =>
-				if let Some(BtreeChanges { changes, infos }) = self.btrees.get_mut(&infos.name) {
-					if infos.value_ref().removed {
-						return false
+			ChildInfo::Btree(infos) => {
+				let Some(BtreeChanges { changes, infos }) = self.btrees.get_mut(&infos.name) else {
+					return false;
+				};
+				if infos.value_ref().removed {
+					return false
+				}
+				let has_root = infos.value_ref().cached_hash.is_some();
+				let (existing, changed) = changes
+					.get(key)
+					.map(|v| {
+						(v.value_ref().is_some(), v.value_ref().as_ref().map(Vec::as_slice) == val)
+					})
+					.unwrap_or((false, true));
+				if (has_root && changed) ||
+					(existing && val.is_none()) ||
+					(!existing && val.is_some())
+				{
+					let infos = infos.modify_value(&self.context);
+					if changed {
+						infos.cached_hash = None;
 					}
-					let has_root = infos.value_ref().cached_hash.is_some();
-					let (existing, changed) = changes
-						.get(key)
-						.map(|v| {
-							(
-								v.value_ref().is_some(),
-								v.value_ref().as_ref().map(Vec::as_slice) == val,
-							)
-						})
-						.unwrap_or((false, true));
-					if (has_root && changed) ||
-						(existing && val.is_none()) ||
-						(!existing && val.is_some())
-					{
-						let infos = infos.modify_value(&self.context);
-						if changed {
-							infos.cached_hash = None;
-						}
-						if val.is_some() {
-							infos.size += 1;
-						} else {
-							infos.size -= 1;
-						}
+					if val.is_some() {
+						infos.size += 1;
+					} else {
+						infos.size -= 1;
 					}
-					changes.set(key.to_vec(), val.map(Vec::from));
-					true
-				} else {
-					false
-				},
+				}
+				changes.set(key.to_vec(), val.map(Vec::from));
+				true
+			},
 			ChildInfo::Blob(_) => {
 				crate::warn!(target: "runtime", "Attempt to use set child on a blob, ignoring.");
 				false
@@ -562,7 +561,7 @@ impl Changes {
 		let storage_key = child_info.storage_key().to_vec();
 		let context = &self.context;
 		match child_info {
-			ChildInfo::ParentKeyId(_) => {
+			ChildInfo::Default(info) => {
 				let child = self
 					.children
 					.entry(storage_key)
@@ -570,9 +569,9 @@ impl Changes {
 					// this kind of child trie where empty trie is never stored.
 					.or_insert_with(|| ChildChanges {
 						changes: context.spawn_child(),
-						infos: child_info.clone(),
+						infos: info.clone(),
 					});
-				let updatable = child.infos.try_update(child_info);
+				let updatable = child.infos.try_update(&info);
 				debug_assert!(updatable);
 				child.changes.clear_where(|_, _| true)
 			},
@@ -583,24 +582,22 @@ impl Changes {
 
 	fn clear_blob_storage(&mut self, name: &[u8], move_old_state: bool) -> u32 {
 		let context = &self.context;
-		if let Some(entry) = self.blobs.get_mut(name) {
-			entry
-				.clear_movable_storage(move_old_state, &|| context.spawn_blob(), &self.context)
-				.0
-		} else {
-			0
-		}
+		let Some(entry) = self.blobs.get_mut(name) else {
+			return 0;
+		};
+		entry
+			.clear_movable_storage(move_old_state, &|| context.spawn_blob(), &self.context)
+			.0
 	}
 
 	fn clear_btree_storage(&mut self, name: &[u8], move_old_state: bool) -> u32 {
 		let context = &self.context;
-		if let Some(entry) = self.btrees.get_mut(name) {
-			entry
-				.clear_movable_storage(move_old_state, &|| context.spawn_child(), &self.context)
-				.0
-		} else {
-			0
-		}
+		let Some(entry) = self.btrees.get_mut(name) else {
+			return 0;
+		};
+		entry
+			.clear_movable_storage(move_old_state, &|| context.spawn_child(), &self.context)
+			.0
 	}
 
 	/// Removes all key-value pairs which keys share the given prefix.
@@ -614,15 +611,28 @@ impl Changes {
 	///
 	/// Can be rolled back or committed when called inside a transaction
 	pub(crate) fn clear_child_prefix(&mut self, child_info: &ChildInfo, prefix: &[u8]) -> u32 {
-		let storage_key = child_info.storage_key().to_vec();
 		let context = &self.context;
-		let child = self.children.entry(storage_key).or_insert_with(|| ChildChanges {
-			changes: context.spawn_child(),
-			infos: child_info.clone(),
-		});
-		let updatable = child.infos.try_update(child_info);
-		debug_assert!(updatable);
-		child.changes.clear_where(|key, _| key.starts_with(prefix))
+		match child_info {
+			ChildInfo::Default(info) => {
+				let child = self.children.entry(info.name.clone()).or_insert_with(|| {
+					ChildChanges { changes: context.spawn_child(), infos: info.clone() }
+				});
+				let updatable = child.infos.try_update(&info);
+				debug_assert!(updatable);
+				child.changes.clear_where(|key, _| key.starts_with(prefix))
+			},
+			ChildInfo::Btree(info) => {
+				let Some(BtreeChanges { changes, infos }) = self.btrees.get_mut(&info.name) else {
+					return 0
+				};
+				if infos.value_ref().removed {
+					return 0
+				}
+
+				changes.clear_where(|key, _| key.starts_with(prefix))
+			},
+			ChildInfo::Blob(_info) => 0,
+		}
 	}
 
 	/// A value of zero means that no transaction is open and changes are committed on write.
@@ -661,24 +671,24 @@ impl Changes {
 		let start_depth = self.context.transaction_depth();
 		self.context.rollback_transaction()?;
 
-		self.top.rollback_transaction()?;
+		self.top.rollback_transaction(start_depth)?;
 		retain_map(&mut self.children, |_, child| {
 			child
 				.changes
-				.rollback_transaction()
+				.rollback_transaction(start_depth)
 				.expect("Top and children changesets are started in lockstep; qed");
 			!child.changes.is_empty()
 		});
 
 		let mut moved_from = Vec::new();
 		retain_map(&mut self.btrees, |_, BtreeChanges { changes, infos }| {
+			let mut is_moved_from = false;
 			if let Some(from) = infos.take_is_previous_moved_from(start_depth) {
 				changes
-					.rollback_transaction()
+					.rollback_transaction(start_depth)
 					.expect("Top and children changesets are started in lockstep; qed");
-				// Note this spawn is not worknig if origin is current, but moved from
-				// implies Removed or Empty.
 				let change = sp_std::mem::replace(changes, self.context.spawn_child());
+				is_moved_from = true;
 				moved_from.push((from, change));
 			}
 			if let Some(others) = infos.take_others_previous_moved_from(start_depth) {
@@ -686,7 +696,7 @@ impl Changes {
 			}
 			if let Some(from) = infos.take_is_previous_moved_from(start_depth) {
 				changes
-					.rollback_transaction()
+					.rollback_transaction(start_depth)
 					.expect("Top and children changesets are started in lockstep; qed");
 				// Note this spawn is not worknig if origin is current, but moved from
 				// implies Removed or Empty.
@@ -697,13 +707,16 @@ impl Changes {
 			let mut clean = false;
 			match infos.take_last_origin(start_depth) {
 				Some(OriginEntry::Empty) => {
+					// skipping rollback here assumes the state will be removed.
+					// TODO need testing or just rollback
 					clean = true;
 				},
-				None | Some(OriginEntry::Current) => {
-					changes
-						.rollback_transaction()
-						.expect("Top and children changesets are started in lockstep; qed");
-				},
+				None | Some(OriginEntry::Current) =>
+					if !is_moved_from {
+						changes
+							.rollback_transaction(start_depth)
+							.expect("Top and children changesets are started in lockstep; qed");
+					},
 				Some(OriginEntry::Removed(last_removed)) => {
 					*changes = last_removed;
 				},
@@ -711,8 +724,8 @@ impl Changes {
 					// will get new info from moved from in second step
 				},
 			}
-			let _ = (infos, start_depth)
-				.rollback_transaction()
+			let _ = infos
+				.rollback_transaction(start_depth)
 				.expect("Top and children changesets are started in lockstep; qed");
 			!clean
 		});
@@ -726,26 +739,17 @@ impl Changes {
 
 		let mut moved_from = Vec::new();
 		retain_map(&mut self.blobs, |_, BlobChanges { changes, infos }| {
+			let mut is_moved_from = false;
 			if let Some(from) = infos.take_is_previous_moved_from(start_depth) {
 				changes
-					.rollback_transaction()
+					.rollback_transaction(start_depth)
 					.expect("Top and children changesets are started in lockstep; qed");
-				// Note this spawn is not worknig if origin is current, but moved from
-				// implies Removed or Empty.
+				is_moved_from = true;
 				let change = sp_std::mem::replace(changes, self.context.spawn_blob());
 				moved_from.push((from, change));
 			}
 			if let Some(others) = infos.take_others_previous_moved_from(start_depth) {
 				moved_from.extend(others.into_iter());
-			}
-			if let Some(from) = infos.take_is_previous_moved_from(start_depth) {
-				changes
-					.rollback_transaction()
-					.expect("Top and children changesets are started in lockstep; qed");
-				// Note this spawn is not worknig if origin is current, but moved from
-				// implies Removed or Empty.
-				let change = sp_std::mem::replace(changes, self.context.spawn_blob());
-				moved_from.push((from, change));
 			}
 
 			let mut clean = false;
@@ -753,11 +757,12 @@ impl Changes {
 				Some(OriginEntry::Empty) => {
 					clean = true;
 				},
-				None | Some(OriginEntry::Current) => {
-					changes
-						.rollback_transaction()
-						.expect("Top and children changesets are started in lockstep; qed");
-				},
+				None | Some(OriginEntry::Current) =>
+					if !is_moved_from {
+						changes
+							.rollback_transaction(start_depth)
+							.expect("Top and children changesets are started in lockstep; qed");
+					},
 				Some(OriginEntry::Removed(last_removed)) => {
 					*changes = last_removed;
 				},
@@ -765,8 +770,8 @@ impl Changes {
 					// will get new info from moved from in second step
 				},
 			}
-			let _ = (infos, start_depth)
-				.rollback_transaction()
+			let _ = infos
+				.rollback_transaction(start_depth)
 				.expect("Top and children changesets are started in lockstep; qed");
 			!clean
 		});
@@ -780,7 +785,7 @@ impl Changes {
 
 		self.offchain
 			.overlay_mut()
-			.rollback_transaction()
+			.rollback_transaction(start_depth)
 			.expect("Top and offchain changesets are started in lockstep; qed");
 		Ok(())
 	}
@@ -792,11 +797,11 @@ impl Changes {
 	pub fn commit_transaction(&mut self) -> Result<(), NoOpenTransaction> {
 		let start_depth = self.context.transaction_depth();
 		self.context.commit_transaction()?;
-		self.top.commit_transaction()?;
+		self.top.commit_transaction(start_depth)?;
 		for (_, child) in self.children.iter_mut() {
 			child
 				.changes
-				.commit_transaction()
+				.commit_transaction(start_depth)
 				.expect("Top and children changesets are started in lockstep; qed");
 		}
 
@@ -807,7 +812,7 @@ impl Changes {
 				.expect("Top and children changesets are started in lockstep; qed");
 			btree
 				.changes
-				.commit_transaction()
+				.commit_transaction(start_depth)
 				.expect("Top and children changesets are started in lockstep; qed");
 		}
 
@@ -816,13 +821,13 @@ impl Changes {
 				.commit_transaction(start_depth)
 				.expect("Top and children changesets are started in lockstep; qed");
 			blob.changes
-				.commit_transaction()
+				.commit_transaction(start_depth)
 				.expect("Top and children changesets are started in lockstep; qed");
 		}
 
 		self.offchain
 			.overlay_mut()
-			.commit_transaction()
+			.commit_transaction(start_depth)
 			.expect("Top and offchain changesets are started in lockstep; qed");
 		Ok(())
 	}
@@ -842,6 +847,12 @@ impl Changes {
 	/// Calling this while outside the runtime will return an error.
 	pub fn exit_runtime(&mut self) -> Result<(), NotInRuntime> {
 		let nb_open = self.context.exit_runtime()?;
+		if nb_open > 0 {
+			warn!(
+				"{} storage transactions are left open by the runtime. Those will be rolled back.",
+				nb_open,
+			);
+		}
 		for _ in 0..nb_open {
 			self.rollback_transaction().expect("counted above");
 		}
@@ -861,7 +872,7 @@ impl Changes {
 		impl Iterator<
 			Item = (
 				StorageKey,
-				(impl Iterator<Item = (StorageKey, Option<StorageValue>)>, ChildInfo),
+				(impl Iterator<Item = (StorageKey, Option<StorageValue>)>, DefaultChild),
 			),
 		>,
 		impl Iterator<Item = (BtreeMeta, impl Iterator<Item = (StorageKey, Option<StorageValue>)>)>,
@@ -869,6 +880,7 @@ impl Changes {
 	) {
 		self.context.guard_drain_committed();
 		use sp_std::mem::take;
+		self.context = Default::default(); // Return to client (legacy behavior).
 		(
 			take(&mut self.top).drain_committed(),
 			take(&mut self.children)
@@ -907,7 +919,8 @@ impl Changes {
 	/// Get an iterator over all child changes as seen by the current transaction.
 	pub fn children(
 		&self,
-	) -> impl Iterator<Item = (impl Iterator<Item = (&StorageKey, &OverlayedValue)>, &ChildInfo)> {
+	) -> impl Iterator<Item = (impl Iterator<Item = (&StorageKey, &OverlayedValue)>, &DefaultChild)>
+	{
 		self.children.values().map(|v| (v.changes.changes(), &v.infos))
 	}
 
@@ -925,7 +938,7 @@ impl Changes {
 	pub fn child_changes(
 		&self,
 		key: &[u8],
-	) -> Option<(impl Iterator<Item = (&StorageKey, &OverlayedValue)>, &ChildInfo)> {
+	) -> Option<(impl Iterator<Item = (&StorageKey, &OverlayedValue)>, &DefaultChild)> {
 		self.children.get(key).map(|child| (child.changes.changes(), &child.infos))
 	}
 
@@ -1041,7 +1054,7 @@ impl Changes {
 		key: &[u8],
 	) -> Option<impl Iterator<Item = (&[u8], &OverlayedValue)>> {
 		match child_info {
-			ChildInfo::ParentKeyId(_) => Some(
+			ChildInfo::Default(_) => Some(
 				self.children
 					.get(child_info.storage_key())
 					.map(|child| child.changes.changes_after(key))
@@ -1077,7 +1090,7 @@ impl Changes {
 		match info {
 			// default child storage are viewed as always existing
 			// with empty root.
-			ChildInfo::ParentKeyId(_) => true,
+			ChildInfo::Default(_) => true,
 			ChildInfo::Btree(info) => self
 				.btrees
 				.get(info.name.as_slice())
@@ -1097,7 +1110,7 @@ impl Changes {
 		match info {
 			// No update info for default child storage,
 			// its existence is only related to its content.
-			ChildInfo::ParentKeyId(_) => false,
+			ChildInfo::Default(_) => false,
 			ChildInfo::Btree(info) => {
 				if clear_existing {
 					self.clear_btree_storage(&info.name, false);
@@ -1192,7 +1205,7 @@ impl Changes {
 		let context = &self.context;
 		match info {
 			// Copy not supported.
-			ChildInfo::ParentKeyId(_) => false,
+			ChildInfo::Default(_) => false,
 			ChildInfo::Btree(info) => BtreeChanges::copy_movable_storage(
 				&mut self.btrees,
 				&info,
@@ -1218,7 +1231,7 @@ impl Changes {
 		let context = &self.context;
 		match info {
 			// Move not supported.
-			ChildInfo::ParentKeyId(_) => false,
+			ChildInfo::Default(_) => false,
 			ChildInfo::Btree(info) => BtreeChanges::move_movable_storage(
 				&mut self.btrees,
 				&info,
@@ -1239,24 +1252,20 @@ impl Changes {
 	}
 }
 
-// TODO use properly and everywhere
-/// Storage transaction layers support.
-pub trait Transactional {
-	/// Rollback the last transaction started by `start_transaction`.
-	///
-	/// Any changes made during that transaction are discarded. Returns an error if
-	/// there is no open transaction that can be rolled back.
-	/// Returns `true` if no remaining content (no overlay and content same as initial one).
-	#[must_use = "When empty returned, the object need to be acted upon."]
-	fn rollback_transaction(&mut self) -> Result<bool, NoOpenTransaction>;
-}
-
 /// Common behavior between transient storage contents, technical trait to factor code.
 pub(crate) trait TransientContentCommon<M>: Sized {
+	// TODO can just call on use (no need for trait in this case)
+	fn rollback_moved_state(&mut self, depth: usize) -> Result<(), NoOpenTransaction>;
+
 	fn copy_on_cleared_from(&mut self, from: &MovableStorage<Self, M>);
 }
 
 impl TransientContentCommon<BtreeInfo> for OverlayedChangeSet {
+	fn rollback_moved_state(&mut self, depth: usize) -> Result<(), NoOpenTransaction> {
+		let _ = self.rollback_transaction(depth)?;
+		Ok(())
+	}
+
 	fn copy_on_cleared_from(&mut self, from: &MovableStorage<Self, BtreeInfo>) {
 		for (key, value) in from.changes.changes() {
 			if let Some(value) = value.value_ref() {
@@ -1268,6 +1277,11 @@ impl TransientContentCommon<BtreeInfo> for OverlayedChangeSet {
 }
 
 impl TransientContentCommon<BlobInfo> for OverlayedChangeSetBlob {
+	fn rollback_moved_state(&mut self, depth: usize) -> Result<(), NoOpenTransaction> {
+		let _ = self.rollback_transaction(depth)?;
+		Ok(())
+	}
+
 	fn copy_on_cleared_from(&mut self, from: &MovableStorage<Self, BlobInfo>) {
 		if let Some(chunks) = from.chunks() {
 			for (i, value) in chunks.0.enumerate() {
@@ -1281,7 +1295,7 @@ impl TransientContentCommon<BlobInfo> for OverlayedChangeSetBlob {
 impl<C, A> MovableStorage<C, TransientInfo<A>>
 where
 	A: Clone,
-	C: Transactional + TransientContentCommon<TransientInfo<A>>,
+	C: TransientContentCommon<TransientInfo<A>>,
 {
 	fn clear_movable_storage(
 		&mut self,
@@ -1296,27 +1310,33 @@ where
 			info.size = 0;
 			info.cached_hash = None;
 			let mut last = sp_std::mem::replace(&mut self.changes, spawn_changes());
-			let moved = if let Some(current_key) =
-				self.infos.take_is_previous_moved_from(context.transaction_depth())
-			{
-				if move_old_state {
-					Some((last, false, Some(current_key)))
+			let depth = context.transaction_depth();
+			// No need to revert if no transaction
+			let moved = if depth != 0 {
+				if let Some(current_key) =
+					self.infos.take_is_previous_moved_from(context.transaction_depth())
+				{
+					if move_old_state {
+						Some((last, false, Some(current_key)))
+					} else {
+						last.rollback_moved_state(depth).expect("checked depth");
+						self.infos.set_other_moved_from(current_key, last, context);
+						None
+					}
+				} else if self.infos.need_keep_origin(context) {
+					if move_old_state {
+						self.infos.set_moved_to(context);
+						Some((last, true, None))
+					} else {
+						last.rollback_moved_state(depth).expect("checked depth");
+						self.infos.set_last_removed(last, context);
+						None
+					}
 				} else {
-					let _ = last.rollback_transaction();
-					self.infos.set_moved_from(current_key, Some(last), context);
-					None
-				}
-			} else if self.infos.need_keep_origin(context) {
-				if move_old_state {
-					self.infos.set_moved_to(context);
-					Some((last, true, None))
-				} else {
-					let _ = last.rollback_transaction();
-					self.infos.set_last_removed(last, context);
-					None
+					move_old_state.then(|| (last, false, None))
 				}
 			} else {
-				move_old_state.then(|| (last, false, None))
+				None
 			};
 			(result as u32, moved)
 		} else {
@@ -1394,7 +1414,7 @@ where
 			return false
 		};
 
-		let Some((state, ref_origin, proxy_origin))	 = map.get_mut(&info.name)
+		let Some((state, ref_origin, proxy_origin)) = map.get_mut(&info.name)
 			.and_then(|entry| entry.clear_movable_storage(true, spawn_changes, context).1) else {
 			return false
 		};
@@ -1414,12 +1434,42 @@ where
 
 		entry.changes = state;
 		if ref_origin {
-			entry.infos.set_moved_from(info.name.clone(), None, context);
+			entry.infos.set_moved_from(info.name.clone(), context);
 		} else if let Some(from) = proxy_origin {
-			entry.infos.set_moved_from(from.clone(), None, context);
+			entry.infos.set_moved_from(from.clone(), context);
 		}
 		true
 	}
+}
+
+/// Storage transaction layers support.
+pub trait Transactional {
+	/// Should start transaction be call.
+	const REQUIRE_START_TRANSACTION: bool;
+
+	/// Start a new nested transaction.
+	///
+	/// This allows to either commit or roll back all changes that were made while this
+	/// transaction was open. Any transaction must be closed by either `commit_transaction`
+	/// or `rollback_transaction` before this overlay can be converted into storage changes.
+	///
+	/// Changes made without any open transaction are committed immediately.
+	fn start_transaction(&mut self);
+
+	/// Commit the last transaction started by `start_transaction`.
+	///
+	/// Any changes made during that transaction are committed. Returns an error if
+	/// there is no open transaction that can be committed.
+	fn commit_transaction(&mut self, transaction_depth: usize) -> Result<(), NoOpenTransaction>;
+
+	/// Rollback the last transaction started by `start_transaction`.
+	///
+	/// Any changes made during that transaction are discarded. Returns an error if
+	/// there is no open transaction that can be rolled back.
+	/// Returns `true` if no remaining content (no overlay and content same as initial one).
+	#[must_use = "When empty returned, the object need to be acted upon."]
+	fn rollback_transaction(&mut self, transaction_depth: usize)
+		-> Result<bool, NoOpenTransaction>;
 }
 
 #[cfg(feature = "std")]
@@ -1459,12 +1509,11 @@ impl From<sp_core::storage::Storage> for Changes {
 			children: storage
 				.children_default
 				.into_iter()
-				.map(|(k, v)| (k, ChildChanges { changes: v.data.into(), infos: v.child_info }))
+				.map(|(k, v)| (k, ChildChanges { changes: v.data.into(), infos: v.info }))
 				.collect(),
 			btrees,
 			blobs,
 			offchain: Default::default(),
-			collect_extrinsics: Default::default(),
 			transaction_index_ops: Default::default(),
 			stats: Default::default(),
 			#[cfg(feature = "std")]

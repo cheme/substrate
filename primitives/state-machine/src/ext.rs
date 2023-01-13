@@ -467,21 +467,21 @@ where
 				return Some(result)
 			},
 			ChildInfo::Blob(_) => return None,
-			ChildInfo::ParentKeyId(_) => (),
+			ChildInfo::Default(_) => (),
 		}
 
 		let mut overlay_changes = self.overlay.child_iter_after(child_info, key)?;
 
 		let mut result = Vec::<StorageKey>::with_capacity(count as usize);
 		let mut forward_backend = true;
-		let mut last_remove: Option<&[u8]> = None;
+		let mut last_skipped: Option<&[u8]> = None;
 		let mut forward_overlay = true;
 		let mut next_backend_key = None;
 		let mut next_overlay = None;
 
 		while result.len() < count as usize {
 			if forward_backend {
-				let from = if let Some(key) = last_remove.as_ref().take() {
+				let from = if let Some(key) = last_skipped.take() {
 					key
 				} else {
 					result.last().map(|r| r.as_slice()).unwrap_or(key)
@@ -491,7 +491,7 @@ where
 					.next_child_storage_key(child_info, from)
 					.expect(EXT_NOT_ALLOWED_TO_FAIL);
 				forward_backend = false;
-				last_remove = None;
+				last_skipped = None;
 			}
 
 			if forward_overlay {
@@ -520,7 +520,7 @@ where
 							forward_backend = true;
 							forward_overlay = true;
 							if overlay_key.1.value().is_none() {
-								last_remove = Some(overlay_key.0);
+								last_skipped = Some(overlay_key.0);
 							}
 							overlay_key.1.value().map(|_| overlay_key.0.to_vec())
 						},
@@ -838,7 +838,8 @@ where
 		} else {
 			let root = if let Some((changes, info)) = self.overlay.child_changes(storage_key) {
 				let delta = changes.map(|(k, v)| (k.as_ref(), v.value().map(AsRef::as_ref)));
-				Some(self.backend.child_storage_root(info, delta, state_version))
+				let child_info = ChildInfo::Default(info.clone());
+				Some(self.backend.child_storage_root(&child_info, delta, state_version))
 			} else {
 				None
 			};
@@ -1243,7 +1244,7 @@ mod tests {
 	use hash_db::Hasher;
 	use sp_core::{
 		map,
-		storage::{Storage, StorageChild},
+		storage::{DefaultChild, Storage, StorageDefaultChild},
 		Blake2Hasher,
 	};
 
@@ -1329,24 +1330,20 @@ mod tests {
 
 	#[test]
 	fn next_child_storage_key_works() {
-		let child_info = ChildInfo::new_default(b"Child1");
-		let child_info = &child_info;
+		let child_info = DefaultChild::new(b"Child1");
 
 		let mut cache = StorageTransactionCache::default();
-		let mut overlay = Changes::default();
-		overlay.set_child_storage(child_info, &[20], None);
-		overlay.set_child_storage(child_info, &[30], Some(&[31]));
 		let backend = (
 			Storage {
 				top: map![],
 				children_default: map![
-					child_info.storage_key().to_vec() => StorageChild {
+					child_info.name.clone() => StorageDefaultChild {
 						data: map![
 							vec![10] => vec![10],
 							vec![20] => vec![20],
 							vec![40] => vec![40]
 						],
-						child_info: child_info.to_owned(),
+						info: child_info.to_owned(),
 					}
 				],
 				btree_storages: map![],
@@ -1355,6 +1352,12 @@ mod tests {
 			StateVersion::default(),
 		)
 			.into();
+
+		let child_info = ChildInfo::Default(child_info);
+		let child_info = &child_info;
+		let mut overlay = Changes::default();
+		overlay.set_child_storage(child_info, &[20], None);
+		overlay.set_child_storage(child_info, &[30], Some(&[31]));
 
 		let mut ext = TestExt::new(&mut overlay, &mut cache, &backend, None);
 
@@ -1385,23 +1388,19 @@ mod tests {
 
 	#[test]
 	fn child_storage_works() {
-		let child_info = ChildInfo::new_default(b"Child1");
-		let child_info = &child_info;
+		let child_info = DefaultChild::new(b"Child1");
 		let mut cache = StorageTransactionCache::default();
-		let mut overlay = Changes::default();
-		overlay.set_child_storage(child_info, &[20], None);
-		overlay.set_child_storage(child_info, &[30], Some(&[31]));
 		let backend = (
 			Storage {
 				top: map![],
 				children_default: map![
-					child_info.storage_key().to_vec() => StorageChild {
+					child_info.name.clone() => StorageDefaultChild {
 						data: map![
 							vec![10] => vec![10, 1, 2],
 							vec![20] => vec![20],
 							vec![30] => vec![40]
 						],
-						child_info: child_info.to_owned(),
+						info: child_info.to_owned(),
 					}
 				],
 				btree_storages: map![],
@@ -1411,6 +1410,12 @@ mod tests {
 		)
 			.into();
 
+		let child_info = ChildInfo::Default(child_info);
+		let child_info = &child_info;
+
+		let mut overlay = Changes::default();
+		overlay.set_child_storage(child_info, &[20], None);
+		overlay.set_child_storage(child_info, &[30], Some(&[31]));
 		let mut ext = TestExt::new(&mut overlay, &mut cache, &backend, None);
 
 		assert_eq!(ext.child_storage(child_info, &[10], 0, None), Some(vec![10, 1, 2].into()));
@@ -1433,19 +1438,18 @@ mod tests {
 
 	#[test]
 	fn clear_prefix_cannot_delete_a_child_root() {
-		let child_info = ChildInfo::new_default(b"Child1");
-		let child_info = &child_info;
+		let child_info = DefaultChild::new(b"Child1");
 		let mut cache = StorageTransactionCache::default();
 		let mut overlay = Changes::default();
 		let backend = (
 			Storage {
 				top: map![],
 				children_default: map![
-					child_info.storage_key().to_vec() => StorageChild {
+					child_info.name.clone() => StorageDefaultChild {
 						data: map![
 							vec![30] => vec![40]
 						],
-						child_info: child_info.to_owned(),
+						info: child_info.clone(),
 					}
 				],
 				btree_storages: map![],
@@ -1455,6 +1459,8 @@ mod tests {
 		)
 			.into();
 
+		let child_info = ChildInfo::Default(child_info);
+		let child_info = &child_info;
 		let ext = TestExt::new(&mut overlay, &mut cache, &backend, None);
 
 		use sp_core::storage::well_known_keys;

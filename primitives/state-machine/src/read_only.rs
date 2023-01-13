@@ -273,7 +273,7 @@ where
 		match info.child_type() {
 			// default child storage are viewed as always existing
 			// with empty root.
-			ChildType::ParentKeyId => true,
+			ChildType::Default => true,
 			ChildType::Btree | ChildType::Blob => false,
 		}
 	}

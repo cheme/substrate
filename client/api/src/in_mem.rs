@@ -359,8 +359,8 @@ impl<Block: BlockT> HeaderBackend<Block> for Blockchain<Block> {
 		}
 	}
 
-	fn status(&self, id: BlockId<Block>) -> sp_blockchain::Result<BlockStatus> {
-		match self.id(id).map_or(false, |hash| self.storage.read().blocks.contains_key(&hash)) {
+	fn status(&self, hash: Block::Hash) -> sp_blockchain::Result<BlockStatus> {
+		match self.storage.read().blocks.contains_key(&hash) {
 			true => Ok(BlockStatus::InChain),
 			false => Ok(BlockStatus::Unknown),
 		}
@@ -507,7 +507,7 @@ where
 
 		let child_delta = storage.children_default.values().map(|child_content| {
 			(
-				&child_content.child_info,
+				&child_content.info,
 				child_content.data.iter().map(|(k, v)| (k.as_ref(), Some(v.as_ref()))),
 			)
 		});

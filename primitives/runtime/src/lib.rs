@@ -40,7 +40,7 @@ pub use sp_application_crypto as app_crypto;
 
 pub use sp_core::storage::StateVersion;
 #[cfg(feature = "std")]
-pub use sp_core::storage::{Storage, StorageBlob, StorageBtree, StorageChild};
+pub use sp_core::storage::{Storage, StorageBlob, StorageBtree, StorageDefaultChild};
 
 use sp_core::{
 	crypto::{self, ByteArray},
@@ -93,9 +93,9 @@ pub use sp_arithmetic::biguint;
 pub use sp_arithmetic::helpers_128bit;
 /// Re-export top-level arithmetic stuff.
 pub use sp_arithmetic::{
-	traits::SaturatedConversion, FixedI128, FixedI64, FixedPointNumber, FixedPointOperand,
-	FixedU128, InnerOf, PerThing, PerU16, Perbill, Percent, Permill, Perquintill, Rational128,
-	Rounding, UpperOf,
+	traits::SaturatedConversion, ArithmeticError, FixedI128, FixedI64, FixedPointNumber,
+	FixedPointOperand, FixedU128, InnerOf, PerThing, PerU16, Perbill, Percent, Permill,
+	Perquintill, Rational128, Rounding, UpperOf,
 };
 
 pub use either::Either;
@@ -213,7 +213,7 @@ impl BuildStorage for sp_core::storage::Storage {
 			let k = k.clone();
 			if let Some(map) = storage.children_default.get_mut(&k) {
 				map.data.extend(other_map.data.iter().map(|(k, v)| (k.clone(), v.clone())));
-				if !map.child_info.try_update(&other_map.child_info) {
+				if !map.info.try_update(&other_map.info) {
 					return Err("Incompatible child info update".to_string())
 				}
 			} else {
@@ -649,28 +649,6 @@ impl From<TokenError> for &'static str {
 impl From<TokenError> for DispatchError {
 	fn from(e: TokenError) -> DispatchError {
 		Self::Token(e)
-	}
-}
-
-/// Arithmetic errors.
-#[derive(Eq, PartialEq, Clone, Copy, Encode, Decode, Debug, TypeInfo)]
-#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
-pub enum ArithmeticError {
-	/// Underflow.
-	Underflow,
-	/// Overflow.
-	Overflow,
-	/// Division by zero.
-	DivisionByZero,
-}
-
-impl From<ArithmeticError> for &'static str {
-	fn from(e: ArithmeticError) -> &'static str {
-		match e {
-			ArithmeticError::Underflow => "An underflow would occur",
-			ArithmeticError::Overflow => "An overflow would occur",
-			ArithmeticError::DivisionByZero => "Division by zero",
-		}
 	}
 }
 

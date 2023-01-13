@@ -143,7 +143,12 @@ where
 	/// Insert key/value into backend.
 	///
 	/// This only supports inserting keys in child tries.
-	pub fn insert_child(&mut self, c: sp_core::storage::ChildInfo, k: StorageKey, v: StorageValue) {
+	pub fn insert_child(
+		&mut self,
+		c: sp_core::storage::DefaultChild,
+		k: StorageKey,
+		v: StorageValue,
+	) {
 		self.backend.insert(vec![(Some(c), vec![(k, Some(v))])], self.state_version);
 	}
 

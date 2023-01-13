@@ -189,12 +189,15 @@ impl<Block: BlockT> StorageNotifications<Block> {
 		filter_btrees_keys: Option<&[(StorageKey, Option<Vec<StorageKey>>)]>,
 		filter_blobs_keys: Option<&[StorageKey]>,
 	) -> StorageEventStream<Block::Hash> {
-		let receiver = self.0.subscribe(registry::SubscribeOp {
-			filter_keys,
-			filter_child_keys,
-			filter_btrees_keys,
-			filter_blobs_keys,
-		});
+		let receiver = self.0.subscribe(
+			registry::SubscribeOp {
+				filter_keys,
+				filter_child_keys,
+				filter_btrees_keys,
+				filter_blobs_keys,
+			},
+			100_000,
+		);
 
 		StorageEventStream(receiver)
 	}

@@ -150,7 +150,7 @@ where
 		last_child_type = Some(child_type);
 		if previous_extracted_child_trie.is_none() && peek.is_some() {
 			match child_type {
-				ChildType::ParentKeyId => {
+				ChildType::Default => {
 					let (top_root, _) =
 						trie_db::decode_compact_from_iter::<L, _, _>(db, &mut nodes_iter)?;
 					previous_extracted_child_trie = Some(top_root);
@@ -262,7 +262,7 @@ where
 		last_skipped = false;
 
 		match child_type {
-			ChildType::ParentKeyId => {
+			ChildType::Default => {
 				let trie = crate::TrieDBBuilder::<L>::new(partial_db, &child_root).build();
 				let child_proof = trie_db::encode_compact::<L>(&trie)?;
 
