@@ -84,11 +84,17 @@ impl Blake3State {
 	}
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 struct CachedHash {
-	hash: [u8; 32],
+	hash: blake3_hash::Hash,
 	parent_processed: bool,
 	register_for_proof: bool,
+}
+
+impl Default for CachedHash {
+	fn default() -> Self {
+		CachedHash { hash: [0u8; 32].into(), parent_processed: false, register_for_proof: false }
+	}
 }
 
 /// Blake3 hashers allowing efficient random modification.
@@ -195,7 +201,7 @@ impl CachedBlake3 {
 		while self.hashes[depth].len() <= at {
 			self.hashes[depth].push(Default::default());
 		}
-		self.hashes[depth][at].hash = *state.finalize(false).as_bytes();
+		self.hashes[depth][at].hash = state.finalize(false);
 		self.hashes[depth][at].parent_processed = false;
 	}
 
@@ -234,7 +240,7 @@ impl CachedBlake3 {
 		}
 
 		if let Some(last) = &mut self.last_chunk {
-			let hash = *last.clone().finalize(false).as_bytes();
+			let hash = last.clone().finalize(false);
 			let hashes = self.hashes.last_mut().expect("`grow` has been called");
 			let at = chunk_index(self.size) as usize;
 			while hashes.len() <= at {
@@ -245,53 +251,59 @@ impl CachedBlake3 {
 		}
 		for d in (1..self.hashes.len()).rev() {
 			// TODO pair iterate?
-			for i in (0..self.hashes[d].len()).rev() {
-				if !self.hashes[d][i].parent_processed {
-					let mut hashes = &mut self.hashes[d];
-					hashes[i].parent_processed = true;
-					let pair = if i % 2 == 0 {
-						let right = (i + 1 < hashes.len()).then(|| {
-							hashes[i + 1].parent_processed = true;
-							hashes[i + 1].hash.clone()
-						});
-						(Some(hashes[i].hash.clone()), right)
-					} else {
-						let left = (i > 0).then(|| {
-							hashes[i - 1].parent_processed = true;
-							hashes[i - 1].hash.clone()
-						});
-						(left, Some(hashes[i].hash.clone()))
-					};
-					let parent_hash = match pair {
-						(Some(l), Some(r)) => {
-							if d == 1 {
-								self.root = Some(
-									*blake3_hash::guts::parent_cv(&l.into(), &r.into(), true)
-										.as_bytes(),
-								);
-							}
-							*blake3_hash::guts::parent_cv(&l.into(), &r.into(), false).as_bytes()
-						},
-						(Some(l), None) => l,
-						(None, Some(h)) => h,
-						(None, None) => unreachable!("empty checked above"),
-					};
-					let parent_depth = &mut self.hashes[d - 1];
-					let parent_index = i / 2;
-					// TODO there is certainly a vec function that resize
-					// with default
-					while parent_depth.len() <= parent_index as usize {
-						parent_depth.push(Default::default());
+			let mut skip_ix = None;
+			for i in 0..self.hashes[d].len() {
+				let mut hashes = &mut self.hashes[d];
+				if let Some(skip) = skip_ix.take() {
+					if i == skip {
+						continue
 					}
-					parent_depth[parent_index as usize].hash = parent_hash;
-					parent_depth[parent_index as usize].parent_processed = false;
 				}
+
+				// allow iter on ordered modified only.
+				let i = if i % 2 == 0 {
+					skip_ix = Some(i + 1);
+					i
+				} else {
+					i - 1
+				};
+
+				let parent_hash = if i == hashes.len() - 1 {
+					if hashes[i].parent_processed {
+						continue
+					}
+					hashes[i].parent_processed = true;
+					hashes[i].hash.clone()
+				} else {
+					if hashes[i].parent_processed && hashes[i + 1].parent_processed {
+						continue
+					}
+
+					hashes[i].parent_processed = true;
+					hashes[i + 1].parent_processed = true;
+					let l = &hashes[i].hash;
+					let r = &hashes[i + 1].hash;
+
+					if d == 1 {
+						self.root = Some(*blake3_hash::guts::parent_cv(l, r, true).as_bytes());
+					}
+					blake3_hash::guts::parent_cv(l, r, false)
+				};
+				let parent_depth = &mut self.hashes[d - 1];
+				let parent_index = i / 2;
+				// TODO there is certainly a vec function that resize
+				// with default
+				while parent_depth.len() <= parent_index as usize {
+					parent_depth.push(Default::default());
+				}
+				parent_depth[parent_index as usize].hash = parent_hash;
+				parent_depth[parent_index as usize].parent_processed = false;
 			}
 		}
 		if let Some(root) = &self.root {
 			*root
 		} else {
-			let result = self.hashes[0][0].hash.clone();
+			let result = *self.hashes[0][0].hash.as_bytes();
 			self.root = Some(result.clone());
 			result
 		}
