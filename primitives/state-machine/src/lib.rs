@@ -411,7 +411,7 @@ mod execution {
 			);
 
 			self.overlay
-				.exit_runtime()
+				.exit_runtime(false)
 				.expect("Runtime is not able to call this function in the overlay; qed");
 
 			trace!(
@@ -1449,7 +1449,7 @@ pub mod fuzz {
 			let mut change = self.0
 				.clone();
 
-			change.exit_runtime().unwrap();
+			change.exit_runtime(true).unwrap();
 			change
 				.drain_committed()
 				.3
@@ -2545,6 +2545,7 @@ mod tests {
 	#[test]
 	fn movable_storage() {
 		let tests = &[
+			vec![Ops::StartTransaction, Ops::Create(19)],
 			vec![Ops::Create(19)],
 			vec![Ops::StartTransaction, Ops::RollbackTransaction],
 		];

@@ -843,9 +843,10 @@ impl Changes {
 
 	/// Call this when control returns from the runtime.
 	///
-	/// This commits all dangling transaction left open by the runtime.
+	/// If `commit`, comits all dangling transaction left open by the runtime,
+	/// else rollback them.
 	/// Calling this while outside the runtime will return an error.
-	pub fn exit_runtime(&mut self) -> Result<(), NotInRuntime> {
+	pub fn exit_runtime(&mut self, commit: bool) -> Result<(), NotInRuntime> {
 		let nb_open = self.context.exit_runtime()?;
 		if nb_open > 0 {
 			warn!(
@@ -854,7 +855,11 @@ impl Changes {
 			);
 		}
 		for _ in 0..nb_open {
-			self.rollback_transaction().expect("counted above");
+			if commit {
+				self.commit_transaction().expect("counted above");
+			} else {
+				self.rollback_transaction().expect("counted above");
+			}
 		}
 		Ok(())
 	}
