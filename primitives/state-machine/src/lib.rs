@@ -1348,6 +1348,179 @@ Some((ChildType::Btree, _)) | Some((ChildType::Blob, _)) => return Err(Box::new(
 	}
 }
 
+#[cfg(any(test, feature = "fuzz"))]
+pub mod fuzz {
+	use super::*;
+	use arbitrary::Arbitrary;
+	use sp_core::storage::ChildInfo;
+	use std::collections::HashMap;
+	
+	/// Movable storage operations.
+	#[derive(Arbitrary, Clone, Copy, Debug)]
+	pub enum Ops {
+		StartTransaction,
+		RollbackTransaction,
+		CommitTransaction,
+		SetValue(u8, u8), // key storage, value
+		Delete(u8),       // key storage
+		Create(u8),       // key storage
+		CopyTo(u8, u8),
+		MoveTo(u8, u8),
+	}
+
+	#[derive(Debug, PartialEq, Eq)]
+	struct Simulate {
+		data: Vec<HashMap<u8, Option<u8>>>,
+	}
+
+	impl Simulate {
+		fn new() -> Self {
+			Self { data: vec![Default::default()] }
+		}
+		// if return false, we should not test on the actual overlay.
+		fn apply(&mut self, ops: Ops) -> bool {
+			match ops {
+				Ops::StartTransaction => {
+					let new = self.data.last().cloned().unwrap_or_else(HashMap::new);
+					self.data.push(new);
+				},
+				Ops::RollbackTransaction =>
+					if self.data.len() == 1 {
+						return false
+					} else {
+						self.data.pop();
+					},
+				Ops::CommitTransaction =>
+					if self.data.len() == 1 {
+						return false
+					} else {
+						if let Some(last) = self.data.pop() {
+							let _ = self.data.pop();
+							self.data.push(last);
+						}
+					},
+				Ops::SetValue(k, v) => {
+					self.data.last_mut().map(|storages| {
+						if storages.contains_key(&k) {
+							storages.insert(k, Some(v));
+						}
+					});
+				},
+				Ops::Delete(k) => {
+					self.data.last_mut().map(|storages| {
+						storages.remove(&k);
+					});
+				},
+				Ops::Create(k) => {
+					self.data.last_mut().map(|storages| {
+						if !storages.contains_key(&k) {
+							storages.insert(k, None);
+						}
+					});
+				},
+				Ops::CopyTo(f, t) => {
+					self.data.last_mut().map(|storages| {
+						if let Some(s) = storages.get(&f) {
+							storages.insert(t, *s);
+						}
+					});
+				},
+				Ops::MoveTo(f, t) => {
+					self.data.last_mut().map(|storages| {
+						if let Some(s) = storages.remove(&f) {
+							storages.insert(t, s);
+						}
+					});
+				},
+			}
+			true
+		}
+	}
+
+	struct Overlay(Changes);
+	impl Overlay {
+		fn new() -> Self {
+			Overlay(Changes::default())
+		}
+
+		fn extract_state(&self) -> HashMap<u8, Option<u8>> {
+			self.0
+				.clone()
+				.drain_committed()
+				.3
+				.into_iter()
+				.filter_map(|(meta, value)| {
+					if meta.removed {
+						return None
+					}
+					let k: u8 = meta.infos.name[0];
+					if meta.size == 0 {
+						Some((k, None))
+					} else {
+						Some((k, Some(value[0])))
+					}
+				})
+				.collect()
+		}
+
+		fn apply(&mut self, ops: Ops) {
+			match ops {
+				Ops::StartTransaction => {
+					self.0.start_transaction();
+				},
+				Ops::RollbackTransaction => {
+					self.0.rollback_transaction().unwrap();
+				},
+				Ops::CommitTransaction => {
+					self.0.commit_transaction().unwrap();
+				},
+				Ops::SetValue(k, v) => {
+					self.0.blob_set(&[k], &[v], 0);
+				},
+				Ops::Delete(k) => {
+					self.0.blob_truncate(&[k], 0);
+				},
+				Ops::Create(k) => {
+					let child_info = ChildInfo::new_blob(
+						&[k],
+						Some(sp_core::storage::transient::Mode::Drop),
+						None,
+					);
+					self.0.clear_child_storage(&child_info);
+				},
+				Ops::CopyTo(f, t) => {
+					let child_info = ChildInfo::new_blob(
+						&[f],
+						Some(sp_core::storage::transient::Mode::Drop),
+						None,
+					);
+					self.0.storage_copy(&child_info, &[t]);
+				},
+				Ops::MoveTo(f, t) => {
+					let child_info = ChildInfo::new_blob(
+						&[f],
+						Some(sp_core::storage::transient::Mode::Drop),
+						None,
+					);
+					self.0.storage_move(&child_info, &[t]);
+				},
+			}
+		}
+	}
+
+	/// fuzz a list of ops.
+	pub fn fuzz_movable(test: &[Ops]) {
+		let mut sim = Simulate::new();
+		let mut change = Overlay::new();
+		for op in test.iter() {
+			if sim.apply(*op) {
+				change.apply(*op)
+			}
+		}
+		assert_eq!(&change.extract_state(), sim.data.last().unwrap());
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::{backend::AsTrieBackend, ext::Ext, *};
@@ -1363,6 +1536,7 @@ mod tests {
 	use sp_runtime::traits::BlakeTwo256;
 	use sp_trie::trie_types::{TrieDBMutBuilderV0, TrieDBMutBuilderV1};
 	use std::collections::{BTreeMap, HashMap};
+	use super::fuzz::*;
 
 	#[derive(Clone)]
 	struct DummyCodeExecutor {
@@ -2360,5 +2534,13 @@ mod tests {
 		}
 
 		// TODO test multiple consecutive rename: same tx, different tx.
+	}
+
+	#[test]
+	fn movable_storage() {
+		let tests = &[vec![Ops::StartTransaction, Ops::RollbackTransaction]];
+		for test in tests {
+			fuzz_movable(test);
+		}
 	}
 }

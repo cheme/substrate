@@ -865,7 +865,7 @@ impl Changes {
 	///
 	/// Panics:
 	/// Panics if `transaction_depth() > 0`
-	fn drain_committed(
+	pub(crate) fn drain_committed(
 		&mut self,
 	) -> (
 		impl Iterator<Item = (StorageKey, Option<StorageValue>)>,

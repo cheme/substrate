@@ -14,6 +14,7 @@ readme = "README.md"
 targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
+arbitrary = { version = "1", features = ["derive"], optional = true }
 codec = { package = "parity-scale-codec", version = "3.0.0", default-features = false }
 hash-db = { version = "0.15.2", default-features = false }
 log = { version = "0.4.17", optional = true }
@@ -29,6 +30,7 @@ sp-std = { version = "5.0.0", default-features = false, path = "../std" }
 sp-trie = { version = "7.0.0", default-features = false, path = "../trie" }
 
 [dev-dependencies]
+arbitrary = { version = "1", features = ["derive"] }
 array-bytes = "4.1"
 pretty_assertions = "1.2.1"
 rand = "0.8.5"
@@ -52,3 +54,4 @@ std = [
 	"thiserror",
 	"tracing",
 ]
+fuzz = ["arbitrary"]
