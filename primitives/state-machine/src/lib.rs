@@ -1354,7 +1354,7 @@ pub mod fuzz {
 	use arbitrary::Arbitrary;
 	use sp_core::storage::ChildInfo;
 	use std::collections::HashMap;
-	
+
 	/// Movable storage operations.
 	#[derive(Arbitrary, Clone, Copy, Debug)]
 	pub enum Ops {
@@ -1446,8 +1446,7 @@ pub mod fuzz {
 		}
 
 		fn extract_state(&self) -> HashMap<u8, Option<u8>> {
-			let mut change = self.0
-				.clone();
+			let mut change = self.0.clone();
 
 			change.exit_runtime(true).unwrap();
 			change
@@ -1529,7 +1528,7 @@ pub mod fuzz {
 
 #[cfg(test)]
 mod tests {
-	use super::{backend::AsTrieBackend, ext::Ext, *};
+	use super::{backend::AsTrieBackend, ext::Ext, fuzz::*, *};
 	use crate::{execution::CallResult, in_memory_backend::new_in_mem_hash_key};
 	use assert_matches::assert_matches;
 	use codec::Encode;
@@ -1542,7 +1541,6 @@ mod tests {
 	use sp_runtime::traits::BlakeTwo256;
 	use sp_trie::trie_types::{TrieDBMutBuilderV0, TrieDBMutBuilderV1};
 	use std::collections::{BTreeMap, HashMap};
-	use super::fuzz::*;
 
 	#[derive(Clone)]
 	struct DummyCodeExecutor {
@@ -2545,6 +2543,7 @@ mod tests {
 	#[test]
 	fn movable_storage() {
 		let tests = &[
+			vec![Ops::Create(19), Ops::MoveTo(19, 2)],
 			vec![Ops::StartTransaction, Ops::Create(19)],
 			vec![Ops::Create(19)],
 			vec![Ops::StartTransaction, Ops::RollbackTransaction],

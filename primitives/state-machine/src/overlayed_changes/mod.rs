@@ -1159,7 +1159,8 @@ impl Changes {
 				// even if same content we register and
 				// update.
 				let stored = entry.infos.modify_value(&self.context);
-				if clear_existing {// TODO redundant with first call to clear remove??
+				if clear_existing {
+					// TODO redundant with first call to clear remove??
 					stored.size = 0;
 					stored.cached_hash = None;
 				}
@@ -1341,7 +1342,7 @@ where
 					move_old_state.then(|| (last, false, None))
 				}
 			} else {
-				None
+				move_old_state.then(|| (last, false, None))
 			};
 			(result as u32, moved)
 		} else {
@@ -1420,7 +1421,8 @@ where
 		};
 
 		let Some((state, ref_origin, proxy_origin)) = map.get_mut(&info.name)
-			.and_then(|entry| entry.clear_movable_storage(true, spawn_changes, context).1) else {
+			.and_then(|entry| entry.clear_movable_storage(true, spawn_changes, context).1
+			) else {
 			return false
 		};
 
