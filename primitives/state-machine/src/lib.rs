@@ -1413,9 +1413,9 @@ pub mod fuzz {
 				},
 				Ops::Create(k) => {
 					self.data.last_mut().map(|storages| {
-						if !storages.contains_key(&k) {
-							storages.insert(k, None);
-						}
+						//if !storages.contains_key(&k) {
+						storages.insert(k, None);
+						//}
 					});
 				},
 				Ops::CopyTo(f, t) => {
@@ -1488,15 +1488,16 @@ pub mod fuzz {
 				Ops::Create(k) => {
 					let child_info = ChildInfo::new_blob(
 						&[k],
-						Some(sp_core::storage::transient::Mode::Drop),
+						Some(sp_core::storage::transient::Mode::Archive),
 						None,
 					);
-					self.0.clear_child_storage(&child_info);
+					let clear_existing = true;
+					self.0.update_storage_info(child_info, clear_existing);
 				},
 				Ops::CopyTo(f, t) => {
 					let child_info = ChildInfo::new_blob(
 						&[f],
-						Some(sp_core::storage::transient::Mode::Drop),
+						Some(sp_core::storage::transient::Mode::Archive),
 						None,
 					);
 					self.0.storage_copy(&child_info, &[t]);
@@ -1504,7 +1505,7 @@ pub mod fuzz {
 				Ops::MoveTo(f, t) => {
 					let child_info = ChildInfo::new_blob(
 						&[f],
-						Some(sp_core::storage::transient::Mode::Drop),
+						Some(sp_core::storage::transient::Mode::Archive),
 						None,
 					);
 					self.0.storage_move(&child_info, &[t]);
@@ -2543,7 +2544,10 @@ mod tests {
 
 	#[test]
 	fn movable_storage() {
-		let tests = &[vec![Ops::StartTransaction, Ops::RollbackTransaction]];
+		let tests = &[
+			vec![Ops::Create(19)],
+			vec![Ops::StartTransaction, Ops::RollbackTransaction],
+		];
 		for test in tests {
 			fuzz_movable(test);
 		}

@@ -1154,7 +1154,7 @@ impl Changes {
 				// even if same content we register and
 				// update.
 				let stored = entry.infos.modify_value(&self.context);
-				if clear_existing {
+				if clear_existing {// TODO redundant with first call to clear remove??
 					stored.size = 0;
 					stored.cached_hash = None;
 				}
