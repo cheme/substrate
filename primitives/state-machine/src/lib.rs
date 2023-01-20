@@ -1440,12 +1440,17 @@ pub mod fuzz {
 	struct Overlay(Changes);
 	impl Overlay {
 		fn new() -> Self {
-			Overlay(Changes::default())
+			let mut change = Changes::default();
+			change.enter_runtime().unwrap();
+			Overlay(change)
 		}
 
 		fn extract_state(&self) -> HashMap<u8, Option<u8>> {
-			self.0
-				.clone()
+			let mut change = self.0
+				.clone();
+
+			change.exit_runtime().unwrap();
+			change
 				.drain_committed()
 				.3
 				.into_iter()
