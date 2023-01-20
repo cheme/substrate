@@ -1363,6 +1363,7 @@ pub mod fuzz {
 		CommitTransaction,
 		SetValue(u8, u8), // key storage, value
 		Delete(u8),       // key storage
+		RemoveValue(u8),       // key storage
 		Create(u8),       // key storage
 		CopyTo(u8, u8),
 		MoveTo(u8, u8),
@@ -1403,6 +1404,13 @@ pub mod fuzz {
 					self.data.last_mut().map(|storages| {
 						if storages.contains_key(&k) {
 							storages.insert(k, Some(v));
+						}
+					});
+				},
+				Ops::RemoveValue(k) => {
+					self.data.last_mut().map(|storages| {
+						if storages.contains_key(&k) {
+							storages.insert(k, None);
 						}
 					});
 				},
@@ -1481,8 +1489,16 @@ pub mod fuzz {
 				Ops::SetValue(k, v) => {
 					self.0.blob_set(&[k], &[v], 0);
 				},
-				Ops::Delete(k) => {
+				Ops::RemoveValue(k) => {
 					self.0.blob_truncate(&[k], 0);
+				},
+				Ops::Delete(k) => {
+					let child_info = ChildInfo::new_blob(
+						&[k],
+						Some(sp_core::storage::transient::Mode::Archive),
+						None,
+					);
+					self.0.clear_child_storage(&child_info);
 				},
 				Ops::Create(k) => {
 					let child_info = ChildInfo::new_blob(
@@ -2543,6 +2559,7 @@ mod tests {
 	#[test]
 	fn movable_storage() {
 		let tests = &[
+			vec![Ops::Create(19), Ops::Delete(19)],
 			vec![Ops::Create(19), Ops::MoveTo(19, 2)],
 			vec![Ops::StartTransaction, Ops::Create(19)],
 			vec![Ops::Create(19)],
