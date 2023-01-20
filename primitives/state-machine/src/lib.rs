@@ -1363,7 +1363,7 @@ pub mod fuzz {
 		CommitTransaction,
 		SetValue(u8, u8), // key storage, value
 		Delete(u8),       // key storage
-		RemoveValue(u8),       // key storage
+		RemoveValue(u8),  // key storage
 		Create(u8),       // key storage
 		CopyTo(u8, u8),
 		MoveTo(u8, u8),
@@ -2559,6 +2559,7 @@ mod tests {
 	#[test]
 	fn movable_storage() {
 		let tests = &[
+			vec![Ops::Create(94), Ops::Create(193), Ops::Create(192), Ops::CopyTo(193, 209)],
 			vec![Ops::Create(19), Ops::Delete(19)],
 			vec![Ops::Create(19), Ops::MoveTo(19, 2)],
 			vec![Ops::StartTransaction, Ops::Create(19)],

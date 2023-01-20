@@ -1376,24 +1376,24 @@ where
 			entry.clear_movable_storage(false, spawn_changes, context);
 		}
 
+		let entry = map
+			.entry(target_name.to_vec())
+			.or_insert_with(|| Self { changes: spawn_changes(), infos: spawn_infos() })
+			as *mut MovableStorage<C, TransientInfo<A>>;
+
 		let Some(origin) = map.get(&info.name) else {
 			return false
 		};
-		let origin = origin as *const MovableStorage<C, TransientInfo<A>>;
 
-		let entry = map
-			.entry(target_name.to_vec())
-			.or_insert_with(|| Self { changes: spawn_changes(), infos: spawn_infos() });
+		// Access pointer to new val as we know btree
+		// implementation do not change on origin access.
+		let entry: &mut _ = unsafe { &mut *entry };
 
 		// even if same content we register and
 		// update.
 		let dest = entry.infos.modify_value(context);
 		*dest = info_dest;
 
-		// Access pointer to origin as we know btree
-		// implementation do not change this one when
-		// he create an entry.
-		let origin: &_ = unsafe { &*origin };
 		entry.changes.copy_on_cleared_from(origin);
 		true
 	}
