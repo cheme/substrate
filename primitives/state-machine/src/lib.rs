@@ -2560,6 +2560,25 @@ mod tests {
 	fn movable_storage() {
 		let tests = &[
 			vec![
+				Ops::Create(192),
+				Ops::Create(254),
+				Ops::StartTransaction,
+				Ops::StartTransaction,
+				Ops::Create(254),
+				Ops::StartTransaction,
+				Ops::MoveTo(192, 254),
+				Ops::CommitTransaction,
+				Ops::RollbackTransaction,
+				// on last change of 192 is dirty size 2 instead of 1?? -> on commit the is
+				// previous moved from looks skeezed.
+			],
+			vec![
+				Ops::Create(255),
+				Ops::StartTransaction,
+				Ops::MoveTo(255, 0),
+				Ops::RollbackTransaction,
+			],
+			vec![
 				Ops::Create(255),
 				Ops::StartTransaction,
 				Ops::StartTransaction,

@@ -575,29 +575,25 @@ impl Changes {
 				debug_assert!(updatable);
 				child.changes.clear_where(|_, _| true)
 			},
-			ChildInfo::Blob(info) => self.clear_blob_storage(&info.name, false),
-			ChildInfo::Btree(info) => self.clear_btree_storage(&info.name, false),
+			ChildInfo::Blob(info) => self.clear_blob_storage(&info.name),
+			ChildInfo::Btree(info) => self.clear_btree_storage(&info.name),
 		}
 	}
 
-	fn clear_blob_storage(&mut self, name: &[u8], move_old_state: bool) -> u32 {
+	fn clear_blob_storage(&mut self, name: &[u8]) -> u32 {
 		let context = &self.context;
 		let Some(entry) = self.blobs.get_mut(name) else {
 			return 0;
 		};
-		entry
-			.clear_movable_storage(move_old_state, &|| context.spawn_blob(), &self.context)
-			.0
+		entry.clear_movable_storage(&|| context.spawn_blob(), &self.context)
 	}
 
-	fn clear_btree_storage(&mut self, name: &[u8], move_old_state: bool) -> u32 {
+	fn clear_btree_storage(&mut self, name: &[u8]) -> u32 {
 		let context = &self.context;
 		let Some(entry) = self.btrees.get_mut(name) else {
 			return 0;
 		};
-		entry
-			.clear_movable_storage(move_old_state, &|| context.spawn_child(), &self.context)
-			.0
+		entry.clear_movable_storage(&|| context.spawn_child(), &self.context)
 	}
 
 	/// Removes all key-value pairs which keys share the given prefix.
@@ -684,11 +680,8 @@ impl Changes {
 		retain_map(&mut self.btrees, |_, BtreeChanges { changes, infos }| {
 			let mut is_moved_from = false;
 			if let Some(from) = infos.take_is_previous_moved_from(start_depth) {
-				changes
-					.rollback_transaction(start_depth)
-					.expect("Top and children changesets are started in lockstep; qed");
-				let change = sp_std::mem::replace(changes, self.context.spawn_child());
 				is_moved_from = true;
+				let change = sp_std::mem::replace(changes, self.context.spawn_child());
 				moved_from.push((from, change));
 			}
 			if let Some(others) = infos.take_others_previous_moved_from(start_depth) {
@@ -745,9 +738,6 @@ impl Changes {
 		retain_map(&mut self.blobs, |_, BlobChanges { changes, infos }| {
 			let mut is_moved_from = false;
 			if let Some(from) = infos.take_is_previous_moved_from(start_depth) {
-				changes
-					.rollback_transaction(start_depth)
-					.expect("Top and children changesets are started in lockstep; qed");
 				is_moved_from = true;
 				let change = sp_std::mem::replace(changes, self.context.spawn_blob());
 				moved_from.push((from, change));
@@ -1126,7 +1116,7 @@ impl Changes {
 			ChildInfo::Default(_) => false,
 			ChildInfo::Btree(info) => {
 				if clear_existing {
-					self.clear_btree_storage(&info.name, false);
+					self.clear_btree_storage(&info.name);
 				}
 				let context = &self.context;
 				let entry = self.btrees.entry(info.name.clone()).or_insert_with(|| BtreeChanges {
@@ -1156,7 +1146,7 @@ impl Changes {
 			},
 			ChildInfo::Blob(info) => {
 				if clear_existing {
-					self.clear_blob_storage(&info.name, false);
+					self.clear_blob_storage(&info.name);
 				}
 				let context = &self.context;
 				let entry = self.blobs.entry(info.name.clone()).or_insert_with(|| BlobChanges {
@@ -1311,48 +1301,65 @@ where
 	A: Clone,
 	C: TransientContentCommon<TransientInfo<A>>,
 {
-	fn clear_movable_storage(
+	fn move_storage(
 		&mut self,
-		move_old_state: bool,
 		spawn_changes: &impl Fn() -> C,
 		context: &OverlayedContext,
-	) -> (u32, Option<(C, bool, Option<Vec<u8>>)>) {
+	) -> Option<(u32, C, bool, Option<Vec<u8>>)> {
 		if !self.infos.value_ref().removed {
 			let info = self.infos.modify_value(context);
-			let result = info.size;
+			let result = info.size as u32;
 			info.removed = true;
 			info.size = 0;
 			info.cached_hash = None;
 			let last = sp_std::mem::replace(&mut self.changes, spawn_changes());
 			let depth = context.transaction_depth();
 			// No need to revert if no transaction
-			let moved = if depth != 0 {
+			Some(if depth != 0 {
 				if let Some(current_key) =
 					self.infos.take_is_previous_moved_from(context.transaction_depth())
 				{
-					if move_old_state {
-						Some((last, false, Some(current_key)))
-					} else {
-						self.infos.set_other_moved_from(current_key, last, context);
-						None
-					}
+					(result, last, false, Some(current_key))
 				} else if self.infos.need_keep_origin(context) {
-					if move_old_state {
-						self.infos.set_moved_to(context);
-						Some((last, true, None))
-					} else {
-						self.infos.set_last_removed(last, context);
-						None
-					}
+					self.infos.set_moved_to(context);
+					(result, last, true, None)
 				} else {
-					move_old_state.then(|| (last, false, None))
+					(result, last, false, None)
 				}
 			} else {
-				move_old_state.then(|| (last, false, None))
-			};
-			(result as u32, moved)
+				(result, last, false, None)
+			})
 		} else {
-			(0, None)
+			None
+		}
+	}
+
+	fn clear_movable_storage(
+		&mut self,
+		spawn_changes: &impl Fn() -> C,
+		context: &OverlayedContext,
+	) -> u32 {
+		if !self.infos.value_ref().removed {
+			let info = self.infos.modify_value(context);
+			let result = info.size as u32;
+			info.removed = true;
+			info.size = 0;
+			info.cached_hash = None;
+			let last = sp_std::mem::replace(&mut self.changes, spawn_changes());
+			let depth = context.transaction_depth();
+			// No need to revert if no transaction
+			if depth != 0 {
+				if let Some(current_key) =
+					self.infos.take_is_previous_moved_from(context.transaction_depth())
+				{
+					self.infos.set_other_moved_from(current_key, last, context);
+				} else if self.infos.need_keep_origin(context) {
+					self.infos.set_last_removed(last, context);
+				}
+			}
+			result
+		} else {
+			0
 		}
 	}
 
@@ -1379,7 +1386,7 @@ where
 		};
 
 		if let Some(entry) = map.get_mut(target_name) {
-			entry.clear_movable_storage(false, spawn_changes, context);
+			entry.clear_movable_storage(spawn_changes, context);
 		}
 
 		let entry = map
@@ -1415,25 +1422,24 @@ where
 		if &info.name == target_name {
 			return false
 		}
-		let info_dest = if let Some(origin) = map.get(&info.name) {
-			let mut info_dest = origin.infos.value_ref().clone();
-			if info_dest.removed {
+		let info_new = if let Some(origin) = map.get(&info.name) {
+			let mut info_ori = origin.infos.value_ref().clone();
+			if info_ori.removed {
 				return false
 			};
-			info_dest.infos.name = target_name.to_vec();
-			info_dest
+			info_ori.infos.name = target_name.to_vec();
+			info_ori
 		} else {
 			return false
 		};
 
-		let Some((state, ref_origin, proxy_origin)) = map.get_mut(&info.name)
-			.and_then(|entry| entry.clear_movable_storage(true, spawn_changes, context).1
-			) else {
+		let Some((_size, state, ref_origin, proxy_origin)) = map.get_mut(&info.name)
+			.and_then(|entry| entry.move_storage(spawn_changes, context)) else {
 			return false
 		};
 
 		if let Some(entry) = map.get_mut(target_name) {
-			entry.clear_movable_storage(false, spawn_changes, context);
+			entry.clear_movable_storage(spawn_changes, context);
 		}
 
 		let entry = map
@@ -1443,7 +1449,7 @@ where
 		// even if same content we register and
 		// update.
 		let dest = entry.infos.modify_value(context);
-		*dest = info_dest;
+		*dest = info_new;
 
 		entry.changes = state;
 		if ref_origin {

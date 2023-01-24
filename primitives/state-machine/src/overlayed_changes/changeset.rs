@@ -730,14 +730,42 @@ impl<I: Clone, M> Transactional for OverlayedInfos<I, M> {
 			// We only need to merge if there is an pre-existing value. It may be a value from
 			// the previous transaction or a value committed without any open transaction.
 			if need_merge {
-				let dropped_tx = self.infos.pop_transaction();
+				let mut dropped_tx = self.infos.pop_transaction();
+				let mut dest = self.infos.value_mut();
 				// origin of committed is not of any use, origin of previous would work,
 				// same for moved from.
 				// Only keep the current info.
-				self.infos.value_mut().info = dropped_tx.info;
-			} else {
-				self.infos.transactions.last_mut().map(|info| info.transaction_depth -= 1);
+				dest.info = dropped_tx.info;
+				if matches!(dropped_tx.origin, OriginEntry::Removed(_)) {
+					// TODO test this logic explicitely
+					if !matches!(dest.origin, OriginEntry::Removed(_)) {
+						dest.origin = dropped_tx.origin;
+					}
+				}
+				if dropped_tx.moved_from_current.is_some() && dest.moved_from_current.is_none() {
+					dest.moved_from_current = dropped_tx.moved_from_current;
+				}
+				if let Some(others_moved_from) = dropped_tx.others_moved_from.take() {
+					if dest.others_moved_from.is_none() {
+						dest.others_moved_from = Some(others_moved_from);
+					} else {
+						for (k, s) in others_moved_from.into_iter() {
+							if dest
+								.others_moved_from
+								.as_ref()
+								.map(|d| !d.contains_key(&k))
+								.unwrap_or(true)
+							{
+								dest.others_moved_from.as_mut().map(|d| d.insert(k, s));
+							}
+						}
+					}
+				}
 			}
+			self.infos
+				.transactions
+				.last_mut()
+				.map(|info| info.transaction_depth = transaction_depth - 1);
 		}
 		Ok(())
 	}
