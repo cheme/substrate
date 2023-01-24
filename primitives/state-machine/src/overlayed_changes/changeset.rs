@@ -941,6 +941,13 @@ impl OverlayedChangeSetBlob {
 
 		Ok(())
 	}
+
+	/// Returns the current nesting depth of the transaction stack.
+	///
+	/// A value of zero means that no transaction is open and changes are committed on write.
+	pub fn transaction_depth(&self) -> usize {
+		self.dirty.len()
+	}
 }
 
 impl Transactional for OverlayedChangeSetBlob {

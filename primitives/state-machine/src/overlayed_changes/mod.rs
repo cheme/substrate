@@ -717,7 +717,10 @@ impl Changes {
 							.rollback_transaction(start_depth)
 							.expect("Top and children changesets are started in lockstep; qed");
 					},
-				Some(OriginEntry::Removed(last_removed)) => {
+				Some(OriginEntry::Removed(mut last_removed)) => {
+					last_removed
+						.stored_to_depth(last_removed.transaction_depth(), start_depth - 1)
+						.expect("Top and children changesets are started in lockstep; qed");
 					*changes = last_removed;
 				},
 				Some(OriginEntry::MovedTo) => {
@@ -729,8 +732,9 @@ impl Changes {
 				.expect("Top and children changesets are started in lockstep; qed");
 			!clean
 		});
-		for (at, state) in moved_from.into_iter() {
+		for (at, mut state) in moved_from.into_iter() {
 			if let Some(entry) = self.btrees.get_mut(&at) {
+				state.stored_to_depth(state.transaction_depth(), start_depth - 1)?;
 				entry.changes = state;
 			} else {
 				crate::warn!(target: "runtime", "Moving to non existing entry should not happen.");
@@ -763,7 +767,10 @@ impl Changes {
 							.rollback_transaction(start_depth)
 							.expect("Top and children changesets are started in lockstep; qed");
 					},
-				Some(OriginEntry::Removed(last_removed)) => {
+				Some(OriginEntry::Removed(mut last_removed)) => {
+					last_removed
+						.stored_to_depth(last_removed.transaction_depth(), start_depth - 1)
+						.expect("Top and children changesets are started in lockstep; qed");
 					*changes = last_removed;
 				},
 				Some(OriginEntry::MovedTo) => {
@@ -775,8 +782,9 @@ impl Changes {
 				.expect("Top and children changesets are started in lockstep; qed");
 			!clean
 		});
-		for (at, state) in moved_from.into_iter() {
+		for (at, mut state) in moved_from.into_iter() {
 			if let Some(entry) = self.blobs.get_mut(&at) {
+				state.stored_to_depth(state.transaction_depth(), start_depth - 1)?;
 				entry.changes = state;
 			} else {
 				crate::warn!(target: "runtime", "Moving to non existing entry should not happen.");
@@ -1315,7 +1323,7 @@ where
 			info.removed = true;
 			info.size = 0;
 			info.cached_hash = None;
-			let mut last = sp_std::mem::replace(&mut self.changes, spawn_changes());
+			let last = sp_std::mem::replace(&mut self.changes, spawn_changes());
 			let depth = context.transaction_depth();
 			// No need to revert if no transaction
 			let moved = if depth != 0 {
@@ -1325,7 +1333,6 @@ where
 					if move_old_state {
 						Some((last, false, Some(current_key)))
 					} else {
-						last.rollback_moved_state(depth).expect("checked depth");
 						self.infos.set_other_moved_from(current_key, last, context);
 						None
 					}
@@ -1334,7 +1341,6 @@ where
 						self.infos.set_moved_to(context);
 						Some((last, true, None))
 					} else {
-						last.rollback_moved_state(depth).expect("checked depth");
 						self.infos.set_last_removed(last, context);
 						None
 					}
@@ -1477,6 +1483,25 @@ pub trait Transactional {
 	#[must_use = "When empty returned, the object need to be acted upon."]
 	fn rollback_transaction(&mut self, transaction_depth: usize)
 		-> Result<bool, NoOpenTransaction>;
+
+	/// Set a transactional object set a a given depth ready for restore.
+	fn stored_to_depth(
+		&mut self,
+		mut set_at: usize,
+		restore_at: usize,
+	) -> Result<(), NoOpenTransaction> {
+		debug_assert!(restore_at <= set_at);
+		self.rollback_transaction(set_at)?;
+		loop {
+			if set_at > 0 {
+				set_at -= 1;
+				if set_at > restore_at {
+					self.rollback_transaction(set_at)?;
+				}
+			}
+			return Ok(())
+		}
+	}
 }
 
 #[cfg(feature = "std")]
