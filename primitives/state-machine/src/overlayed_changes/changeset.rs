@@ -24,10 +24,10 @@ use smallvec::SmallVec;
 use sp_core::storage::BLOB_CHUNK_SIZE;
 use sp_externalities::range_slice;
 #[cfg(not(feature = "std"))]
-use sp_std::collections::{btree_map::BTreeMap as Map, btree_set::BTreeSet as Set};
+use sp_std::collections::btree_set::BTreeSet as Set;
 use sp_std::{collections::btree_map::BTreeMap, hash::Hash, vec::Vec};
 #[cfg(feature = "std")]
-use std::collections::{HashMap as Map, HashSet as Set};
+use std::collections::HashSet as Set;
 
 const PROOF_OVERLAY_NON_EMPTY: &str = "\
 	An OverlayValue is always created with at least one transaction and dropped as soon
@@ -146,24 +146,12 @@ pub(crate) enum OriginEntry<M> {
 	/// replace by removed. If it is `MovedTo` or `Removed`, do nothing.
 	/// This state should only apply when origin is not `Empty`.
 	Removed(M),
-	/// Current values were moved under a different
-	/// name.
-	/// On rollback, restore the current from the moved_from field of another entry
-	/// indexed by this entry name.
-	/// On commit, if previous origin is empty or current, replay by this one.
-	/// If `MovedTo` or `Removed`, do nothing.
-	/// This state should only apply when origin is not `Empty`.
-	MovedTo,
 }
 
 #[derive(Debug, Clone)]
 struct InfoEntry<I, M> {
 	info: I,
 	origin: OriginEntry<M>,
-	moved_from_current: Option<Vec<u8>>,
-	// When moving multiple times to a same name
-	// we keep origin.
-	others_moved_from: Option<Map<Vec<u8>, M>>,
 	// since we got a single value, we do not
 	// maintain a dirty set, but just store
 	// transaction depth.
@@ -423,13 +411,7 @@ impl OverlayedContext {
 	}
 
 	fn new_info<I, M>(&self, info: I, origin: OriginEntry<M>) -> InfoEntry<I, M> {
-		InfoEntry {
-			info,
-			origin,
-			moved_from_current: None,
-			others_moved_from: None,
-			transaction_depth: self.transaction_depth(),
-		}
+		InfoEntry { info, origin, transaction_depth: self.transaction_depth() }
 	}
 
 	/// Call this before transfering control to the runtime.
@@ -542,12 +524,12 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 	}
 
 	/// Check if we should store origin for a possible rollback.
-	pub fn need_keep_origin(&self, context: &OverlayedContext) -> bool {
+	pub fn need_keep_origin(&self, depth: usize) -> bool {
 		if self
 			.infos
 			.transactions
 			.last()
-			.map(|info| info.transaction_depth == context.transaction_depth())
+			.map(|info| info.transaction_depth == depth)
 			.unwrap_or(false)
 		{
 			match &self.infos.value_ref().origin {
@@ -556,39 +538,6 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 			}
 		} else {
 			false
-		}
-	}
-
-	/// Take is previous moved from origin.
-	pub fn take_is_previous_moved_from(&mut self, transaction_depth: usize) -> Option<Vec<u8>> {
-		if self
-			.infos
-			.transactions
-			.last()
-			.map(|info| info.transaction_depth == transaction_depth)
-			.unwrap_or(false)
-		{
-			self.infos.value_mut().moved_from_current.take()
-		} else {
-			None
-		}
-	}
-
-	/// Take is previous moved from origin.
-	pub fn take_others_previous_moved_from(
-		&mut self,
-		transaction_depth: usize,
-	) -> Option<Map<Vec<u8>, M>> {
-		if self
-			.infos
-			.transactions
-			.last()
-			.map(|info| info.transaction_depth == transaction_depth)
-			.unwrap_or(false)
-		{
-			self.infos.value_mut().others_moved_from.take()
-		} else {
-			None
 		}
 	}
 
@@ -633,8 +582,8 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 		infos.origin = OriginEntry::Removed(last_removed);
 	}
 
-	/// Set moved_to in current transaction layer.
-	pub fn set_moved_to(&mut self, context: &OverlayedContext) {
+	/// Set origin as empty.
+	pub fn set_empty_origin(&mut self, context: &OverlayedContext) {
 		if self
 			.infos
 			.transactions
@@ -648,59 +597,7 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 		}
 
 		let infos = self.infos.value_mut();
-		// function should only be call if no current origin or current origin need
-		// to be restored which is only `current` (see `need_keep_origin`).
-		debug_assert!(matches!(infos.origin, OriginEntry::Current));
-		// Note MovedTo is very similar to Empty, just we don't clean entry.
-		infos.origin = OriginEntry::MovedTo;
-	}
-
-	/// Set moved_to in current transaction layer.
-	pub fn set_moved_from(&mut self, moved_from_name: Vec<u8>, context: &OverlayedContext) {
-		let mut origin = OriginEntry::Current;
-		if self
-			.infos
-			.transactions
-			.last()
-			.map(|info| info.transaction_depth != context.transaction_depth())
-			.unwrap_or_else(|| {
-				origin = OriginEntry::Empty;
-				true
-			}) {
-			let info = self.infos.value_ref().info.clone();
-			// first write, add a layer
-			self.infos.transactions.push(context.new_info(info, origin));
-		}
-
-		let infos = self.infos.value_mut();
-		debug_assert!(infos.moved_from_current.is_none());
-		infos.moved_from_current = Some(moved_from_name);
-	}
-
-	/// Set moved_to in current transaction layer.
-	pub fn set_other_moved_from(
-		&mut self,
-		moved_from_name: Vec<u8>,
-		moved_from_state: M,
-		context: &OverlayedContext,
-	) {
-		// already got a moved from, see `take_is_previous_moved_from`.
-		debug_assert!(self
-			.infos
-			.transactions
-			.last()
-			.map(|info| info.transaction_depth == context.transaction_depth())
-			.unwrap_or(false));
-
-		let infos = self.infos.value_mut();
-		if infos.others_moved_from.is_none() {
-			infos.others_moved_from = Some(Map::new());
-		}
-		infos
-			.others_moved_from
-			.as_mut()
-			.expect("Init above")
-			.insert(moved_from_name, moved_from_state);
+		infos.origin = OriginEntry::Empty;
 	}
 }
 
@@ -730,43 +627,15 @@ impl<I: Clone, M> Transactional for OverlayedInfos<I, M> {
 			// We only need to merge if there is an pre-existing value. It may be a value from
 			// the previous transaction or a value committed without any open transaction.
 			if need_merge {
-				let mut dropped_tx = self.infos.pop_transaction();
-				let mut dest = self.infos.value_mut();
-				// keep latest info
-				dest.info = dropped_tx.info;
+				let dropped_tx = self.infos.pop_transaction();
 				// removed origin
-				let mut replace_origin = true;
-				if matches!(dest.origin, OriginEntry::Removed(_)) {
-					replace_origin &= false;
-				}
-				// if move info, same
-				if matches!(dest.origin, OriginEntry::MovedTo) {
-					replace_origin &= false;
-				}
-				if replace_origin {
-					dest.origin = dropped_tx.origin;
-				}
-				if dropped_tx.moved_from_current.is_some() && dest.moved_from_current.is_none()
-				//&& !is_moved_to
-				{
-					dest.moved_from_current = dropped_tx.moved_from_current;
-				}
-				if let Some(others_moved_from) = dropped_tx.others_moved_from.take() {
-					if dest.others_moved_from.is_none() {
-						dest.others_moved_from = Some(others_moved_from);
-					} else {
-						for (k, s) in others_moved_from.into_iter() {
-							if dest
-								.others_moved_from
-								.as_ref()
-								.map(|d| !d.contains_key(&k))
-								.unwrap_or(true)
-							{
-								dest.others_moved_from.as_mut().map(|d| d.insert(k, s));
-							}
-						}
+				if matches!(dropped_tx.origin, OriginEntry::Removed(_)) {
+					if self.need_keep_origin(transaction_depth - 1) {
+						self.infos.value_mut().origin = dropped_tx.origin;
 					}
 				}
+				// keep latest info
+				self.infos.value_mut().info = dropped_tx.info;
 			}
 			self.infos
 				.transactions

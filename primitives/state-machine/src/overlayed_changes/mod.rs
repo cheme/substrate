@@ -358,7 +358,7 @@ impl Changes {
 	}
 
 	fn blob_chunks_into_committed(
-		blob: Arc<OverlayedChangeSetBlob>,
+		mut blob: Arc<OverlayedChangeSetBlob>,
 		infos: OverlayedInfos<BlobMeta, Arc<OverlayedChangeSetBlob>>,
 	) -> Option<(impl Iterator<Item = [u8; BLOB_CHUNK_SIZE]>, BlobMeta)> {
 		let infos = infos.into_value();
@@ -370,7 +370,7 @@ impl Changes {
 		let (chunk_end, chunk_end_offset) = blob_chunk_end_index(infos.size);
 
 		let nb_chunk = if chunk_end == 0 && chunk_end_offset == 0 { 0 } else { chunk_end + 1 };
-		let iter = sp_std::mem::take(unsafe { rc_mut_unchecked(&blob) })
+		let iter = sp_std::mem::take(unsafe { rc_mut_unchecked(&mut blob) })
 			.into_iter()
 			.enumerate()
 			.filter_map(move |(at, entry)| {
@@ -548,7 +548,7 @@ impl Changes {
 		let (chunk_start, chunk_start_offset) = blob_chunk_start_index(new_len as usize);
 		let chunk_start = if chunk_start_offset == 0 { chunk_start } else { chunk_start + 1 };
 
-		unsafe { rc_mut_unchecked(&blob.changes) }.truncate_clean(chunk_start);
+		unsafe { rc_mut_unchecked(&mut blob.changes) }.truncate_clean(chunk_start);
 
 		let info = blob.infos.modify_value(&self.context);
 		info.cached_hash = None;
@@ -654,10 +654,10 @@ impl Changes {
 		}
 		for (_, btree) in self.btrees.iter_mut() {
 			// TODO could lazy start as infos
-			unsafe { rc_mut_unchecked(&btree.changes) }.start_transaction();
+			unsafe { rc_mut_unchecked(&mut btree.changes) }.start_transaction();
 		}
 		for (_, blob) in self.blobs.iter_mut() {
-			unsafe { rc_mut_unchecked(&blob.changes) }.start_transaction();
+			unsafe { rc_mut_unchecked(&mut blob.changes) }.start_transaction();
 		}
 		self.offchain.overlay_mut().start_transaction();
 	}
@@ -679,101 +679,48 @@ impl Changes {
 			!child.changes.is_empty()
 		});
 
-		let mut moved_from = Vec::new();
 		retain_map(&mut self.btrees, |_, BtreeChanges { changes, infos }| {
-			let mut is_moved_from = false;
-			if let Some(from) = infos.take_is_previous_moved_from(start_depth) {
-				is_moved_from = true;
-				let change = sp_std::mem::replace(changes, Arc::new(self.context.spawn_child()));
-				moved_from.push((from, change));
-			}
-			if let Some(others) = infos.take_others_previous_moved_from(start_depth) {
-				moved_from.extend(others.into_iter());
-			}
-			let mut clean = false;
 			match infos.take_last_origin(start_depth) {
-				Some(OriginEntry::Empty) => {
-					// skipping rollback here assumes the state will be removed.
-					// TODO need testing or just rollback
-					clean = true;
+				Some(OriginEntry::Empty) => (),
+				None | Some(OriginEntry::Current) => {
+					unsafe { rc_mut_unchecked(changes) }
+						.rollback_transaction(start_depth)
+						.expect("Top and children changesets are started in lockstep; qed");
 				},
-				None | Some(OriginEntry::Current) =>
-					if !is_moved_from {
-						unsafe { rc_mut_unchecked(changes) }
-							.rollback_transaction(start_depth)
-							.expect("Top and children changesets are started in lockstep; qed");
-					},
-				Some(OriginEntry::Removed(last_removed)) => {
-					unsafe { rc_mut_unchecked(&last_removed) }
-						.stored_to_depth(last_removed.transaction_depth(), start_depth - 1)
+				Some(OriginEntry::Removed(mut last_removed)) => {
+					let depth = last_removed.transaction_depth();
+					unsafe { rc_mut_unchecked(&mut last_removed) }
+						.stored_to_depth(depth, start_depth - 1)
 						.expect("Top and children changesets are started in lockstep; qed");
 					*changes = last_removed;
-				},
-				Some(OriginEntry::MovedTo) => {
-					// will get new info from moved from in second step
-				},
-			}
-			let _ = infos
-				.rollback_transaction(start_depth)
-				.expect("Top and children changesets are started in lockstep; qed");
-			!clean
-		});
-		for (at, state) in moved_from.into_iter() {
-			if let Some(entry) = self.btrees.get_mut(&at) {
-				unsafe { rc_mut_unchecked(&state) }
-					.stored_to_depth(state.transaction_depth(), start_depth - 1)?;
-				entry.changes = state;
-			} else {
-				crate::warn!(target: "runtime", "Moving to non existing entry should not happen.");
-			}
-		}
-
-		let mut moved_from = Vec::new();
-		retain_map(&mut self.blobs, |_, BlobChanges { changes, infos }| {
-			let mut is_moved_from = false;
-			if let Some(from) = infos.take_is_previous_moved_from(start_depth) {
-				is_moved_from = true;
-				let change = sp_std::mem::replace(changes, Arc::new(self.context.spawn_blob()));
-				moved_from.push((from, change));
-			}
-			if let Some(others) = infos.take_others_previous_moved_from(start_depth) {
-				moved_from.extend(others.into_iter());
-			}
-			let mut clean = false;
-			match infos.take_last_origin(start_depth) {
-				Some(OriginEntry::Empty) => {
-					clean = true;
-				},
-				None | Some(OriginEntry::Current) =>
-					if !is_moved_from {
-						unsafe { rc_mut_unchecked(changes) }
-							.rollback_transaction(start_depth)
-							.expect("Top and children changesets are started in lockstep; qed");
-					},
-				Some(OriginEntry::Removed(last_removed)) => {
-					unsafe { rc_mut_unchecked(&last_removed) }
-						.stored_to_depth(last_removed.transaction_depth(), start_depth - 1)
-						.expect("Top and children changesets are started in lockstep; qed");
-					*changes = last_removed;
-				},
-				Some(OriginEntry::MovedTo) => {
-					// will get new info from moved from in second step
 				},
 			}
 			let empty = infos
 				.rollback_transaction(start_depth)
 				.expect("Top and children changesets are started in lockstep; qed");
-			!(clean || empty)
+			!empty
 		});
-		for (at, state) in moved_from.into_iter() {
-			if let Some(entry) = self.blobs.get_mut(&at) {
-				unsafe { rc_mut_unchecked(&state) }
-					.stored_to_depth(state.transaction_depth(), start_depth - 1)?;
-				entry.changes = state;
-			} else {
-				crate::warn!(target: "runtime", "Moving to non existing entry should not happen.");
+		retain_map(&mut self.blobs, |_, BlobChanges { changes, infos }| {
+			match infos.take_last_origin(start_depth) {
+				Some(OriginEntry::Empty) => (),
+				None | Some(OriginEntry::Current) => {
+					unsafe { rc_mut_unchecked(changes) }
+						.rollback_transaction(start_depth)
+						.expect("Top and children changesets are started in lockstep; qed");
+				},
+				Some(OriginEntry::Removed(mut last_removed)) => {
+					let depth = last_removed.transaction_depth();
+					unsafe { rc_mut_unchecked(&mut last_removed) }
+						.stored_to_depth(depth, start_depth - 1)
+						.expect("Top and children changesets are started in lockstep; qed");
+					*changes = last_removed;
+				},
 			}
-		}
+			let empty = infos
+				.rollback_transaction(start_depth)
+				.expect("Top and children changesets are started in lockstep; qed");
+			!empty
+		});
 
 		self.offchain
 			.overlay_mut()
@@ -802,7 +749,7 @@ impl Changes {
 				.infos
 				.commit_transaction(start_depth)
 				.expect("Top and children changesets are started in lockstep; qed");
-			unsafe { rc_mut_unchecked(&btree.changes) }
+			unsafe { rc_mut_unchecked(&mut btree.changes) }
 				.commit_transaction(start_depth)
 				.expect("Top and children changesets are started in lockstep; qed");
 		}
@@ -811,7 +758,7 @@ impl Changes {
 			blob.infos
 				.commit_transaction(start_depth)
 				.expect("Top and children changesets are started in lockstep; qed");
-			unsafe { rc_mut_unchecked(&blob.changes) }
+			unsafe { rc_mut_unchecked(&mut blob.changes) }
 				.commit_transaction(start_depth)
 				.expect("Top and children changesets are started in lockstep; qed");
 		}
@@ -882,10 +829,10 @@ impl Changes {
 			take(&mut self.children)
 				.into_iter()
 				.map(|(key, child)| (key, (child.changes.drain_committed(), child.infos))),
-			take(&mut self.btrees).into_iter().map(|(_key, btree)| {
+			take(&mut self.btrees).into_iter().map(|(_key, mut btree)| {
 				(
 					btree.infos.drain_committed(),
-					sp_std::mem::take(unsafe { rc_mut_unchecked(&btree.changes) })
+					sp_std::mem::take(unsafe { rc_mut_unchecked(&mut btree.changes) })
 						.drain_committed(),
 				)
 			}),
@@ -1302,40 +1249,7 @@ where
 		&mut self,
 		spawn_changes: &impl Fn() -> Arc<C>,
 		context: &OverlayedContext,
-	) -> Option<(u32, Arc<C>, bool, Option<Vec<u8>>)> {
-		if !self.infos.value_ref().removed {
-			let info = self.infos.modify_value(context);
-			let result = info.size as u32;
-			info.removed = true;
-			info.size = 0;
-			info.cached_hash = None;
-			let last = sp_std::mem::replace(&mut self.changes, spawn_changes());
-			let depth = context.transaction_depth();
-			// No need to revert if no transaction
-			Some(if depth != 0 {
-				if let Some(current_key) =
-					self.infos.take_is_previous_moved_from(context.transaction_depth())
-				{
-					(result, last, false, Some(current_key))
-				} else if self.infos.need_keep_origin(context) {
-					self.infos.set_moved_to(context);
-					(result, last, true, None)
-				} else {
-					(result, last, false, None)
-				}
-			} else {
-				(result, last, false, None)
-			})
-		} else {
-			None
-		}
-	}
-
-	fn clear_movable_storage(
-		&mut self,
-		spawn_changes: &impl Fn() -> Arc<C>,
-		context: &OverlayedContext,
-	) -> u32 {
+	) -> Option<(u32, Arc<C>)> {
 		if !self.infos.value_ref().removed {
 			let info = self.infos.modify_value(context);
 			let result = info.size as u32;
@@ -1346,16 +1260,43 @@ where
 			let depth = context.transaction_depth();
 			// No need to revert if no transaction
 			if depth != 0 {
-				if let Some(current_key) =
-					self.infos.take_is_previous_moved_from(context.transaction_depth())
-				{
-					self.infos.set_other_moved_from(current_key, last, context);
-				} else if self.infos.need_keep_origin(context) {
+				if self.infos.need_keep_origin(context.transaction_depth()) {
+					self.infos.set_last_removed(last.clone(), context);
+				}
+			}
+			Some((result, last))
+		} else {
+			None
+		}
+	}
+
+	fn clear_movable_storage(
+		&mut self,
+		spawn_changes: &impl Fn() -> Arc<C>,
+		context: &OverlayedContext,
+	) -> u32 {
+		let depth = context.transaction_depth();
+		if !self.infos.value_ref().removed {
+			let info = self.infos.modify_value(context);
+			let result = info.size as u32;
+			info.removed = true;
+			info.size = 0;
+			info.cached_hash = None;
+			let last = sp_std::mem::replace(&mut self.changes, spawn_changes());
+			// No need to revert if no transaction
+			if depth != 0 {
+				if self.infos.need_keep_origin(depth) {
 					self.infos.set_last_removed(last, context);
 				}
 			}
 			result
 		} else {
+			// No need to revert if no transaction
+			if depth != 0 {
+				if !self.infos.need_keep_origin(depth) {
+					self.infos.set_empty_origin(context);
+				}
+			}
 			0
 		}
 	}
@@ -1404,7 +1345,7 @@ where
 		let dest = entry.infos.modify_value(context);
 		*dest = info_dest;
 
-		unsafe { rc_mut_unchecked(&entry.changes) }.copy_on_cleared_from(origin);
+		unsafe { rc_mut_unchecked(&mut entry.changes) }.copy_on_cleared_from(origin);
 		true
 	}
 
@@ -1430,7 +1371,7 @@ where
 			return false
 		};
 
-		let Some((_size, state, ref_origin, proxy_origin)) = map.get_mut(&info.name)
+		let Some((_size, state)) = map.get_mut(&info.name)
 			.and_then(|entry| entry.move_storage(spawn_changes, context)) else {
 			return false
 		};
@@ -1449,11 +1390,6 @@ where
 		*dest = info_new;
 
 		entry.changes = state;
-		if ref_origin {
-			entry.infos.set_moved_from(info.name.clone(), context);
-		} else if let Some(from) = proxy_origin {
-			entry.infos.set_moved_from(from.clone(), context);
-		}
 		true
 	}
 }
@@ -1698,7 +1634,7 @@ pub(crate) fn blob_from_chunks<B: AsRef<[u8]>>(
 	result
 }
 
-unsafe fn rc_mut_unchecked<T>(rc: &Arc<T>) -> &mut T {
+unsafe fn rc_mut_unchecked<T>(rc: &mut Arc<T>) -> &mut T {
 	let rc: *const T = Arc::as_ptr(rc);
 	let rc: *mut T = rc as *mut _;
 	&mut *rc
