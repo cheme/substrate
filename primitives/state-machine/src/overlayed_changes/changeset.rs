@@ -550,7 +550,7 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 			.transactions
 			.last()
 			.map(|info| info.transaction_depth == depth)
-			.unwrap_or(false)
+			.unwrap_or(true)
 		{
 			false
 		} else {
