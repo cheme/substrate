@@ -664,6 +664,7 @@ impl Changes {
 	/// Any changes made during that transaction are discarded. Returns an error if
 	/// there is no open transaction that can be rolled back.
 	pub fn rollback_transaction(&mut self) -> Result<(), NoOpenTransaction> {
+		let start_context = self.context.clone();
 		let start_depth = self.context.transaction_depth();
 		self.context.rollback_transaction()?;
 
@@ -681,7 +682,7 @@ impl Changes {
 			let mut is_moved_from = false;
 			if let Some(from) = infos.take_is_previous_moved_from(start_depth) {
 				is_moved_from = true;
-				let change = sp_std::mem::replace(changes, self.context.spawn_child());
+				let change = sp_std::mem::replace(changes, start_context.spawn_child());
 				moved_from.push((from, change));
 			}
 			if let Some(others) = infos.take_others_previous_moved_from(start_depth) {
@@ -693,7 +694,7 @@ impl Changes {
 					.expect("Top and children changesets are started in lockstep; qed");
 				// Note this spawn is not worknig if origin is current, but moved from
 				// implies Removed or Empty.
-				let change = sp_std::mem::replace(changes, self.context.spawn_child());
+				let change = sp_std::mem::replace(changes, start_context.spawn_child());
 				moved_from.push((from, change));
 			}
 
@@ -739,7 +740,7 @@ impl Changes {
 			let mut is_moved_from = false;
 			if let Some(from) = infos.take_is_previous_moved_from(start_depth) {
 				is_moved_from = true;
-				let change = sp_std::mem::replace(changes, self.context.spawn_blob());
+				let change = sp_std::mem::replace(changes, start_context.spawn_blob());
 				moved_from.push((from, change));
 			}
 			if let Some(others) = infos.take_others_previous_moved_from(start_depth) {
@@ -767,10 +768,10 @@ impl Changes {
 					// will get new info from moved from in second step
 				},
 			}
-			let _ = infos
+			let empty = infos
 				.rollback_transaction(start_depth)
 				.expect("Top and children changesets are started in lockstep; qed");
-			!clean
+			!(clean || empty)
 		});
 		for (at, mut state) in moved_from.into_iter() {
 			if let Some(entry) = self.blobs.get_mut(&at) {

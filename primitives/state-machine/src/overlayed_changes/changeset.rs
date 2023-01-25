@@ -732,17 +732,26 @@ impl<I: Clone, M> Transactional for OverlayedInfos<I, M> {
 			if need_merge {
 				let mut dropped_tx = self.infos.pop_transaction();
 				let mut dest = self.infos.value_mut();
-				// origin of committed is not of any use, origin of previous would work,
-				// same for moved from.
-				// Only keep the current info.
+				// keep latest info
 				dest.info = dropped_tx.info;
-				if matches!(dropped_tx.origin, OriginEntry::Removed(_)) {
-					// TODO test this logic explicitely
-					if !matches!(dest.origin, OriginEntry::Removed(_)) {
-						dest.origin = dropped_tx.origin;
-					}
+				// removed origin
+				let mut replace_origin = true;
+				let mut is_moved_to = false;
+				if matches!(dest.origin, OriginEntry::Removed(_)) {
+					replace_origin &= false;
 				}
-				if dropped_tx.moved_from_current.is_some() && dest.moved_from_current.is_none() {
+				// if move info, same
+				if matches!(dest.origin, OriginEntry::MovedTo) {
+					replace_origin &= false;
+					is_moved_to = true;
+				}
+				if replace_origin {
+					dest.origin = dropped_tx.origin;
+				}
+				if dropped_tx.moved_from_current.is_some() &&
+					dest.moved_from_current.is_none() &&
+					!is_moved_to
+				{
 					dest.moved_from_current = dropped_tx.moved_from_current;
 				}
 				if let Some(others_moved_from) = dropped_tx.others_moved_from.take() {
