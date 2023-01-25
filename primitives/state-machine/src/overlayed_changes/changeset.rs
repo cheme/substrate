@@ -736,21 +736,18 @@ impl<I: Clone, M> Transactional for OverlayedInfos<I, M> {
 				dest.info = dropped_tx.info;
 				// removed origin
 				let mut replace_origin = true;
-				let mut is_moved_to = false;
 				if matches!(dest.origin, OriginEntry::Removed(_)) {
 					replace_origin &= false;
 				}
 				// if move info, same
 				if matches!(dest.origin, OriginEntry::MovedTo) {
 					replace_origin &= false;
-					is_moved_to = true;
 				}
 				if replace_origin {
 					dest.origin = dropped_tx.origin;
 				}
-				if dropped_tx.moved_from_current.is_some() &&
-					dest.moved_from_current.is_none() &&
-					!is_moved_to
+				if dropped_tx.moved_from_current.is_some() && dest.moved_from_current.is_none()
+				//&& !is_moved_to
 				{
 					dest.moved_from_current = dropped_tx.moved_from_current;
 				}

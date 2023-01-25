@@ -38,7 +38,7 @@ use sp_core::{
 use sp_externalities::{Extension, Extensions};
 #[cfg(not(feature = "std"))]
 use sp_std::collections::btree_map::BTreeMap as Map;
-use sp_std::{borrow::Cow, vec::Vec};
+use sp_std::{borrow::Cow, sync::Arc, vec::Vec};
 #[cfg(feature = "std")]
 use std::collections::{hash_map::Entry as MapEntry, HashMap as Map};
 #[cfg(feature = "std")]
@@ -116,8 +116,8 @@ pub struct Changes {
 /// (rollback will just clear source and revert target to its removed state (or clear if no state).
 #[derive(Debug, Clone)]
 pub(crate) struct MovableStorage<C, M> {
-	changes: C,
-	infos: OverlayedInfos<MovableMeta<M>, C>,
+	changes: Arc<C>,
+	infos: OverlayedInfos<MovableMeta<M>, Arc<C>>,
 }
 
 /// Changes for blob storage.
@@ -358,8 +358,8 @@ impl Changes {
 	}
 
 	fn blob_chunks_into_committed(
-		blob: OverlayedChangeSetBlob,
-		infos: OverlayedInfos<BlobMeta, OverlayedChangeSetBlob>,
+		blob: Arc<OverlayedChangeSetBlob>,
+		infos: OverlayedInfos<BlobMeta, Arc<OverlayedChangeSetBlob>>,
 	) -> Option<(impl Iterator<Item = [u8; BLOB_CHUNK_SIZE]>, BlobMeta)> {
 		let infos = infos.into_value();
 
@@ -370,14 +370,17 @@ impl Changes {
 		let (chunk_end, chunk_end_offset) = blob_chunk_end_index(infos.size);
 
 		let nb_chunk = if chunk_end == 0 && chunk_end_offset == 0 { 0 } else { chunk_end + 1 };
-		let iter = blob.into_iter().enumerate().filter_map(move |(at, entry)| {
-			let at = at as u32;
-			if at < nb_chunk {
-				Some(entry.into_value())
-			} else {
-				None
-			}
-		});
+		let iter = sp_std::mem::take(unsafe { rc_mut_unchecked(&blob) })
+			.into_iter()
+			.enumerate()
+			.filter_map(move |(at, entry)| {
+				let at = at as u32;
+				if at < nb_chunk {
+					Some(entry.into_value())
+				} else {
+					None
+				}
+			});
 
 		Some((iter, infos))
 	}
@@ -481,7 +484,7 @@ impl Changes {
 						infos.size -= 1;
 					}
 				}
-				changes.set(key.to_vec(), val.map(Vec::from));
+				unsafe { rc_mut_unchecked(changes) }.set(key.to_vec(), val.map(Vec::from));
 				true
 			},
 			ChildInfo::Blob(_) => {
@@ -522,7 +525,7 @@ impl Changes {
 			}
 		}
 
-		if changes.set(value, offset) {
+		if unsafe { rc_mut_unchecked(changes) }.set(value, offset) {
 			self.stats.tally_write_overlay(value.len() as u64);
 			true
 		} else {
@@ -545,7 +548,7 @@ impl Changes {
 		let (chunk_start, chunk_start_offset) = blob_chunk_start_index(new_len as usize);
 		let chunk_start = if chunk_start_offset == 0 { chunk_start } else { chunk_start + 1 };
 
-		blob.changes.truncate_clean(chunk_start);
+		unsafe { rc_mut_unchecked(&blob.changes) }.truncate_clean(chunk_start);
 
 		let info = blob.infos.modify_value(&self.context);
 		info.cached_hash = None;
@@ -585,7 +588,7 @@ impl Changes {
 		let Some(entry) = self.blobs.get_mut(name) else {
 			return 0;
 		};
-		entry.clear_movable_storage(&|| context.spawn_blob(), &self.context)
+		entry.clear_movable_storage(&|| Arc::new(context.spawn_blob()), &self.context)
 	}
 
 	fn clear_btree_storage(&mut self, name: &[u8]) -> u32 {
@@ -593,7 +596,7 @@ impl Changes {
 		let Some(entry) = self.btrees.get_mut(name) else {
 			return 0;
 		};
-		entry.clear_movable_storage(&|| context.spawn_child(), &self.context)
+		entry.clear_movable_storage(&|| Arc::new(context.spawn_child()), &self.context)
 	}
 
 	/// Removes all key-value pairs which keys share the given prefix.
@@ -625,7 +628,7 @@ impl Changes {
 					return 0
 				}
 
-				changes.clear_where(|key, _| key.starts_with(prefix))
+				unsafe { rc_mut_unchecked(changes) }.clear_where(|key, _| key.starts_with(prefix))
 			},
 			ChildInfo::Blob(_info) => 0,
 		}
@@ -651,10 +654,10 @@ impl Changes {
 		}
 		for (_, btree) in self.btrees.iter_mut() {
 			// TODO could lazy start as infos
-			btree.changes.start_transaction();
+			unsafe { rc_mut_unchecked(&btree.changes) }.start_transaction();
 		}
 		for (_, blob) in self.blobs.iter_mut() {
-			blob.changes.start_transaction();
+			unsafe { rc_mut_unchecked(&blob.changes) }.start_transaction();
 		}
 		self.offchain.overlay_mut().start_transaction();
 	}
@@ -681,7 +684,7 @@ impl Changes {
 			let mut is_moved_from = false;
 			if let Some(from) = infos.take_is_previous_moved_from(start_depth) {
 				is_moved_from = true;
-				let change = sp_std::mem::replace(changes, self.context.spawn_child());
+				let change = sp_std::mem::replace(changes, Arc::new(self.context.spawn_child()));
 				moved_from.push((from, change));
 			}
 			if let Some(others) = infos.take_others_previous_moved_from(start_depth) {
@@ -696,12 +699,12 @@ impl Changes {
 				},
 				None | Some(OriginEntry::Current) =>
 					if !is_moved_from {
-						changes
+						unsafe { rc_mut_unchecked(changes) }
 							.rollback_transaction(start_depth)
 							.expect("Top and children changesets are started in lockstep; qed");
 					},
-				Some(OriginEntry::Removed(mut last_removed)) => {
-					last_removed
+				Some(OriginEntry::Removed(last_removed)) => {
+					unsafe { rc_mut_unchecked(&last_removed) }
 						.stored_to_depth(last_removed.transaction_depth(), start_depth - 1)
 						.expect("Top and children changesets are started in lockstep; qed");
 					*changes = last_removed;
@@ -715,9 +718,10 @@ impl Changes {
 				.expect("Top and children changesets are started in lockstep; qed");
 			!clean
 		});
-		for (at, mut state) in moved_from.into_iter() {
+		for (at, state) in moved_from.into_iter() {
 			if let Some(entry) = self.btrees.get_mut(&at) {
-				state.stored_to_depth(state.transaction_depth(), start_depth - 1)?;
+				unsafe { rc_mut_unchecked(&state) }
+					.stored_to_depth(state.transaction_depth(), start_depth - 1)?;
 				entry.changes = state;
 			} else {
 				crate::warn!(target: "runtime", "Moving to non existing entry should not happen.");
@@ -729,7 +733,7 @@ impl Changes {
 			let mut is_moved_from = false;
 			if let Some(from) = infos.take_is_previous_moved_from(start_depth) {
 				is_moved_from = true;
-				let change = sp_std::mem::replace(changes, self.context.spawn_blob());
+				let change = sp_std::mem::replace(changes, Arc::new(self.context.spawn_blob()));
 				moved_from.push((from, change));
 			}
 			if let Some(others) = infos.take_others_previous_moved_from(start_depth) {
@@ -742,12 +746,12 @@ impl Changes {
 				},
 				None | Some(OriginEntry::Current) =>
 					if !is_moved_from {
-						changes
+						unsafe { rc_mut_unchecked(changes) }
 							.rollback_transaction(start_depth)
 							.expect("Top and children changesets are started in lockstep; qed");
 					},
-				Some(OriginEntry::Removed(mut last_removed)) => {
-					last_removed
+				Some(OriginEntry::Removed(last_removed)) => {
+					unsafe { rc_mut_unchecked(&last_removed) }
 						.stored_to_depth(last_removed.transaction_depth(), start_depth - 1)
 						.expect("Top and children changesets are started in lockstep; qed");
 					*changes = last_removed;
@@ -761,9 +765,10 @@ impl Changes {
 				.expect("Top and children changesets are started in lockstep; qed");
 			!(clean || empty)
 		});
-		for (at, mut state) in moved_from.into_iter() {
+		for (at, state) in moved_from.into_iter() {
 			if let Some(entry) = self.blobs.get_mut(&at) {
-				state.stored_to_depth(state.transaction_depth(), start_depth - 1)?;
+				unsafe { rc_mut_unchecked(&state) }
+					.stored_to_depth(state.transaction_depth(), start_depth - 1)?;
 				entry.changes = state;
 			} else {
 				crate::warn!(target: "runtime", "Moving to non existing entry should not happen.");
@@ -797,8 +802,7 @@ impl Changes {
 				.infos
 				.commit_transaction(start_depth)
 				.expect("Top and children changesets are started in lockstep; qed");
-			btree
-				.changes
+			unsafe { rc_mut_unchecked(&btree.changes) }
 				.commit_transaction(start_depth)
 				.expect("Top and children changesets are started in lockstep; qed");
 		}
@@ -807,7 +811,7 @@ impl Changes {
 			blob.infos
 				.commit_transaction(start_depth)
 				.expect("Top and children changesets are started in lockstep; qed");
-			blob.changes
+			unsafe { rc_mut_unchecked(&blob.changes) }
 				.commit_transaction(start_depth)
 				.expect("Top and children changesets are started in lockstep; qed");
 		}
@@ -879,7 +883,11 @@ impl Changes {
 				.into_iter()
 				.map(|(key, child)| (key, (child.changes.drain_committed(), child.infos))),
 			take(&mut self.btrees).into_iter().map(|(_key, btree)| {
-				(btree.infos.drain_committed(), btree.changes.drain_committed())
+				(
+					btree.infos.drain_committed(),
+					sp_std::mem::take(unsafe { rc_mut_unchecked(&btree.changes) })
+						.drain_committed(),
+				)
 			}),
 			take(&mut self.blobs).into_iter().filter_map(|(_key, blob)| {
 				if let Some((iter, info)) =
@@ -1109,7 +1117,7 @@ impl Changes {
 				}
 				let context = &self.context;
 				let entry = self.btrees.entry(info.name.clone()).or_insert_with(|| BtreeChanges {
-					changes: context.spawn_child(),
+					changes: Arc::new(context.spawn_child()),
 					infos: context.spawn_info(BtreeMeta::from(info.clone())),
 				});
 				// even if same content we register and
@@ -1139,7 +1147,7 @@ impl Changes {
 				}
 				let context = &self.context;
 				let entry = self.blobs.entry(info.name.clone()).or_insert_with(|| BlobChanges {
-					changes: context.spawn_blob(),
+					changes: Arc::new(context.spawn_blob()),
 					infos: context.spawn_info(BlobMeta::from(info.clone())),
 				});
 
@@ -1203,7 +1211,7 @@ impl Changes {
 				&mut self.btrees,
 				&info,
 				target_name,
-				&|| context.spawn_child(),
+				&|| Arc::new(context.spawn_child()),
 				&|| context.spawn_info(BtreeMeta::from(info.clone())),
 				&self.context,
 			),
@@ -1211,7 +1219,7 @@ impl Changes {
 				&mut self.blobs,
 				&info,
 				target_name,
-				&|| context.spawn_blob(),
+				&|| Arc::new(context.spawn_blob()),
 				&|| context.spawn_info(BlobMeta::from(info.clone())),
 				&self.context,
 			),
@@ -1229,7 +1237,7 @@ impl Changes {
 				&mut self.btrees,
 				&info,
 				target_name,
-				&|| context.spawn_child(),
+				&|| Arc::new(context.spawn_child()),
 				&|| context.spawn_info(BtreeMeta::from(info.clone())),
 				&self.context,
 			),
@@ -1237,7 +1245,7 @@ impl Changes {
 				&mut self.blobs,
 				&info,
 				target_name,
-				&|| context.spawn_blob(),
+				&|| Arc::new(context.spawn_blob()),
 				&|| context.spawn_info(BlobMeta::from(info.clone())),
 				&self.context,
 			),
@@ -1292,9 +1300,9 @@ where
 {
 	fn move_storage(
 		&mut self,
-		spawn_changes: &impl Fn() -> C,
+		spawn_changes: &impl Fn() -> Arc<C>,
 		context: &OverlayedContext,
-	) -> Option<(u32, C, bool, Option<Vec<u8>>)> {
+	) -> Option<(u32, Arc<C>, bool, Option<Vec<u8>>)> {
 		if !self.infos.value_ref().removed {
 			let info = self.infos.modify_value(context);
 			let result = info.size as u32;
@@ -1325,7 +1333,7 @@ where
 
 	fn clear_movable_storage(
 		&mut self,
-		spawn_changes: &impl Fn() -> C,
+		spawn_changes: &impl Fn() -> Arc<C>,
 		context: &OverlayedContext,
 	) -> u32 {
 		if !self.infos.value_ref().removed {
@@ -1356,8 +1364,8 @@ where
 		map: &mut Map<Name, Self>,
 		info: &TransientInfo<A>,
 		target_name: &[u8],
-		spawn_changes: &impl Fn() -> C,
-		spawn_infos: &impl Fn() -> OverlayedInfos<MovableMeta<TransientInfo<A>>, C>,
+		spawn_changes: &impl Fn() -> Arc<C>,
+		spawn_infos: &impl Fn() -> OverlayedInfos<MovableMeta<TransientInfo<A>>, Arc<C>>,
 		context: &OverlayedContext,
 	) -> bool {
 		if &info.name == target_name {
@@ -1396,7 +1404,7 @@ where
 		let dest = entry.infos.modify_value(context);
 		*dest = info_dest;
 
-		entry.changes.copy_on_cleared_from(origin);
+		unsafe { rc_mut_unchecked(&entry.changes) }.copy_on_cleared_from(origin);
 		true
 	}
 
@@ -1404,8 +1412,8 @@ where
 		map: &mut Map<Name, Self>,
 		info: &TransientInfo<A>,
 		target_name: &[u8],
-		spawn_changes: &impl Fn() -> C,
-		spawn_infos: &impl Fn() -> OverlayedInfos<MovableMeta<TransientInfo<A>>, C>,
+		spawn_changes: &impl Fn() -> Arc<C>,
+		spawn_infos: &impl Fn() -> OverlayedInfos<MovableMeta<TransientInfo<A>>, Arc<C>>,
 		context: &OverlayedContext,
 	) -> bool {
 		if &info.name == target_name {
@@ -1512,7 +1520,7 @@ impl From<sp_core::storage::Storage> for Changes {
 				(
 					k,
 					BtreeChanges {
-						changes: v.data.into(),
+						changes: Arc::new(v.data.into()),
 						infos: context.spawn_info(BtreeMeta::from(v.info)),
 					},
 				)
@@ -1525,7 +1533,7 @@ impl From<sp_core::storage::Storage> for Changes {
 				(
 					k,
 					BlobChanges {
-						changes: v.data.into(),
+						changes: Arc::new(v.data.into()),
 						infos: context.spawn_info(BlobMeta::from(v.info)),
 					},
 				)
@@ -1688,6 +1696,12 @@ pub(crate) fn blob_from_chunks<B: AsRef<[u8]>>(
 	}
 	debug_assert!(iter.next().is_none());
 	result
+}
+
+unsafe fn rc_mut_unchecked<T>(rc: &Arc<T>) -> &mut T {
+	let rc: *const T = Arc::as_ptr(rc);
+	let rc: *mut T = rc as *mut _;
+	&mut *rc
 }
 
 #[cfg(test)]
