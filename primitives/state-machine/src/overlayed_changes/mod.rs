@@ -1488,10 +1488,11 @@ pub trait Transactional {
 		debug_assert!(restore_at <= set_at);
 		self.rollback_transaction(set_at)?;
 		loop {
-			if set_at > 0 {
+			while set_at > 0 {
 				set_at -= 1;
 				if set_at > restore_at {
 					self.rollback_transaction(set_at)?;
+					continue
 				}
 			}
 			return Ok(())
