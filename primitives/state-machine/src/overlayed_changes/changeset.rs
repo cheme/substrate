@@ -541,6 +541,23 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 		}
 	}
 
+	/// Check if we should store empty for a possible rollback when entry is already removed.
+	/// Note this storage is mainly here to avoid rollback on change that was rollbacked
+	/// somewhere else.
+	pub fn need_empty_origin(&self, depth: usize) -> bool {
+		if self
+			.infos
+			.transactions
+			.last()
+			.map(|info| info.transaction_depth == depth)
+			.unwrap_or(false)
+		{
+			false
+		} else {
+			true
+		}
+	}
+
 	/// Take last_removed of current transaction layer.
 	pub(crate) fn take_last_origin(&mut self, transaction_depth: usize) -> Option<OriginEntry<M>> {
 		if self

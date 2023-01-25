@@ -2560,6 +2560,16 @@ mod tests {
 	fn movable_storage() {
 		let tests = &[
 			vec![
+				Ops::Create(255),
+				Ops::StartTransaction,
+				Ops::MoveTo(255, 0),
+				Ops::MoveTo(0, 170),
+				Ops::Create(255),
+				Ops::RollbackTransaction,
+				Ops::MoveTo(255, 0),
+				Ops::StartTransaction,
+			],
+			vec![
 				Ops::Create(0),
 				Ops::StartTransaction,
 				Ops::MoveTo(0, 1),

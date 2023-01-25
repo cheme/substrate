@@ -1293,7 +1293,7 @@ where
 		} else {
 			// No need to revert if no transaction
 			if depth != 0 {
-				if !self.infos.need_keep_origin(depth) {
+				if self.infos.need_empty_origin(depth) {
 					self.infos.set_empty_origin(context);
 				}
 			}
