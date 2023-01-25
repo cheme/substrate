@@ -525,37 +525,11 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 
 	/// Check if we should store origin for a possible rollback.
 	pub fn need_keep_origin(&self, depth: usize) -> bool {
-		if self
-			.infos
-			.transactions
-			.last()
-			.map(|info| info.transaction_depth == depth)
-			.unwrap_or(false)
-		{
-			match &self.infos.value_ref().origin {
-				OriginEntry::Current => true,
-				_ => false,
-			}
-		} else {
-			false
+		if depth == 0 || self.infos.transactions.len() == 0 {
+			return false
 		}
-	}
 
-	/// Check if we should store empty for a possible rollback when entry is already removed.
-	/// Note this storage is mainly here to avoid rollback on change that was rollbacked
-	/// somewhere else.
-	pub fn need_empty_origin(&self, depth: usize) -> bool {
-		if self
-			.infos
-			.transactions
-			.last()
-			.map(|info| info.transaction_depth == depth)
-			.unwrap_or(true)
-		{
-			false
-		} else {
-			true
-		}
+		matches!(self.infos.value_ref().origin, OriginEntry::Current)
 	}
 
 	/// Take last_removed of current transaction layer.
@@ -597,24 +571,6 @@ impl<I: Clone, M> OverlayedInfos<I, M> {
 		// to be restored which is only `current` (see `need_keep_origin`).
 		debug_assert!(matches!(infos.origin, OriginEntry::Current));
 		infos.origin = OriginEntry::Removed(last_removed);
-	}
-
-	/// Set origin as empty.
-	pub fn set_empty_origin(&mut self, context: &OverlayedContext) {
-		if self
-			.infos
-			.transactions
-			.last()
-			.map(|info| info.transaction_depth != context.transaction_depth())
-			.unwrap_or(true)
-		{
-			let info = self.infos.value_ref().info.clone();
-			// first write, add a layer (any origin, will be replaced)
-			self.infos.transactions.push(context.new_info(info, OriginEntry::Current));
-		}
-
-		let infos = self.infos.value_mut();
-		infos.origin = OriginEntry::Empty;
 	}
 }
 

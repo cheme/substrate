@@ -1257,12 +1257,8 @@ where
 			info.size = 0;
 			info.cached_hash = None;
 			let last = sp_std::mem::replace(&mut self.changes, spawn_changes());
-			let depth = context.transaction_depth();
-			// No need to revert if no transaction
-			if depth != 0 {
-				if self.infos.need_keep_origin(context.transaction_depth()) {
-					self.infos.set_last_removed(last.clone(), context);
-				}
+			if self.infos.need_keep_origin(context.transaction_depth()) {
+				self.infos.set_last_removed(last.clone(), context);
 			}
 			Some((result, last))
 		} else {
@@ -1276,29 +1272,16 @@ where
 		context: &OverlayedContext,
 	) -> u32 {
 		let depth = context.transaction_depth();
-		if !self.infos.value_ref().removed {
-			let info = self.infos.modify_value(context);
-			let result = info.size as u32;
-			info.removed = true;
-			info.size = 0;
-			info.cached_hash = None;
-			let last = sp_std::mem::replace(&mut self.changes, spawn_changes());
-			// No need to revert if no transaction
-			if depth != 0 {
-				if self.infos.need_keep_origin(depth) {
-					self.infos.set_last_removed(last, context);
-				}
-			}
-			result
-		} else {
-			// No need to revert if no transaction
-			if depth != 0 {
-				if self.infos.need_empty_origin(depth) {
-					self.infos.set_empty_origin(context);
-				}
-			}
-			0
+		let info = self.infos.modify_value(context);
+		let result = info.size as u32;
+		info.removed = true;
+		info.size = 0;
+		info.cached_hash = None;
+		let last = sp_std::mem::replace(&mut self.changes, spawn_changes());
+		if self.infos.need_keep_origin(depth) {
+			self.infos.set_last_removed(last, context);
 		}
+		result
 	}
 
 	fn copy_movable_storage(
@@ -1424,6 +1407,7 @@ pub trait Transactional {
 		-> Result<bool, NoOpenTransaction>;
 
 	/// Set a transactional object set a a given depth ready for restore.
+	/// TODO should be useless now (always -1 if correct).
 	fn stored_to_depth(
 		&mut self,
 		mut set_at: usize,
