@@ -318,7 +318,7 @@ mod tests {
 		config::MultiaddrWithPeerId,
 		protocol::role::ObservedRole,
 		service::{
-			NetworkBlock, NetworkEventStream, NetworkNotification, NetworkPeers,
+			DialOpts, NetworkBlock, NetworkEventStream, NetworkNotification, NetworkPeers,
 			NotificationSender, NotificationSenderError,
 		},
 	};
@@ -410,6 +410,10 @@ mod tests {
 		fn sync_num_connected(&self) -> usize {
 			unimplemented!();
 		}
+
+		fn dial(&self, _addr: DialOpts) {
+			unimplemented!();
+		}
 	}
 
 	impl NetworkEventStream for TestNetwork {
@@ -489,7 +493,7 @@ mod tests {
 		}))
 	}
 
-	#[tokio::test(flavor = "multi_thread")]
+	#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 	async fn keeps_multiple_subscribers_per_topic_updated_with_both_old_and_new_messages() {
 		let topic = H256::default();
 		let protocol = ProtocolName::from("/my_protocol");

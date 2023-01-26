@@ -521,7 +521,7 @@ mod tests {
 		config::MultiaddrWithPeerId,
 		protocol::event::Event,
 		service::{
-			NetworkBlock, NetworkEventStream, NetworkNotification, NetworkPeers,
+			DialOpts, NetworkBlock, NetworkEventStream, NetworkNotification, NetworkPeers,
 			NotificationSender, NotificationSenderError,
 		},
 	};
@@ -653,6 +653,10 @@ mod tests {
 		}
 
 		fn sync_num_connected(&self) -> usize {
+			unimplemented!();
+		}
+
+		fn dial(&self, _addr: DialOpts) {
 			unimplemented!();
 		}
 	}

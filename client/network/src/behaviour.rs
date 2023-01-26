@@ -30,7 +30,6 @@ use libp2p::{
 	identify::Info as IdentifyInfo,
 	kad::record,
 	swarm::{behaviour::toggle::Toggle, NetworkBehaviour, NetworkBehaviourAction, PollParameters},
-	NetworkBehaviour,
 };
 use std::task::{Context, Poll};
 

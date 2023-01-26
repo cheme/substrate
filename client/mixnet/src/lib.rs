@@ -76,10 +76,6 @@ impl<T> NetworkProvider for T where T: NetworkPeers + SyncOracle {}
 struct TopoConfig;
 
 impl TopoConfigT for TopoConfig {
-	type Version = ();
-
-	const DISTRIBUTE_ROUTES: bool = false;
-
 	const LOW_MIXNET_THRESHOLD: usize = 5;
 
 	const LOW_MIXNET_PATHS: usize = 2;
@@ -148,8 +144,8 @@ enum State {
 pub fn new_channels(
 ) -> (WorkerChannels, (SinkToWorker, StreamFromWorker, futures::channel::mpsc::Sender<MixnetCommand>))
 {
-	let (to_worker_sink, to_worker_stream) = tracing_unbounded("mpsc_mixnet_in");
-	let (from_worker_sink, from_worker_stream) = tracing_unbounded("mpsc_mixnet_out");
+	let (to_worker_sink, to_worker_stream) = tracing_unbounded("mpsc_mixnet_in", 100_000);
+	let (from_worker_sink, from_worker_stream) = tracing_unbounded("mpsc_mixnet_out", 100_000);
 	let (command_sink, command_stream) = futures::channel::mpsc::channel(COMMAND_BUFFER_SIZE);
 	(
 		(
@@ -789,7 +785,6 @@ impl AuthorityTopology {
 			local_id,
 			node_public_key,
 			TopoConfig::DEFAULT_PARAMETERS.clone(),
-			(),
 		);
 
 		AuthorityTopology {

@@ -25,8 +25,10 @@ use crate::{
 	sync::{warp::WarpSyncProgress, StateDownloadProgress, SyncState},
 };
 use futures::{channel::oneshot, Stream};
-pub use libp2p::{identity::error::SigningError, kad::record::Key as KademliaKey};
-use libp2p::{swarm::dial_opts::DialOpts, Multiaddr, PeerId};
+pub use libp2p::{
+	identity::error::SigningError, kad::record::Key as KademliaKey, swarm::dial_opts::DialOpts,
+};
+use libp2p::{Multiaddr, PeerId};
 use sc_peerset::ReputationChange;
 pub use signature::Signature;
 use sp_runtime::traits::{Block as BlockT, NumberFor};

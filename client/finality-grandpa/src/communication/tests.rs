@@ -30,7 +30,7 @@ use sc_network_common::{
 	config::MultiaddrWithPeerId,
 	protocol::{event::Event as NetworkEvent, role::ObservedRole, ProtocolName},
 	service::{
-		NetworkBlock, NetworkEventStream, NetworkNotification, NetworkPeers,
+		DialOpts, NetworkBlock, NetworkEventStream, NetworkNotification, NetworkPeers,
 		NetworkSyncForkRequest, NotificationSender, NotificationSenderError,
 	},
 };
@@ -128,6 +128,10 @@ impl NetworkPeers for TestNetwork {
 	fn sync_num_connected(&self) -> usize {
 		unimplemented!();
 	}
+
+	fn dial(&self, _addr: DialOpts) {
+		unimplemented!();
+	}
 }
 
 impl NetworkEventStream for TestNetwork {
@@ -135,7 +139,7 @@ impl NetworkEventStream for TestNetwork {
 		&self,
 		_name: &'static str,
 	) -> Pin<Box<dyn Stream<Item = NetworkEvent> + Send>> {
-		let (tx, rx) = tracing_unbounded("test");
+		let (tx, rx) = tracing_unbounded("test", 100_000);
 		let _ = self.sender.unbounded_send(Event::EventStream(tx));
 		Box::pin(rx)
 	}
@@ -253,7 +257,7 @@ fn voter_set_state() -> SharedVoterSetState<Block> {
 
 // needs to run in a tokio runtime.
 pub(crate) fn make_test_network() -> (impl Future<Output = Tester>, TestNetwork) {
-	let (tx, rx) = tracing_unbounded("test");
+	let (tx, rx) = tracing_unbounded("test", 100_000);
 	let net = TestNetwork { sender: tx };
 
 	#[derive(Clone)]

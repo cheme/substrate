@@ -42,7 +42,7 @@ use futures::{
 	prelude::*,
 };
 use parking_lot::Mutex;
-use sc_network_common::service::{NetworkPeers, NetworkStateInfo};
+use sc_network_common::service::{DialOpts, NetworkPeers, NetworkStateInfo};
 use sp_api::{ApiExt, ProvideRuntimeApi};
 use sp_core::{offchain, traits::SpawnNamed, ExecutionContext};
 use sp_runtime::{
@@ -344,6 +344,10 @@ mod tests {
 		fn sync_num_connected(&self) -> usize {
 			unimplemented!();
 		}
+
+		fn dial(&self, _addr: DialOpts) {
+			unimplemented!();
+		}
 	}
 
 	struct TestPool(Arc<BasicPool<FullChainApi<TestClient, Block>, Block>>);
@@ -375,7 +379,7 @@ mod tests {
 			client.clone(),
 		));
 		let network = Arc::new(TestNetwork());
-		let header = client.header(&BlockId::number(0)).unwrap().unwrap();
+		let header = client.header(client.chain_info().genesis_hash).unwrap().unwrap();
 
 		// when
 		let offchain = OffchainWorkers::new(client);

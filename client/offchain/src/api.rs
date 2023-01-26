@@ -329,7 +329,7 @@ mod tests {
 	use sc_network_common::{
 		config::MultiaddrWithPeerId,
 		protocol::ProtocolName,
-		service::{NetworkPeers, NetworkStateInfo},
+		service::{DialOpts, NetworkPeers, NetworkStateInfo},
 	};
 	use sc_peerset::ReputationChange;
 	use sp_core::offchain::{DbExternalities, Externalities};
@@ -407,6 +407,10 @@ mod tests {
 		}
 
 		fn sync_num_connected(&self) -> usize {
+			unimplemented!();
+		}
+
+		fn dial(&self, _addr: DialOpts) {
 			unimplemented!();
 		}
 	}
