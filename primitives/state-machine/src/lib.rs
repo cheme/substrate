@@ -1382,10 +1382,17 @@ pub mod fuzz {
 	pub struct FuzzConf {
 		/// size of content in number of repeated bytes.
 		pub content_size: usize,
-		/// allow hash operation.
+		/// test caching (hash but actually here we just
+		/// write content)
 		pub do_hash: bool,
 		/// allow set at random index.
 		pub set_at: bool,
+	}
+
+	#[derive(Debug, PartialEq, Eq)]
+	struct ApplyReply {
+		ignore: bool,
+		with_hash: Option<Vec<u8>>,
 	}
 
 	impl Simulate {
@@ -1393,7 +1400,8 @@ pub mod fuzz {
 			Self { data: vec![Default::default()], conf }
 		}
 		// if return false, we should not test on the actual overlay.
-		fn apply(&mut self, ops: Ops) -> bool {
+		fn apply(&mut self, ops: Ops) -> ApplyReply {
+			let mut with_hash = None;
 			match ops {
 				Ops::StartTransaction => {
 					let new = self.data.last().cloned().unwrap_or_else(HashMap::new);
@@ -1401,13 +1409,13 @@ pub mod fuzz {
 				},
 				Ops::RollbackTransaction =>
 					if self.data.len() == 1 {
-						return false
+						return ApplyReply { ignore: true, with_hash: None }
 					} else {
 						self.data.pop();
 					},
 				Ops::CommitTransaction =>
 					if self.data.len() == 1 {
-						return false
+						return ApplyReply { ignore: true, with_hash: None }
 					} else {
 						if let Some(last) = self.data.pop() {
 							let _ = self.data.pop();
@@ -1454,18 +1462,31 @@ pub mod fuzz {
 						}
 					});
 				},
-				Ops::SetValueAt(k, v, o) => {
+				Ops::SetValueAt(k, v, o) =>
 					if self.conf.set_at {
-						unimplemented!("set state and compare on error?");
-					}
-				},
-				Ops::Hash(n) => {
+						self.data.last_mut().map(|storages| {
+							if let Some(dest) = storages.get_mut(&k) {
+								let o = o as usize;
+								let o_end = o + self.conf.content_size;
+								if o <= dest.len() {
+									if o_end > dest.len() {
+										dest.resize(o_end, 0);
+									}
+									for i in o..o_end {
+										dest[i] = v;
+									}
+								}
+							}
+						});
+					},
+				Ops::Hash(n) =>
 					if self.conf.do_hash {
-						unimplemented!("TODO ret hash");
-					}
-				},
+						self.data.last_mut().map(|storages| {
+							with_hash = storages.get(&n).cloned();
+						});
+					},
 			}
-			true
+			ApplyReply { ignore: false, with_hash }
 		}
 	}
 
@@ -1499,7 +1520,8 @@ pub mod fuzz {
 				.collect()
 		}
 
-		fn apply(&mut self, ops: Ops) {
+		fn apply(&mut self, ops: Ops) -> ApplyReply {
+			let mut with_hash = None;
 			match ops {
 				Ops::StartTransaction => {
 					self.data.start_transaction();
@@ -1511,6 +1533,7 @@ pub mod fuzz {
 					self.data.commit_transaction().unwrap();
 				},
 				Ops::SetValue(k, v) => {
+					self.data.blob_truncate(&[k], 0);
 					self.data.blob_set(&[k], &vec![v; self.conf.content_size], 0);
 				},
 				Ops::RemoveValue(k) => {
@@ -1549,17 +1572,34 @@ pub mod fuzz {
 					);
 					self.data.storage_move(&child_info, &[t]);
 				},
-				Ops::SetValueAt(k, v, o) => {
+				Ops::SetValueAt(k, v, o) =>
 					if self.conf.set_at {
-						unimplemented!("set state and compare on error?");
-					}
-				},
-				Ops::Hash(n) => {
+						self.data.blob_set(&[k], &vec![v; self.conf.content_size], o as u32);
+					},
+				Ops::Hash(n) =>
 					if self.conf.do_hash {
-						unimplemented!("TODO ret hash");
-					}
-				},
+						let mut do_cache = None;
+						// code from ext
+						if let Some((chunks, info)) =
+							self.data.blobs.get(&[n][..]).and_then(|b| b.chunks())
+						{
+							with_hash = info.cached_hash.clone();
+							if with_hash.is_none() {
+								let mut hash = Vec::new();
+								for chunk in chunks {
+									hash.extend_from_slice(chunk);
+								}
+								do_cache = Some(hash.clone());
+								// simul always got a value so get it too
+								with_hash = Some(hash);
+							}
+						}
+						if let Some(hash) = do_cache {
+							self.data.cache_blob_hash(&[n], hash);
+						}
+					},
 			}
+			ApplyReply { ignore: false, with_hash }
 		}
 	}
 
@@ -1568,8 +1608,10 @@ pub mod fuzz {
 		let mut sim = Simulate::new(conf);
 		let mut change = Overlay::new(conf);
 		for op in test.iter() {
-			if sim.apply(*op) {
-				change.apply(*op)
+			let sim_result = sim.apply(*op);
+			if !sim_result.ignore {
+				let result = change.apply(*op);
+				assert_eq!(sim_result, result);
 			}
 		}
 		assert_eq!(&change.extract_state(), sim.data.last().unwrap());
@@ -2591,7 +2633,7 @@ mod tests {
 	}
 
 	#[test]
-	fn movable_storage() {
+	fn movable_storage_simple() {
 		let tests = &[
 			vec![
 				Ops::Create(255),
@@ -2701,11 +2743,25 @@ mod tests {
 			vec![Ops::Create(19)],
 			vec![Ops::StartTransaction, Ops::RollbackTransaction],
 		];
-		let conf = FuzzConf {
-			content_size: 6,
-			do_hash: false,
-			set_at: false,
-		};
+		let conf = FuzzConf { content_size: 6, do_hash: false, set_at: false };
+		for test in tests {
+			fuzz_movable(test, conf);
+		}
+	}
+
+	#[test]
+	fn movable_storage_append() {
+		let tests = &[
+			vec![Ops::Create(107), Ops::SetValue(107, 235)],
+			vec![
+				Ops::Create(70),
+				Ops::SetValue(70, 70),
+				Ops::SetValueAt(70, 70, 5),
+				Ops::SetValue(70, 70),
+			],
+			vec![Ops::Create(255), Ops::SetValueAt(255, 244, 0)],
+		];
+		let conf = FuzzConf { content_size: 277, do_hash: true, set_at: true };
 		for test in tests {
 			fuzz_movable(test, conf);
 		}

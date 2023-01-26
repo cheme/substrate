@@ -31,3 +31,15 @@ name = "fuzz_movable_1"
 path = "fuzz_targets/fuzz_movable_1.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "fuzz_movable_2"
+path = "fuzz_targets/fuzz_movable_2.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_movable_3"
+path = "fuzz_targets/fuzz_movable_3.rs"
+test = false
+doc = false

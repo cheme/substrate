@@ -1608,7 +1608,7 @@ pub(crate) fn blob_from_chunks<B: AsRef<[u8]>>(
 	let mut result = Vec::with_capacity(size);
 	while let Some(chunk) = iter.next() {
 		if (size - result.len()) < BLOB_CHUNK_SIZE {
-			result.extend_from_slice(&chunk.as_ref()[..size]);
+			result.extend_from_slice(&chunk.as_ref()[..size - result.len()]);
 			break
 		} else {
 			result.extend_from_slice(&chunk.as_ref()[..]);
@@ -1622,7 +1622,7 @@ pub(crate) fn blob_from_chunks<B: AsRef<[u8]>>(
 // To avoid keeping moving location reference on revert and
 // some additional transactional complexity, we just keep
 // a reference count to the content.
-// 
+//
 // When moving reference (on copy in source origin and a
 // current state in destination at most), we keep source and destination content
 // in oringin only if not `Empty` origin or `Removed` origin.
@@ -1631,7 +1631,7 @@ pub(crate) fn blob_from_chunks<B: AsRef<[u8]>>(
 //
 // When doing rollback we consume all `Removed` origin and ends
 // with single step assertion.
-// 
+//
 // When commiting, `Removed` origin overwrites the existing origin
 // if it is not already `Removed` or `Empty`.
 // We still don't have more than 2 copy in this case as current copy
