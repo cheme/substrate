@@ -38,7 +38,7 @@ use codec::{Decode, Encode};
 /// Command for the mixnet worker.
 pub enum MixnetCommand {
 	/// Result of transaction to send back in mixnet.
-	TransactionImportResult(Box<mixnet::SurbsPayload>, MixnetImportResult),
+	TransactionImportResult(Box<mixnet::SurbPayload>, MixnetImportResult),
 	/// Result of transaction to send back in mixnet.
 	SendTransaction(
 		Vec<u8>,

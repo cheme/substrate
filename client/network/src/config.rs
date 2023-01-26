@@ -95,11 +95,7 @@ where
 
 	/// Mixnet worker access if running. TODO latest master change just put config here.
 	/// eg warp_sync (provider & config) -> warp_sync_protocol_config
-	pub mixnet: Option<(
-		mixnet::SinkToWorker,
-		mixnet::StreamFromWorker,
-		futures::channel::mpsc::Sender<sc_network_common::MixnetCommand>,
-	)>,
+	pub mixnet: Option<futures::channel::mpsc::Sender<sc_network_common::MixnetCommand>>,
 
 	/// Request response protocol configurations
 	pub request_response_protocol_configs: Vec<RequestResponseConfig>,

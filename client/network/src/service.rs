@@ -361,9 +361,12 @@ where
 
 			let behaviour = {
 				let mut mixnet = None;
-				if let Some((mixnet_in, mixnet_out, command_sender)) = params.mixnet {
+				let keystore = unimplemented!();
+				let config = unimplemented!("TODO same as worker new -> pass in param");
+//				let config = sc_mixnet::gen_config(local_identity.clone()
+				if let Some(command_sender) = params.mixnet {
 					mixnet_command_sender = Some(command_sender.clone());
-					mixnet = Some((MixnetBehaviour::new(mixnet_in, mixnet_out), command_sender));
+					mixnet = Some((MixnetBehaviour::new(config, keystore), command_sender));
 				};
 
 				let result = Behaviour::new(
@@ -720,11 +723,11 @@ where
 					))
 					.map_err(|e| e.to_string())
 			} else {
-				let _ = reply.send(Err(mixnet::Error::Other("Invalid transaction".into())));
+				let _ = reply.send(Err(mixnet::Error::MessageTooLarge)); // TODO new error in mixnet (Others(str)).
 				Err("Invalid transaction".into())
 			}
 		} else {
-			let _ = reply.send(Err(mixnet::Error::NotReady));
+			let _ = reply.send(Err(mixnet::Error::MessageTooLarge)); // TODO new error in mixnet (Others(str)).
 			Err("Mixnet protocol is disabled".into())
 		}
 	}
@@ -1478,12 +1481,8 @@ where
 
 			match poll_value {
 				Poll::Pending => break,
-				Poll::Ready(SwarmEvent::Behaviour(BehaviourOut::MixnetClose)) => {
-					// noops as we want others protocol to stay open.
-					debug!(
-						target: "sub-libp2p",
-						"Mixnet stream close.",
-					);
+				Poll::Ready(SwarmEvent::Behaviour(BehaviourOut::Mixnet(event))) => {
+					unimplemented!("TODO process here")
 				},
 				Poll::Ready(SwarmEvent::Behaviour(BehaviourOut::InboundRequest {
 					protocol,

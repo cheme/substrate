@@ -97,7 +97,7 @@ struct PendingTransaction<H> {
 	validation: TransactionImportFuture,
 	tx_hash: H,
 	mixnet:
-		Option<Option<(futures::channel::mpsc::Sender<MixnetCommand>, Box<mixnet::SurbsPayload>)>>,
+		Option<Option<(futures::channel::mpsc::Sender<MixnetCommand>, Box<mixnet::SurbPayload>)>>,
 }
 
 impl<H: ExHashT> Future for PendingTransaction<H> {
