@@ -307,6 +307,7 @@ pub fn get_raw(child_info: &ChildInfo, key: &[u8]) -> Option<Vec<u8>> {
 		ChildType::Btree => sp_io::btree_storage::item_get(child_info.storage_key(), key),
 		ChildType::Blob => None,
 	}
+	.map(Into::into)
 }
 
 /// Put a raw byte slice into storage.

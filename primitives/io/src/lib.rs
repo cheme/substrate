@@ -128,8 +128,8 @@ impl From<MultiRemovalResults> for KillStorageResult {
 #[runtime_interface]
 pub trait Storage {
 	/// Returns the data for `key` in the storage or `None` if the key can not be found.
-	fn get(&mut self, key: &[u8]) -> Option<Vec<u8>> {
-		self.storage(key, 0, None).map(Into::into)
+	fn get(&mut self, key: &[u8]) -> Option<bytes::Bytes> {
+		self.storage(key, 0, None).map(|value| value.into_owned().into())
 	}
 
 	/// Get `key` from storage, placing the value into `value_out` and return the number of
@@ -332,9 +332,10 @@ pub trait DefaultChildStorage {
 	///
 	/// Parameter `storage_key` is the unprefixed location of the root of the child trie in the
 	/// parent trie. Result is `None` if the value for `key` in the child storage can not be found.
-	fn get(&mut self, storage_key: &[u8], key: &[u8]) -> Option<Vec<u8>> {
+	fn get(&mut self, storage_key: &[u8], key: &[u8]) -> Option<bytes::Bytes> {
 		let child_info = ChildInfo::new_default(storage_key);
-		self.child_storage(&child_info, key, 0, None).map(Into::into)
+		self.child_storage(&child_info, key, 0, None)
+			.map(|value| value.into_owned().into())
 	}
 
 	/// Allocation efficient variant of `get`.
@@ -805,8 +806,8 @@ pub trait BtreeStorage {
 
 	/// Returns Some iff the map name exists and contains key.
 	/// If so, the inner value is that associated with key.
-	fn item_get(&mut self, name: &[u8], key: &[u8]) -> Option<Vec<u8>> {
-		self.map_item_get(name, key, None, 0).map(Into::into)
+	fn item_get(&mut self, name: &[u8], key: &[u8]) -> Option<bytes::Bytes> {
+		self.map_item_get(name, key, None, 0).map(|value| value.into_owned().into())
 	}
 
 	/// If key exisit in map, try to fill `value_out` from a given offset, return the number of read
