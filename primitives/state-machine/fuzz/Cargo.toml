@@ -27,7 +27,7 @@ curve25519-dalek = { git = "https://github.com/cheme/curve25519-dalek.git", bran
 members = ["."]
 
 [[bin]]
-name = "fuzz_movable"
-path = "fuzz_targets/fuzz_movable.rs"
+name = "fuzz_movable_1"
+path = "fuzz_targets/fuzz_movable_1.rs"
 test = false
 doc = false

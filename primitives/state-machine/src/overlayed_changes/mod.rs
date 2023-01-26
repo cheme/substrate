@@ -1618,6 +1618,30 @@ pub(crate) fn blob_from_chunks<B: AsRef<[u8]>>(
 	result
 }
 
+// This function is used to access movable storage content.
+// To avoid keeping moving location reference on revert and
+// some additional transactional complexity, we just keep
+// a reference count to the content.
+// 
+// When moving reference (on copy in source origin and a
+// current state in destination at most), we keep source and destination content
+// in oringin only if not `Empty` origin or `Removed` origin.
+// Since first move put both state in this states we are sure
+// the next move origin will not put an rc copy in a `Removed`.
+//
+// When doing rollback we consume all `Removed` origin and ends
+// with single step assertion.
+// 
+// When commiting, `Removed` origin overwrites the existing origin
+// if it is not already `Removed` or `Empty`.
+// We still don't have more than 2 copy in this case as current copy
+// get overwrite by the child one.
+//
+// Some assumption could be add: the rc count is limited to 2
+// per layer. This function is only ever call on the latest
+// copy.
+// TODO both assertion could be use in checked in debug mode by
+// storing strong count and depth along the Arc.
 unsafe fn rc_mut_unchecked<T>(rc: &mut Arc<T>) -> &mut T {
 	let rc: *const T = Arc::as_ptr(rc);
 	let rc: *mut T = rc as *mut _;

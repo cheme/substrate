@@ -1367,16 +1367,30 @@ pub mod fuzz {
 		Create(u8),       // key storage
 		CopyTo(u8, u8),
 		MoveTo(u8, u8),
+		Hash(u8),
+		SetValueAt(u8, u8, u16), // key storage, value, at.
 	}
 
 	#[derive(Debug, PartialEq, Eq)]
 	struct Simulate {
-		data: Vec<HashMap<u8, Option<u8>>>,
+		data: Vec<HashMap<u8, Vec<u8>>>,
+		conf: FuzzConf,
+	}
+
+	/// Define some variant for fuzzing.
+	#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+	pub struct FuzzConf {
+		/// size of content in number of repeated bytes.
+		pub content_size: usize,
+		/// allow hash operation.
+		pub do_hash: bool,
+		/// allow set at random index.
+		pub set_at: bool,
 	}
 
 	impl Simulate {
-		fn new() -> Self {
-			Self { data: vec![Default::default()] }
+		fn new(conf: FuzzConf) -> Self {
+			Self { data: vec![Default::default()], conf }
 		}
 		// if return false, we should not test on the actual overlay.
 		fn apply(&mut self, ops: Ops) -> bool {
@@ -1403,14 +1417,14 @@ pub mod fuzz {
 				Ops::SetValue(k, v) => {
 					self.data.last_mut().map(|storages| {
 						if storages.contains_key(&k) {
-							storages.insert(k, Some(v));
+							storages.insert(k, vec![v; self.conf.content_size]);
 						}
 					});
 				},
 				Ops::RemoveValue(k) => {
 					self.data.last_mut().map(|storages| {
 						if storages.contains_key(&k) {
-							storages.insert(k, None);
+							storages.insert(k, Vec::new());
 						}
 					});
 				},
@@ -1422,14 +1436,14 @@ pub mod fuzz {
 				Ops::Create(k) => {
 					self.data.last_mut().map(|storages| {
 						//if !storages.contains_key(&k) {
-						storages.insert(k, None);
+						storages.insert(k, Vec::new());
 						//}
 					});
 				},
 				Ops::CopyTo(f, t) => {
 					self.data.last_mut().map(|storages| {
 						if let Some(s) = storages.get(&f) {
-							storages.insert(t, *s);
+							storages.insert(t, s.clone());
 						}
 					});
 				},
@@ -1440,21 +1454,35 @@ pub mod fuzz {
 						}
 					});
 				},
+				Ops::SetValueAt(k, v, o) => {
+					if self.conf.set_at {
+						unimplemented!("set state and compare on error?");
+					}
+				},
+				Ops::Hash(n) => {
+					if self.conf.do_hash {
+						unimplemented!("TODO ret hash");
+					}
+				},
 			}
 			true
 		}
 	}
 
-	struct Overlay(Changes);
+	struct Overlay {
+		data: Changes,
+		conf: FuzzConf,
+	}
+
 	impl Overlay {
-		fn new() -> Self {
+		fn new(conf: FuzzConf) -> Self {
 			let mut change = Changes::default();
 			change.enter_runtime().unwrap();
-			Overlay(change)
+			Self { data: change, conf }
 		}
 
-		fn extract_state(&self) -> HashMap<u8, Option<u8>> {
-			let mut change = self.0.clone();
+		fn extract_state(&self) -> HashMap<u8, Vec<u8>> {
+			let mut change = self.data.clone();
 
 			change.exit_runtime(true).unwrap();
 			change
@@ -1466,11 +1494,7 @@ pub mod fuzz {
 						return None
 					}
 					let k: u8 = meta.infos.name[0];
-					if meta.size == 0 {
-						Some((k, None))
-					} else {
-						Some((k, Some(value[0])))
-					}
+					Some((k, value))
 				})
 				.collect()
 		}
@@ -1478,19 +1502,19 @@ pub mod fuzz {
 		fn apply(&mut self, ops: Ops) {
 			match ops {
 				Ops::StartTransaction => {
-					self.0.start_transaction();
+					self.data.start_transaction();
 				},
 				Ops::RollbackTransaction => {
-					self.0.rollback_transaction().unwrap();
+					self.data.rollback_transaction().unwrap();
 				},
 				Ops::CommitTransaction => {
-					self.0.commit_transaction().unwrap();
+					self.data.commit_transaction().unwrap();
 				},
 				Ops::SetValue(k, v) => {
-					self.0.blob_set(&[k], &[v], 0);
+					self.data.blob_set(&[k], &vec![v; self.conf.content_size], 0);
 				},
 				Ops::RemoveValue(k) => {
-					self.0.blob_truncate(&[k], 0);
+					self.data.blob_truncate(&[k], 0);
 				},
 				Ops::Delete(k) => {
 					let child_info = ChildInfo::new_blob(
@@ -1498,7 +1522,7 @@ pub mod fuzz {
 						Some(sp_core::storage::transient::Mode::Archive),
 						None,
 					);
-					self.0.clear_child_storage(&child_info);
+					self.data.clear_child_storage(&child_info);
 				},
 				Ops::Create(k) => {
 					let child_info = ChildInfo::new_blob(
@@ -1507,7 +1531,7 @@ pub mod fuzz {
 						None,
 					);
 					let clear_existing = true;
-					self.0.update_storage_info(child_info, clear_existing);
+					self.data.update_storage_info(child_info, clear_existing);
 				},
 				Ops::CopyTo(f, t) => {
 					let child_info = ChildInfo::new_blob(
@@ -1515,7 +1539,7 @@ pub mod fuzz {
 						Some(sp_core::storage::transient::Mode::Archive),
 						None,
 					);
-					self.0.storage_copy(&child_info, &[t]);
+					self.data.storage_copy(&child_info, &[t]);
 				},
 				Ops::MoveTo(f, t) => {
 					let child_info = ChildInfo::new_blob(
@@ -1523,16 +1547,26 @@ pub mod fuzz {
 						Some(sp_core::storage::transient::Mode::Archive),
 						None,
 					);
-					self.0.storage_move(&child_info, &[t]);
+					self.data.storage_move(&child_info, &[t]);
+				},
+				Ops::SetValueAt(k, v, o) => {
+					if self.conf.set_at {
+						unimplemented!("set state and compare on error?");
+					}
+				},
+				Ops::Hash(n) => {
+					if self.conf.do_hash {
+						unimplemented!("TODO ret hash");
+					}
 				},
 			}
 		}
 	}
 
 	/// fuzz a list of ops.
-	pub fn fuzz_movable(test: &[Ops]) {
-		let mut sim = Simulate::new();
-		let mut change = Overlay::new();
+	pub fn fuzz_movable(test: &[Ops], conf: FuzzConf) {
+		let mut sim = Simulate::new(conf);
+		let mut change = Overlay::new(conf);
 		for op in test.iter() {
 			if sim.apply(*op) {
 				change.apply(*op)
@@ -2563,10 +2597,10 @@ mod tests {
 				Ops::Create(255),
 				Ops::StartTransaction,
 				Ops::MoveTo(255, 0),
-			//	Ops::MoveTo(0, 255),
+				Ops::MoveTo(0, 255),
 				Ops::StartTransaction,
-			//	Ops::Create(255),
-			//	Ops::MoveTo(255, 0),
+				Ops::Create(255),
+				Ops::MoveTo(255, 0),
 				Ops::MoveTo(0, 255),
 				Ops::RollbackTransaction,
 			],
@@ -2667,8 +2701,13 @@ mod tests {
 			vec![Ops::Create(19)],
 			vec![Ops::StartTransaction, Ops::RollbackTransaction],
 		];
+		let conf = FuzzConf {
+			content_size: 6,
+			do_hash: false,
+			set_at: false,
+		};
 		for test in tests {
-			fuzz_movable(test);
+			fuzz_movable(test, conf);
 		}
 	}
 }
