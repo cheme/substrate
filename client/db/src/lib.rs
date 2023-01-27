@@ -2755,11 +2755,19 @@ pub(crate) mod tests {
 
 	pub(crate) type Block = RawBlock<ExtrinsicWrapper<u64>>;
 
+	// TODO maybe make this part of api ( field in block_import and param in update_storage)
+	pub struct Changes {
+		update: StorageCollection,
+		child_update: ChildStorageCollection,
+		btrees_update: BtreesCollection,
+		blobs_update: BlobsCollection,
+	}
+
 	pub fn insert_header(
 		backend: &Backend<Block>,
 		number: u64,
 		parent_hash: H256,
-		changes: Option<Vec<(Vec<u8>, Vec<u8>)>>,
+		changes: Option<Changes>,
 		extrinsics_root: H256,
 	) -> H256 {
 		insert_block(backend, number, parent_hash, changes, extrinsics_root, Vec::new(), None)
@@ -2770,7 +2778,7 @@ pub(crate) mod tests {
 		backend: &Backend<Block>,
 		number: u64,
 		parent_hash: H256,
-		_changes: Option<Vec<(Vec<u8>, Vec<u8>)>>,
+		changes: Option<Changes>,
 		extrinsics_root: H256,
 		body: Vec<ExtrinsicWrapper<u64>>,
 		transaction_index: Option<Vec<IndexOperation>>,
@@ -2794,6 +2802,15 @@ pub(crate) mod tests {
 		if let Some(index) = transaction_index {
 			op.update_transaction_index(index).unwrap();
 		}
+		if let Some(changes) = changes {
+			op.update_storage(
+				changes.update,
+				changes.child_update,
+				changes.btrees_update,
+				changes.blobs_update,
+			)
+			.unwrap();
+		}
 		backend.commit_operation(op)?;
 
 		Ok(header_hash)
@@ -2803,6 +2820,16 @@ pub(crate) mod tests {
 		backend: &Backend<Block>,
 		number: u64,
 		parent_hash: H256,
+		extrinsics_root: H256,
+	) -> H256 {
+		insert_header_no_head_with_changes(backend, number, parent_hash, None, extrinsics_root)
+	}
+
+	pub fn insert_header_no_head_with_changes(
+		backend: &Backend<Block>,
+		number: u64,
+		parent_hash: H256,
+		changes: Option<Changes>,
 		extrinsics_root: H256,
 	) -> H256 {
 		use sp_runtime::testing::Digest;
@@ -2817,7 +2844,18 @@ pub(crate) mod tests {
 		};
 		let header_hash = header.hash();
 		let mut op = backend.begin_operation().unwrap();
+		let block_hash = if number == 0 { Default::default() } else { parent_hash };
+		backend.begin_state_operation(&mut op, block_hash).unwrap();
 		op.set_block_data(header, None, None, None, NewBlockState::Normal).unwrap();
+		if let Some(changes) = changes {
+			op.update_storage(
+				changes.update,
+				changes.child_update,
+				changes.btrees_update,
+				changes.blobs_update,
+			)
+			.unwrap();
+		}
 		backend.commit_operation(op).unwrap();
 		header_hash
 	}
@@ -4609,6 +4647,127 @@ pub(crate) mod tests {
 		assert!(bc.body(fork_hash_3).unwrap().is_some());
 		backend.unpin_block(fork_hash_3);
 		assert!(bc.body(fork_hash_3).unwrap().is_none());
+	}
+
+	#[test]
+	fn test_persist_transient() {
+		//let pruning_modes = [BlocksPruning::Some(2), BlocksPruning::KeepAll];
+		let pruning_modes = [BlocksPruning::KeepAll];
+
+		for pruning_mode in pruning_modes {
+			fn new_changes(i: u8) -> Changes {
+				Changes {
+					update: vec![],
+					child_update: vec![],
+					btrees_update: vec![(
+						sp_core::storage::Btree {
+							name: vec![i],
+							mode: Some(sp_core::storage::transient::Mode::Archive),
+							algorithm: None,
+						}
+						.into(),
+						vec![(vec![i], Some(vec![i])), (vec![254], Some(vec![i]))],
+					)],
+					blobs_update: vec![
+						(
+							sp_core::storage::Blob {
+								name: vec![i],
+								mode: Some(sp_core::storage::transient::Mode::Archive),
+								algorithm: None,
+							}
+							.into(),
+							vec![i],
+						),
+						(
+							sp_core::storage::Blob {
+								name: vec![254],
+								mode: Some(sp_core::storage::transient::Mode::Archive),
+								algorithm: None,
+							}
+							.into(),
+							vec![i],
+						),
+					],
+				}
+			}
+			let backend = Backend::<Block>::new_test_with_tx_storage(pruning_mode, 1);
+			let blockchain = backend.blockchain();
+			let mut hashes = Vec::new();
+			let default_hash = Default::default();
+			hashes.push(insert_header(
+				&backend,
+				0,
+				default_hash,
+				Some(new_changes(0)),
+				Default::default(),
+			));
+			let block_2 = insert_header(
+				&backend,
+				1,
+				hashes[0],
+				Some(new_changes(1)),
+				Default::default(),
+			);
+			let block2bis = insert_header_no_head_with_changes(
+				&backend,
+				2,
+				hashes[0],
+				Some(new_changes(255)),
+				Default::default(),
+			);
+			assert!(block_2 != block2bis);
+			hashes.push(block_2);
+			hashes.push(insert_header(
+				&backend,
+				2,
+				hashes[1],
+				Some(new_changes(2)),
+				Default::default(),
+			));
+			hashes.push(insert_header(
+				&backend,
+				3,
+				hashes[2],
+				Some(new_changes(3)),
+				Default::default(),
+			));
+			assert_eq!(blockchain.leaves().unwrap(), vec![hashes[3], block2bis]);
+			assert_eq!(blockchain.info().best_hash, hashes[3]);
+			for i in 0..4 {
+				let transient_storage = TransientArchive::<Block> {
+					db: backend.storage.db.clone(),
+					hash: &hashes[i],
+					parent_hash: if i == 0 { &default_hash } else { &hashes[i - 1] },
+					number: i as u64,
+					in_mem: &mut *backend.transient_in_memory.write(),
+				};
+				let i = i as u8;
+				assert_eq!(transient_storage.get_blob(&[254]), Some(vec![i]));
+				for j in 0..4 {
+					if j == i {
+						assert_eq!(transient_storage.get_btree(&[j], &[j]), Some(vec![j]));
+						assert_eq!(transient_storage.get_btree(&[j], &[254]), Some(vec![j]));
+						assert_eq!(transient_storage.get_blob(&[j]), Some(vec![j]));
+					} else {
+						assert_eq!(transient_storage.get_btree(&[j], &[j]), None);
+						assert_eq!(transient_storage.get_btree(&[j], &[254]), None);
+						assert_eq!(transient_storage.get_blob(&[j]), None);
+					}
+				}
+			}
+			let transient_non_canonical = TransientArchive::<Block> {
+				db: backend.storage.db.clone(),
+				hash: &block2bis,
+				parent_hash: &hashes[1],
+				number: 2,
+				in_mem: &mut *backend.transient_in_memory.write(),
+			};
+			for i in 0..6 {
+				assert_eq!(transient_non_canonical.get_blob(&[i]), None);
+			}
+			assert_eq!(transient_non_canonical.get_blob(&[255]), Some(vec![255]));
+			assert_eq!(transient_non_canonical.get_btree(&[255], &[255]), Some(vec![255]));
+		}
 	}
 
 	#[cfg(feature = "test-plugin")]

@@ -21,7 +21,8 @@
 //! This provides a default option storage backend and a way to
 //! plug external code to handle this information.
 //!
-//! Note plugins only target rust library.
+//! Note plugins only target rust library, for other language
+//! ffi should be added to a rust plugin.
 
 use crate::{columns, Database, DbHash, PruningMode};
 use codec::{Decode, Encode};
@@ -274,7 +275,9 @@ impl<Block: BlockT> TransientArchiveInMemory<Block> {
 }
 
 struct TransientBlockInfo {
+	// TODO consider map if query needed (currently we only query for test)
 	btrees_changes: BtreesCollection,
+	// TODO consider map if query needed (currently we only query for test)
 	blobs_changes: BlobsCollection,
 }
 
@@ -285,6 +288,45 @@ enum JournalEntry {
 }
 
 impl<'a, Block: BlockT> TransientArchive<'a, Block> {
+	#[cfg(test)]
+	/// Access btree content.
+	pub fn get_btree(&self, name: &[u8], key: &[u8]) -> Option<Vec<u8>> {
+		if let Some(infos) = self.in_mem.infos.get(&self.hash) {
+			for (info, btree) in infos.btrees_changes.iter() {
+				debug_assert!(!info.removed);
+				if info.infos.name.as_slice() == name {
+					for (k, value) in btree.iter() {
+						if k == key {
+							return value.clone()
+						}
+					}
+				}
+			}
+			return None
+		}
+
+		let name = name.encode();
+		let btree_key = Self::btree_key(self.hash, name.as_slice(), key);
+		self.db.get(columns::AUX, &btree_key)
+	}
+
+	#[cfg(test)]
+	/// Access blob content.
+	pub fn get_blob(&self, name: &[u8]) -> Option<Vec<u8>> {
+		if let Some(infos) = self.in_mem.infos.get(&self.hash) {
+			for (info, blob) in infos.blobs_changes.iter() {
+				debug_assert!(!info.removed);
+				if info.infos.name.as_slice() == name {
+					return Some(blob.clone())
+				}
+			}
+			return None
+		}
+
+		let blob_key = Self::blob_key(self.hash, name);
+		self.db.get(columns::AUX, &blob_key)
+	}
+
 	/// Write btrees and blobs changes.
 	pub fn add_transient_changes(
 		&mut self,
@@ -332,6 +374,7 @@ impl<'a, Block: BlockT> TransientArchive<'a, Block> {
 			let mut journal = vec![0u8]; // version 0
 			self.write_btrees(btrees_changes, tx, &mut journal);
 			self.write_blobs(blobs_changes, tx, &mut journal);
+			// TODO skip writing journal
 			tx.set_from_vec(columns::AUX, &Self::journal_key(self.hash), journal);
 			return Ok(())
 		}
@@ -613,6 +656,7 @@ impl<'a, Block: BlockT> TransientArchive<'a, Block> {
 		key
 	}
 
+	// TODO also consider a key to indicate btree exists (keep info of empty btree)?
 	fn btree_key(hash: &Block::Hash, encoded_name: &[u8], btree_key: &[u8]) -> Vec<u8> {
 		let mut key = Vec::with_capacity(32 + 19 + encoded_name.len() + btree_key.len());
 		key.extend_from_slice(b"TransientBtreesItem");
@@ -630,15 +674,3 @@ impl<'a, Block: BlockT> TransientArchive<'a, Block> {
 		key
 	}
 }
-
-/// Callback hooks for a transient indexer.
-pub trait TransientIndexer<Block> {}
-
-/*
- * dyn call proto:
- * supported api version
- * unsafe extern fn() -> u32
- * get dyn trait
- * unsafe extern fn(PruningMode) -> dyn TransientIndexer
- *TransientArchiveInMemory<Block>
- */
