@@ -2770,8 +2770,28 @@ pub(crate) mod tests {
 		changes: Option<Changes>,
 		extrinsics_root: H256,
 	) -> H256 {
-		insert_block(backend, number, parent_hash, changes, extrinsics_root, Vec::new(), None)
-			.unwrap()
+		insert_header_with_finalized(backend, number, parent_hash, changes, extrinsics_root, None)
+	}
+
+	pub fn insert_header_with_finalized(
+		backend: &Backend<Block>,
+		number: u64,
+		parent_hash: H256,
+		changes: Option<Changes>,
+		extrinsics_root: H256,
+		finalized: Option<H256>,
+	) -> H256 {
+		insert_block_with_finalized(
+			backend,
+			number,
+			parent_hash,
+			changes,
+			extrinsics_root,
+			Vec::new(),
+			None,
+			finalized,
+		)
+		.unwrap()
 	}
 
 	pub fn insert_block(
@@ -2782,6 +2802,28 @@ pub(crate) mod tests {
 		extrinsics_root: H256,
 		body: Vec<ExtrinsicWrapper<u64>>,
 		transaction_index: Option<Vec<IndexOperation>>,
+	) -> Result<H256, sp_blockchain::Error> {
+		insert_block_with_finalized(
+			backend,
+			number,
+			parent_hash,
+			changes,
+			extrinsics_root,
+			body,
+			transaction_index,
+			None,
+		)
+	}
+
+	pub fn insert_block_with_finalized(
+		backend: &Backend<Block>,
+		number: u64,
+		parent_hash: H256,
+		changes: Option<Changes>,
+		extrinsics_root: H256,
+		body: Vec<ExtrinsicWrapper<u64>>,
+		transaction_index: Option<Vec<IndexOperation>>,
+		finalized: Option<H256>,
 	) -> Result<H256, sp_blockchain::Error> {
 		use sp_runtime::testing::Digest;
 
@@ -2810,6 +2852,9 @@ pub(crate) mod tests {
 				changes.blobs_update,
 			)
 			.unwrap();
+		}
+		if let Some(finalized) = finalized {
+			op.mark_finalized(finalized, None).unwrap();
 		}
 		backend.commit_operation(op)?;
 
@@ -4651,8 +4696,9 @@ pub(crate) mod tests {
 
 	#[test]
 	fn test_persist_transient() {
-		//let pruning_modes = [BlocksPruning::Some(2), BlocksPruning::KeepAll];
-		let pruning_modes = [BlocksPruning::KeepAll];
+		//let pruning_modes = [BlocksPruning::Some(1), BlocksPruning::KeepAll];
+		//let pruning_modes = [BlocksPruning::KeepAll];
+		let pruning_modes = [BlocksPruning::Some(1)];
 
 		for pruning_mode in pruning_modes {
 			fn new_changes(i: u8) -> Changes {
@@ -4701,39 +4747,77 @@ pub(crate) mod tests {
 				Some(new_changes(0)),
 				Default::default(),
 			));
-			let block_2 = insert_header(
+			let finalized = if matches!(pruning_mode, BlocksPruning::Some(1)) {
+				Some(hashes[0]) // consider a 1 block window to finalization
+			} else {
+				None
+			};
+			let block_2 = insert_header_with_finalized(
 				&backend,
 				1,
 				hashes[0],
 				Some(new_changes(1)),
 				Default::default(),
+				finalized,
 			);
-			let block2bis = insert_header_no_head_with_changes(
-				&backend,
-				2,
-				hashes[0],
-				Some(new_changes(255)),
-				Default::default(),
-			);
-			assert!(block_2 != block2bis);
+			let block2bis = if matches!(pruning_mode, BlocksPruning::KeepAll) {
+				let block2bis = insert_header_no_head_with_changes(
+					&backend,
+					2,
+					hashes[0],
+					Some(new_changes(255)),
+					Default::default(),
+				);
+				assert!(block_2 != block2bis);
+				Some(block2bis)
+			} else {
+				None
+			};
 			hashes.push(block_2);
-			hashes.push(insert_header(
+			let finalized =
+				if matches!(pruning_mode, BlocksPruning::Some(1)) { Some(hashes[1]) } else { None };
+			hashes.push(insert_header_with_finalized(
 				&backend,
 				2,
 				hashes[1],
 				Some(new_changes(2)),
 				Default::default(),
+				finalized,
 			));
-			hashes.push(insert_header(
+			let finalized =
+				if matches!(pruning_mode, BlocksPruning::Some(1)) { Some(hashes[2]) } else { None };
+			hashes.push(insert_header_with_finalized(
 				&backend,
 				3,
 				hashes[2],
 				Some(new_changes(3)),
 				Default::default(),
+				finalized,
 			));
-			assert_eq!(blockchain.leaves().unwrap(), vec![hashes[3], block2bis]);
+			if let Some(block2bis) = block2bis {
+				assert_eq!(blockchain.leaves().unwrap(), vec![hashes[3], block2bis]);
+			} else {
+				assert_eq!(blockchain.leaves().unwrap(), vec![hashes[3]]);
+			}
 			assert_eq!(blockchain.info().best_hash, hashes[3]);
-			for i in 0..4 {
+			let start = if matches!(pruning_mode, BlocksPruning::Some(1)) { 2 } else { 0 };
+			for i in 0..start {
+				// pruned blocks
+				let transient_storage = TransientArchive::<Block> {
+					db: backend.storage.db.clone(),
+					hash: &hashes[i],
+					parent_hash: if i == 0 { &default_hash } else { &hashes[i - 1] },
+					number: i as u64,
+					in_mem: &mut *backend.transient_in_memory.write(),
+				};
+				let i = i as u8;
+				assert_eq!(transient_storage.get_blob(&[254]), None);
+				assert_eq!(transient_storage.get_btree(&[i], &[i]), None);
+				assert_eq!(transient_storage.get_btree(&[i], &[254]), None);
+				assert_eq!(transient_storage.get_blob(&[i]), None);
+			}
+			for i in start..4 {
+				// present blocks
 				let transient_storage = TransientArchive::<Block> {
 					db: backend.storage.db.clone(),
 					hash: &hashes[i],
@@ -4755,18 +4839,21 @@ pub(crate) mod tests {
 					}
 				}
 			}
-			let transient_non_canonical = TransientArchive::<Block> {
-				db: backend.storage.db.clone(),
-				hash: &block2bis,
-				parent_hash: &hashes[1],
-				number: 2,
-				in_mem: &mut *backend.transient_in_memory.write(),
-			};
-			for i in 0..6 {
-				assert_eq!(transient_non_canonical.get_blob(&[i]), None);
+			if let Some(block2bis) = block2bis {
+				// archive present
+				let transient_non_canonical = TransientArchive::<Block> {
+					db: backend.storage.db.clone(),
+					hash: &block2bis,
+					parent_hash: &hashes[1],
+					number: 2,
+					in_mem: &mut *backend.transient_in_memory.write(),
+				};
+				for i in 0..6 {
+					assert_eq!(transient_non_canonical.get_blob(&[i]), None);
+				}
+				assert_eq!(transient_non_canonical.get_blob(&[255]), Some(vec![255]));
+				assert_eq!(transient_non_canonical.get_btree(&[255], &[255]), Some(vec![255]));
 			}
-			assert_eq!(transient_non_canonical.get_blob(&[255]), Some(vec![255]));
-			assert_eq!(transient_non_canonical.get_btree(&[255], &[255]), Some(vec![255]));
 		}
 	}
 

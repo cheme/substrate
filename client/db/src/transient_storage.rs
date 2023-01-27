@@ -517,7 +517,8 @@ impl<'a, Block: BlockT> TransientArchive<'a, Block> {
 						warn!("Invalid journal encoding, skipping pruning {:?}", self.hash);
 						return Ok(())
 					};
-					let key = Self::btree_key(self.hash, name, &key);
+					let name = name.encode();
+					let key = Self::btree_key(self.hash, name.as_slice(), &key);
 					tx.remove(columns::AUX, &key);
 				},
 				_ => {
@@ -644,7 +645,6 @@ impl<'a, Block: BlockT> TransientArchive<'a, Block> {
 			let name = &info.infos.name;
 			journal.push(1u8);
 			name.encode_to(journal);
-			journal.extend_from_slice(name.as_slice());
 			tx.set_from_vec(columns::AUX, &Self::blob_key(self.hash, name.as_slice()), blob);
 		}
 	}
