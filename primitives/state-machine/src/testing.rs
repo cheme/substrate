@@ -27,8 +27,6 @@ use sp_core::{
 		well_known_keys::{is_child_storage_key, CODE},
 		StateVersion, Storage,
 	},
-	testing::TaskExecutor,
-	traits::TaskExecutorExt,
 	Hashers,
 };
 use sp_externalities::{Extension, ExtensionStore, Extensions};
@@ -103,9 +101,6 @@ where
 
 		storage.top.insert(CODE.to_vec(), code.to_vec());
 
-		let mut extensions = Extensions::default();
-		extensions.register(TaskExecutorExt::new(TaskExecutor::new()));
-
 		let offchain_db = TestPersistentOffchainDB::new();
 
 		let backend = (storage, state_version).into();
@@ -113,7 +108,7 @@ where
 		TestExternalities {
 			overlay: Changes::default(),
 			offchain_db,
-			extensions,
+			extensions: Default::default(),
 			backend,
 			storage_transaction_cache: Default::default(),
 			state_version,

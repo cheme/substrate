@@ -59,8 +59,8 @@ use sp_consensus::{BlockOrigin, BlockStatus, Error as ConsensusError};
 use sc_utils::mpsc::{tracing_unbounded, TracingUnboundedSender};
 use sp_core::{
 	storage::{
-		well_known_keys, ChildInfo, ChildType, DefaultChild, PrefixedStorageKey, Storage,
-		StorageBlob, StorageBtree, StorageData, StorageDefaultChild, StorageKey,
+		well_known_keys, ChildInfo, ChildType, DefaultChild, PrefixedStorageKey, StorageBlob,
+		StorageBtree, StorageData, StorageDefaultChild, StorageKey,
 	},
 	traits::SpawnNamed,
 };
@@ -243,15 +243,11 @@ where
 		Default::default(),
 		keystore,
 		sc_offchain::OffchainDb::factory_from_backend(&*backend),
+		Arc::new(executor.clone()),
 	);
 
-	let call_executor = LocalCallExecutor::new(
-		backend.clone(),
-		executor,
-		spawn_handle.clone(),
-		config.clone(),
-		extensions,
-	)?;
+	let call_executor =
+		LocalCallExecutor::new(backend.clone(), executor, config.clone(), extensions)?;
 
 	Client::new(
 		backend,
