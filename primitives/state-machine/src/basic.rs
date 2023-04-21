@@ -25,7 +25,7 @@ use sp_core::{
 	storage::{
 		transient::{Hash32Algorithm, Root32Structure},
 		well_known_keys::is_child_storage_key,
-		ChildInfo, ChildType, StateVersion, Storage, StorageBtree, StorageDefaultChild,
+		ChildInfo, ChildType, StateVersion, Storage, StorageDefaultChild, StorageOrderedMap,
 		TrackedStorageKey,
 	},
 	traits::Externalities,
@@ -68,7 +68,8 @@ impl BasicExternalities {
 	pub fn into_storages(self) -> Storage {
 		let mut children_default: std::collections::HashMap<Vec<u8>, StorageDefaultChild> =
 			Default::default();
-		let btree_storages: std::collections::HashMap<Vec<u8>, StorageBtree> = Default::default();
+		let ordered_map_storages: std::collections::HashMap<Vec<u8>, StorageOrderedMap> =
+			Default::default();
 		self.overlay.children().for_each(|(iter, i)| {
 			let child = StorageDefaultChild {
 				data: iter
@@ -89,7 +90,7 @@ impl BasicExternalities {
 				.filter_map(|(k, v)| v.value().map(|v| (k.to_vec(), v.to_vec())))
 				.collect(),
 			children_default,
-			btree_storages,
+			ordered_map_storages,
 			blob_storages: self
 				.overlay
 				.blob_storages()
@@ -344,9 +345,9 @@ impl Externalities for BasicExternalities {
 	) -> Option<Vec<u8>> {
 		match child_info.child_type() {
 			ChildType::Default => (),
-			ChildType::Btree => {
+			ChildType::OrderedMap => {
 				let Some((data, info)) =
-					self.overlay.btree_changes(child_info.storage_key()) else
+					self.overlay.ordered_map_changes(child_info.storage_key()) else
 				{
 					return None
 				};
@@ -367,7 +368,7 @@ impl Externalities for BasicExternalities {
 					None => return None,
 				};
 
-				self.overlay.cache_btree_root(child_info.storage_key(), result.clone());
+				self.overlay.cache_ordered_map_root(child_info.storage_key(), result.clone());
 				return Some(result)
 			},
 			ChildType::Blob => {
@@ -474,7 +475,7 @@ impl Externalities for BasicExternalities {
 		key: &[u8],
 		algo: Hash32Algorithm,
 	) -> Option<[u8; 32]> {
-		let info = sp_externalities::btree_info_from_name(name);
+		let info = sp_externalities::ordered_map_info_from_name(name);
 		self.overlay
 			.child_storage(&info, key, 0, None)
 			.flatten()
@@ -482,7 +483,7 @@ impl Externalities for BasicExternalities {
 	}
 
 	fn map_dump(&mut self, name: &[u8]) -> Option<Vec<(Vec<u8>, Vec<u8>)>> {
-		self.overlay.btree_changes(name).map(|(data, _info)| {
+		self.overlay.ordered_map_changes(name).map(|(data, _info)| {
 			data.filter_map(|(k, v)| v.value_ref().as_ref().map(|v| (k.clone(), v.clone())))
 				.collect()
 		})
@@ -493,7 +494,7 @@ impl Externalities for BasicExternalities {
 		name: &[u8],
 		algorithm: Hash32Algorithm,
 	) -> Option<Vec<([u8; 32], [u8; 32])>> {
-		self.overlay.btree_changes(name).map(|(data, _info)| {
+		self.overlay.ordered_map_changes(name).map(|(data, _info)| {
 			data.filter_map(|(k, v)| {
 				v.value_ref().as_ref().map(|v| {
 					(
@@ -625,7 +626,7 @@ mod tests {
 					info: child_info.clone(),
 				}
 			],
-			btree_storages: map![],
+			ordered_map_storages: map![],
 			blob_storages: map![],
 		});
 
@@ -658,7 +659,7 @@ mod tests {
 					info: child_info.clone(),
 				}
 			],
-			btree_storages: map![],
+			ordered_map_storages: map![],
 			blob_storages: map![],
 		});
 
@@ -674,7 +675,7 @@ mod tests {
 		let storage = BasicExternalities::new_empty().into_storages();
 		assert!(storage.top.is_empty());
 		assert!(storage.children_default.is_empty());
-		assert!(storage.btree_storages.is_empty());
+		assert!(storage.ordered_map_storages.is_empty());
 		assert!(storage.blob_storages.is_empty());
 	}
 }

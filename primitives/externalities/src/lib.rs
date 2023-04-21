@@ -34,7 +34,7 @@ use sp_std::{
 
 use sp_storage::{
 	transient::{Hash32Algorithm, HasherHandle, Mode as TransientMode, Root32Structure},
-	Blob as BlobInfo, Btree as BtreeInfo, ChildInfo, StateVersion, TrackedStorageKey,
+	Blob as BlobInfo, ChildInfo, OrderedMap as OrdMapInfo, StateVersion, TrackedStorageKey,
 };
 
 pub use extensions::{Extension, ExtensionStore, Extensions};
@@ -485,21 +485,25 @@ pub trait Externalities: ExtensionStore {
 	fn map_new(&mut self, name: &[u8], mode: TransientMode) {
 		// TODO rem func and move to io
 		self.update_storage_info(
-			ChildInfo::Btree(BtreeInfo { name: name.to_vec(), mode: Some(mode), algorithm: None }),
+			ChildInfo::OrderedMap(OrdMapInfo {
+				name: name.to_vec(),
+				mode: Some(mode),
+				algorithm: None,
+			}),
 			true,
 		);
 	}
 
 	/// Returns true iff the map name is present in execution state.
 	fn map_exists(&mut self, name: &[u8]) -> bool {
-		let info = btree_info_from_name(name);
+		let info = ordered_map_info_from_name(name);
 		self.storage_exists(&info)
 	}
 
-	/// Delete btree map if present or return false.
+	/// Delete ordered map if present or return false.
 	fn map_delete(&mut self, name: &[u8]) -> bool {
 		if self.map_exists(name) {
-			let info = btree_info_from_name(name);
+			let info = ordered_map_info_from_name(name);
 			let _ = self.kill_child_storage(&info, None, None);
 			true
 		} else {
@@ -507,19 +511,19 @@ pub trait Externalities: ExtensionStore {
 		}
 	}
 
-	/// Clone btree map content under a different name.
+	/// Clone ordered map content under a different name.
 	/// If origin does not exist, this does nothing and return false.
 	/// Target content is overwritten.
 	fn map_clone(&mut self, name: &[u8], target_name: &[u8]) -> bool {
-		let info = btree_info_from_name(name);
+		let info = ordered_map_info_from_name(name);
 		self.storage_clone(&info, target_name)
 	}
 
-	/// Move btree map under a different name.
+	/// Move ordered map under a different name.
 	/// If origin does not exist, this does nothing and return false.
 	/// If target exists, it is overwritten.
 	fn map_rename(&mut self, name: &[u8], target_name: &[u8]) -> bool {
-		let info = btree_info_from_name(name);
+		let info = ordered_map_info_from_name(name);
 		self.storage_move(&info, target_name)
 	}
 
@@ -527,20 +531,20 @@ pub trait Externalities: ExtensionStore {
 	///
 	/// If map do not exist this operatio is skipped and operation return false.
 	fn map_insert(&mut self, name: &[u8], key: &[u8], value: &[u8]) -> bool {
-		let info = btree_info_from_name(name);
+		let info = ordered_map_info_from_name(name);
 		self.place_child_storage(&info, key, Some(value))
 	}
 
 	/// Removes the pair with the given key from the map name, if the map exists and contains the
 	/// item. Does nothing and return false otherwise.
 	fn map_remove_item(&mut self, name: &[u8], key: &[u8]) -> bool {
-		let info = btree_info_from_name(name);
+		let info = ordered_map_info_from_name(name);
 		self.place_child_storage(&info, key, None)
 	}
 
 	/// Returns true iff the map name existsa and contains key.
 	fn map_contains(&mut self, name: &[u8], key: &[u8]) -> bool {
-		let info = btree_info_from_name(name);
+		let info = ordered_map_info_from_name(name);
 		self.exists_child_storage(&info, key)
 	}
 
@@ -555,14 +559,14 @@ pub trait Externalities: ExtensionStore {
 		limit: Option<u32>,
 		value_offset: u32,
 	) -> Option<Cow<[u8]>> {
-		let info = btree_info_from_name(name);
+		let info = ordered_map_info_from_name(name);
 		self.child_storage(&info, key, value_offset, limit)
 	}
 
 	/// Returns Some iff the map name exists and contains key. If so, the inner value is the length
 	/// of the value associated with key.
 	fn map_item_len(&mut self, name: &[u8], key: &[u8]) -> Option<u32> {
-		let info = btree_info_from_name(name);
+		let info = ordered_map_info_from_name(name);
 		self.child_storage_len(&info, key)
 	}
 
@@ -582,7 +586,7 @@ pub trait Externalities: ExtensionStore {
 	/// Calculates and returns the root of the data structure structure containing the items held in
 	/// the map name. Returns None if map name does not exist.
 	fn map_root32(&mut self, name: &[u8], algorithm: Root32Structure) -> Option<[u8; 32]> {
-		let info = ChildInfo::Btree(BtreeInfo {
+		let info = ChildInfo::OrderedMap(OrdMapInfo {
 			name: name.to_vec(),
 			mode: None,
 			algorithm: Some(algorithm),
@@ -601,7 +605,7 @@ pub trait Externalities: ExtensionStore {
 	/// exist after key than count, then only the remaining items are returned. If the map name does
 	/// not exist then None is returned.
 	fn map_next_keys(&mut self, name: &[u8], key: &[u8], count: u32) -> Option<Vec<Vec<u8>>> {
-		let info = btree_info_from_name(name);
+		let info = ordered_map_info_from_name(name);
 		self.next_child_storage_key(&info, key, count)
 	}
 
@@ -738,6 +742,6 @@ pub fn blob_info_from_name(name: &[u8]) -> ChildInfo {
 	ChildInfo::Blob(BlobInfo { name: name.to_vec(), mode: None, algorithm: None })
 }
 
-pub fn btree_info_from_name(name: &[u8]) -> ChildInfo {
-	ChildInfo::Btree(BtreeInfo { name: name.to_vec(), mode: None, algorithm: None })
+pub fn ordered_map_info_from_name(name: &[u8]) -> ChildInfo {
+	ChildInfo::OrderedMap(OrdMapInfo { name: name.to_vec(), mode: None, algorithm: None })
 }

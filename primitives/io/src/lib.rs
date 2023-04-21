@@ -731,12 +731,12 @@ pub trait BlobStorage {
 	}
 }
 
-/// Interface for transient btreemap storage.
+/// Interface for transient ordered map storage.
 ///
 /// TODO I did change clone semantic to force calling map_new first
 /// and therefore allowing changing mode.
 /// TODO I also change semantic to not create automatically so we always
-/// provide a `mode` to the btree.
+/// provide a `mode` to the ordered map.
 /// TODO I did change slightly contains as it was a bit redundant with exist
 ///
 /// TODO map_dump and map_dump_hash: not sure we need those, first can be from
@@ -748,7 +748,7 @@ pub trait BlobStorage {
 ///
 /// Alternative would be default transient mode.
 #[runtime_interface]
-pub trait BtreeStorage {
+pub trait OrderedMapStorage {
 	/// Create a new empty transient map.
 	/// Clear possibly existing map.
 	fn new(&mut self, name: &[u8], mode: Crossing<TransientMode>) {
@@ -760,19 +760,19 @@ pub trait BtreeStorage {
 		self.map_exists(name)
 	}
 
-	/// Delete btree map if present or return false.
+	/// Delete ordered map if present or return false.
 	fn delete(&mut self, name: &[u8]) -> bool {
 		self.map_delete(name)
 	}
 
-	/// Clone btree map content under a different name.
+	/// Clone ordered map content under a different name.
 	/// If origin does not exist, this does nothing and return false.
 	/// Target content is overwritten.
 	fn clone(&mut self, name: &[u8], target_name: &[u8]) -> bool {
 		self.map_clone(name, target_name)
 	}
 
-	/// Move btree map under a different name.
+	/// Move ordered map under a different name.
 	/// If origin does not exist, this does nothing and return false.
 	/// If target exists, it is overwritten.
 	fn rename(&mut self, name: &[u8], target_name: &[u8]) -> bool {
@@ -1992,7 +1992,7 @@ pub type SubstrateHostFunctions = (
 	storage::HostFunctions,
 	default_child_storage::HostFunctions,
 	blob_storage::HostFunctions,
-	btree_storage::HostFunctions,
+	ordered_map_storage::HostFunctions,
 	misc::HostFunctions,
 	wasm_tracing::HostFunctions,
 	offchain::HostFunctions,
@@ -2026,7 +2026,7 @@ mod tests {
 		t = BasicExternalities::new(Storage {
 			top: map![b"foo".to_vec() => b"bar".to_vec()],
 			children_default: map![],
-			btree_storages: map![],
+			ordered_map_storages: map![],
 			blob_storages: map![],
 		});
 
@@ -2039,7 +2039,7 @@ mod tests {
 		let storage = Storage {
 			top: map![b"foo00".to_vec() => value.clone()],
 			children_default: map![],
-			btree_storages: map![],
+			ordered_map_storages: map![],
 			blob_storages: map![],
 		};
 		t = BasicExternalities::new(storage);
@@ -2056,7 +2056,7 @@ mod tests {
 		let mut t = BasicExternalities::new(Storage {
 			top: map![b":test".to_vec() => value.clone()],
 			children_default: map![],
-			btree_storages: map![],
+			ordered_map_storages: map![],
 			blob_storages: map![],
 		});
 
@@ -2080,7 +2080,7 @@ mod tests {
 				b":abdd".to_vec() => b"\x0b\0\0\0Hello world".to_vec()
 			],
 			children_default: map![],
-			btree_storages: map![],
+			ordered_map_storages: map![],
 			blob_storages: map![],
 		});
 

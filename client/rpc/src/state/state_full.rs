@@ -518,7 +518,7 @@ where
 			.and_then(|block| {
 				let child_info = match ChildType::from_prefixed_key(&storage_key) {
 					Some((ChildType::Default, storage_key)) => ChildInfo::new_default(storage_key),
-					Some((ChildType::Btree, _)) | Some((ChildType::Blob, _)) | None =>
+					Some((ChildType::OrderedMap, _)) | Some((ChildType::Blob, _)) | None =>
 						return Err(sp_blockchain::Error::InvalidChildStorageKey),
 				};
 				self.client
@@ -544,7 +544,7 @@ where
 			.and_then(|block| {
 				let child_info = match ChildType::from_prefixed_key(&storage_key) {
 					Some((ChildType::Default, storage_key)) => ChildInfo::new_default(storage_key),
-					Some((ChildType::Btree, _)) | Some((ChildType::Blob, _)) | None =>
+					Some((ChildType::OrderedMap, _)) | Some((ChildType::Blob, _)) | None =>
 						return Err(sp_blockchain::Error::InvalidChildStorageKey),
 				};
 				self.client.child_storage_keys(block, child_info, Some(&prefix), None)
@@ -565,7 +565,7 @@ where
 			.and_then(|block| {
 				let child_info = match ChildType::from_prefixed_key(&storage_key) {
 					Some((ChildType::Default, storage_key)) => ChildInfo::new_default(storage_key),
-					Some((ChildType::Btree, _)) | Some((ChildType::Blob, _)) | None =>
+					Some((ChildType::OrderedMap, _)) | Some((ChildType::Blob, _)) | None =>
 						return Err(sp_blockchain::Error::InvalidChildStorageKey),
 				};
 				self.client.child_storage_keys(
@@ -589,7 +589,7 @@ where
 			.and_then(|block| {
 				let child_info = match ChildType::from_prefixed_key(&storage_key) {
 					Some((ChildType::Default, storage_key)) => ChildInfo::new_default(storage_key),
-					Some((ChildType::Btree, _)) | Some((ChildType::Blob, _)) | None =>
+					Some((ChildType::OrderedMap, _)) | Some((ChildType::Blob, _)) | None =>
 						return Err(sp_blockchain::Error::InvalidChildStorageKey),
 				};
 				self.client.child_storage(block, &child_info, &key)
@@ -606,7 +606,7 @@ where
 		let child_info = match ChildType::from_prefixed_key(&storage_key) {
 			Some((ChildType::Default, storage_key)) =>
 				Arc::new(ChildInfo::new_default(storage_key)),
-			Some((ChildType::Btree, _)) | Some((ChildType::Blob, _)) | None =>
+			Some((ChildType::OrderedMap, _)) | Some((ChildType::Blob, _)) | None =>
 				return Err(client_err(sp_blockchain::Error::InvalidChildStorageKey)),
 		};
 		let block = self.block_or_best(block).map_err(client_err)?;
@@ -629,7 +629,7 @@ where
 			.and_then(|block| {
 				let child_info = match ChildType::from_prefixed_key(&storage_key) {
 					Some((ChildType::Default, storage_key)) => ChildInfo::new_default(storage_key),
-					Some((ChildType::Btree, _)) | Some((ChildType::Blob, _)) | None =>
+					Some((ChildType::OrderedMap, _)) | Some((ChildType::Blob, _)) | None =>
 						return Err(sp_blockchain::Error::InvalidChildStorageKey),
 				};
 				self.client.child_storage_hash(block, &child_info, &key)

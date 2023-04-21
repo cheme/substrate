@@ -32,7 +32,7 @@ use log::{debug, error, warn};
 use sp_blockchain::Result as ClientResult;
 use sp_database::Transaction;
 use sp_runtime::traits::{Block as BlockT, NumberFor};
-use sp_state_machine::{BlobsCollection, BtreesCollection};
+use sp_state_machine::{BlobsCollection, OrdMapsCollection};
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 /// Plugin interface version.
@@ -98,7 +98,7 @@ pub trait TransientStorageHook<Block: BlockT> {
 		hash: &Block::Hash,
 		parent_hash: &Block::Hash,
 		number: &NumberFor<Block>,
-		btrees_changes: &BtreesCollection,
+		btrees_changes: &OrdMapsCollection,
 		blobs_changes: &BlobsCollection,
 	) -> ClientResult<()>;
 
@@ -276,7 +276,7 @@ impl<Block: BlockT> TransientArchiveInMemory<Block> {
 
 struct TransientBlockInfo {
 	// TODO consider map if query needed (currently we only query for test)
-	btrees_changes: BtreesCollection,
+	btrees_changes: OrdMapsCollection,
 	// TODO consider map if query needed (currently we only query for test)
 	blobs_changes: BlobsCollection,
 }
@@ -330,7 +330,7 @@ impl<'a, Block: BlockT> TransientArchive<'a, Block> {
 	/// Write btrees and blobs changes.
 	pub fn add_transient_changes(
 		&mut self,
-		btrees_changes: BtreesCollection,
+		btrees_changes: OrdMapsCollection,
 		blobs_changes: BlobsCollection,
 		tx: &mut Transaction<DbHash>,
 	) -> ClientResult<()> {
@@ -351,7 +351,7 @@ impl<'a, Block: BlockT> TransientArchive<'a, Block> {
 					(self.hash as *const Block::Hash).cast(),
 					(self.parent_hash as *const Block::Hash).cast(),
 					(&self.number as *const NumberFor<Block>).cast(),
-					(&btrees_changes as *const BtreesCollection).cast(),
+					(&btrees_changes as *const OrdMapsCollection).cast(),
 					(&blobs_changes as *const BlobsCollection).cast(),
 				);
 				if !did_succeed(r) {
@@ -588,7 +588,7 @@ impl<'a, Block: BlockT> TransientArchive<'a, Block> {
 
 	fn write_btrees(
 		&mut self,
-		btrees_changes: BtreesCollection,
+		btrees_changes: OrdMapsCollection,
 		tx: &mut Transaction<DbHash>,
 		journal: &mut Vec<u8>,
 	) {
@@ -659,7 +659,7 @@ impl<'a, Block: BlockT> TransientArchive<'a, Block> {
 	// TODO also consider a key to indicate btree exists (keep info of empty btree)?
 	fn btree_key(hash: &Block::Hash, encoded_name: &[u8], btree_key: &[u8]) -> Vec<u8> {
 		let mut key = Vec::with_capacity(32 + 19 + encoded_name.len() + btree_key.len());
-		key.extend_from_slice(b"TransientBtreesItem");
+		key.extend_from_slice(b"TransientOrdMapsItem");
 		key.extend_from_slice(hash.as_ref());
 		key.extend_from_slice(encoded_name);
 		key.extend_from_slice(btree_key);

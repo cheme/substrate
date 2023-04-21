@@ -26,7 +26,7 @@ use sp_runtime::{
 	testing::{Block as RawBlock, ExtrinsicWrapper},
 	traits::{Block as BlockT, NumberFor},
 };
-use sp_state_machine::{BlobsCollection, BtreesCollection};
+use sp_state_machine::{BlobsCollection, OrdMapsCollection};
 
 // We don't import automatically as upgrade of version
 // don't necessarilly change ffi prototype but can requires
@@ -47,7 +47,7 @@ impl TransientStorageHook<Block> for DebugAndTest {
 		hash: &BlockHash,
 		parent_hash: &BlockHash,
 		number: &NumberFor<Block>,
-		btrees_changes: &BtreesCollection,
+		btrees_changes: &OrdMapsCollection,
 		blobs_changes: &BlobsCollection,
 	) -> ClientResult<()> {
 		debug!("add changes: {:?}", (hash, parent_hash, number, btrees_changes, blobs_changes));
@@ -148,7 +148,7 @@ pub extern "C" fn add_transient_changes(
 	let hash: *const BlockHash = hash.cast();
 	let parent_hash: *const BlockHash = parent_hash.cast();
 	let number: *const NumberFor<Block> = number.cast();
-	let btrees: *const BtreesCollection = btrees.cast();
+	let btrees: *const OrdMapsCollection = btrees.cast();
 	let blobs: *const BlobsCollection = blobs.cast();
 	match instance.add_transient_changes(
 		unsafe { hash.as_ref().expect("not null ptr") },

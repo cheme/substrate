@@ -453,7 +453,7 @@ where
 		count: u32,
 	) -> Option<Vec<StorageKey>> {
 		match child_info {
-			ChildInfo::Btree(_) => {
+			ChildInfo::OrderedMap(_) => {
 				let iter = self.overlay.child_iter_after(child_info, key)?;
 
 				let mut result = Vec::with_capacity(count as usize);
@@ -716,9 +716,9 @@ where
 		let storage_key = child_info.storage_key();
 		let prefixed_storage_key = child_info.prefixed_storage_key();
 
-		if let ChildInfo::Btree(..) = child_info {
+		if let ChildInfo::OrderedMap(..) = child_info {
 			let result = if let Some((data, info)) =
-				self.overlay.btree_changes(child_info.storage_key())
+				self.overlay.ordered_map_changes(child_info.storage_key())
 			{
 				if let Some(root) = info.cached_hash.as_ref() {
 					// cached
@@ -743,7 +743,7 @@ where
 				return None
 			};
 
-			self.overlay.cache_btree_root(child_info.storage_key(), result.clone());
+			self.overlay.cache_ordered_map_root(child_info.storage_key(), result.clone());
 			trace!(
 				target: "state",
 				method = "ChildStorageRoot",
@@ -1031,7 +1031,7 @@ where
 		key: &[u8],
 		algo: Hash32Algorithm,
 	) -> Option<[u8; 32]> {
-		let info = sp_externalities::btree_info_from_name(name);
+		let info = sp_externalities::ordered_map_info_from_name(name);
 		self.overlay
 			.child_storage(&info, key, 0, None)
 			.flatten()
@@ -1039,7 +1039,7 @@ where
 	}
 
 	fn map_dump(&mut self, name: &[u8]) -> Option<Vec<(Vec<u8>, Vec<u8>)>> {
-		self.overlay.btree_changes(name).map(|(data, _info)| {
+		self.overlay.ordered_map_changes(name).map(|(data, _info)| {
 			data.filter_map(|(k, v)| v.value_ref().as_ref().map(|v| (k.clone(), v.clone())))
 				.collect()
 		})
@@ -1050,7 +1050,7 @@ where
 		name: &[u8],
 		algorithm: Hash32Algorithm,
 	) -> Option<Vec<([u8; 32], [u8; 32])>> {
-		self.overlay.btree_changes(name).map(|(data, _info)| {
+		self.overlay.ordered_map_changes(name).map(|(data, _info)| {
 			data.filter_map(|(k, v)| {
 				v.value_ref()
 					.as_ref()
@@ -1284,7 +1284,7 @@ mod tests {
 					vec![40] => vec![40]
 				],
 				children_default: map![],
-				btree_storages: map![],
+				ordered_map_storages: map![],
 				blob_storages: map![],
 			},
 			StateVersion::default(),
@@ -1333,7 +1333,7 @@ mod tests {
 					vec![30] => vec![30]
 				],
 				children_default: map![],
-				btree_storages: map![],
+				ordered_map_storages: map![],
 				blob_storages: map![],
 			},
 			StateVersion::default(),
@@ -1365,7 +1365,7 @@ mod tests {
 						info: child_info.to_owned(),
 					}
 				],
-				btree_storages: map![],
+				ordered_map_storages: map![],
 				blob_storages: map![],
 			},
 			StateVersion::default(),
@@ -1422,7 +1422,7 @@ mod tests {
 						info: child_info.to_owned(),
 					}
 				],
-				btree_storages: map![],
+				ordered_map_storages: map![],
 				blob_storages: map![],
 			},
 			StateVersion::default(),
@@ -1471,7 +1471,7 @@ mod tests {
 						info: child_info.clone(),
 					}
 				],
-				btree_storages: map![],
+				ordered_map_storages: map![],
 				blob_storages: map![],
 			},
 			StateVersion::default(),

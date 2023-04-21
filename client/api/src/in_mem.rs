@@ -29,8 +29,8 @@ use sp_runtime::{
 	Justification, Justifications, StateVersion, Storage,
 };
 use sp_state_machine::{
-	Backend as StateBackend, BlobsCollection, BtreesCollection, ChildStorageCollection,
-	InMemoryBackend, IndexOperation, StorageCollection,
+	Backend as StateBackend, BlobsCollection, ChildStorageCollection, InMemoryBackend,
+	IndexOperation, OrdMapsCollection, StorageCollection,
 };
 use std::{
 	collections::{HashMap, HashSet},
@@ -586,7 +586,7 @@ where
 		&mut self,
 		_update: StorageCollection,
 		_child_update: ChildStorageCollection,
-		_btrees_update: BtreesCollection,
+		_btrees_update: OrdMapsCollection,
 		_blobs_update: BlobsCollection,
 	) -> sp_blockchain::Result<()> {
 		Ok(())

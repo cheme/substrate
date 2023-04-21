@@ -30,7 +30,7 @@ use sp_core::HashersExternalities;
 use sp_core::{
 	offchain::OffchainOverlayedChange,
 	storage::{
-		Blob as BlobInfo, Btree as BtreeInfo, ChildInfo, DefaultChild, Name, StateVersion,
+		Blob as BlobInfo, ChildInfo, DefaultChild, Name, OrderedMap as OrdMapInfo, StateVersion,
 		TransientInfo, BLOB_CHUNK_SIZE,
 	},
 };
@@ -66,8 +66,8 @@ pub type StorageCollection = Vec<(StorageKey, Option<StorageValue>)>;
 /// In memory arrays of storage values for multiple child tries.
 pub type ChildStorageCollection = Vec<(StorageKey, StorageCollection)>;
 
-/// In memory changes for btrees.
-pub type BtreesCollection = Vec<(BtreeMeta, StorageCollection)>;
+/// In memory changes for ordered maps.
+pub type OrdMapsCollection = Vec<(OrdMapMeta, StorageCollection)>;
 
 /// In memory changes for blobs.
 pub type BlobsCollection = Vec<(BlobMeta, Blob)>;
@@ -79,7 +79,7 @@ pub type OffchainChangesCollection = Vec<((Vec<u8>, Vec<u8>), OffchainOverlayedC
 ///
 /// It allows changes to be modified using nestable transactions.
 ///
-/// TODO move all children, btrees, blobs under their own struct when possible.
+/// TODO move all children, orderemaps, blobs under their own struct when possible.
 #[derive(Debug, Default, Clone)]
 pub struct Changes {
 	/// Context of execution.
@@ -88,8 +88,8 @@ pub struct Changes {
 	top: OverlayedChangeSet,
 	/// Child storage changes. The map key is the child storage key without the common prefix.
 	children: Map<StorageKey, ChildChanges>,
-	/// Btrees changes. The map key is the child storage key without the common prefix.
-	btrees: Map<Name, BtreeChanges>,
+	/// Ordered maps changes. The map key is the child storage key without the common prefix.
+	ordered_maps: Map<Name, OrdMapChanges>,
 	/// Blobs changes. The map key is the child storage key without the common prefix.
 	pub(crate) blobs: Map<Name, BlobChanges>,
 	/// Offchain related changes.
@@ -123,8 +123,8 @@ pub(crate) struct MovableStorage<C, M> {
 /// Changes for blob storage.
 pub(crate) type BlobChanges = MovableStorage<OverlayedChangeSetBlob, BlobInfo>;
 
-/// Changes for btree storage.
-pub(crate) type BtreeChanges = MovableStorage<OverlayedChangeSet, BtreeInfo>;
+/// Changes for ordered map storage.
+pub(crate) type OrdMapChanges = MovableStorage<OverlayedChangeSet, OrdMapInfo>;
 
 /// Info attached to a transient movable storage.
 #[derive(Debug, Clone)]
@@ -135,8 +135,8 @@ pub struct MovableMeta<M> {
 	pub removed: bool,
 }
 
-/// Info attached to a transient btree storage.
-pub type BtreeMeta = MovableMeta<BtreeInfo>;
+/// Info attached to a transient ordered map storage.
+pub type OrdMapMeta = MovableMeta<OrdMapInfo>;
 
 /// Info attached to a transient blob storage.
 pub type BlobMeta = MovableMeta<BlobInfo>;
@@ -186,8 +186,8 @@ pub struct StorageChanges<Transaction, H: Hasher> {
 	pub main_storage_changes: StorageCollection,
 	/// All changes to the child storages.
 	pub child_storage_changes: ChildStorageCollection,
-	/// All changes to the btree storages.
-	pub btrees_changes: BtreesCollection,
+	/// All changes to the ordered map storages.
+	pub ordered_maps_changes: OrdMapsCollection,
 	/// All changes to the blob storages.
 	pub blobs_changes: BlobsCollection,
 	/// Offchain state changes to write to the offchain database.
@@ -212,7 +212,7 @@ impl<Transaction, H: Hasher> StorageChanges<Transaction, H> {
 	) -> (
 		StorageCollection,
 		ChildStorageCollection,
-		BtreesCollection,
+		OrdMapsCollection,
 		BlobsCollection,
 		OffchainChangesCollection,
 		Transaction,
@@ -222,7 +222,7 @@ impl<Transaction, H: Hasher> StorageChanges<Transaction, H> {
 		(
 			self.main_storage_changes,
 			self.child_storage_changes,
-			self.btrees_changes,
+			self.ordered_maps_changes,
 			self.blobs_changes,
 			self.offchain_storage_changes,
 			self.transaction,
@@ -260,7 +260,7 @@ impl<Transaction: Default, H: Hasher> Default for StorageChanges<Transaction, H>
 		Self {
 			main_storage_changes: Default::default(),
 			child_storage_changes: Default::default(),
-			btrees_changes: Default::default(),
+			ordered_maps_changes: Default::default(),
 			blobs_changes: Default::default(),
 			offchain_storage_changes: Default::default(),
 			transaction: Default::default(),
@@ -316,8 +316,8 @@ impl Changes {
 				let map = self.children.get(child_info.storage_key())?;
 				map.changes.storage(key, start, limit, &self.stats)?.map(Cow::Borrowed)
 			},
-			ChildInfo::Btree(info) => {
-				let map = self.btrees.get(&info.name)?;
+			ChildInfo::OrderedMap(info) => {
+				let map = self.ordered_maps.get(&info.name)?;
 				if map.infos.value_ref().removed {
 					return Some(None)
 				}
@@ -387,8 +387,8 @@ impl Changes {
 
 	/// Return size of a given map when defined.
 	pub fn map_count(&self, name: &[u8]) -> Option<u32> {
-		let btree = self.btrees.get(name)?;
-		let infos = btree.infos.value_ref();
+		let ordmap = self.ordered_maps.get(name)?;
+		let infos = ordmap.infos.value_ref();
 		(!infos.removed).then(|| infos.size as u32)
 	}
 
@@ -399,8 +399,8 @@ impl Changes {
 				let map = self.children.get(child_info.storage_key())?;
 				map.changes.get(key)?.value().map(|v| v.len() as u32)
 			},
-			ChildInfo::Btree(info) => {
-				let map = self.btrees.get(&info.name)?;
+			ChildInfo::OrderedMap(info) => {
+				let map = self.ordered_maps.get(&info.name)?;
 				let info = map.infos.value_ref();
 				if info.removed {
 					return Some(None)
@@ -456,8 +456,8 @@ impl Changes {
 				child.changes.set(key.to_vec(), val.map(Vec::from));
 				true
 			},
-			ChildInfo::Btree(infos) => {
-				let Some(BtreeChanges { changes, infos }) = self.btrees.get_mut(&infos.name) else {
+			ChildInfo::OrderedMap(infos) => {
+				let Some(OrdMapChanges { changes, infos }) = self.ordered_maps.get_mut(&infos.name) else {
 					return false;
 				};
 				if infos.value_ref().removed {
@@ -579,7 +579,7 @@ impl Changes {
 				child.changes.clear_where(|_, _| true)
 			},
 			ChildInfo::Blob(info) => self.clear_blob_storage(&info.name),
-			ChildInfo::Btree(info) => self.clear_btree_storage(&info.name),
+			ChildInfo::OrderedMap(info) => self.clear_ordered_map_storage(&info.name),
 		}
 	}
 
@@ -591,9 +591,9 @@ impl Changes {
 		entry.clear_movable_storage(&|| Arc::new(context.spawn_blob()), &self.context)
 	}
 
-	fn clear_btree_storage(&mut self, name: &[u8]) -> u32 {
+	fn clear_ordered_map_storage(&mut self, name: &[u8]) -> u32 {
 		let context = &self.context;
-		let Some(entry) = self.btrees.get_mut(name) else {
+		let Some(entry) = self.ordered_maps.get_mut(name) else {
 			return 0;
 		};
 		entry.clear_movable_storage(&|| Arc::new(context.spawn_child()), &self.context)
@@ -620,8 +620,8 @@ impl Changes {
 				debug_assert!(updatable);
 				child.changes.clear_where(|key, _| key.starts_with(prefix))
 			},
-			ChildInfo::Btree(info) => {
-				let Some(BtreeChanges { changes, infos }) = self.btrees.get_mut(&info.name) else {
+			ChildInfo::OrderedMap(info) => {
+				let Some(OrdMapChanges { changes, infos }) = self.ordered_maps.get_mut(&info.name) else {
 					return 0
 				};
 				if infos.value_ref().removed {
@@ -652,9 +652,9 @@ impl Changes {
 		for (_, child) in self.children.iter_mut() {
 			child.changes.start_transaction();
 		}
-		for (_, btree) in self.btrees.iter_mut() {
+		for (_, ordmap) in self.ordered_maps.iter_mut() {
 			// TODO could lazy start as infos
-			unsafe { rc_mut_unchecked(&mut btree.changes) }.start_transaction();
+			unsafe { rc_mut_unchecked(&mut ordmap.changes) }.start_transaction();
 		}
 		for (_, blob) in self.blobs.iter_mut() {
 			unsafe { rc_mut_unchecked(&mut blob.changes) }.start_transaction();
@@ -679,7 +679,7 @@ impl Changes {
 			!child.changes.is_empty()
 		});
 
-		retain_map(&mut self.btrees, |_, BtreeChanges { changes, infos }| {
+		retain_map(&mut self.ordered_maps, |_, OrdMapChanges { changes, infos }| {
 			match infos.take_last_origin(start_depth) {
 				Some(OriginEntry::Empty) => (),
 				None | Some(OriginEntry::Current) => {
@@ -744,12 +744,12 @@ impl Changes {
 				.expect("Top and children changesets are started in lockstep; qed");
 		}
 
-		for (_, btree) in self.btrees.iter_mut() {
-			btree
+		for (_, ordmap) in self.ordered_maps.iter_mut() {
+			ordmap
 				.infos
 				.commit_transaction(start_depth)
 				.expect("Top and children changesets are started in lockstep; qed");
-			unsafe { rc_mut_unchecked(&mut btree.changes) }
+			unsafe { rc_mut_unchecked(&mut ordmap.changes) }
 				.commit_transaction(start_depth)
 				.expect("Top and children changesets are started in lockstep; qed");
 		}
@@ -818,7 +818,7 @@ impl Changes {
 				(impl Iterator<Item = (StorageKey, Option<StorageValue>)>, DefaultChild),
 			),
 		>,
-		impl Iterator<Item = (BtreeMeta, impl Iterator<Item = (StorageKey, Option<StorageValue>)>)>,
+		impl Iterator<Item = (OrdMapMeta, impl Iterator<Item = (StorageKey, Option<StorageValue>)>)>,
 		impl Iterator<Item = (BlobMeta, Blob)>,
 	) {
 		self.context.guard_drain_committed();
@@ -829,10 +829,10 @@ impl Changes {
 			take(&mut self.children)
 				.into_iter()
 				.map(|(key, child)| (key, (child.changes.drain_committed(), child.infos))),
-			take(&mut self.btrees).into_iter().map(|(_key, mut btree)| {
+			take(&mut self.ordered_maps).into_iter().map(|(_key, mut ordmap)| {
 				(
-					btree.infos.drain_committed(),
-					sp_std::mem::take(unsafe { rc_mut_unchecked(&mut btree.changes) })
+					ordmap.infos.drain_committed(),
+					sp_std::mem::take(unsafe { rc_mut_unchecked(&mut ordmap.changes) })
 						.drain_committed(),
 				)
 			}),
@@ -889,14 +889,14 @@ impl Changes {
 		self.children.get(key).map(|child| (child.changes.changes(), &child.infos))
 	}
 
-	/// Get an optional iterator over all btree changes stored under the supplied key.
-	pub fn btree_changes(
+	/// Get an optional iterator over all ordered map changes stored under the supplied key.
+	pub fn ordered_map_changes(
 		&self,
 		name: &[u8],
-	) -> Option<(impl Iterator<Item = (&StorageKey, &OverlayedValue)>, &BtreeMeta)> {
-		self.btrees.get(name).and_then(|btree| {
-			let info = btree.infos.value_ref();
-			(!info.removed).then(|| (btree.changes.changes(), info))
+	) -> Option<(impl Iterator<Item = (&StorageKey, &OverlayedValue)>, &OrdMapMeta)> {
+		self.ordered_maps.get(name).and_then(|ordmap| {
+			let info = ordmap.infos.value_ref();
+			(!info.removed).then(|| (ordmap.changes.changes(), info))
 		})
 	}
 
@@ -939,7 +939,7 @@ impl Changes {
 			.and_then(|t| cache.transaction_storage_root.take().map(|tr| (t, tr)))
 			.expect("Transaction was be generated as part of `storage_root`; qed");
 
-		let (main_storage_changes, child_storage_changes, btrees_changes, blobs_changes) =
+		let (main_storage_changes, child_storage_changes, ordmaps_changes, blobs_changes) =
 			self.drain_committed();
 		let offchain_storage_changes = self.offchain_drain_committed().collect();
 
@@ -951,7 +951,7 @@ impl Changes {
 			child_storage_changes: child_storage_changes
 				.map(|(sk, it)| (sk, it.0.collect()))
 				.collect(),
-			btrees_changes: btrees_changes.map(|(info, it)| (info, it.collect())).collect(),
+			ordered_maps_changes: ordmaps_changes.map(|(info, it)| (info, it.collect())).collect(),
 			blobs_changes: blobs_changes.map(|(info, blob)| (info, blob)).collect(),
 			offchain_storage_changes,
 			transaction,
@@ -1008,7 +1008,7 @@ impl Changes {
 					.into_iter()
 					.flatten(),
 			),
-			ChildInfo::Btree(_infos) => None,
+			ChildInfo::OrderedMap(_infos) => None,
 			ChildInfo::Blob(_infos) => None,
 		}
 	}
@@ -1038,10 +1038,10 @@ impl Changes {
 			// default child storage are viewed as always existing
 			// with empty root.
 			ChildInfo::Default(_) => true,
-			ChildInfo::Btree(info) => self
-				.btrees
+			ChildInfo::OrderedMap(info) => self
+				.ordered_maps
 				.get(info.name.as_slice())
-				.map(|btree| !btree.infos.value_ref().removed)
+				.map(|ordmap| !ordmap.infos.value_ref().removed)
 				.unwrap_or(false),
 			ChildInfo::Blob(info) => self
 				.blobs
@@ -1058,15 +1058,16 @@ impl Changes {
 			// No update info for default child storage,
 			// its existence is only related to its content.
 			ChildInfo::Default(_) => false,
-			ChildInfo::Btree(info) => {
+			ChildInfo::OrderedMap(info) => {
 				if clear_existing {
-					self.clear_btree_storage(&info.name);
+					self.clear_ordered_map_storage(&info.name);
 				}
 				let context = &self.context;
-				let entry = self.btrees.entry(info.name.clone()).or_insert_with(|| BtreeChanges {
-					changes: Arc::new(context.spawn_child()),
-					infos: context.spawn_info(BtreeMeta::from(info.clone())),
-				});
+				let entry =
+					self.ordered_maps.entry(info.name.clone()).or_insert_with(|| OrdMapChanges {
+						changes: Arc::new(context.spawn_child()),
+						infos: context.spawn_info(OrdMapMeta::from(info.clone())),
+					});
 				// even if same content we register and
 				// update.
 				let stored = entry.infos.modify_value(&self.context);
@@ -1127,8 +1128,8 @@ impl Changes {
 
 	/// Cache root.
 	/// Do nothing on failure.
-	pub fn cache_btree_root(&mut self, name: &[u8], root: Vec<u8>) {
-		let Some(entry) = self.btrees.get_mut(name) else {
+	pub fn cache_ordered_map_root(&mut self, name: &[u8], root: Vec<u8>) {
+		let Some(entry) = self.ordered_maps.get_mut(name) else {
 			return
 		};
 		let entry = entry.infos.modify_value(&self.context);
@@ -1154,12 +1155,12 @@ impl Changes {
 		match info {
 			// Copy not supported.
 			ChildInfo::Default(_) => false,
-			ChildInfo::Btree(info) => BtreeChanges::copy_movable_storage(
-				&mut self.btrees,
+			ChildInfo::OrderedMap(info) => OrdMapChanges::copy_movable_storage(
+				&mut self.ordered_maps,
 				&info,
 				target_name,
 				&|| Arc::new(context.spawn_child()),
-				&|| context.spawn_info(BtreeMeta::from(info.clone())),
+				&|| context.spawn_info(OrdMapMeta::from(info.clone())),
 				&self.context,
 			),
 			ChildInfo::Blob(info) => BlobChanges::copy_movable_storage(
@@ -1180,12 +1181,12 @@ impl Changes {
 		match info {
 			// Move not supported.
 			ChildInfo::Default(_) => false,
-			ChildInfo::Btree(info) => BtreeChanges::move_movable_storage(
-				&mut self.btrees,
+			ChildInfo::OrderedMap(info) => OrdMapChanges::move_movable_storage(
+				&mut self.ordered_maps,
 				&info,
 				target_name,
 				&|| Arc::new(context.spawn_child()),
-				&|| context.spawn_info(BtreeMeta::from(info.clone())),
+				&|| context.spawn_info(OrdMapMeta::from(info.clone())),
 				&self.context,
 			),
 			ChildInfo::Blob(info) => BlobChanges::move_movable_storage(
@@ -1208,13 +1209,13 @@ pub(crate) trait TransientContentCommon<M>: Sized {
 	fn copy_on_cleared_from(&mut self, from: &MovableStorage<Self, M>);
 }
 
-impl TransientContentCommon<BtreeInfo> for OverlayedChangeSet {
+impl TransientContentCommon<OrdMapInfo> for OverlayedChangeSet {
 	fn rollback_moved_state(&mut self, depth: usize) -> Result<(), NoOpenTransaction> {
 		let _ = self.rollback_transaction(depth)?;
 		Ok(())
 	}
 
-	fn copy_on_cleared_from(&mut self, from: &MovableStorage<Self, BtreeInfo>) {
+	fn copy_on_cleared_from(&mut self, from: &MovableStorage<Self, OrdMapInfo>) {
 		for (key, value) in from.changes.changes() {
 			if let Some(value) = value.value_ref() {
 				let dest = self.modify(key.clone(), Default::default);
@@ -1319,7 +1320,7 @@ where
 			return false
 		};
 
-		// Access pointer to new val as we know btree
+		// Access pointer to new val as we know ordered map.
 		// implementation do not change on origin access.
 		let entry: &mut _ = unsafe { &mut *entry };
 
@@ -1433,15 +1434,15 @@ impl From<sp_core::storage::Storage> for Changes {
 	fn from(storage: sp_core::storage::Storage) -> Self {
 		let context = OverlayedContext::default();
 		let top: OverlayedChangeSet = storage.top.into();
-		let btrees: Map<Name, BtreeChanges> = storage
-			.btree_storages
+		let ordered_maps: Map<Name, OrdMapChanges> = storage
+			.ordered_map_storages
 			.into_iter()
 			.map(|(k, v)| {
 				(
 					k,
-					BtreeChanges {
+					OrdMapChanges {
 						changes: Arc::new(v.data.into()),
-						infos: context.spawn_info(BtreeMeta::from(v.info)),
+						infos: context.spawn_info(OrdMapMeta::from(v.info)),
 					},
 				)
 			})
@@ -1467,7 +1468,7 @@ impl From<sp_core::storage::Storage> for Changes {
 				.into_iter()
 				.map(|(k, v)| (k, ChildChanges { changes: v.data.into(), infos: v.info }))
 				.collect(),
-			btrees,
+			ordered_maps,
 			blobs,
 			offchain: Default::default(),
 			transaction_index_ops: Default::default(),

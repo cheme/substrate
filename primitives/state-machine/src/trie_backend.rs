@@ -376,7 +376,8 @@ where
 		match child_info.child_type() {
 			ChildType::Default =>
 				self.default_child_storage_root(child_info.storage_key(), delta, state_version),
-			ChildType::Blob | ChildType::Btree => unreachable!("No backend for transient storage"),
+			ChildType::Blob | ChildType::OrderedMap =>
+				unreachable!("No backend for transient storage"),
 		}
 	}
 

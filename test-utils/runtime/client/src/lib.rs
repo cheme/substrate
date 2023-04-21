@@ -147,7 +147,7 @@ impl GenesisInit for GenesisParameters {
 				ChildType::Default.new_prefixed_key(&child_content.info.name);
 			(prefixed_storage_key.into_inner(), state_root.encode())
 		});
-		let child_roots_dummy = storage.btree_storages.iter().map(|(_sk, _child_content)| {
+		let child_roots_dummy = storage.ordered_map_storages.iter().map(|(_sk, _child_content)| {
 			unimplemented!(
 				"TODO add fn trie_root_dummy to runtime/src/traits, would mean
 		another two host function"

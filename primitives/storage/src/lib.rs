@@ -178,8 +178,8 @@ pub struct Storage {
 	/// Children trie storage data. Key does not include prefix, only for the `default` trie kind,
 	/// of `ChildType::Default` type.
 	pub children_default: std::collections::HashMap<Vec<u8>, StorageDefaultChild>,
-	/// Changes for btree storages.
-	pub btree_storages: std::collections::HashMap<Name, StorageBtree>,
+	/// Changes for ordered map storages.
+	pub ordered_map_storages: std::collections::HashMap<Name, StorageOrderedMap>,
 	/// Changes for blobs.
 	pub blob_storages: std::collections::HashMap<Name, StorageBlob>,
 }
@@ -197,14 +197,14 @@ pub struct StorageBlob {
 	pub hash: Option<Vec<u8>>,
 }
 
-/// Child trie storage data.
+/// Ordered map storage data.
 #[cfg(feature = "std")]
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct StorageBtree {
-	/// Btree data for storage.
+pub struct StorageOrderedMap {
+	/// Ordered key value data for storage.
 	pub data: StorageMap,
 	/// Associated info.
-	pub info: Btree,
+	pub info: OrderedMap,
 	/// Last calculated encoded root matching
 	/// info algorithm.
 	pub root: Option<Vec<u8>>,
@@ -244,10 +244,10 @@ pub mod well_known_keys {
 	/// Prefix of the default child storage keys in the top trie.
 	pub const DEFAULT_CHILD_STORAGE_KEY_PREFIX: &[u8] = b":child_storage:default:";
 
-	/// Prefix of the btree storage keys in the top trie.
+	/// Prefix of the ordered storage keys in the top trie.
 	/// This is currently unused and just a reserved value in case
-	/// non btree storage support persisted state in the future.
-	pub const BTREE_STORAGE_KEY_PREFIX: &'static [u8] = b":child_storage:btree:";
+	/// non ordered storage support persisted state in the future.
+	pub const ORDERED_MAP_STORAGE_KEY_PREFIX: &'static [u8] = b":child_storage:ordmap:";
 
 	/// Prefix of the sized value child storage keys in the top trie.
 	pub const BLOB_STORAGE_KEY_PREFIX: &'static [u8] = b":child_storage:blob:";
@@ -258,14 +258,6 @@ pub mod well_known_keys {
 	/// with `DEFAULT_CHILD_STORAGE_KEY_PREFIX` and doesn't do anything apart from that.
 	pub fn is_default_child_storage_key(key: &[u8]) -> bool {
 		key.starts_with(DEFAULT_CHILD_STORAGE_KEY_PREFIX)
-	}
-
-	/// Whether a key is a btree storage key.
-	///
-	/// This is convenience function which basically checks if the given `key` starts
-	/// with `BTREE_STORAGE_KEY_PREFIX` and doesn't do anything apart from that.
-	pub fn is_sized_parent_child_storage_key(key: &[u8]) -> bool {
-		key.starts_with(BTREE_STORAGE_KEY_PREFIX)
 	}
 
 	/// Whether a key is a child storage key.
@@ -299,20 +291,20 @@ pub type Name = Vec<u8>;
 pub enum ChildInfo {
 	/// This is the one used by default.
 	Default(DefaultChild),
-	/// BTree storage info.
-	Btree(Btree),
+	/// Ordered map storage info.
+	OrderedMap(OrderedMap),
 	/// Blob storage.
 	Blob(Blob),
 }
 
 impl ChildInfo {
-	/// Child info for a btree storage.
-	pub fn new_btree(
+	/// Child info for a ordered map storage.
+	pub fn new_ordered_map(
 		name: &[u8],
 		mode: Option<transient::Mode>,
 		algorithm: Option<transient::Root32Structure>,
 	) -> Self {
-		ChildInfo::Btree(TransientInfo { name: name.to_vec(), mode, algorithm })
+		ChildInfo::OrderedMap(TransientInfo { name: name.to_vec(), mode, algorithm })
 	}
 
 	/// Instantiates child information for a default child trie
@@ -346,7 +338,8 @@ impl ChildInfo {
 			(ChildInfo::Default(child_trie), ChildInfo::Default(other)) =>
 				child_trie.try_update(other),
 			(ChildInfo::Blob(blob), ChildInfo::Blob(other)) => blob.try_update(other),
-			(ChildInfo::Btree(btree), ChildInfo::Btree(other)) => btree.try_update(other),
+			(ChildInfo::OrderedMap(ordmap), ChildInfo::OrderedMap(other)) =>
+				ordmap.try_update(other),
 			_ => false,
 		}
 	}
@@ -358,7 +351,7 @@ impl ChildInfo {
 	pub fn keyspace(&self) -> &[u8] {
 		match self {
 			ChildInfo::Default(..) => self.storage_key(),
-			ChildInfo::Btree(..) => self.storage_key(),
+			ChildInfo::OrderedMap(..) => self.storage_key(),
 			ChildInfo::Blob(..) => self.storage_key(),
 		}
 	}
@@ -369,7 +362,7 @@ impl ChildInfo {
 	pub fn storage_key(&self) -> &[u8] {
 		match self {
 			ChildInfo::Default(DefaultChild { name }) => &name[..],
-			ChildInfo::Btree(btree) => &btree.name[..],
+			ChildInfo::OrderedMap(ordmap) => &ordmap.name[..],
 			ChildInfo::Blob(blob) => &blob.name[..],
 		}
 	}
@@ -380,7 +373,8 @@ impl ChildInfo {
 		match self {
 			ChildInfo::Default(DefaultChild { name }) =>
 				ChildType::Default.new_prefixed_key(name.as_slice()),
-			ChildInfo::Btree(btree) => ChildType::Btree.new_prefixed_key(btree.name.as_slice()),
+			ChildInfo::OrderedMap(ordmap) =>
+				ChildType::OrderedMap.new_prefixed_key(ordmap.name.as_slice()),
 			ChildInfo::Blob(blob) => ChildType::Blob.new_prefixed_key(blob.name.as_slice()),
 		}
 	}
@@ -393,9 +387,9 @@ impl ChildInfo {
 				ChildType::Default.do_prefix_key(&mut name);
 				PrefixedStorageKey(name)
 			},
-			ChildInfo::Btree(mut btree) => {
-				ChildType::Btree.do_prefix_key(&mut btree.name);
-				PrefixedStorageKey(btree.name)
+			ChildInfo::OrderedMap(mut ordmap) => {
+				ChildType::OrderedMap.do_prefix_key(&mut ordmap.name);
+				PrefixedStorageKey(ordmap.name)
 			},
 			ChildInfo::Blob(mut blob) => {
 				ChildType::Blob.do_prefix_key(&mut blob.name);
@@ -408,7 +402,7 @@ impl ChildInfo {
 	pub fn child_type(&self) -> ChildType {
 		match self {
 			ChildInfo::Default(..) => ChildType::Default,
-			ChildInfo::Btree(..) => ChildType::Btree,
+			ChildInfo::OrderedMap(..) => ChildType::OrderedMap,
 			ChildInfo::Blob(..) => ChildType::Blob,
 		}
 	}
@@ -434,7 +428,7 @@ pub enum ChildType {
 	/// Storage of it's content is client specific but a `transient::Mode` hint can be set.
 	///
 	/// An unused prefix `BTREE_STORAGE_KEY_PREFIX` is reserved.
-	Btree = 2,
+	OrderedMap = 2,
 	/// Transient byte array of content.
 	///
 	/// An unused prefix `BLOB_STORAGE_KEY_PREFIX` is reserved.
@@ -555,7 +549,7 @@ impl ChildType {
 			}
 		};
 		match_type(storage_key, ChildType::Default)
-			.or_else(|| match_type(storage_key, ChildType::Btree))
+			.or_else(|| match_type(storage_key, ChildType::OrderedMap))
 			.or_else(|| match_type(storage_key, ChildType::Blob))
 	}
 
@@ -584,7 +578,7 @@ impl ChildType {
 	pub fn parent_prefix(&self) -> &'static [u8] {
 		match self {
 			&ChildType::Default => well_known_keys::DEFAULT_CHILD_STORAGE_KEY_PREFIX,
-			&ChildType::Btree => well_known_keys::BTREE_STORAGE_KEY_PREFIX,
+			&ChildType::OrderedMap => well_known_keys::ORDERED_MAP_STORAGE_KEY_PREFIX,
 			&ChildType::Blob => well_known_keys::BLOB_STORAGE_KEY_PREFIX,
 		}
 	}
@@ -632,8 +626,8 @@ pub struct TransientInfo<A> {
 	pub algorithm: Option<A>,
 }
 
-/// Btree defining infos.
-pub type Btree = TransientInfo<transient::Root32Structure>;
+/// Ordered map defining infos.
+pub type OrderedMap = TransientInfo<transient::Root32Structure>;
 
 /// Blob defining infos.
 pub type Blob = TransientInfo<transient::Hash32Algorithm>;

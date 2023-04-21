@@ -89,9 +89,9 @@ use sp_runtime::{
 };
 use sp_state_machine::{
 	backend::{AsTrieBackend, Backend as StateBackend},
-	BlobsCollection, BtreesCollection, ChildStorageCollection, DBValue, IndexOperation, IterArgs,
-	OffchainChangesCollection, StateMachineStats, StorageCollection, StorageIterator, StorageKey,
-	StorageValue, UsageInfo as StateUsageInfo,
+	BlobsCollection, ChildStorageCollection, DBValue, IndexOperation, IterArgs,
+	OffchainChangesCollection, OrdMapsCollection, StateMachineStats, StorageCollection,
+	StorageIterator, StorageKey, StorageValue, UsageInfo as StateUsageInfo,
 };
 use sp_trie::{cache::SharedTrieCache, prefixed_key, MemoryDB, PrefixedMemoryDB};
 
@@ -830,7 +830,7 @@ pub struct BlockImportOperation<Block: BlockT> {
 	db_updates: PrefixedMemoryDB<HashFor<Block>>,
 	storage_updates: StorageCollection,
 	child_storage_updates: ChildStorageCollection,
-	btrees_storage_updates: BtreesCollection,
+	btrees_storage_updates: OrdMapsCollection,
 	blobs_storage_updates: BlobsCollection,
 	offchain_storage_updates: OffchainChangesCollection,
 	pending_block: Option<PendingBlock<Block>>,
@@ -888,7 +888,7 @@ impl<Block: BlockT> BlockImportOperation<Block> {
 		);
 
 		self.btrees_storage_updates = storage
-			.btree_storages
+			.ordered_map_storages
 			.into_iter()
 			.filter_map(|(_, btree)| {
 				matches!(btree.info.mode, Some(sp_core::storage::transient::Mode::Archive)).then(
@@ -917,7 +917,7 @@ impl<Block: BlockT> BlockImportOperation<Block> {
 
 	fn update_transient_storage(
 		&mut self,
-		btrees_update: BtreesCollection,
+		btrees_update: OrdMapsCollection,
 		blobs_update: BlobsCollection,
 	) -> ClientResult<()> {
 		self.btrees_storage_updates = btrees_update;
@@ -987,7 +987,7 @@ impl<Block: BlockT> sc_client_api::backend::BlockImportOperation<Block>
 		&mut self,
 		update: StorageCollection,
 		child_update: ChildStorageCollection,
-		btrees_update: BtreesCollection,
+		btrees_update: OrdMapsCollection,
 		blobs_update: BlobsCollection,
 	) -> ClientResult<()> {
 		self.storage_updates = update;
@@ -2676,16 +2676,16 @@ impl<Block: BlockT> sc_client_api::backend::LocalBackend<Block> for Backend<Bloc
 
 /// To test data equality from a linked plugin.
 #[cfg(any(test, feature = "test-plugin"))]
-pub fn test_btrees_collection() -> std::collections::HashMap<Vec<u8>, sp_core::storage::StorageBtree>
-{
+pub fn test_btrees_collection(
+) -> std::collections::HashMap<Vec<u8>, sp_core::storage::StorageOrderedMap> {
 	let mut result =
-		std::collections::HashMap::<Vec<u8>, sp_core::storage::StorageBtree>::default();
+		std::collections::HashMap::<Vec<u8>, sp_core::storage::StorageOrderedMap>::default();
 	for i in 0..5 {
 		result.insert(
 			vec![i as u8; i],
-			sp_core::storage::StorageBtree {
+			sp_core::storage::StorageOrderedMap {
 				data: (0..i).map(|i| (vec![i as u8; i], vec![i as u8; i])).collect(),
-				info: sp_core::storage::Btree {
+				info: sp_core::storage::OrderedMap {
 					name: vec![i as u8; i],
 					mode: Some(sp_core::storage::transient::Mode::Archive),
 					algorithm: None,
@@ -2745,7 +2745,7 @@ pub(crate) mod tests {
 	pub struct Changes {
 		update: StorageCollection,
 		child_update: ChildStorageCollection,
-		btrees_update: BtreesCollection,
+		btrees_update: OrdMapsCollection,
 		blobs_update: BlobsCollection,
 	}
 
@@ -2987,7 +2987,7 @@ pub(crate) mod tests {
 				Storage {
 					top: storage.into_iter().collect(),
 					children_default: Default::default(),
-					btree_storages: Default::default(),
+					ordered_map_storages: Default::default(),
 					blob_storages: Default::default(),
 				},
 				state_version,
@@ -3067,7 +3067,7 @@ pub(crate) mod tests {
 				Storage {
 					top: Default::default(),
 					children_default: Default::default(),
-					btree_storages: Default::default(),
+					ordered_map_storages: Default::default(),
 					blob_storages: Default::default(),
 				},
 				state_version,
@@ -3573,7 +3573,7 @@ pub(crate) mod tests {
 				Storage {
 					top: storage.into_iter().collect(),
 					children_default: Default::default(),
-					btree_storages: Default::default(),
+					ordered_map_storages: Default::default(),
 					blob_storages: Default::default(),
 				},
 				state_version,
@@ -4668,7 +4668,7 @@ pub(crate) mod tests {
 					update: vec![],
 					child_update: vec![],
 					btrees_update: vec![(
-						sp_core::storage::Btree {
+						sp_core::storage::OrderedMap {
 							name: vec![i],
 							mode: Some(sp_core::storage::transient::Mode::Archive),
 							algorithm: None,
@@ -4850,7 +4850,7 @@ pub(crate) mod tests {
 			Storage {
 				top: storage.into_iter().collect(),
 				children_default: Default::default(),
-				btree_storages: super::test_btrees_collection(),
+				ordered_map_storages: super::test_btrees_collection(),
 				blob_storages: super::test_blobs_collection(),
 			},
 			state_version,

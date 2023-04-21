@@ -41,8 +41,8 @@ pub enum Error<H, CodecError> {
 	InvalidChildRoot(Vec<u8>, Vec<u8>),
 	#[cfg_attr(feature = "std", error("Trie error: {0:?}"))]
 	TrieError(Box<trie_db::TrieError<H, CodecError>>),
-	#[cfg_attr(feature = "std", error("Btree storage error: {0:?}"))]
-	BTreeStorageError(Box<trie_db::TrieError<H, crate::error::Error<H>>>),
+	#[cfg_attr(feature = "std", error("Ordered map storage error: {0:?}"))]
+	OrderedMapStorageError(Box<trie_db::TrieError<H, crate::error::Error<H>>>),
 	// TODO assert if use
 	#[cfg_attr(feature = "std", error("Blob storage error: {0:?}"))]
 	BlobStorageError(&'static str),
@@ -96,7 +96,7 @@ where
 						let prefixed_key = PrefixedStorageKey::new_ref(&key);
 						match ChildType::from_prefixed_key(prefixed_key) {
 							Some((ChildType::Blob, _unprefixed)) |
-							Some((ChildType::Btree, _unprefixed)) => {
+							Some((ChildType::OrderedMap, _unprefixed)) => {
 								// reserved non persistent, skip
 							},
 							Some((child_type, _unprefixed)) => {
@@ -155,7 +155,7 @@ where
 						trie_db::decode_compact_from_iter::<L, _, _>(db, &mut nodes_iter)?;
 					previous_extracted_child_trie = Some(top_root);
 				},
-				ChildType::Blob | ChildType::Btree => {
+				ChildType::Blob | ChildType::OrderedMap => {
 					// not persistent TODO consider just reverting to master code
 					previous_extracted_child_trie = Some(top_root);
 				},
@@ -214,7 +214,7 @@ where
 						let prefixed_key = PrefixedStorageKey::new_ref(&key);
 						match ChildType::from_prefixed_key(prefixed_key) {
 							Some((ChildType::Blob, _unprefixed)) |
-							Some((ChildType::Btree, _unprefixed)) => {
+							Some((ChildType::OrderedMap, _unprefixed)) => {
 								// non persistent, ignore
 							},
 							Some((child_type, _unprefixed)) => {
@@ -268,7 +268,7 @@ where
 
 				compact_proof.extend(child_proof);
 			},
-			ChildType::Btree | ChildType::Blob => {
+			ChildType::OrderedMap | ChildType::Blob => {
 				// noop, non persistant.
 				// TODO consider revert to master code
 			},

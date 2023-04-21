@@ -255,7 +255,7 @@ where
 			Some((ChildType::Default, storage_key)) => Ok(ChildInfo::new_default(storage_key)),
 			// TODO do some proof over a given storage root, would be a different
 			// api.
-			Some((ChildType::Btree, _)) | Some((ChildType::Blob, _)) | None =>
+			Some((ChildType::OrderedMap, _)) | Some((ChildType::Blob, _)) | None =>
 				Err(sp_blockchain::Error::InvalidChildStorageKey),
 		};
 		let response = match child_info.and_then(|child_info| {

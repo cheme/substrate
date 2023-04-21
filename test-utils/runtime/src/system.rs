@@ -421,7 +421,7 @@ mod tests {
 					},
 				],
 				children_default: map![],
-				btree_storages: map![],
+				ordered_map_storages: map![],
 				blob_storages: map![],
 			},
 		)

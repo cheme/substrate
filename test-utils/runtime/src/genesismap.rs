@@ -82,7 +82,7 @@ impl GenesisConfig {
 		let mut storage = Storage {
 			top: map,
 			children_default: self.extra_storage.children_default.clone(),
-			btree_storages: self.extra_storage.btree_storages.clone(),
+			ordered_map_storages: self.extra_storage.ordered_map_storages.clone(),
 			blob_storages: self.extra_storage.blob_storages.clone(),
 		};
 		<system::GenesisConfig as GenesisBuild<Runtime>>::assimilate_storage(
@@ -107,7 +107,7 @@ pub fn insert_genesis_block(storage: &mut Storage) -> sp_core::hash::H256 {
 	});
 	// add child roots to storage
 	storage.top.extend(child_roots);
-	let child_roots = storage.btree_storages.iter().map(|(_sk, _child_content)| {
+	let child_roots = storage.ordered_map_storages.iter().map(|(_sk, _child_content)| {
 		unimplemented!(
 			"TODO add fn trie_root_dummy to runtime/src/traits, would mean
 		another two host function"

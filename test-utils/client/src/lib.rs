@@ -34,7 +34,7 @@ pub use sp_keyring::{
 	ed25519::Keyring as Ed25519Keyring, sr25519::Keyring as Sr25519Keyring, AccountKeyring,
 };
 pub use sp_keystore::{Keystore, KeystorePtr};
-pub use sp_runtime::{Storage, StorageBlob, StorageBtree, StorageDefaultChild};
+pub use sp_runtime::{Storage, StorageBlob, StorageDefaultChild, StorageOrderedMap};
 pub use sp_state_machine::ExecutionStrategy;
 
 use futures::{future::Future, stream::StreamExt};

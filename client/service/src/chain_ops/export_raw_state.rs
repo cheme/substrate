@@ -65,7 +65,7 @@ where
 	Ok(Storage {
 		top,
 		children_default,
-		btree_storages: Default::default(),
+		ordered_map_storages: Default::default(),
 		blob_storages: Default::default(),
 	})
 }

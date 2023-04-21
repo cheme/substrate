@@ -127,9 +127,9 @@ pub use crate::{
 	error::{Error, ExecutionError},
 	ext::Ext,
 	overlayed_changes::{
-		BlobsCollection, BtreesCollection, Changes, ChildStorageCollection, IndexOperation,
-		OffchainChanges, OffchainChangesCollection, StorageChanges, StorageCollection, StorageKey,
-		StorageTransactionCache, StorageValue,
+		BlobsCollection, Changes, ChildStorageCollection, IndexOperation, OffchainChanges,
+		OffchainChangesCollection, OrdMapsCollection, StorageChanges, StorageCollection,
+		StorageKey, StorageTransactionCache, StorageValue,
 	},
 	stats::{StateMachineStats, UsageInfo, UsageUnit},
 	trie_backend::{TrieBackend, TrieBackendBuilder},
@@ -826,7 +826,7 @@ mod execution {
 					Some(match ChildType::from_prefixed_key(storage_key) {
 						Some((ChildType::Default, storage_key)) =>
 							ChildInfo::new_default(storage_key),
-						Some((ChildType::Btree, _))
+						Some((ChildType::OrderedMap, _))
 						| Some((ChildType::Blob, _)) => {
 							return Err(Box::new("Invalid range start child trie key, reserved for transient storage."))
 						},
@@ -1261,7 +1261,7 @@ mod execution {
 					Some(match ChildType::from_prefixed_key(storage_key) {
 						Some((ChildType::Default, storage_key)) =>
 							ChildInfo::new_default(storage_key),
-Some((ChildType::Btree, _)) | Some((ChildType::Blob, _)) => return Err(Box::new("Invalid range start child trie key, reserved for transient storage.")),
+Some((ChildType::OrderedMap, _)) | Some((ChildType::Blob, _)) => return Err(Box::new("Invalid range start child trie key, reserved for transient storage.")),
 						None => return Err(Box::new("Invalid range start child trie key.")),
 					}),
 					2,
@@ -1970,8 +1970,11 @@ mod tests {
 
 	#[test]
 	fn transient_map_storage_works() {
-		let child_info =
-			ChildInfo::new_btree(b"sub1", Some(sp_core::storage::transient::Mode::Drop), None);
+		let child_info = ChildInfo::new_ordered_map(
+			b"sub1",
+			Some(sp_core::storage::transient::Mode::Drop),
+			None,
+		);
 		let child_info = &child_info;
 		let state = new_in_mem_hash_key::<BlakeTwo256>();
 		let backend = state.as_trie_backend();

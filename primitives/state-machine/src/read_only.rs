@@ -274,7 +274,7 @@ where
 			// default child storage are viewed as always existing
 			// with empty root.
 			ChildType::Default => true,
-			ChildType::Btree | ChildType::Blob => false,
+			ChildType::OrderedMap | ChildType::Blob => false,
 		}
 	}
 
@@ -291,7 +291,7 @@ where
 	}
 
 	fn map_count(&mut self, _name: &[u8]) -> Option<u32> {
-		// no change set so no transient btree
+		// no change set so no transient ordered map
 		None
 	}
 
@@ -301,12 +301,12 @@ where
 		_key: &[u8],
 		_algo: Hash32Algorithm,
 	) -> Option<[u8; 32]> {
-		// no change set so no transient btree
+		// no change set so no transient ordered map
 		None
 	}
 
 	fn map_dump(&mut self, _name: &[u8]) -> Option<Vec<(Vec<u8>, Vec<u8>)>> {
-		// no change set so no transient btree
+		// no change set so no transient ordered map
 		None
 	}
 
@@ -315,7 +315,7 @@ where
 		_name: &[u8],
 		_algorithm: Hash32Algorithm,
 	) -> Option<Vec<([u8; 32], [u8; 32])>> {
-		// no change set so no transient btree
+		// no change set so no transient ordered map
 		None
 	}
 

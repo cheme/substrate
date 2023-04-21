@@ -60,7 +60,7 @@ use sc_utils::mpsc::{tracing_unbounded, TracingUnboundedSender};
 use sp_core::{
 	storage::{
 		well_known_keys, ChildInfo, ChildType, DefaultChild, PrefixedStorageKey, StorageBlob,
-		StorageBtree, StorageData, StorageDefaultChild, StorageKey,
+		StorageData, StorageDefaultChild, StorageKey, StorageOrderedMap,
 	},
 	traits::SpawnNamed,
 };
@@ -77,7 +77,7 @@ use sp_runtime::{
 use sp_state_machine::{
 	prove_child_read, prove_range_read_with_child_with_size, prove_read,
 	read_range_proof_check_with_child_on_proving_backend, Backend as StateBackend, BlobsCollection,
-	BtreesCollection, ChildStorageCollection, KeyValueStates, KeyValueStorageLevel,
+	ChildStorageCollection, KeyValueStates, KeyValueStorageLevel, OrdMapsCollection,
 	StorageCollection, MAX_NESTED_TRIE_DEPTH,
 };
 use sp_trie::{CompactProof, StorageProof};
@@ -693,16 +693,16 @@ where
 												entry.data.insert(key, value);
 											}
 										},
-										Some((ChildType::Btree, storage_key)) => {
+										Some((ChildType::OrderedMap, storage_key)) => {
 											// TODO currently we don't warp synch this kind of info
 											// so this code is a filler.
 											let entry = storage
-												.btree_storages
+												.ordered_map_storages
 												.entry(storage_key.to_vec())
 												.or_insert_with(|| {
-													StorageBtree {
+													StorageOrderedMap {
 														data: Default::default(),
-														info: sp_core::storage::Btree {
+														info: sp_core::storage::OrderedMap {
 															name: storage_key.to_vec(),
 															// only archive make sense to sync
 															mode: Some(sp_core::storage::transient::Mode::Archive),
@@ -1095,7 +1095,7 @@ where
 		storage_changes: Option<(
 			StorageCollection,
 			ChildStorageCollection,
-			BtreesCollection,
+			OrdMapsCollection,
 			BlobsCollection,
 		)>,
 	) -> sp_blockchain::Result<()> {
@@ -1375,7 +1375,7 @@ where
 				// TODO have a function to fetch transient content
 				// (btree could be here but awkward as this is meant
 				// to be state at block start).
-				Some((ChildType::Btree, _)) | Some((ChildType::Blob, _)) | None =>
+				Some((ChildType::OrderedMap, _)) | Some((ChildType::Blob, _)) | None =>
 					Err(Error::Backend("Invalid child storage key.".to_string())),
 			}
 		};
