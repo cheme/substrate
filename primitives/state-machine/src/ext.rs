@@ -1025,7 +1025,7 @@ where
 		self.overlay.map_count(name)
 	}
 
-	fn map_item_hash32(
+	fn map_hash32_item(
 		&mut self,
 		name: &[u8],
 		key: &[u8],

@@ -295,7 +295,7 @@ where
 		None
 	}
 
-	fn map_item_hash32(
+	fn map_hash32_item(
 		&mut self,
 		_name: &[u8],
 		_key: &[u8],

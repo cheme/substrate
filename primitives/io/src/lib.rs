@@ -782,8 +782,8 @@ pub trait OrderedMapStorage {
 	/// Inserts a single (key, value) pair into map name, and overwriting the item if it did.
 	///
 	/// If map do not exist this operatio is skipped and operation return false.
-	fn insert(&mut self, name: &[u8], key: &[u8], value: &[u8]) -> bool {
-		self.map_insert(name, key, value)
+	fn insert_item(&mut self, name: &[u8], key: &[u8], value: &[u8]) -> bool {
+		self.map_insert_item(name, key, value)
 	}
 
 	/// Removes the pair with the given key from the map name, if the map exists and contains the
@@ -793,20 +793,20 @@ pub trait OrderedMapStorage {
 	}
 
 	/// Returns true iff the map name existsa and contains key.
-	fn contains(&mut self, name: &[u8], key: &[u8]) -> bool {
-		self.map_contains(name, key)
+	fn contains_item(&mut self, name: &[u8], key: &[u8]) -> bool {
+		self.map_contains_item(name, key)
 	}
 
 	/// Returns Some iff the map name exists and contains key.
 	/// If so, the inner value is that associated with key.
-	fn item_get(&mut self, name: &[u8], key: &[u8]) -> Option<bytes::Bytes> {
-		self.map_item_get(name, key, None, 0).map(|value| value.into_owned().into())
+	fn get_item(&mut self, name: &[u8], key: &[u8]) -> Option<bytes::Bytes> {
+		self.map_get_item(name, key, None, 0).map(|value| value.into_owned().into())
 	}
 
 	/// If key exisit in map, try to fill `value_out` from a given offset, return the number of read
 	/// bytes or None if map did not exist.
 	/// Return None when buffer size is bigger than u32::MAX
-	fn item_read(
+	fn read_item(
 		&mut self,
 		name: &[u8],
 		key: &[u8],
@@ -817,7 +817,7 @@ pub trait OrderedMapStorage {
 		if len > u32::MAX as usize {
 			return None
 		}
-		self.map_item_get(name, key, Some(len as u32), value_offset).map(|value| {
+		self.map_get_item(name, key, Some(len as u32), value_offset).map(|value| {
 			let written = std::cmp::min(value.len(), value_out.len());
 			value_out[..written].copy_from_slice(&value[..written]);
 			written as u32
@@ -826,19 +826,8 @@ pub trait OrderedMapStorage {
 
 	/// Returns Some iff the map name exists and contains key. If so, the inner value is the length
 	/// of the value associated with key.
-	fn item_len(&mut self, name: &[u8], key: &[u8]) -> Option<u32> {
-		self.map_item_len(name, key)
-	}
-
-	/// Returns Some iff the map name exists and contains key. If so, the inner value is the value
-	/// associated with key when hashed with algorithm.
-	fn item_hash32(
-		&mut self,
-		name: &[u8],
-		key: &[u8],
-		algorithm: Crossing<Hash32Algorithm>,
-	) -> Option<[u8; 32]> {
-		self.map_item_hash32(name, key, algorithm.0)
+	fn len_item(&mut self, name: &[u8], key: &[u8]) -> Option<u32> {
+		self.map_len_item(name, key)
 	}
 
 	/// Returns Some iff the map name exists, None otherwise. If Some, then the inner value is the
@@ -846,6 +835,24 @@ pub trait OrderedMapStorage {
 	/// TODO consider u64?
 	fn count(&mut self, name: &[u8]) -> Option<u32> {
 		self.map_count(name)
+	}
+
+	/// Returns Some iff the map name exists and contains key. If so, the inner value is the value
+	/// associated with key when hashed with algorithm.
+	fn hash32_item(
+		&mut self,
+		name: &[u8],
+		key: &[u8],
+		algorithm: Crossing<Hash32Algorithm>,
+	) -> Option<[u8; 32]> {
+		self.map_hash32_item(name, key, algorithm.0)
+	}
+
+	/// Returns up to the next count keys in map name immediately following key. If fewer items
+	/// exist after key than count, then only the remaining items are returned. If the map name does
+	/// not exist then None is returned.
+	fn next_keys(&mut self, name: &[u8], key: &[u8], count: u32) -> Option<Vec<Vec<u8>>> {
+		self.map_next_keys(name, key, count)
 	}
 
 	/// Calculates and returns the root of the data structure structure containing the items held in
@@ -868,13 +875,6 @@ pub trait OrderedMapStorage {
 		algorithm: Crossing<Hash32Algorithm>,
 	) -> Option<Vec<([u8; 32], [u8; 32])>> {
 		self.map_dump_hashed(name, algorithm.0)
-	}
-
-	/// Returns up to the next count keys in map name immediately following key. If fewer items
-	/// exist after key than count, then only the remaining items are returned. If the map name does
-	/// not exist then None is returned.
-	fn next_keys(&mut self, name: &[u8], key: &[u8], count: u32) -> Option<Vec<Vec<u8>>> {
-		self.map_next_keys(name, key, count)
 	}
 }
 

@@ -49,7 +49,7 @@ pub fn get<T: Decode + Sized>(child_info: &ChildInfo, key: &[u8]) -> Option<T> {
 		},
 		ChildType::OrderedMap => {
 			let storage_key = child_info.storage_key();
-			sp_io::ordered_map_storage::item_get(storage_key, key).and_then(|v| {
+			sp_io::ordered_map_storage::get_item(storage_key, key).and_then(|v| {
 				Decode::decode(&mut &v[..]).map(Some).unwrap_or_else(|_| {
 					// TODO #3700: error should be handleable.
 					log::error!(
@@ -127,7 +127,7 @@ pub fn put<T: Encode>(child_info: &ChildInfo, key: &[u8], value: &T) {
 			sp_io::default_child_storage::set(child_info.storage_key(), key, slice)
 		}),
 		ChildType::OrderedMap => value.using_encoded(|slice| {
-			sp_io::ordered_map_storage::insert(child_info.storage_key(), key, slice);
+			sp_io::ordered_map_storage::insert_item(child_info.storage_key(), key, slice);
 		}),
 		ChildType::Blob => (),
 	}
@@ -184,7 +184,7 @@ pub fn exists(child_info: &ChildInfo, key: &[u8]) -> bool {
 	match child_info.child_type() {
 		ChildType::Default => sp_io::default_child_storage::exists(child_info.storage_key(), key),
 		ChildType::OrderedMap =>
-			sp_io::ordered_map_storage::contains(child_info.storage_key(), key),
+			sp_io::ordered_map_storage::contains_item(child_info.storage_key(), key),
 		ChildType::Blob => false,
 	}
 }
@@ -306,7 +306,7 @@ pub fn get_raw(child_info: &ChildInfo, key: &[u8]) -> Option<Vec<u8>> {
 	match child_info.child_type() {
 		ChildType::Default => sp_io::default_child_storage::get(child_info.storage_key(), key),
 		ChildType::OrderedMap =>
-			sp_io::ordered_map_storage::item_get(child_info.storage_key(), key),
+			sp_io::ordered_map_storage::get_item(child_info.storage_key(), key),
 		ChildType::Blob => None,
 	}
 	.map(Into::into)
@@ -318,7 +318,7 @@ pub fn put_raw(child_info: &ChildInfo, key: &[u8], value: &[u8]) {
 		ChildType::Default =>
 			sp_io::default_child_storage::set(child_info.storage_key(), key, value),
 		ChildType::OrderedMap => {
-			sp_io::ordered_map_storage::insert(child_info.storage_key(), key, value);
+			sp_io::ordered_map_storage::insert_item(child_info.storage_key(), key, value);
 		},
 		ChildType::Blob => (),
 	}
@@ -348,7 +348,7 @@ pub fn len(child_info: &ChildInfo, key: &[u8]) -> Option<u32> {
 		},
 		ChildType::OrderedMap => {
 			let mut buffer = [0; 0];
-			sp_io::ordered_map_storage::item_read(child_info.storage_key(), key, &mut buffer, 0)
+			sp_io::ordered_map_storage::read_item(child_info.storage_key(), key, &mut buffer, 0)
 		},
 		ChildType::Blob => None,
 	}

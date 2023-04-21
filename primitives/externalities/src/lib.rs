@@ -530,7 +530,7 @@ pub trait Externalities: ExtensionStore {
 	/// Inserts a single (key, value) pair into map name, and overwriting the item if it did.
 	///
 	/// If map do not exist this operatio is skipped and operation return false.
-	fn map_insert(&mut self, name: &[u8], key: &[u8], value: &[u8]) -> bool {
+	fn map_insert_item(&mut self, name: &[u8], key: &[u8], value: &[u8]) -> bool {
 		let info = ordered_map_info_from_name(name);
 		self.place_child_storage(&info, key, Some(value))
 	}
@@ -543,7 +543,7 @@ pub trait Externalities: ExtensionStore {
 	}
 
 	/// Returns true iff the map name existsa and contains key.
-	fn map_contains(&mut self, name: &[u8], key: &[u8]) -> bool {
+	fn map_contains_item(&mut self, name: &[u8], key: &[u8]) -> bool {
 		let info = ordered_map_info_from_name(name);
 		self.exists_child_storage(&info, key)
 	}
@@ -552,7 +552,7 @@ pub trait Externalities: ExtensionStore {
 	/// If so, the inner value is that associated with key.
 	/// If limit is specified, only that many bytes are returned.
 	/// Offset start bytes are also skipped from return value.
-	fn map_item_get(
+	fn map_get_item(
 		&mut self,
 		name: &[u8],
 		key: &[u8],
@@ -565,14 +565,14 @@ pub trait Externalities: ExtensionStore {
 
 	/// Returns Some iff the map name exists and contains key. If so, the inner value is the length
 	/// of the value associated with key.
-	fn map_item_len(&mut self, name: &[u8], key: &[u8]) -> Option<u32> {
+	fn map_len_item(&mut self, name: &[u8], key: &[u8]) -> Option<u32> {
 		let info = ordered_map_info_from_name(name);
 		self.child_storage_len(&info, key)
 	}
 
 	/// Returns Some iff the map name exists and contains key. If so, the inner value is the value
 	/// associated with key when hashed with algorithm.
-	fn map_item_hash32(
+	fn map_hash32_item(
 		&mut self,
 		name: &[u8],
 		key: &[u8],
