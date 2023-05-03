@@ -1258,7 +1258,7 @@ where
 		&self,
 		hash: Block::Hash,
 		child_info: Option<&ChildInfo>,
-		keys: &mut dyn Iterator<Item = (&[u8], bool)>,
+		keys: &mut dyn Iterator<Item = (&[u8], bool, bool)>,
 	) -> sp_blockchain::Result<StorageProof> {
 		self.state_at(hash)
 			.and_then(|state| prove_read_v2(state, child_info, keys).map_err(Into::into))

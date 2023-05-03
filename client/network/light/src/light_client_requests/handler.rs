@@ -328,7 +328,9 @@ where
 		let response = match self.client.read_child_proof_v2(
 			block,
 			child_info.as_ref(),
-			&mut request.keys.iter().map(|key| (&key.key[..], key.skip_value.unwrap_or(false))),
+			&mut request.keys.iter().map(|key| {
+				(&key.key[..], key.skip_value.unwrap_or(false), key.prefix_iter.unwrap_or(false))
+			}),
 		) {
 			Ok(proof) => schema::v1::light::RemoteReadResponse { proof: Some(proof.encode()) },
 			Err(error) => {

@@ -393,7 +393,7 @@ where
 	/// Calls the given closure with a [`TrieDb`] constructed for the given
 	/// storage root and (optionally) child trie.
 	#[inline]
-	fn with_trie_db<R>(
+	pub(crate) fn with_trie_db<R>(
 		&self,
 		root: H::Out,
 		child_info: Option<&ChildInfo>,
@@ -427,7 +427,7 @@ where
 	}
 
 	/// Access the root of the child storage in its parent trie
-	fn child_root(&self, child_info: &ChildInfo) -> Result<Option<H::Out>> {
+	pub(crate) fn child_root(&self, child_info: &ChildInfo) -> Result<Option<H::Out>> {
 		#[cfg(feature = "std")]
 		{
 			if let Some(result) = self.cache.read().child_root.get(child_info.storage_key()) {
@@ -702,6 +702,59 @@ where
 		let is_default = new_child_root == default_root;
 
 		(new_child_root, is_default, write_overlay)
+	}
+
+	#[cfg(feature = "std")]
+	pub(crate) fn prove_read_on_trie_backend_v2<'a, I>(
+		&self,
+		child_info: Option<&ChildInfo>,
+		keys: I,
+	) -> Result<(Vec<Vec<u8>>, H::Out)>
+	where
+		H::Out: Ord,
+		I: IntoIterator<Item = (&'a [u8], bool, bool)>,
+	{
+		let root = if let Some(child_info) = child_info.as_ref() {
+			let root = match self.child_root(&child_info)? {
+				Some(root) => root,
+				None => return Err("No child trie found".into()),
+			};
+			root
+		} else {
+			self.root
+		};
+
+		if root == Default::default() {
+			// A special-case for an empty storage root.
+			return Ok((Default::default(), root))
+		}
+
+		self.with_trie_db(root, child_info, |trie| {
+			use sp_trie::{
+				record_query_plan, HaltedStateRecord, InMemoryRecorder, ProofKind, QueryPlan,
+				QueryPlanItem, QueryPlanRecorder,
+			};
+
+			let kind = ProofKind::FullNodes;
+			let limit_nodes = None;
+			let limit_size = None;
+			let recorder =
+				QueryPlanRecorder::new(kind, InMemoryRecorder::default(), limit_nodes, limit_size);
+			let from = HaltedStateRecord::from_start(recorder);
+			let mut keys_iter = keys.into_iter();
+			let items = (&mut keys_iter).map(|(k, h, p)| QueryPlanItem {
+				key: k.as_ref(),
+				hash_only: h,
+				as_prefix: p,
+			});
+			let mut query_plan =
+				QueryPlan { items, ignore_unordered: false, kind, _ph: Default::default() };
+			let from =
+				record_query_plan(trie, &mut query_plan, from).map_err(|e| format!("{:?}", e))?;
+			//let complete = from.is_finished();
+			let proof = from.finish().output().nodes;
+			Ok((proof, root))
+		})
 	}
 }
 

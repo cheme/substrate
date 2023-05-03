@@ -264,6 +264,18 @@ where
 	pub fn extract_proof(mut self) -> Option<StorageProof> {
 		self.essence.recorder.take().map(|r| r.drain_storage_proof())
 	}
+
+	pub(crate) fn prove_read_on_trie_backend_v2<'a, I>(
+		&self,
+		child_info: Option<&ChildInfo>,
+		keys: I,
+	) -> Result<(Vec<Vec<u8>>, H::Out), String>
+	where
+		H::Out: Ord,
+		I: IntoIterator<Item = (&'a [u8], bool, bool)>,
+	{
+		self.essence.prove_read_on_trie_backend_v2::<I>(child_info, keys)
+	}
 }
 
 impl<S: TrieBackendStorage<H>, H: Hasher, C: AsLocalTrieCache<H>> sp_std::fmt::Debug
