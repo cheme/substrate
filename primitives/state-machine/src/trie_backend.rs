@@ -268,13 +268,14 @@ where
 	pub(crate) fn prove_read_on_trie_backend_v2<'a, I>(
 		&self,
 		child_info: Option<&ChildInfo>,
+		start: Option<(&[u8], bool)>,
 		keys: I,
 	) -> Result<(Vec<Vec<u8>>, H::Out), String>
 	where
 		H::Out: Ord,
 		I: IntoIterator<Item = (&'a [u8], bool, bool)>,
 	{
-		self.essence.prove_read_on_trie_backend_v2::<I>(child_info, keys)
+		self.essence.prove_read_on_trie_backend_v2::<I>(child_info, start, keys)
 	}
 }
 

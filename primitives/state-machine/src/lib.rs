@@ -974,6 +974,7 @@ mod execution {
 	pub fn prove_read_v2<'a, B, H, I>(
 		backend: B,
 		child_info: Option<&ChildInfo>,
+		start: Option<(&[u8], bool)>,
 		keys: I,
 	) -> Result<(Vec<Vec<u8>>, H::Out), Box<dyn Error>>
 	where
@@ -983,7 +984,7 @@ mod execution {
 		I: IntoIterator<Item = (&'a [u8], bool, bool)>,
 	{
 		let trie_backend = backend.as_trie_backend();
-		prove_read_on_trie_backend_v2(trie_backend, child_info, keys)
+		prove_read_on_trie_backend_v2(trie_backend, child_info, start, keys)
 	}
 
 	/// Generate storage read proof on pre-created trie backend.
@@ -1041,6 +1042,7 @@ mod execution {
 	pub fn prove_read_on_trie_backend_v2<'a, S, H, I>(
 		trie_backend: &TrieBackend<S, H>,
 		child_info: Option<&ChildInfo>,
+		start: Option<(&[u8], bool)>,
 		keys: I,
 	) -> Result<(Vec<Vec<u8>>, H::Out), Box<dyn Error>>
 	where
@@ -1050,7 +1052,7 @@ mod execution {
 		I: IntoIterator<Item = (&'a [u8], bool, bool)>,
 	{
 		trie_backend
-			.prove_read_on_trie_backend_v2(child_info, keys)
+			.prove_read_on_trie_backend_v2(child_info, start, keys)
 			.map_err(|e| Box::new(e) as Box<dyn Error>)
 	}
 
@@ -2275,6 +2277,7 @@ mod tests {
 		let (remote_proof_2, root_2) = prove_read_v2(
 			remote_backend,
 			Some(&child_info1),
+			None,
 			accesses_2.iter().map(|(k, h, p)| (*k, *h, *p)),
 		)
 		.unwrap();

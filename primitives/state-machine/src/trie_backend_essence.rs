@@ -708,6 +708,7 @@ where
 	pub(crate) fn prove_read_on_trie_backend_v2<'a, I>(
 		&self,
 		child_info: Option<&ChildInfo>,
+		start: Option<(&[u8], bool)>,
 		keys: I,
 	) -> Result<(Vec<Vec<u8>>, H::Out)>
 	where
@@ -740,7 +741,8 @@ where
 			let limit_size = None;
 			let recorder =
 				QueryPlanRecorder::new(kind, InMemoryRecorder::default(), limit_nodes, limit_size);
-			let from = HaltedStateRecord::from_start(recorder);
+			let from =
+				HaltedStateRecord::from_at(recorder, start.map(|(k, align)| (k.to_vec(), align)));
 			let mut keys_iter = keys.into_iter();
 			let items = (&mut keys_iter).map(|(k, h, p)| QueryPlanItem {
 				key: k.as_ref(),

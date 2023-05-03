@@ -48,6 +48,7 @@ pub trait ProofProvider<Block: BlockT> {
 		&self,
 		hash: Block::Hash,
 		child_info: Option<&ChildInfo>,
+		start: Option<(&[u8], bool)>,
 		keys: &mut dyn Iterator<Item = (&[u8], bool, bool)>,
 	) -> sp_blockchain::Result<StorageProof>;
 

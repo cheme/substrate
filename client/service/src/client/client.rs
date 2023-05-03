@@ -1258,10 +1258,11 @@ where
 		&self,
 		hash: Block::Hash,
 		child_info: Option<&ChildInfo>,
+		start: Option<(&[u8], bool)>,
 		keys: &mut dyn Iterator<Item = (&[u8], bool, bool)>,
 	) -> sp_blockchain::Result<StorageProof> {
 		self.state_at(hash)
-			.and_then(|state| prove_read_v2(state, child_info, keys).map_err(Into::into))
+			.and_then(|state| prove_read_v2(state, child_info, start, keys).map_err(Into::into))
 	}
 
 	fn execution_proof(

@@ -324,10 +324,14 @@ where
 				))
 			},
 		};
+		let start = request.only_keys_after.as_ref().map(|cursor| {
+			(cursor.as_ref(), request.only_keys_after_ignore_last_nibble.unwrap_or(false))
+		});
 		let block = Decode::decode(&mut request.block.as_ref())?;
 		let response = match self.client.read_child_proof_v2(
 			block,
 			child_info.as_ref(),
+			start,
 			&mut request.keys.iter().map(|key| {
 				(&key.key[..], key.skip_value.unwrap_or(false), key.prefix_iter.unwrap_or(false))
 			}),
