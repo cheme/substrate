@@ -62,28 +62,102 @@ where
 	HostFns: HostFunctions,
 {
 	let executor = build_executor(&shared);
-	let ext = command.state.into_ext::<Block, HostFns>(&shared, &executor, None, true).await?;
-
-	let (_, encoded_result) = state_machine_call_with_proof::<Block, HostFns>(
-		&ext,
-		&executor,
-		"TryRuntime_on_runtime_upgrade",
-		command.checks.encode().as_ref(),
-		Default::default(), // we don't really need any extensions here.
-		shared.export_proof,
-	)?;
-
-	let (weight, total_weight) = <(Weight, Weight) as Decode>::decode(&mut &*encoded_result)
-		.map_err(|e| format!("failed to decode weight: {:?}", e))?;
-
+	let mut ext = command.state.into_ext::<Block, HostFns>(&shared, &executor, None, true).await?;
 	log::info!(
 		target: LOG_TARGET,
-		"TryRuntime_on_runtime_upgrade executed without errors. Consumed weight = ({} ps, {} byte), total weight = ({} ps, {} byte) ({:.2} %, {:.2} %).",
-		weight.ref_time(), weight.proof_size(),
-		total_weight.ref_time(), total_weight.proof_size(),
-		(weight.ref_time() as f64 / total_weight.ref_time().max(1) as f64) * 100.0,
-		(weight.proof_size() as f64 / total_weight.proof_size().max(1) as f64) * 100.0,
+		"StateV {:?}",
+		ext.state_version,
 	);
+
+	ext.state_version = sp_runtime::StateVersion::V1;
+
+	use sp_state_machine::Backend;
+	let mut number = 0;
+	loop {
+
+/*
+		let mut at = Vec::<u8>::new();
+
+
+		while let Some(next) = ext.backend.next_storage_key(&at).unwrap() {
+			at = next;
+		}
+		*/
+
+		let (meth, params) = if number == 0 {
+			("TryRuntime_on_runtime_upgrade", command.checks.encode())
+		} else {
+			("TryRuntime_execute_empty_block", Default::default())
+		};
+		let (mut changes, encoded_result, proof_sizes) =
+			state_machine_call_with_proof::<Block, HostFns>(
+				&mut ext,
+				&executor,
+				meth,
+				params.as_ref(),
+				Default::default(), // we don't really need any extensions here.
+				shared
+					.export_proof
+					.as_ref()
+					.map(|path| path.as_path().join(&format!("{}.json", number))),
+			)?;
+		let storage_changes = changes
+			.drain_storage_changes(
+				&ext.backend,
+				&mut Default::default(),
+				// Note that in case a block contains a runtime upgrade, state version could
+				// potentially be incorrect here, this is very niche and would only result in
+				// unaligned roots, so this use case is ignored for now.
+				ext.state_version,
+			)
+			.unwrap();
+
+		/*for k in storage_changes.transaction.keys() {
+		log::info!(
+			target: LOG_TARGET,
+			"k {:?}",
+			k,
+		);
+
+		}*/
+		log::info!(
+			target: LOG_TARGET,
+			"root in apply {:?}",
+			storage_changes.transaction_storage_root,
+		);
+
+
+		ext.backend.apply_transaction(
+			storage_changes.transaction_storage_root,
+			storage_changes.transaction,
+		);
+
+		if number == 0 {
+			let (weight, total_weight) = <(Weight, Weight) as Decode>::decode(&mut &*encoded_result)
+				.map_err(|e| format!("failed to decode weight: {:?}", e))?;
+
+			log::info!(
+				target: LOG_TARGET,
+				"TryRuntime_on_runtime_upgrade executed without errors. Consumed weight = ({} ps, {} byte), total weight = ({} ps, {} byte) ({:.2} %, {:.2} %).",
+				weight.ref_time(), weight.proof_size(),
+				total_weight.ref_time(), total_weight.proof_size(),
+				(weight.ref_time() as f64 / total_weight.ref_time().max(1) as f64) * 100.0,
+				(weight.proof_size() as f64 / total_weight.proof_size().max(1) as f64) * 100.0,
+			);
+		}
+		log::info!(
+			target: LOG_TARGET,
+			"new root {:?}",
+			ext.backend.root(),
+		);
+		log::info!(
+			target: LOG_TARGET,
+			"Iter {:?}: {:?}",
+			number,
+			proof_sizes,
+		);
+		number += 1;
+	}
 
 	Ok(())
 }

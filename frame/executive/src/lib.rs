@@ -328,8 +328,68 @@ where
 				"Transaction trie root must be valid.",
 			);
 		}
+		let weight = frame_system::Pallet::<System>::block_weight().total();
+		frame_support::log::info!(
+			target: LOG_TARGET,
+			" block w r {:?}, proof size {:?}",
+			weight.ref_time(),
+			weight.proof_size(),
+		);
 
-		Ok(frame_system::Pallet::<System>::block_weight().total())
+
+		Ok(weight)
+	}
+
+	/// Execute empty block, with no specific checks.
+	pub fn try_execute_empty_block() -> Result<(), &'static str> {
+		let block_number = System::BlockNumber::default();
+		frame_support::log::info!(
+			target: LOG_TARGET,
+			"try-runtime: executing epmty bloc",
+		);
+
+		sp_io::init_tracing();
+		<frame_system::Pallet<System>>::reset_events();
+
+		let mut weight = Weight::zero();
+		/*
+		if Self::runtime_upgraded() {
+			weight = weight.saturating_add(Self::execute_on_runtime_upgrade());
+		}
+		*/
+		<frame_system::Pallet<System>>::initialize(
+			&Default::default(),
+			&Default::default(),
+			&Default::default(),
+		);
+		weight = weight.saturating_add(<AllPalletsWithSystem as OnInitialize<
+			System::BlockNumber,
+		>>::on_initialize(block_number));
+		/*
+		weight = weight.saturating_add(
+			<System::BlockWeights as frame_support::traits::Get<_>>::get().base_block,
+		);
+		<frame_system::Pallet<System>>::register_extra_weight_unchecked(
+			weight,
+			DispatchClass::Mandatory,
+		);
+		*/
+
+		frame_system::Pallet::<System>::note_finished_initialize();
+
+		<frame_system::Pallet<System>>::note_finished_extrinsics();
+
+		Self::finalize_block();
+
+	//	let weight = frame_system::Pallet::<System>::block_weight().total();
+		frame_support::log::info!(
+			target: LOG_TARGET,
+			" block w r {:?}, proof size {:?}",
+			weight.ref_time(),
+			weight.proof_size(),
+		);
+
+		Ok(())
 	}
 
 	/// Execute all `OnRuntimeUpgrade` of this runtime, including the pre and post migration checks.
@@ -359,6 +419,13 @@ where
 				frame_try_runtime::TryStateSelect::All,
 			)?;
 		}
+
+		frame_support::log::info!(
+			target: LOG_TARGET,
+			" block w r {:?}, proof size {:?}",
+			weight.ref_time(),
+			weight.proof_size(),
+		);
 
 		Ok(weight)
 	}
@@ -535,8 +602,8 @@ where
 				DispatchClass::Mandatory,
 			);
 		}
-
-		<AllPalletsWithSystem as OnFinalize<System::BlockNumber>>::on_finalize(block_number);
+		<frame_system::Pallet<System>>::on_finalize(block_number);
+		//<AllPalletsWithSystem as OnFinalize<System::BlockNumber>>::on_finalize(block_number);
 	}
 
 	/// Apply extrinsic outside of the block execution function.

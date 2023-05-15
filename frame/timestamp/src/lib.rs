@@ -173,7 +173,8 @@ pub mod pallet {
 		/// ## Complexity
 		/// - `O(1)`
 		fn on_finalize(_n: BlockNumberFor<T>) {
-			assert!(DidUpdate::<T>::take(), "Timestamp must be updated once in the block");
+			DidUpdate::<T>::take();
+			//assert!(DidUpdate::<T>::take(), "Timestamp must be updated once in the block");
 		}
 	}
 

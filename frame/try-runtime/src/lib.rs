@@ -49,5 +49,8 @@ sp_api::decl_runtime_apis! {
 			signature_check: bool,
 			try_state: TryStateSelect,
 		) -> Weight;
+
+		/// Execute an empty block with no specific checks
+		fn execute_empty_block();
 	}
 }

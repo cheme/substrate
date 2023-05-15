@@ -65,6 +65,12 @@ struct Snapshot<B: BlockT> {
 	storage_root: H256,
 }
 
+#[derive(Clone, Decode, Encode)]
+struct Restore<B: BlockT> {
+	pub at: B::Hash,
+	pub top_kv: Vec<(Vec<u8>, Vec<u8>)>,
+}
+
 /// An externalities that acts exactly the same as [`sp_io::TestExternalities`] but has a few extra
 /// bits and pieces to it, and can be loaded remotely.
 pub struct RemoteExternalities<B: BlockT> {
@@ -273,6 +279,8 @@ pub struct Builder<B: BlockT> {
 	///
 	/// Overwrite only with care.
 	overwrite_state_version: Option<StateVersion>,
+	/// hack for restart when dev
+	restore: Option<Restore<B>>,
 }
 
 // NOTE: ideally we would use `DefaultNoBound` here, but not worth bringing in frame-support for
@@ -284,6 +292,7 @@ impl<B: BlockT> Default for Builder<B> {
 			hashed_key_values: Default::default(),
 			hashed_blacklist: Default::default(),
 			overwrite_state_version: None,
+			restore: None,
 		}
 	}
 }
@@ -529,7 +538,7 @@ where
 			.rpc_get_keys_paged(prefix.clone(), at)
 			.await?
 			.into_iter()
-			.filter(|k| !is_default_child_storage_key(&k.0))
+//			.filter(|k| !is_default_child_storage_key(&k.0))
 			.collect::<Vec<_>>();
 		sp.stop_with_message(format!(
 			"✅ Found {} keys ({:.2}s)",
@@ -713,6 +722,13 @@ where
 			.into_iter()
 			.filter_map(|(k, _)| is_default_child_storage_key(k.as_ref()).then(|| k.clone()))
 			.collect::<Vec<_>>();
+		info!(
+			target: LOG_TARGET,
+			"got child root {} top keys",
+			child_roots.len(),
+		);
+
+		log::info!(target: LOG_TARGET, "got child root {} top keys", child_roots.len());
 
 		if child_roots.is_empty() {
 			return Ok(Default::default())
@@ -729,14 +745,17 @@ where
 		let client = self.as_online().rpc_client();
 		let mut child_kv = vec![];
 		for prefixed_top_key in child_roots {
+			log::info!(target: LOG_TARGET, "start child root {:?}", &prefixed_top_key);
 			let child_keys =
 				Self::rpc_child_get_keys(&client, &prefixed_top_key, StorageKey(vec![]), at)
 					.await?;
 
+			log::info!(target: LOG_TARGET, "got child root {:?} keys.", &child_keys.len());
 			let child_kv_inner =
 				Self::rpc_child_get_storage_paged(&client, &prefixed_top_key, child_keys, at)
 					.await?;
 
+			log::info!(target: LOG_TARGET, "got child root {:?} key key valures.", &child_kv_inner.len());
 			let prefixed_top_key = PrefixedStorageKey::new(prefixed_top_key.clone().0);
 			let un_prefixed = match ChildType::from_prefixed_key(&prefixed_top_key) {
 				Some((ChildType::ParentKeyId, storage_key)) => storage_key,
@@ -753,6 +772,7 @@ where
 			for (k, v) in key_values {
 				pending_ext.insert_child(info.clone(), k, v);
 			}
+			log::info!(target: LOG_TARGET, "end child root {:?}", &prefixed_top_key);
 		}
 
 		Ok(child_kv)
@@ -797,7 +817,11 @@ where
 			);
 			match self.rpc_get_storage(key.clone(), Some(at)).await? {
 				Some(value) => {
-					pending_ext.insert(key.clone().0, value.clone().0);
+					// inserting default would make child insert fail (cannot fetch the trie).
+					if !is_default_child_storage_key(&key.0) {
+						pending_ext.insert(key.clone().0, value.clone().0);
+					}
+					//pending_ext.insert(key.clone().0, value.clone().0);
 					keys_and_values.push((key, value));
 				},
 				None => {
@@ -819,6 +843,23 @@ where
 	async fn init_remote_client(&mut self) -> Result<(), &'static str> {
 		// First, initialize the http client.
 		self.as_online_mut().transport.init().await?;
+		if let Ok(mut file) = std::fs::File::open("./bu") {
+			let mut encoded = vec![];
+			use std::io::Read;
+			file.read_to_end(&mut encoded).unwrap();
+			let restore: Restore<B> = Decode::decode(&mut encoded.as_slice()).unwrap();
+
+			self.as_online_mut().at = Some(restore.at);
+			self.restore = Some(restore);
+		log::info!(
+				target: LOG_TARGET,
+				"restored from file",
+				);
+		} else {
+			log::info!(
+				target: LOG_TARGET,
+				"not restored from file",
+				);
 
 		// Then, if `at` is not set, set it.
 		if self.as_online().at.is_none() {
@@ -829,6 +870,7 @@ where
 				at
 			);
 			self.as_online_mut().at = Some(at);
+		}
 		}
 
 		// Then, a few transformation that we want to perform in the online config:
@@ -880,7 +922,46 @@ where
 		);
 
 		// Load data from the remote into `pending_ext`.
-		let top_kv = self.load_top_remote(&mut pending_ext).await?;
+		let top_kv = if let Some(restore) = self.restore.take() {
+		log::info!(
+			target: LOG_TARGET,
+			"restoring top {}",
+			restore.top_kv.len(),
+		);
+
+
+			restore.top_kv
+				.into_iter()
+				.map(|(k, v)| {
+					if !is_default_child_storage_key(&k) {
+						pending_ext.insert(k.clone(), v.clone());
+					}
+					(StorageKey(k), StorageData(v))
+				})
+				.collect()
+		} else {
+			let top_kv = self.load_top_remote(&mut pending_ext).await?;
+			let to_encode: Vec<(Vec<u8>, Vec<u8>)> = top_kv.iter().map(|(k, v)| (k.0.clone(), v.0.clone())).collect();
+			let restore = Restore::<B> {
+				at: self.as_online().at.unwrap(),
+				top_kv: to_encode,
+			};
+			let mut file = if let Ok(file) = std::fs::File::open("./bu") {
+				file
+			} else {
+				std::fs::File::create("./bu").unwrap()
+			};
+
+			use std::io::Write;
+			file.write_all(&restore.encode()).unwrap();
+			top_kv
+		};
+		log::info!(
+			target: LOG_TARGET,
+			"fetched top {}",
+			top_kv.len(),
+		);
+
 		self.load_child_remote(&top_kv, &mut pending_ext).await?;
 
 		// If we need to save a snapshot, save the raw storage and root hash to the snapshot.

@@ -338,6 +338,15 @@ pub mod pallet {
 				} else {
 					Zero::zero()
 				};
+				if added_size > 200_000 {
+				log!(
+					info,
+					"touch {} o child keys, {:x?}, {:x?}",
+					added_size,
+					&child_root[..],
+					&current_child[..],
+				);
+				}
 				self.dyn_size = self.dyn_size.saturating_add(added_size);
 				self.dyn_child_items.saturating_inc();
 			}
@@ -380,6 +389,15 @@ pub mod pallet {
 				} else {
 					Zero::zero()
 				};
+				if added_size > 200_000 {
+				log!(
+					info,
+					"touch {} o top keys, {:x?}",
+					added_size,
+					&current_top[..],
+				);
+				}
+
 				self.dyn_size = self.dyn_size.saturating_add(added_size);
 				self.dyn_top_items.saturating_inc();
 			}

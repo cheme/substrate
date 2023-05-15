@@ -170,11 +170,16 @@ where
 			continue
 		}
 
-		let (mut changes, encoded_result) = result.expect("checked to be Ok; qed");
+		let (mut changes, encoded_result, _) = result.expect("checked to be Ok; qed");
+		log::info!(
+			target: LOG_TARGET,
+			"encoded weight {:?} ",
+			encoded_result,
+		);
 
 		let consumed_weight = <sp_weights::Weight as Decode>::decode(&mut &*encoded_result)
-			.map_err(|e| format!("failed to decode weight: {:?}", e))?;
-
+			.unwrap_or_default();
+//			.map_err(|e| format!("failed to decode weight: {:?}", e))?;
 		let storage_changes = changes
 			.drain_storage_changes(
 				&state_ext.backend,

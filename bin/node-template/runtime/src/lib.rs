@@ -569,6 +569,12 @@ impl_runtime_apis! {
 			// have a backtrace here.
 			Executive::try_execute_block(block, state_root_check, signature_check, select).expect("execute-block failed")
 		}
+
+		fn execute_empty_block() {
+			// NOTE: intentional unwrap: we don't want to propagate the error backwards, and want to
+			// have a backtrace here.
+			Executive::try_execute_empty_block().expect("execute-empty-block failed")
+		}
 	}
 }
 

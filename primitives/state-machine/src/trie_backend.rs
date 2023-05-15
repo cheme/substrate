@@ -267,6 +267,11 @@ where
 		self.essence.into_storage()
 	}
 
+	/// Remove iteration caches.
+	pub fn clear_local_execution_caches(&mut self) {
+		self.next_storage_key_cache = Default::default();
+	}
+
 	/// Extract the [`StorageProof`].
 	///
 	/// This only returns `Some` when there was a recorder set.

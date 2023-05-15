@@ -631,7 +631,7 @@ impl State {
 					transport: uri.to_owned().into(),
 					state_snapshot,
 					pallets: pallet.clone(),
-					child_trie: *child_tree,
+					child_trie: true,
 					hashed_keys: vec![
 						// we always download the code, but we almost always won't use it, based on
 						// `Runtime`.
@@ -880,23 +880,24 @@ pub(crate) fn state_machine_call<Block: BlockT, HostFns: HostFunctions>(
 ///
 /// Make sure [`LOG_TARGET`] is enabled in logging.
 pub(crate) fn state_machine_call_with_proof<Block: BlockT, HostFns: HostFunctions>(
-	ext: &TestExternalities,
+	ext: &mut TestExternalities,
 	executor: &WasmExecutor<HostFns>,
 	method: &'static str,
 	data: &[u8],
 	extensions: Extensions,
 	maybe_export_proof: Option<PathBuf>,
-) -> sc_cli::Result<(OverlayedChanges, Vec<u8>)> {
+) -> sc_cli::Result<(OverlayedChanges, Vec<u8>, (usize, usize, usize))> {
 	use parity_scale_codec::Encode;
 
 	let mut changes = Default::default();
-	let backend = ext.backend.clone();
-	let runtime_code_backend = sp_state_machine::backend::BackendRuntimeCode::new(&backend);
+	//let backend = ext.backend.clone();
+	ext.backend.clear_local_execution_caches();
+	let runtime_code_backend = sp_state_machine::backend::BackendRuntimeCode::new(&ext.backend);
 	let proving_backend =
-		TrieBackendBuilder::wrap(&backend).with_recorder(Default::default()).build();
+		TrieBackendBuilder::wrap(&ext.backend).with_recorder(Default::default()).build();
 	let runtime_code = runtime_code_backend.runtime_code()?;
 
-	let pre_root = *backend.root();
+	let pre_root = *ext.backend.root();
 	let encoded_results = StateMachine::new(
 		&proving_backend,
 		&mut changes,
@@ -951,6 +952,7 @@ pub(crate) fn state_machine_call_with_proof<Block: BlockT, HostFns: HostFunction
 		.unwrap_or(CompactProof { encoded_nodes: Default::default() });
 
 	let compact_proof_size = compact_proof.encoded_size();
+	/*
 	let compressed_proof = zstd::stream::encode_all(&compact_proof.encode()[..], 0)
 		.map_err(|e| {
 			log::error!(
@@ -962,8 +964,8 @@ pub(crate) fn state_machine_call_with_proof<Block: BlockT, HostFns: HostFunction
 			e
 		})
 		.unwrap_or_default();
-
-	let proof_nodes = proof.into_nodes();
+*/
+//	let proof_nodes = proof.into_nodes();
 
 	let humanize = |s| {
 		if s < 1024 * 1024 {
@@ -977,23 +979,26 @@ pub(crate) fn state_machine_call_with_proof<Block: BlockT, HostFns: HostFunction
 			)
 		}
 	};
+	/*
 	log::debug!(
 		target: LOG_TARGET,
 		"proof: 0x{}... / {} nodes",
 		HexDisplay::from(&proof_nodes.iter().flatten().cloned().take(10).collect::<Vec<_>>()),
 		proof_nodes.len()
 	);
+	*/
 	log::debug!(target: LOG_TARGET, "proof size: {}", humanize(proof_size));
 	log::debug!(target: LOG_TARGET, "compact proof size: {}", humanize(compact_proof_size),);
-	log::debug!(
+/*	log::debug!(
 		target: LOG_TARGET,
 		"zstd-compressed compact proof {}",
 		humanize(compressed_proof.len()),
 	);
-
+*/
 	log::debug!(target: LOG_TARGET, "{} executed without errors.", method);
 
-	Ok((changes, encoded_results))
+	//Ok((changes, encoded_results, (compact_proof_size, compressed_proof.len(), proof_size)))
+	Ok((changes, encoded_results, (compact_proof_size, 0, proof_size)))
 }
 
 pub(crate) fn rpc_err_handler(error: impl Debug) -> &'static str {
