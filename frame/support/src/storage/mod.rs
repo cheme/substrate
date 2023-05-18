@@ -1514,16 +1514,12 @@ pub fn get_global_extrinsic_count() -> u32 {
 
 /// Set global extrinsic counter.
 pub fn set_global_extrinsic_count(index: u32) {
-	global_runtime_env::with(|env| {
-		env.extrinsic += index
-	});
+	global_runtime_env::with(|env| env.extrinsic += index);
 }
 
 /// Increase global extrinsic counter.
 pub fn increase_global_extrinsic_count() {
-	global_runtime_env::with(|env| {
-		env.extrinsic += 1
-	});
+	global_runtime_env::with(|env| env.extrinsic += 1);
 }
 
 /// Declare global runtime from top level runtime call.

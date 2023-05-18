@@ -66,6 +66,7 @@
 
 #[cfg(feature = "std")]
 use serde::Serialize;
+use sp_io::hashing::blake2_256;
 #[cfg(feature = "runtime-benchmarks")]
 use sp_runtime::traits::TrailingZeroInput;
 use sp_runtime::{
@@ -373,7 +374,6 @@ pub mod pallet {
 	impl<T: Config> Pallet<T> {
 		/// Make some on-chain remark.
 		///
-		/// ## Complexity
 		/// - `O(1)`
 		#[pallet::call_index(0)]
 		#[pallet::weight(T::SystemWeightInfo::remark(_remark.len() as u32))]
@@ -393,31 +393,26 @@ pub mod pallet {
 		}
 
 		/// Set the new runtime code.
-		///
-		/// ## Complexity
-		/// - `O(C + S)` where `C` length of `code` and `S` complexity of `can_set_code`
 		#[pallet::call_index(2)]
-		#[pallet::weight((T::BlockWeights::get().max_block, DispatchClass::Operational))]
+		#[pallet::weight((T::SystemWeightInfo::set_code(), DispatchClass::Operational))]
 		pub fn set_code(origin: OriginFor<T>, code: Vec<u8>) -> DispatchResultWithPostInfo {
 			ensure_root(origin)?;
 			Self::can_set_code(&code)?;
 			T::OnSetCode::set_code(code)?;
-			Ok(().into())
+			// consume the rest of the block to prevent further transactions
+			Ok(Some(T::BlockWeights::get().max_block).into())
 		}
 
 		/// Set the new runtime code without doing any checks of the given `code`.
-		///
-		/// ## Complexity
-		/// - `O(C)` where `C` length of `code`
 		#[pallet::call_index(3)]
-		#[pallet::weight((T::BlockWeights::get().max_block, DispatchClass::Operational))]
+		#[pallet::weight((T::SystemWeightInfo::set_code(), DispatchClass::Operational))]
 		pub fn set_code_without_checks(
 			origin: OriginFor<T>,
 			code: Vec<u8>,
 		) -> DispatchResultWithPostInfo {
 			ensure_root(origin)?;
 			T::OnSetCode::set_code(code)?;
-			Ok(().into())
+			Ok(Some(T::BlockWeights::get().max_block).into())
 		}
 
 		/// Set some items of storage.
@@ -652,7 +647,7 @@ pub mod pallet {
 			<UpgradedToTripleRefCount<T>>::put(true);
 
 			sp_io::storage::set(well_known_keys::CODE, &self.code);
-//			sp_io::storage::set(well_known_keys::EXTRINSIC_INDEX, &0u32.encode());
+			//			sp_io::storage::set(well_known_keys::EXTRINSIC_INDEX, &0u32.encode());
 		}
 	}
 }
@@ -1222,10 +1217,20 @@ impl<T: Config> Pallet<T> {
 		a.consumers == 0 || a.providers > 1
 	}
 
-	/// True if the account has at least one provider reference.
-	pub fn can_inc_consumer(who: &T::AccountId) -> bool {
+	/// True if the account has at least one provider reference and adding `amount` consumer
+	/// references would not take it above the the maximum.
+	pub fn can_accrue_consumers(who: &T::AccountId, amount: u32) -> bool {
 		let a = Account::<T>::get(who);
-		a.providers > 0 && a.consumers < T::MaxConsumers::max_consumers()
+		match a.consumers.checked_add(amount) {
+			Some(c) => a.providers > 0 && c <= T::MaxConsumers::max_consumers(),
+			None => false,
+		}
+	}
+
+	/// True if the account has at least one provider reference and fewer consumer references than
+	/// the maximum.
+	pub fn can_inc_consumer(who: &T::AccountId) -> bool {
+		Self::can_accrue_consumers(who, 1)
 	}
 
 	/// Deposits an event into this block's event record.
@@ -1313,9 +1318,11 @@ impl<T: Config> Pallet<T> {
 	pub fn initialize(number: &T::BlockNumber, parent_hash: &T::Hash, digest: &generic::Digest) {
 		// populate environment
 		ExecutionPhase::<T>::put(Phase::Initialization);
-//		storage::unhashed::put(well_known_keys::EXTRINSIC_INDEX, &0u32);
+		//		storage::unhashed::put(well_known_keys::EXTRINSIC_INDEX, &0u32);
 		frame_support::storage::set_global_extrinsic_count(5u32); // TODO remove (just for test init
-																  // is run correctly).
+														  // is run correctly).
+		let entropy = (b"frame_system::initialize", parent_hash).using_encoded(blake2_256);
+		storage::unhashed::put_raw(well_known_keys::INTRABLOCK_ENTROPY, &entropy[..]);
 		<Number<T>>::put(number);
 		<Digest<T>>::put(digest);
 		<ParentHash<T>>::put(parent_hash);
@@ -1365,6 +1372,7 @@ impl<T: Config> Pallet<T> {
 		);
 		ExecutionPhase::<T>::kill();
 		AllExtrinsicsLen::<T>::kill();
+		storage::unhashed::kill(well_known_keys::INTRABLOCK_ENTROPY);
 
 		// The following fields
 		//
@@ -1382,9 +1390,7 @@ impl<T: Config> Pallet<T> {
 
 		let count = frame_support::storage::get_global_extrinsic_count();
 		assert!(count > 4);
-		let extrinsics = (0..count)
-			.map(ExtrinsicData::<T>::take)
-			.collect();
+		let extrinsics = (0..count).map(ExtrinsicData::<T>::take).collect();
 		let extrinsics_root = extrinsics_data_root::<T::Hashing>(extrinsics);
 
 		// move block hash pruning window by one block
@@ -1410,9 +1416,6 @@ impl<T: Config> Pallet<T> {
 	}
 
 	/// Deposits a log and ensures it matches the block's log data.
-	///
-	/// ## Complexity
-	/// - `O(1)`
 	pub fn deposit_log(item: generic::DigestItem) {
 		<Digest<T>>::append(item);
 	}
@@ -1448,6 +1451,14 @@ impl<T: Config> Pallet<T> {
 		// Dereferencing the events here is fine since we are not in the
 		// memory-restricted runtime.
 		Self::read_events_no_consensus().map(|e| *e).collect()
+	}
+
+	/// Get a single event at specified index.
+	///
+	/// Should only be called if you know what you are doing and outside of the runtime block
+	/// execution else it can have a large impact on the PoV size of a block.
+	pub fn event_no_consensus(index: usize) -> Option<T::RuntimeEvent> {
+		Self::read_events_no_consensus().nth(index).map(|e| e.event.clone())
 	}
 
 	/// Get the current events deposited by the runtime.
@@ -1579,10 +1590,9 @@ impl<T: Config> Pallet<T> {
 	/// To be called immediately after `note_applied_extrinsic` of the last extrinsic of the block
 	/// has been called.
 	pub fn note_finished_extrinsics() {
-		let extrinsic_index: u32 =
-		frame_support::storage::get_global_extrinsic_count();
+		let extrinsic_index: u32 = frame_support::storage::get_global_extrinsic_count();
 		assert!(extrinsic_index > 4);
-//			storage::unhashed::take(well_known_keys::EXTRINSIC_INDEX).unwrap_or_default();
+		//			storage::unhashed::take(well_known_keys::EXTRINSIC_INDEX).unwrap_or_default();
 		ExtrinsicCount::<T>::put(extrinsic_index);
 		ExecutionPhase::<T>::put(Phase::Finalization);
 	}
@@ -1616,16 +1626,34 @@ impl<T: Config> Pallet<T> {
 			.and_then(|v| RuntimeVersion::decode(&mut &v[..]).ok())
 			.ok_or(Error::<T>::FailedToExtractRuntimeVersion)?;
 
-		if new_version.spec_name != current_version.spec_name {
-			return Err(Error::<T>::InvalidSpecName.into())
-		}
+		cfg_if::cfg_if! {
+			if #[cfg(all(feature = "runtime-benchmarks", not(test)))] {
+					// Let's ensure the compiler doesn't optimize our fetching of the runtime version away.
+					core::hint::black_box((new_version, current_version));
+					Ok(())
+			} else {
+				if new_version.spec_name != current_version.spec_name {
+					return Err(Error::<T>::InvalidSpecName.into())
+				}
 
-		if new_version.spec_version <= current_version.spec_version {
-			return Err(Error::<T>::SpecVersionNeedsToIncrease.into())
-		}
+				if new_version.spec_version <= current_version.spec_version {
+					return Err(Error::<T>::SpecVersionNeedsToIncrease.into())
+				}
 
-		Ok(())
+				Ok(())
+			}
+		}
 	}
+}
+
+/// Returns a 32 byte datum which is guaranteed to be universally unique. `entropy` is provided
+/// as a facility to reduce the potential for precalculating results.
+pub fn unique(entropy: impl Encode) -> [u8; 32] {
+	let mut last = [0u8; 32];
+	sp_io::storage::read(well_known_keys::INTRABLOCK_ENTROPY, &mut last[..], 0);
+	let next = (b"frame_system::unique", entropy, last).using_encoded(blake2_256);
+	sp_io::storage::set(well_known_keys::INTRABLOCK_ENTROPY, &next);
+	next
 }
 
 /// Event handler which registers a provider when created.
@@ -1691,8 +1719,10 @@ impl<T: Config> StoredMap<T::AccountId, T::AccountData> for Pallet<T> {
 		let is_default = account.data == T::AccountData::default();
 		let mut some_data = if is_default { None } else { Some(account.data) };
 		let result = f(&mut some_data)?;
-		if Self::providers(k) > 0 {
+		if Self::providers(k) > 0 || Self::sufficients(k) > 0 {
 			Account::<T>::mutate(k, |a| a.data = some_data.unwrap_or_default());
+		} else {
+			Account::<T>::remove(k)
 		}
 		Ok(result)
 	}
