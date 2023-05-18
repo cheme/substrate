@@ -1494,6 +1494,46 @@ pub fn storage_prefix(pallet_name: &[u8], storage_name: &[u8]) -> [u8; 32] {
 	final_key
 }
 
+/// Structure containing global runtime local variable.
+#[derive(Default, Clone)]
+pub struct GlobalRuntimeContent {
+	/// Simple counter primarily targeted at extrinsic numbering.
+	pub extrinsic: u32,
+
+	/// Overlay for storing transient local data.
+	pub overlay: sp_state_machine::Changes,
+}
+
+environmental::environmental!(global_runtime_env: GlobalRuntimeContent);
+
+/// Access global extrinsic counter.
+pub fn get_global_extrinsic_count() -> u32 {
+	global_runtime_env::with(|env| env.extrinsic)
+		.expect("Missing `GlobalRuntimeContent` in the environment.")
+}
+
+/// Set global extrinsic counter.
+pub fn set_global_extrinsic_count(index: u32) {
+	global_runtime_env::with(|env| {
+		env.extrinsic += index
+	});
+}
+
+/// Increase global extrinsic counter.
+pub fn increase_global_extrinsic_count() {
+	global_runtime_env::with(|env| {
+		env.extrinsic += 1
+	});
+}
+
+/// Declare global runtime from top level runtime call.
+pub fn global_runtime_env_using<R, F: FnOnce() -> R>(
+	protected: &mut GlobalRuntimeContent,
+	f: F,
+) -> R {
+	global_runtime_env::using(protected, f)
+}
+
 #[cfg(test)]
 mod test {
 	use super::*;

@@ -80,6 +80,7 @@ pub type OffchainChangesCollection = Vec<((Vec<u8>, Vec<u8>), OffchainOverlayedC
 /// It allows changes to be modified using nestable transactions.
 ///
 /// TODO move all children, orderemaps, blobs under their own struct when possible.
+/// TODO if going global variable direction: split in two struct (or not)
 #[derive(Debug, Default, Clone)]
 pub struct Changes {
 	/// Context of execution.

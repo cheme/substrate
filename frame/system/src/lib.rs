@@ -652,7 +652,7 @@ pub mod pallet {
 			<UpgradedToTripleRefCount<T>>::put(true);
 
 			sp_io::storage::set(well_known_keys::CODE, &self.code);
-			sp_io::storage::set(well_known_keys::EXTRINSIC_INDEX, &0u32.encode());
+//			sp_io::storage::set(well_known_keys::EXTRINSIC_INDEX, &0u32.encode());
 		}
 	}
 }
@@ -1274,7 +1274,9 @@ impl<T: Config> Pallet<T> {
 
 	/// Gets the index of extrinsic that is currently executing.
 	pub fn extrinsic_index() -> Option<u32> {
-		storage::unhashed::get(well_known_keys::EXTRINSIC_INDEX)
+		// TODO change get_global to return option
+		Some(frame_support::storage::get_global_extrinsic_count())
+		//storage::unhashed::get(well_known_keys::EXTRINSIC_INDEX)
 	}
 
 	/// Gets extrinsics count.
@@ -1311,7 +1313,7 @@ impl<T: Config> Pallet<T> {
 	pub fn initialize(number: &T::BlockNumber, parent_hash: &T::Hash, digest: &generic::Digest) {
 		// populate environment
 		ExecutionPhase::<T>::put(Phase::Initialization);
-		storage::unhashed::put(well_known_keys::EXTRINSIC_INDEX, &0u32);
+//		storage::unhashed::put(well_known_keys::EXTRINSIC_INDEX, &0u32);
 		<Number<T>>::put(number);
 		<Digest<T>>::put(digest);
 		<ParentHash<T>>::put(parent_hash);
@@ -1376,7 +1378,8 @@ impl<T: Config> Pallet<T> {
 		let parent_hash = <ParentHash<T>>::get();
 		let digest = <Digest<T>>::get();
 
-		let extrinsics = (0..ExtrinsicCount::<T>::take().unwrap_or_default())
+		let count = frame_support::storage::get_global_extrinsic_count();
+		let extrinsics = (0..count)
 			.map(ExtrinsicData::<T>::take)
 			.collect();
 		let extrinsics_root = extrinsics_data_root::<T::Hashing>(extrinsics);
@@ -1463,7 +1466,8 @@ impl<T: Config> Pallet<T> {
 	/// Sets the index of extrinsic that is currently executing.
 	#[cfg(any(feature = "std", test))]
 	pub fn set_extrinsic_index(extrinsic_index: u32) {
-		storage::unhashed::put(well_known_keys::EXTRINSIC_INDEX, &extrinsic_index)
+		frame_support::storage::set_global_extrinsic_count(extrinsic_index);
+		//storage::unhashed::put(well_known_keys::EXTRINSIC_INDEX, &extrinsic_index)
 	}
 
 	/// Set the parent hash number to something in particular. Can be used as an alternative to
@@ -1564,7 +1568,8 @@ impl<T: Config> Pallet<T> {
 
 		let next_extrinsic_index = Self::extrinsic_index().unwrap_or_default() + 1u32;
 
-		storage::unhashed::put(well_known_keys::EXTRINSIC_INDEX, &next_extrinsic_index);
+		frame_support::storage::set_global_extrinsic_count(next_extrinsic_index);
+		//storage::unhashed::put(well_known_keys::EXTRINSIC_INDEX, &next_extrinsic_index);
 		ExecutionPhase::<T>::put(Phase::ApplyExtrinsic(next_extrinsic_index));
 	}
 
@@ -1572,7 +1577,8 @@ impl<T: Config> Pallet<T> {
 	/// has been called.
 	pub fn note_finished_extrinsics() {
 		let extrinsic_index: u32 =
-			storage::unhashed::take(well_known_keys::EXTRINSIC_INDEX).unwrap_or_default();
+		frame_support::storage::get_global_extrinsic_count();
+//			storage::unhashed::take(well_known_keys::EXTRINSIC_INDEX).unwrap_or_default();
 		ExtrinsicCount::<T>::put(extrinsic_index);
 		ExecutionPhase::<T>::put(Phase::Finalization);
 	}

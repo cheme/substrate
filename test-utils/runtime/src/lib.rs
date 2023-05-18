@@ -172,6 +172,8 @@ pub enum Extrinsic {
 	///
 	/// Panics if it can not read `X` times.
 	Read(u32),
+	/// Inc counter and return it.
+	IncExtCount,
 }
 
 #[cfg(feature = "std")]
@@ -220,6 +222,7 @@ impl BlindCheckable for Extrinsic {
 			Extrinsic::Store(data) => Ok(Extrinsic::Store(data)),
 			Extrinsic::ReadAndPanic(i) => Ok(Extrinsic::ReadAndPanic(i)),
 			Extrinsic::Read(i) => Ok(Extrinsic::Read(i)),
+			Extrinsic::IncExtCount => Ok(Extrinsic::IncExtCount),
 		}
 	}
 }

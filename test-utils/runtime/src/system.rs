@@ -277,6 +277,11 @@ fn execute_transaction_backend(utx: &Extrinsic, extrinsic_index: u32) -> ApplyEx
 		Extrinsic::Store(data) => execute_store(data.clone()),
 		Extrinsic::ReadAndPanic(i) => execute_read(*i, true),
 		Extrinsic::Read(i) => execute_read(*i, false),
+		Extrinsic::IncExtCount => {
+			storage::increase_global_extrinsic_count();
+			storage::get_global_extrinsic_count();
+			Ok(Ok(()))
+		},
 	}
 }
 
