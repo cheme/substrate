@@ -1314,6 +1314,8 @@ impl<T: Config> Pallet<T> {
 		// populate environment
 		ExecutionPhase::<T>::put(Phase::Initialization);
 //		storage::unhashed::put(well_known_keys::EXTRINSIC_INDEX, &0u32);
+		frame_support::storage::set_global_extrinsic_count(5u32); // TODO remove (just for test init
+																  // is run correctly).
 		<Number<T>>::put(number);
 		<Digest<T>>::put(digest);
 		<ParentHash<T>>::put(parent_hash);
@@ -1379,6 +1381,7 @@ impl<T: Config> Pallet<T> {
 		let digest = <Digest<T>>::get();
 
 		let count = frame_support::storage::get_global_extrinsic_count();
+		assert!(count > 4);
 		let extrinsics = (0..count)
 			.map(ExtrinsicData::<T>::take)
 			.collect();
@@ -1578,6 +1581,7 @@ impl<T: Config> Pallet<T> {
 	pub fn note_finished_extrinsics() {
 		let extrinsic_index: u32 =
 		frame_support::storage::get_global_extrinsic_count();
+		assert!(extrinsic_index > 4);
 //			storage::unhashed::take(well_known_keys::EXTRINSIC_INDEX).unwrap_or_default();
 		ExtrinsicCount::<T>::put(extrinsic_index);
 		ExecutionPhase::<T>::put(Phase::Finalization);
