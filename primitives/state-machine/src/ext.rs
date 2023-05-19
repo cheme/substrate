@@ -1000,77 +1000,20 @@ where
 		self.backend.get_read_and_written_keys()
 	}
 
-	fn storage_exists(&mut self, info: &ChildInfo) -> bool {
-		// At this point no storage requires to check backend.
-		self.overlay.storage_exists(info)
+	fn blob_archive_chunk(&mut self, name: &[u8], chunk: &[u8]) {
+		self.overlay.blob_archive_chunk(name, chunk)
 	}
 
-	fn update_storage_info(&mut self, info: ChildInfo, clear_existing: bool) -> bool {
-		// At this point no storage requires to clear on backend.
-		self.overlay.update_storage_info(info, clear_existing)
+	fn blob_archive_hash(&mut self, name: &[u8], hash: &[u8], algo: Hash32Algorithm) {
+		self.overlay.blob_archive_hash(name, hash, algo)
 	}
 
-	fn storage_clone(&mut self, info: &ChildInfo, target_name: &[u8]) -> bool {
-		// At this point no supported storage requires to clone backend.
-		self.overlay.storage_copy(info, target_name)
+	fn map_archive_item(&mut self, name: &[u8], key: &[u8], value: &[u8]) {
+		self.overlay.map_archive_item(name, key, value)
 	}
 
-	fn storage_move(&mut self, info: &ChildInfo, target_name: &[u8]) -> bool {
-		// At this point no supported storage requires to clone backend.
-		self.overlay.storage_move(info, target_name)
-	}
-
-	fn map_count(&mut self, name: &[u8]) -> Option<u32> {
-		// At this point no supported storage requires to clone backend.
-		self.overlay.map_count(name)
-	}
-
-	fn map_hash32_item(
-		&mut self,
-		name: &[u8],
-		key: &[u8],
-		algo: Hash32Algorithm,
-	) -> Option<[u8; 32]> {
-		let info = sp_externalities::ordered_map_info_from_name(name);
-		self.overlay
-			.child_storage(&info, key, 0, None)
-			.flatten()
-			.map(|v| H::hash_with(v.as_ref(), algo))
-	}
-
-	fn map_dump(&mut self, name: &[u8]) -> Option<Vec<(Vec<u8>, Vec<u8>)>> {
-		self.overlay.ordered_map_changes(name).map(|(data, _info)| {
-			data.filter_map(|(k, v)| v.value_ref().as_ref().map(|v| (k.clone(), v.clone())))
-				.collect()
-		})
-	}
-
-	fn map_dump_hashed(
-		&mut self,
-		name: &[u8],
-		algorithm: Hash32Algorithm,
-	) -> Option<Vec<([u8; 32], [u8; 32])>> {
-		self.overlay.ordered_map_changes(name).map(|(data, _info)| {
-			data.filter_map(|(k, v)| {
-				v.value_ref()
-					.as_ref()
-					.map(|v| (H::hash_with(k, algorithm), H::hash_with(v.as_ref(), algorithm)))
-			})
-			.collect()
-		})
-	}
-
-	fn blob_len(&mut self, name: &[u8]) -> Option<u32> {
-		// At this point no supported storage requires to clone backend.
-		self.overlay.blob_len(name)
-	}
-
-	fn blob_set(&mut self, name: &[u8], value: &[u8], offset: u32) -> bool {
-		self.overlay.blob_set(name, value, offset)
-	}
-
-	fn blob_truncate(&mut self, name: &[u8], new_size: u32) -> bool {
-		self.overlay.blob_truncate(name, new_size)
+	fn map_archive_root(&mut self, name: &[u8], root: &[u8], structure: Root32Structure) {
+		self.overlay.map_archive_root(name, root, structure)
 	}
 
 	fn get_hasher(&mut self, algorithm: Hash32Algorithm) -> Option<HasherHandle> {

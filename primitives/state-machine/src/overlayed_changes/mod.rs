@@ -30,10 +30,13 @@ use sp_core::HashersExternalities;
 use sp_core::{
 	offchain::OffchainOverlayedChange,
 	storage::{
+		transient::{Hash32Algorithm, Mode, Root32Structure},
 		Blob as BlobInfo, ChildInfo, DefaultChild, Name, OrderedMap as OrdMapInfo, StateVersion,
 		TransientInfo, BLOB_CHUNK_SIZE,
 	},
+	Hashers,
 };
+use sp_externalities::ordered_map_info_from_name;
 #[cfg(feature = "std")]
 use sp_externalities::{Extension, Extensions};
 #[cfg(not(feature = "std"))]
@@ -101,7 +104,146 @@ pub struct Changes {
 	stats: StateMachineStats,
 	#[cfg(feature = "std")]
 	pub(crate) hashers: HashersExternalities,
+
+	/// Oredered maps to archive, this is a flat storage (no transaction).
+	/// Can only be written.
+	archive_blobs: Map<Name, (BlobMeta, Vec<u8>)>,
+
+	/// Blob to archive, this is a flat storage (no transaction).
+	/// Can only be written.
+	archive_ordered_maps: Map<Name, (OrdMapMeta, Vec<(Vec<u8>, Option<Vec<u8>>)>)>,
 }
+
+impl Changes {
+	/// Put a chunk to be archive.
+	pub fn blob_archive_chunk(&mut self, name: &[u8], chunk: &[u8]) {
+		let mut entry = self.archive_blobs.entry(name.to_vec()).or_insert_with(|| {
+			(
+				MovableMeta {
+					infos: TransientInfo {
+						name: name.to_vec(),
+						mode: Some(Mode::Archive),
+						algorithm: None,
+					},
+					size: 0,
+					cached_hash: None,
+					removed: false,
+				},
+				Default::default(),
+			)
+		});
+		entry.0.size += chunk.len();
+		entry.1.extend_from_slice(chunk);
+	}
+
+	/// Put a blob hash to be archive.
+	pub fn blob_archive_hash(&mut self, name: &[u8], hash: &[u8], algo: Hash32Algorithm) {
+		let mut entry = self.archive_blobs.entry(name.to_vec()).or_insert_with(|| {
+			(
+				MovableMeta {
+					infos: TransientInfo {
+						name: name.to_vec(),
+						mode: Some(Mode::Archive),
+						algorithm: None,
+					},
+					size: 0,
+					cached_hash: None,
+					removed: false,
+				},
+				Default::default(),
+			)
+		});
+		entry.0.infos.algorithm = Some(algo);
+		entry.0.cached_hash = Some(hash.to_vec());
+	}
+
+	/// Put a map key value to be archive.
+	pub fn map_archive_item(&mut self, name: &[u8], key: &[u8], value: &[u8]) {
+		let mut entry = self.archive_ordered_maps.entry(name.to_vec()).or_insert_with(|| {
+			(
+				MovableMeta {
+					infos: TransientInfo {
+						name: name.to_vec(),
+						mode: Some(Mode::Archive),
+						algorithm: None,
+					},
+					size: 0,
+					cached_hash: None,
+					removed: false,
+				},
+				Default::default(),
+			)
+		});
+		entry.0.size += 1;
+		entry.1.push((key.to_vec(), Some(value.to_vec())));
+	}
+
+	/// Put a map root to be archive.
+	pub fn map_archive_root(&mut self, name: &[u8], root: &[u8], algo: Root32Structure) {
+		let mut entry = self.archive_ordered_maps.entry(name.to_vec()).or_insert_with(|| {
+			(
+				MovableMeta {
+					infos: TransientInfo {
+						name: name.to_vec(),
+						mode: Some(Mode::Archive),
+						algorithm: None,
+					},
+					size: 0,
+					cached_hash: None,
+					removed: false,
+				},
+				Default::default(),
+			)
+		});
+		entry.0.infos.algorithm = Some(algo);
+		entry.0.cached_hash = Some(root.to_vec());
+	}
+}
+/*
+impl Changes {
+	/// Returns Some iff the map name exists and contains key. If so, the inner value is the value
+	/// associated with key when hashed with algorithm.
+	pub fn map_hash32_item<H: Hashers>(
+		&mut self,
+		name: &[u8],
+		key: &[u8],
+		algo: Hash32Algorithm,
+	) -> Option<[u8; 32]> {
+		let info: ChildInfo = ordered_map_info_from_name(name);
+		self.child_storage(&info, key, 0, None)
+			.flatten()
+			.map(|v| H::hash_with(v.as_ref(), algo))
+	}
+
+	/// Returns Some of a Vec of all items in the map name, sorted; or None if the map name does not
+	/// exist.
+	pub fn map_dump<H: Hashers>(&mut self, name: &[u8]) -> Option<Vec<(Vec<u8>, Vec<u8>)>> {
+		self.ordered_map_changes(name).map(|(data, _info)| {
+			data.filter_map(|(k, v)| v.value_ref().as_ref().map(|v| (k.clone(), v.clone())))
+				.collect()
+		})
+	}
+
+	/// Returns Some of a Vec of all pairs of keys and values in the map name hashed with algorithm
+	/// and in order of the (unhashed) key; or None if the map name does not exist.
+	/// TODO question hashing key (except for equality checking, issue here is we don't have
+	/// preimage).
+	pub fn map_dump_hashed<H: Hashers>(
+		&mut self,
+		name: &[u8],
+		algorithm: Hash32Algorithm,
+	) -> Option<Vec<([u8; 32], [u8; 32])>> {
+		self.ordered_map_changes(name).map(|(data, _info)| {
+			data.filter_map(|(k, v)| {
+				v.value_ref()
+					.as_ref()
+					.map(|v| (H::hash_with(k, algorithm), H::hash_with(v.as_ref(), algorithm)))
+			})
+			.collect()
+		})
+	}
+}
+*/
 
 /// Changes for movable transient stoarge.
 ///
@@ -364,7 +506,7 @@ impl Changes {
 	) -> Option<(impl Iterator<Item = [u8; BLOB_CHUNK_SIZE]>, BlobMeta)> {
 		let infos = infos.into_value();
 
-		if !matches!(infos.infos.mode, Some(sp_core::storage::transient::Mode::Archive)) {
+		if !matches!(infos.infos.mode, Some(Mode::Archive)) {
 			return None
 		}
 
@@ -495,7 +637,7 @@ impl Changes {
 		}
 	}
 
-	pub(crate) fn blob_set(&mut self, name: &[u8], value: &[u8], offset: u32) -> bool {
+	pub fn blob_set(&mut self, name: &[u8], value: &[u8], offset: u32) -> bool {
 		let Some(previous_len) = self.blob_len(name) else {
 			return false;
 		};
@@ -534,7 +676,7 @@ impl Changes {
 		}
 	}
 
-	pub(crate) fn blob_truncate(&mut self, name: &[u8], new_len: u32) -> bool {
+	pub fn blob_truncate(&mut self, name: &[u8], new_len: u32) -> bool {
 		let Some(previous_len) = self.blob_len(name) else {
 			return false;
 		};
@@ -830,24 +972,10 @@ impl Changes {
 			take(&mut self.children)
 				.into_iter()
 				.map(|(key, child)| (key, (child.changes.drain_committed(), child.infos))),
-			take(&mut self.ordered_maps).into_iter().map(|(_key, mut ordmap)| {
-				(
-					ordmap.infos.drain_committed(),
-					sp_std::mem::take(unsafe { rc_mut_unchecked(&mut ordmap.changes) })
-						.drain_committed(),
-				)
-			}),
-			take(&mut self.blobs).into_iter().filter_map(|(_key, blob)| {
-				if let Some((iter, info)) =
-					Self::blob_chunks_into_committed(blob.changes, blob.infos)
-				{
-					// TODO this is too costy, just send the info not concatenated ???
-					let blob: Blob = blob_from_chunks(iter, info.size);
-					Some((info, blob))
-				} else {
-					None
-				}
-			}),
+			take(&mut self.archive_ordered_maps)
+				.into_values()
+				.map(|(infos, changes)| (infos, changes.into_iter())),
+			take(&mut self.archive_blobs).into_values(),
 		)
 	}
 
@@ -1476,6 +1604,8 @@ impl From<sp_core::storage::Storage> for Changes {
 			stats: Default::default(),
 			#[cfg(feature = "std")]
 			hashers: Default::default(),
+			archive_ordered_maps: Default::default(),
+			archive_blobs: Default::default(),
 		}
 	}
 }

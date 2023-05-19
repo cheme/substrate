@@ -647,7 +647,13 @@ pub mod pallet {
 			<UpgradedToTripleRefCount<T>>::put(true);
 
 			sp_io::storage::set(well_known_keys::CODE, &self.code);
-			//			sp_io::storage::set(well_known_keys::EXTRINSIC_INDEX, &0u32.encode());
+			sp_io::storage::set(well_known_keys::EXTRINSIC_INDEX, &0u32.encode()); // TODO rem this
+			                                                           // (but at this
+			                                                           // point very
+			                                                           // noisy (change
+			                                                           // hardcoded
+			                                                           // roots in
+			                                                           // tests).
 		}
 	}
 }
@@ -1318,7 +1324,8 @@ impl<T: Config> Pallet<T> {
 	pub fn initialize(number: &T::BlockNumber, parent_hash: &T::Hash, digest: &generic::Digest) {
 		// populate environment
 		ExecutionPhase::<T>::put(Phase::Initialization);
-		//		storage::unhashed::put(well_known_keys::EXTRINSIC_INDEX, &0u32);
+		storage::unhashed::put(well_known_keys::EXTRINSIC_INDEX, &0u32); // TODO rem (but noisy at
+																 // this point).
 		let entropy = (b"frame_system::initialize", parent_hash).using_encoded(blake2_256);
 		storage::unhashed::put_raw(well_known_keys::INTRABLOCK_ENTROPY, &entropy[..]);
 		frame_support::storage::set_global_extrinsic_count(0u32);

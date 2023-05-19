@@ -17,6 +17,13 @@
 
 //! Stuff to do with the runtime's storage.
 
+pub use self::{
+	stream_iter::StorageStreamIter,
+	transactional::{
+		in_storage_layer, with_storage_layer, with_transaction, with_transaction_unchecked,
+	},
+	types::StorageEntryMetadataBuilder,
+};
 use crate::{
 	hash::{ReversibleStorageHasher, StorageHasher},
 	storage::types::{
@@ -25,18 +32,13 @@ use crate::{
 	},
 };
 use codec::{Decode, Encode, EncodeLike, FullCodec, FullEncode};
-use sp_core::storage::ChildInfo;
-use sp_runtime::generic::{Digest, DigestItem};
-use sp_std::{collections::btree_set::BTreeSet, marker::PhantomData, prelude::*};
-
-pub use self::{
-	stream_iter::StorageStreamIter,
-	transactional::{
-		in_storage_layer, with_storage_layer, with_transaction, with_transaction_unchecked,
-	},
-	types::StorageEntryMetadataBuilder,
+use sp_core::{
+	storage::{Blob as BlobInfo, ChildInfo, OrderedMap as OrdMapInfo},
+	Hash32Algorithm,
 };
+use sp_runtime::generic::{Digest, DigestItem};
 pub use sp_runtime::TransactionOutcome;
+use sp_std::{collections::btree_set::BTreeSet, marker::PhantomData, prelude::*};
 pub use types::Key;
 
 pub mod bounded_btree_map;
@@ -1505,6 +1507,7 @@ pub struct GlobalRuntimeContent {
 }
 
 environmental::environmental!(global_runtime_env: GlobalRuntimeContent, with_init);
+// TODO move all in an env module
 
 /// Reset env before each processing (generally
 /// a call to `global_runtime_env_using` is enough
@@ -1534,6 +1537,106 @@ pub fn global_runtime_env_using<R, F: FnOnce() -> R>(
 	f: F,
 ) -> R {
 	global_runtime_env::using(protected, f)
+}
+
+pub fn storage_exists(info: &ChildInfo) -> bool {
+	global_runtime_env::with_or(|env| env.overlay.storage_exists(info), Default::default)
+}
+
+pub fn update_storage_info(info: ChildInfo, clear_existing: bool) -> bool {
+	global_runtime_env::with_or(
+		|env| env.overlay.update_storage_info(info, clear_existing),
+		Default::default,
+	)
+}
+
+pub fn storage_clone(info: &ChildInfo, target_name: &[u8]) -> bool {
+	global_runtime_env::with_or(|env| env.overlay.storage_copy(info, target_name), Default::default)
+}
+
+pub fn storage_move(info: &ChildInfo, target_name: &[u8]) -> bool {
+	global_runtime_env::with_or(|env| env.overlay.storage_move(info, target_name), Default::default)
+}
+
+pub fn map_count(name: &[u8]) -> Option<u32> {
+	global_runtime_env::with_or(|env| env.overlay.map_count(name), Default::default)
+}
+
+pub fn hash_with(data: &[u8], algo: Hash32Algorithm) -> [u8; 32] {
+	match algo {
+		Hash32Algorithm::Blake2b256 => sp_io::hashing::blake2_256(data),
+	}
+}
+
+pub fn map_hash32_item(name: &[u8], key: &[u8], algo: Hash32Algorithm) -> Option<[u8; 32]> {
+	global_runtime_env::with_or(
+		|env| {
+			let info = ordered_map_info_from_name(name);
+			env.overlay
+				.child_storage(&info, key, 0, None)
+				.flatten()
+				.map(|v| hash_with(v.as_ref(), algo))
+		},
+		Default::default,
+	)
+}
+
+pub fn map_dump(name: &[u8]) -> Option<Vec<(Vec<u8>, Vec<u8>)>> {
+	global_runtime_env::with_or(
+		|env| {
+			let info = ordered_map_info_from_name(name);
+			env.overlay.ordered_map_changes(name).map(|(data, _info)| {
+				data.filter_map(|(k, v)| v.value_ref().as_ref().map(|v| (k.clone(), v.clone())))
+					.collect()
+			})
+		},
+		Default::default,
+	)
+}
+
+pub fn map_dump_hashed(
+	name: &[u8],
+	algorithm: Hash32Algorithm,
+) -> Option<Vec<([u8; 32], [u8; 32])>> {
+	global_runtime_env::with_or(
+		|env| {
+			env.overlay.ordered_map_changes(name).map(|(data, _info)| {
+				data.filter_map(|(k, v)| {
+					v.value_ref()
+						.as_ref()
+						.map(|v| (hash_with(k, algorithm), hash_with(v.as_ref(), algorithm)))
+				})
+				.collect()
+			})
+		},
+		Default::default,
+	)
+}
+
+pub fn blob_len(name: &[u8]) -> Option<u32> {
+	global_runtime_env::with_or(
+		|env| {
+			// At this point no supported storage requires to clone backend.
+			env.overlay.blob_len(name)
+		},
+		Default::default,
+	)
+}
+
+pub fn blob_set(name: &[u8], value: &[u8], offset: u32) -> bool {
+	global_runtime_env::with_or(|env| env.overlay.blob_set(name, value, offset), Default::default)
+}
+
+pub fn blob_truncate(name: &[u8], new_size: u32) -> bool {
+	global_runtime_env::with_or(|env| env.overlay.blob_truncate(name, new_size), Default::default)
+}
+
+pub fn blob_info_from_name(name: &[u8]) -> ChildInfo {
+	ChildInfo::Blob(BlobInfo { name: name.to_vec(), mode: None, algorithm: None })
+}
+
+pub fn ordered_map_info_from_name(name: &[u8]) -> ChildInfo {
+	ChildInfo::OrderedMap(OrdMapInfo { name: name.to_vec(), mode: None, algorithm: None })
 }
 
 #[cfg(test)]

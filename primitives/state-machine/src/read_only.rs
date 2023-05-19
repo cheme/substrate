@@ -21,7 +21,10 @@ use crate::{Backend, StorageKey, StorageValue};
 use codec::Encode;
 use hash_db::Hasher;
 use sp_core::{
-	storage::{transient::Hash32Algorithm, ChildInfo, ChildType, StateVersion, TrackedStorageKey},
+	storage::{
+		transient::{Hash32Algorithm, Root32Structure},
+		ChildInfo, ChildType, StateVersion, TrackedStorageKey,
+	},
 	traits::Externalities,
 	HasherHandle,
 };
@@ -269,72 +272,20 @@ where
 		unimplemented!("get_read_and_written_keys is not supported in ReadOnlyExternalities")
 	}
 
-	fn storage_exists(&mut self, info: &ChildInfo) -> bool {
-		match info.child_type() {
-			// default child storage are viewed as always existing
-			// with empty root.
-			ChildType::Default => true,
-			ChildType::OrderedMap | ChildType::Blob => false,
-		}
+	fn blob_archive_chunk(&mut self, _name: &[u8], _chunk: &[u8]) {
+		unimplemented!("blob_archive_chunk is not supported in ReadOnlyExternalities")
 	}
 
-	fn update_storage_info(&mut self, _info: ChildInfo, _clear_existing: bool) -> bool {
-		unimplemented!("update_storage_info is not supported in ReadOnlyExternalities")
+	fn blob_archive_hash(&mut self, _name: &[u8], _hash: &[u8], _algo: Hash32Algorithm) {
+		unimplemented!("blob_archive_hash is not supported in ReadOnlyExternalities")
 	}
 
-	fn storage_clone(&mut self, _info: &ChildInfo, _target_name: &[u8]) -> bool {
-		unimplemented!("storage_clone is not supported in ReadOnlyExternalities")
+	fn map_archive_item(&mut self, _name: &[u8], _key: &[u8], _value: &[u8]) {
+		unimplemented!("map_archive_item is not supported in ReadOnlyExternalities")
 	}
 
-	fn storage_move(&mut self, _info: &ChildInfo, _target_name: &[u8]) -> bool {
-		unimplemented!("storage_move is not supported in ReadOnlyExternalities")
-	}
-
-	fn map_count(&mut self, _name: &[u8]) -> Option<u32> {
-		// no change set so no transient ordered map
-		None
-	}
-
-	fn map_hash32_item(
-		&mut self,
-		_name: &[u8],
-		_key: &[u8],
-		_algo: Hash32Algorithm,
-	) -> Option<[u8; 32]> {
-		// no change set so no transient ordered map
-		None
-	}
-
-	fn map_dump(&mut self, _name: &[u8]) -> Option<Vec<(Vec<u8>, Vec<u8>)>> {
-		// no change set so no transient ordered map
-		None
-	}
-
-	fn map_dump_hashed(
-		&mut self,
-		_name: &[u8],
-		_algorithm: Hash32Algorithm,
-	) -> Option<Vec<([u8; 32], [u8; 32])>> {
-		// no change set so no transient ordered map
-		None
-	}
-
-	fn blob_len(&mut self, _name: &[u8]) -> Option<u32> {
-		// no change set so no transient blob
-		None
-	}
-
-	fn blob_hash32(&mut self, _name: &[u8], _algo: Hash32Algorithm) -> Option<[u8; 32]> {
-		// no change set so no transient blob
-		None
-	}
-
-	fn blob_set(&mut self, _name: &[u8], _value: &[u8], _offset: u32) -> bool {
-		false
-	}
-
-	fn blob_truncate(&mut self, _name: &[u8], _new_size: u32) -> bool {
-		false
+	fn map_archive_root(&mut self, _name: &[u8], _root: &[u8], _structure: Root32Structure) {
+		unimplemented!("map_archive_root is not supported in ReadOnlyExternalities")
 	}
 
 	fn get_hasher(&mut self, _algorithm: Hash32Algorithm) -> Option<HasherHandle> {

@@ -639,95 +639,106 @@ pub trait Trie {
 /// TODO read and len can simply supersed blob get (can be written with it).
 #[runtime_interface]
 pub trait BlobStorage {
-	/// Create a new empty blob.
-	/// Clear possibly existing blob.
-	fn new(&mut self, name: &[u8], mode: Crossing<TransientMode>) {
-		self.blob_new(name, mode.0)
-	}
-
-	/// Returns true iff the blob name is present in execution state.
-	fn exists(&mut self, name: &[u8]) -> bool {
-		self.blob_exists(name)
-	}
-
-	/// Delete blob if present, return false otherwise.
-	fn delete(&mut self, name: &[u8]) -> bool {
-		self.blob_exists(name)
-	}
-
-	/// Clone blob value under a different name.
-	/// If origin does not exist, this does nothing and return false.
-	/// Target content is overwritten.
-	///
-	/// Do nothing and return false if `target_name` is the same as origin `name`.
-	fn clone(&mut self, name: &[u8], target_name: &[u8]) -> bool {
-		self.blob_clone(name, target_name)
-	}
-
-	/// Move blob value under a different name.
-	/// If origin does not exist, this does nothing and return false.
-	/// If target exists, it is overwritten.
-	///
-	/// Do nothing and return true if `target_name` is the same as origin `name`.
-	fn rename(&mut self, name: &[u8], target_name: &[u8]) -> bool {
-		self.blob_rename(name, target_name)
-	}
-
-	/// Write value into a blob.
-	///
-	/// If data is present at offset, it is overwritten by new value.
-	/// If new value is written beyond blob size, the value is appended
-	/// to the blob.
-	///
-	/// If blob does not exist, the operation is ignored and false
-	/// is returned.
-	///
-	/// If offset is bigger than current blog size the operation is
-	/// ignored and false is returned.
-	///
-	/// If size of resulting blob is over u32::MAX bytes, this is ignored
-	/// and return false.
-	fn set(&mut self, name: &[u8], value: &[u8], offset: u32) -> bool {
-		self.blob_set(name, value, offset)
-	}
-
-	/// Truncate blob to a given size.
-	/// If blob is smaller or already this size, do nothing and return false.
-	/// If blob is missing return false.
-	fn truncate(&mut self, name: &[u8], new_size: u32) -> bool {
-		self.blob_truncate(name, new_size)
-	}
-
-	/// Try to fill `value_out` buffer with blob content.
-	/// Returns false if blob do not exist or buffer len is bigger than u32::MAX.
-	/// Return the number of read bytes otherwhise.
-	fn read(&mut self, name: &[u8], value_out: &mut [u8], value_offset: u32) -> Option<u32> {
-		let len = value_out.len();
-		if len > u32::MAX as usize {
-			return None
+	/*
+		/// Create a new empty blob.
+		/// Clear possibly existing blob.
+		fn new(&mut self, name: &[u8], mode: Crossing<TransientMode>) {
+			self.blob_new(name, mode.0)
 		}
-		self.blob_get(name, Some(len as u32), value_offset).map(|value| {
-			let written = std::cmp::min(value.len(), value_out.len());
-			value_out[..written].copy_from_slice(&value[..written]);
-			written as u32
-		})
+
+		/// Returns true iff the blob name is present in execution state.
+		fn exists(&mut self, name: &[u8]) -> bool {
+			self.blob_exists(name)
+		}
+
+		/// Delete blob if present, return false otherwise.
+		fn delete(&mut self, name: &[u8]) -> bool {
+			self.blob_exists(name)
+		}
+
+		/// Clone blob value under a different name.
+		/// If origin does not exist, this does nothing and return false.
+		/// Target content is overwritten.
+		///
+		/// Do nothing and return false if `target_name` is the same as origin `name`.
+		fn clone(&mut self, name: &[u8], target_name: &[u8]) -> bool {
+			self.blob_clone(name, target_name)
+		}
+
+		/// Move blob value under a different name.
+		/// If origin does not exist, this does nothing and return false.
+		/// If target exists, it is overwritten.
+		///
+		/// Do nothing and return true if `target_name` is the same as origin `name`.
+		fn rename(&mut self, name: &[u8], target_name: &[u8]) -> bool {
+			self.blob_rename(name, target_name)
+		}
+
+		/// Write value into a blob.
+		///
+		/// If data is present at offset, it is overwritten by new value.
+		/// If new value is written beyond blob size, the value is appended
+		/// to the blob.
+		///
+		/// If blob does not exist, the operation is ignored and false
+		/// is returned.
+		///
+		/// If offset is bigger than current blog size the operation is
+		/// ignored and false is returned.
+		///
+		/// If size of resulting blob is over u32::MAX bytes, this is ignored
+		/// and return false.
+		fn set(&mut self, name: &[u8], value: &[u8], offset: u32) -> bool {
+			self.blob_set(name, value, offset)
+		}
+
+		/// Truncate blob to a given size.
+		/// If blob is smaller or already this size, do nothing and return false.
+		/// If blob is missing return false.
+		fn truncate(&mut self, name: &[u8], new_size: u32) -> bool {
+			self.blob_truncate(name, new_size)
+		}
+
+		/// Try to fill `value_out` buffer with blob content.
+		/// Returns false if blob do not exist or buffer len is bigger than u32::MAX.
+		/// Return the number of read bytes otherwhise.
+		fn read(&mut self, name: &[u8], value_out: &mut [u8], value_offset: u32) -> Option<u32> {
+			let len = value_out.len();
+			if len > u32::MAX as usize {
+				return None
+			}
+			self.blob_get(name, Some(len as u32), value_offset).map(|value| {
+				let written = std::cmp::min(value.len(), value_out.len());
+				value_out[..written].copy_from_slice(&value[..written]);
+				written as u32
+			})
+		}
+
+		/// Get value for the blob.
+		/// Returns the full blob.
+		/// Returns `None` if the blob does not exist.
+		fn get(&mut self, name: &[u8]) -> Option<Vec<u8>> {
+			self.blob_get(name, None, 0).map(Into::into)
+		}
+
+		/// Returns size of the blob for a given name, or `None` if the blob does not exist.
+		fn len(&mut self, name: &[u8]) -> Option<u32> {
+			self.blob_len(name)
+		}
+
+		/// If blob exists, return it's hash for a given algorithm.
+		fn hash32(&mut self, name: &[u8], algorithm: Crossing<Hash32Algorithm>) -> Option<[u8; 32]> {
+			self.blob_hash32(name, algorithm.0)
+		}
+	*/
+	/// Put a chunk to be archive.
+	fn archive_blob_chunk(&mut self, name: &[u8], chunk: &[u8]) {
+		self.blob_archive_chunk(name, chunk);
 	}
 
-	/// Get value for the blob.
-	/// Returns the full blob.
-	/// Returns `None` if the blob does not exist.
-	fn get(&mut self, name: &[u8]) -> Option<Vec<u8>> {
-		self.blob_get(name, None, 0).map(Into::into)
-	}
-
-	/// Returns size of the blob for a given name, or `None` if the blob does not exist.
-	fn len(&mut self, name: &[u8]) -> Option<u32> {
-		self.blob_len(name)
-	}
-
-	/// If blob exists, return it's hash for a given algorithm.
-	fn hash32(&mut self, name: &[u8], algorithm: Crossing<Hash32Algorithm>) -> Option<[u8; 32]> {
-		self.blob_hash32(name, algorithm.0)
+	/// Put a blob hash to be archive.
+	fn archive_blob_hash(&mut self, name: &[u8], hash: &[u8], algo: Crossing<Hash32Algorithm>) {
+		self.blob_archive_hash(name, hash, algo.0);
 	}
 }
 
@@ -749,132 +760,148 @@ pub trait BlobStorage {
 /// Alternative would be default transient mode.
 #[runtime_interface]
 pub trait OrderedMapStorage {
-	/// Create a new empty transient map.
-	/// Clear possibly existing map.
-	fn new(&mut self, name: &[u8], mode: Crossing<TransientMode>) {
-		self.map_new(name, mode.0)
-	}
-
-	/// Returns true iff the map name is present in execution state.
-	fn exists(&mut self, name: &[u8]) -> bool {
-		self.map_exists(name)
-	}
-
-	/// Delete ordered map if present or return false.
-	fn delete(&mut self, name: &[u8]) -> bool {
-		self.map_delete(name)
-	}
-
-	/// Clone ordered map content under a different name.
-	/// If origin does not exist, this does nothing and return false.
-	/// Target content is overwritten.
-	fn clone(&mut self, name: &[u8], target_name: &[u8]) -> bool {
-		self.map_clone(name, target_name)
-	}
-
-	/// Move ordered map under a different name.
-	/// If origin does not exist, this does nothing and return false.
-	/// If target exists, it is overwritten.
-	fn rename(&mut self, name: &[u8], target_name: &[u8]) -> bool {
-		self.map_rename(name, target_name)
-	}
-
-	/// Inserts a single (key, value) pair into map name, and overwriting the item if it did.
-	///
-	/// If map do not exist this operatio is skipped and operation return false.
-	fn insert_item(&mut self, name: &[u8], key: &[u8], value: &[u8]) -> bool {
-		self.map_insert_item(name, key, value)
-	}
-
-	/// Removes the pair with the given key from the map name, if the map exists and contains the
-	/// item. Does nothing and return false otherwise.
-	fn remove_item(&mut self, name: &[u8], key: &[u8]) -> bool {
-		self.map_remove_item(name, key)
-	}
-
-	/// Returns true iff the map name existsa and contains key.
-	fn contains_item(&mut self, name: &[u8], key: &[u8]) -> bool {
-		self.map_contains_item(name, key)
-	}
-
-	/// Returns Some iff the map name exists and contains key.
-	/// If so, the inner value is that associated with key.
-	fn get_item(&mut self, name: &[u8], key: &[u8]) -> Option<bytes::Bytes> {
-		self.map_get_item(name, key, None, 0).map(|value| value.into_owned().into())
-	}
-
-	/// If key exisit in map, try to fill `value_out` from a given offset, return the number of read
-	/// bytes or None if map did not exist.
-	/// Return None when buffer size is bigger than u32::MAX
-	fn read_item(
-		&mut self,
-		name: &[u8],
-		key: &[u8],
-		value_out: &mut [u8],
-		value_offset: u32,
-	) -> Option<u32> {
-		let len = value_out.len();
-		if len > u32::MAX as usize {
-			return None
+	/*
+		/// Create a new empty transient map.
+		/// Clear possibly existing map.
+		fn new(&mut self, name: &[u8], mode: Crossing<TransientMode>) {
+			self.map_new(name, mode.0)
 		}
-		self.map_get_item(name, key, Some(len as u32), value_offset).map(|value| {
-			let written = std::cmp::min(value.len(), value_out.len());
-			value_out[..written].copy_from_slice(&value[..written]);
-			written as u32
-		})
+
+		/// Returns true iff the map name is present in execution state.
+		fn exists(&mut self, name: &[u8]) -> bool {
+			self.map_exists(name)
+		}
+
+		/// Delete ordered map if present or return false.
+		fn delete(&mut self, name: &[u8]) -> bool {
+			self.map_delete(name)
+		}
+
+		/// Clone ordered map content under a different name.
+		/// If origin does not exist, this does nothing and return false.
+		/// Target content is overwritten.
+		fn clone(&mut self, name: &[u8], target_name: &[u8]) -> bool {
+			self.map_clone(name, target_name)
+		}
+
+		/// Move ordered map under a different name.
+		/// If origin does not exist, this does nothing and return false.
+		/// If target exists, it is overwritten.
+		fn rename(&mut self, name: &[u8], target_name: &[u8]) -> bool {
+			self.map_rename(name, target_name)
+		}
+
+		/// Inserts a single (key, value) pair into map name, and overwriting the item if it did.
+		///
+		/// If map do not exist this operatio is skipped and operation return false.
+		fn insert_item(&mut self, name: &[u8], key: &[u8], value: &[u8]) -> bool {
+			self.map_insert_item(name, key, value)
+		}
+
+		/// Removes the pair with the given key from the map name, if the map exists and contains the
+		/// item. Does nothing and return false otherwise.
+		fn remove_item(&mut self, name: &[u8], key: &[u8]) -> bool {
+			self.map_remove_item(name, key)
+		}
+
+		/// Returns true iff the map name existsa and contains key.
+		fn contains_item(&mut self, name: &[u8], key: &[u8]) -> bool {
+			self.map_contains_item(name, key)
+		}
+
+		/// Returns Some iff the map name exists and contains key.
+		/// If so, the inner value is that associated with key.
+		fn get_item(&mut self, name: &[u8], key: &[u8]) -> Option<bytes::Bytes> {
+			self.map_get_item(name, key, None, 0).map(|value| value.into_owned().into())
+		}
+
+		/// If key exisit in map, try to fill `value_out` from a given offset, return the number of read
+		/// bytes or None if map did not exist.
+		/// Return None when buffer size is bigger than u32::MAX
+		fn read_item(
+			&mut self,
+			name: &[u8],
+			key: &[u8],
+			value_out: &mut [u8],
+			value_offset: u32,
+		) -> Option<u32> {
+			let len = value_out.len();
+			if len > u32::MAX as usize {
+				return None
+			}
+			self.map_get_item(name, key, Some(len as u32), value_offset).map(|value| {
+				let written = std::cmp::min(value.len(), value_out.len());
+				value_out[..written].copy_from_slice(&value[..written]);
+				written as u32
+			})
+		}
+
+		/// Returns Some iff the map name exists and contains key. If so, the inner value is the length
+		/// of the value associated with key.
+		fn len_item(&mut self, name: &[u8], key: &[u8]) -> Option<u32> {
+			self.map_len_item(name, key)
+		}
+
+		/// Returns Some iff the map name exists, None otherwise. If Some, then the inner value is the
+		/// number of items in the map name.
+		/// TODO consider u64?
+		fn count(&mut self, name: &[u8]) -> Option<u32> {
+			self.map_count(name)
+		}
+
+		/// Returns Some iff the map name exists and contains key. If so, the inner value is the value
+		/// associated with key when hashed with algorithm.
+		fn hash32_item(
+			&mut self,
+			name: &[u8],
+			key: &[u8],
+			algorithm: Crossing<Hash32Algorithm>,
+		) -> Option<[u8; 32]> {
+			self.map_hash32_item(name, key, algorithm.0)
+		}
+
+		/// Returns up to the next count keys in map name immediately following key. If fewer items
+		/// exist after key than count, then only the remaining items are returned. If the map name does
+		/// not exist then None is returned.
+		fn next_keys(&mut self, name: &[u8], key: &[u8], count: u32) -> Option<Vec<Vec<u8>>> {
+			self.map_next_keys(name, key, count)
+		}
+
+		/// Calculates and returns the root of the data structure structure containing the items held in
+		/// the map name. Returns None if map name does not exist.
+		fn root32(&mut self, name: &[u8], structure: Crossing<Root32Structure>) -> Option<[u8; 32]> {
+			self.map_root32(name, structure.0)
+		}
+
+		/// Returns Some of a Vec of all items in the map name, sorted; or None if the map name does not
+		/// exist.
+		fn dump(&mut self, name: &[u8]) -> Option<Vec<(Vec<u8>, Vec<u8>)>> {
+			self.map_dump(name)
+		}
+
+		/// Returns Some of a Vec of all pairs of keys and values in the map name hashed with algorithm
+		/// and in order of the (unhashed) key; or None if the map name does not exist.
+		fn dump_hashed(
+			&mut self,
+			name: &[u8],
+			algorithm: Crossing<Hash32Algorithm>,
+		) -> Option<Vec<([u8; 32], [u8; 32])>> {
+			self.map_dump_hashed(name, algorithm.0)
+		}
+	*/
+	/// Put a map key value to be archive.
+	fn archive_ordered_map_item(&mut self, name: &[u8], key: &[u8], value: &[u8]) {
+		self.map_archive_item(name, key, value);
 	}
 
-	/// Returns Some iff the map name exists and contains key. If so, the inner value is the length
-	/// of the value associated with key.
-	fn len_item(&mut self, name: &[u8], key: &[u8]) -> Option<u32> {
-		self.map_len_item(name, key)
-	}
-
-	/// Returns Some iff the map name exists, None otherwise. If Some, then the inner value is the
-	/// number of items in the map name.
-	/// TODO consider u64?
-	fn count(&mut self, name: &[u8]) -> Option<u32> {
-		self.map_count(name)
-	}
-
-	/// Returns Some iff the map name exists and contains key. If so, the inner value is the value
-	/// associated with key when hashed with algorithm.
-	fn hash32_item(
+	/// Put a map root to be archive.
+	fn archive_ordered_map_root(
 		&mut self,
 		name: &[u8],
-		key: &[u8],
-		algorithm: Crossing<Hash32Algorithm>,
-	) -> Option<[u8; 32]> {
-		self.map_hash32_item(name, key, algorithm.0)
-	}
-
-	/// Returns up to the next count keys in map name immediately following key. If fewer items
-	/// exist after key than count, then only the remaining items are returned. If the map name does
-	/// not exist then None is returned.
-	fn next_keys(&mut self, name: &[u8], key: &[u8], count: u32) -> Option<Vec<Vec<u8>>> {
-		self.map_next_keys(name, key, count)
-	}
-
-	/// Calculates and returns the root of the data structure structure containing the items held in
-	/// the map name. Returns None if map name does not exist.
-	fn root32(&mut self, name: &[u8], structure: Crossing<Root32Structure>) -> Option<[u8; 32]> {
-		self.map_root32(name, structure.0)
-	}
-
-	/// Returns Some of a Vec of all items in the map name, sorted; or None if the map name does not
-	/// exist.
-	fn dump(&mut self, name: &[u8]) -> Option<Vec<(Vec<u8>, Vec<u8>)>> {
-		self.map_dump(name)
-	}
-
-	/// Returns Some of a Vec of all pairs of keys and values in the map name hashed with algorithm
-	/// and in order of the (unhashed) key; or None if the map name does not exist.
-	fn dump_hashed(
-		&mut self,
-		name: &[u8],
-		algorithm: Crossing<Hash32Algorithm>,
-	) -> Option<Vec<([u8; 32], [u8; 32])>> {
-		self.map_dump_hashed(name, algorithm.0)
+		root: &[u8],
+		structure: Crossing<Root32Structure>,
+	) {
+		self.map_archive_root(name, root, structure.0);
 	}
 }
 
