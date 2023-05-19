@@ -1506,6 +1506,13 @@ pub struct GlobalRuntimeContent {
 
 environmental::environmental!(global_runtime_env: GlobalRuntimeContent);
 
+/// Reset env before each processing (generally
+/// a call to `global_runtime_env_using` is enough
+/// but it is not call in all cases.
+pub fn initialize_global_env() {
+	global_runtime_env::with(|env| *env = Default::default());
+}
+
 /// Access global extrinsic counter.
 pub fn get_global_extrinsic_count() -> u32 {
 	global_runtime_env::with(|env| env.extrinsic)
