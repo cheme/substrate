@@ -337,3 +337,4 @@ codegen-units = 1
 
 [patch.crates-io]
 environmental = { git = "https://github.com/cheme/environmental", branch = "init_default" }
+#environmental = { path = "/home/emeric/work/ssd/environmental" }

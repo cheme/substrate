@@ -1504,29 +1504,28 @@ pub struct GlobalRuntimeContent {
 	pub overlay: sp_state_machine::Changes,
 }
 
-environmental::environmental!(global_runtime_env: GlobalRuntimeContent);
+environmental::environmental!(global_runtime_env: GlobalRuntimeContent, with_init);
 
 /// Reset env before each processing (generally
 /// a call to `global_runtime_env_using` is enough
 /// but it is not call in all cases.
-pub fn initialize_global_env() {
-	global_runtime_env::with(|env| *env = Default::default());
+pub fn initilize_global_env() {
+	global_runtime_env::with_or(|env| *env = Default::default(), Default::default);
 }
 
 /// Access global extrinsic counter.
 pub fn get_global_extrinsic_count() -> u32 {
-	global_runtime_env::with(|env| env.extrinsic)
-		.expect("Missing `GlobalRuntimeContent` in the environment.")
+	global_runtime_env::with_or(|env| env.extrinsic, Default::default)
 }
 
 /// Set global extrinsic counter.
 pub fn set_global_extrinsic_count(index: u32) {
-	global_runtime_env::with(|env| env.extrinsic += index);
+	global_runtime_env::with_or(|env| env.extrinsic += index, Default::default);
 }
 
 /// Increase global extrinsic counter.
 pub fn increase_global_extrinsic_count() {
-	global_runtime_env::with(|env| env.extrinsic += 1);
+	global_runtime_env::with_or(|env| env.extrinsic += 1, Default::default);
 }
 
 /// Declare global runtime from top level runtime call.

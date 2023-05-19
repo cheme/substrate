@@ -2273,8 +2273,7 @@ dependencies = [
 [[package]]
 name = "environmental"
 version = "1.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e48c92028aaa870e83d51c64e5d4e0b6981b360c522198c23959f219a4e1b15b"
+source = "git+https://github.com/cheme/environmental?branch=init_default#2c942c5d749d566ee3330289875736ed37fdf836"
 
 [[package]]
 name = "errno"
@@ -12647,7 +12646,7 @@ checksum = "97fee6b57c6a41524a810daee9286c02d7752c4253064d0b05472833a438f675"
 dependencies = [
  "cfg-if",
  "digest 0.10.6",
- "rand 0.7.3",
+ "rand 0.8.5",
  "static_assertions",
 ]
 

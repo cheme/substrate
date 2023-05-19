@@ -394,7 +394,7 @@ where
 	pub fn initialize_block(header: &System::Header) {
 		sp_io::init_tracing();
 		sp_tracing::enter_span!(sp_tracing::Level::TRACE, "init_block");
-		frame_support::initialize_global_env();
+		frame_support::storage::initialize_global_env();
 		let digests = Self::extract_pre_digest(header);
 		Self::initialize_block_impl(header.number(), header.parent_hash(), &digests);
 	}
