@@ -1509,7 +1509,7 @@ environmental::environmental!(global_runtime_env: GlobalRuntimeContent, with_ini
 /// Reset env before each processing (generally
 /// a call to `global_runtime_env_using` is enough
 /// but it is not call in all cases.
-pub fn initilize_global_env() {
+pub fn initialize_global_env() {
 	global_runtime_env::with_or(|env| *env = Default::default(), Default::default);
 }
 
