@@ -1839,7 +1839,7 @@ impl Changes {
 	/// Calculate root of an ordered map.
 	pub fn ordered_map_storage_root<H>(&mut self, child_info: &ChildInfo) -> Option<Vec<u8>>
 	where
-		H: Hashers,
+		H: Hasher,
 		H::Out: Encode,
 	{
 		let storage_key = child_info.storage_key();

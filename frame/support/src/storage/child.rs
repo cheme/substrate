@@ -326,16 +326,31 @@ pub fn put_raw(child_info: &ChildInfo, key: &[u8], value: &[u8]) {
 	}
 }
 
+struct HasherIoBlake;
+
+impl sp_core::Hasher for HasherIoBlake {
+	const LENGTH: usize = 32;
+	type Out = [u8; 32];
+	type StdHasher = <sp_core::Blake2Hasher as sp_core::Hasher>::StdHasher;
+
+	fn hash(x: &[u8]) -> Self::Out {
+		sp_io::hashing::blake2_256(x)
+	}
+}
+
 /// Calculate current child root value.
 pub fn root(child_info: &ChildInfo, version: StateVersion) -> Option<Vec<u8>> {
 	match &child_info {
 		ChildInfo::Default(..) =>
 			Some(sp_io::default_child_storage::root(child_info.storage_key(), version)),
 		ChildInfo::OrderedMap(ordmap) => ordmap.algorithm.clone().and_then(|algorithm| {
-			crate::storage::map_root32(child_info.storage_key(), algorithm.into()).map(Into::into)
+			crate::storage::map_root32::<HasherIoBlake>(child_info.storage_key(), algorithm.into())
+				.map(Into::into)
 		}),
-		ChildInfo::Blob(blob) => blob.algorithm.clone().and_then(|algorithm| {
-			crate::storage::blob_hash32(child_info.storage_key(), algorithm.into()).map(Into::into)
+		ChildInfo::Blob(blob) => blob.algorithm.clone().and_then(|algorithm| match algorithm {
+			Hash32Algorithm::Blake2b256 =>
+				crate::storage::blob_hash32(child_info.storage_key(), algorithm.into())
+					.map(Into::into),
 		}),
 	}
 }

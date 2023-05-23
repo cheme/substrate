@@ -29,7 +29,7 @@ use sp_core::{
 		well_known_keys::{is_child_storage_key, CODE},
 		StateVersion, Storage,
 	},
-	Hashers,
+	Hasher, Hashers,
 };
 use sp_externalities::{Extension, ExtensionStore, Extensions};
 use sp_trie::StorageProof;
@@ -41,7 +41,7 @@ use std::{
 /// Simple HashMap-based Externalities impl.
 pub struct TestExternalities<H>
 where
-	H: Hashers + 'static,
+	H: Hasher + 'static,
 	H::Out: codec::Codec + Ord,
 {
 	/// The overlay changed storage.
@@ -59,7 +59,7 @@ where
 
 impl<H> TestExternalities<H>
 where
-	H: Hashers + 'static,
+	H: Hasher + 'static,
 	H::Out: Ord + 'static + codec::Codec,
 {
 	/// Get externalities implementation.
@@ -277,7 +277,7 @@ where
 
 impl<H> std::fmt::Debug for TestExternalities<H>
 where
-	H: Hashers,
+	H: Hasher,
 	H::Out: Ord + codec::Codec,
 {
 	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -292,7 +292,7 @@ where
 
 impl<H> PartialEq for TestExternalities<H>
 where
-	H: Hashers,
+	H: Hasher,
 	H::Out: Ord + 'static + codec::Codec,
 {
 	/// This doesn't test if they are in the same state, only if they contains the
@@ -304,7 +304,7 @@ where
 
 impl<H> Default for TestExternalities<H>
 where
-	H: Hashers,
+	H: Hasher,
 	H::Out: Ord + 'static + codec::Codec,
 {
 	fn default() -> Self {
@@ -315,7 +315,7 @@ where
 
 impl<H> From<Storage> for TestExternalities<H>
 where
-	H: Hashers,
+	H: Hasher,
 	H::Out: Ord + 'static + codec::Codec,
 {
 	fn from(storage: Storage) -> Self {
@@ -325,7 +325,7 @@ where
 
 impl<H> From<(Storage, StateVersion)> for TestExternalities<H>
 where
-	H: Hashers,
+	H: Hasher,
 	H::Out: Ord + 'static + codec::Codec,
 {
 	fn from((storage, state_version): (Storage, StateVersion)) -> Self {
@@ -335,7 +335,7 @@ where
 
 impl<H> sp_externalities::ExtensionStore for TestExternalities<H>
 where
-	H: Hashers,
+	H: Hasher,
 	H::Out: Ord + codec::Codec,
 {
 	fn extension_by_type_id(&mut self, type_id: TypeId) -> Option<&mut dyn Any> {
@@ -364,7 +364,7 @@ where
 
 impl<H> sp_externalities::ExternalitiesExt for TestExternalities<H>
 where
-	H: Hashers,
+	H: Hasher,
 	H::Out: Ord + codec::Codec,
 {
 	fn extension<T: Any + Extension>(&mut self) -> Option<&mut T> {
