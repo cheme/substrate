@@ -24,6 +24,7 @@ pub use self::{
 	},
 	types::StorageEntryMetadataBuilder,
 };
+
 use crate::{
 	hash::{ReversibleStorageHasher, StorageHasher},
 	storage::types::{
@@ -32,13 +33,11 @@ use crate::{
 	},
 };
 use codec::{Decode, Encode, EncodeLike, FullCodec, FullEncode};
-use sp_core::{
-	storage::{Blob as BlobInfo, ChildInfo, OrderedMap as OrdMapInfo},
-	Hash32Algorithm,
-};
+use sp_core::storage::{Blob as BlobInfo, ChildInfo, OrderedMap as OrdMapInfo, StateVersion};
 use sp_runtime::generic::{Digest, DigestItem};
 pub use sp_runtime::TransactionOutcome;
-use sp_std::{collections::btree_set::BTreeSet, marker::PhantomData, prelude::*};
+use sp_std::{collections::btree_set::BTreeSet, borrow::Cow, marker::PhantomData, prelude::*};
+use sp_core::storage::transient::{Hash32Algorithm, Mode as TransientMode, Root32Structure};
 pub use types::Key;
 
 pub mod bounded_btree_map;
@@ -1539,10 +1538,15 @@ pub fn global_runtime_env_using<R, F: FnOnce() -> R>(
 	global_runtime_env::using(protected, f)
 }
 
+/// Check if a given storage was created.
 pub fn storage_exists(info: &ChildInfo) -> bool {
 	global_runtime_env::with_or(|env| env.overlay.storage_exists(info), Default::default)
 }
 
+/// Change a storage storage definition. If no storage exists a new empty one is created.
+///
+/// Return false if ignored (eg for default child trie).
+/// Return true if unchanged.
 pub fn update_storage_info(info: ChildInfo, clear_existing: bool) -> bool {
 	global_runtime_env::with_or(
 		|env| env.overlay.update_storage_info(info, clear_existing),
@@ -1550,24 +1554,240 @@ pub fn update_storage_info(info: ChildInfo, clear_existing: bool) -> bool {
 	)
 }
 
+/// Copy a storage current content and definition under a different name.
+/// Overwrite target if a target exists.
+///
+/// Return false if source do not exist.
+/// Return false if storage do not support this operation.
 pub fn storage_clone(info: &ChildInfo, target_name: &[u8]) -> bool {
 	global_runtime_env::with_or(|env| env.overlay.storage_copy(info, target_name), Default::default)
 }
 
+/// Move a storage current content and definition under a different name.
+/// Overwrite target if a target exists.
+///
+/// Return false if source do not exist.
+/// Return false if storage do not support this operation.
+/// TODO consider single function for move and clone?
 pub fn storage_move(info: &ChildInfo, target_name: &[u8]) -> bool {
 	global_runtime_env::with_or(|env| env.overlay.storage_move(info, target_name), Default::default)
 }
 
+/// Returns Some iff the map name exists, None otherwise. If Some, then the inner value is the
+/// number of items in the map name.
 pub fn map_count(name: &[u8]) -> Option<u32> {
 	global_runtime_env::with_or(|env| env.overlay.map_count(name), Default::default)
 }
 
+/// Create a new empty transient map.
+/// Clear possibly existing map.
+pub fn map_new(name: &[u8], mode: TransientMode) {
+	global_runtime_env::with_or(
+		|env| {
+			env.overlay.update_storage_info(
+				ChildInfo::OrderedMap(OrdMapInfo {
+					name: name.to_vec(),
+					mode: Some(mode),
+					algorithm: None,
+				}),
+				true,
+			);
+		},
+		Default::default,
+	)
+}
+
+/// Returns true iff the map name is present in execution state.
+pub fn map_exists(name: &[u8]) -> bool {
+	global_runtime_env::with_or(
+		|env| {
+			let info = ordered_map_info_from_name(name);
+			env.overlay.storage_exists(&info)
+		},
+		Default::default,
+	)
+}
+
+/// Delete ordered map if present or return false.
+pub fn map_delete(name: &[u8]) -> bool {
+	global_runtime_env::with_or(
+		|env| {
+			let info = ordered_map_info_from_name(name);
+			if env.overlay.storage_exists(&info) {
+				let _ = env.overlay.clear_child_storage(&info);
+				true
+			} else {
+				false
+			}
+		},
+		Default::default,
+	)
+}
+
+/// Clone ordered map content under a different name.
+/// If origin does not exist, this does nothing and return false.
+/// Target content is overwritten.
+pub fn map_clone(name: &[u8], target_name: &[u8]) -> bool {
+	global_runtime_env::with_or(
+		|env| {
+			let info = ordered_map_info_from_name(name);
+			env.overlay.storage_clone(&info, target_name)
+		},
+		Default::default,
+	)
+}
+
+/// Move ordered map under a different name.
+/// If origin does not exist, this does nothing and return false.
+/// If target exists, it is overwritten.
+pub fn map_rename(name: &[u8], target_name: &[u8]) -> bool {
+	global_runtime_env::with_or(
+		|env| {
+			let info = ordered_map_info_from_name(name);
+			env.overlay.storage_move(&info, target_name)
+		},
+		Default::default,
+	)
+}
+
+/// Inserts a single (key, value) pair into map name, and overwriting the item if it did.
+///
+/// If map do not exist this operatio is skipped and operation return false.
+pub fn map_insert_item(name: &[u8], key: &[u8], value: &[u8]) -> bool {
+	global_runtime_env::with_or(
+		|env| {
+			let info = ordered_map_info_from_name(name);
+			env.overlay.place_child_storage(&info, key, Some(value))
+		},
+		Default::default,
+	)
+}
+
+/// Removes the pair with the given key from the map name, if the map exists and contains the
+/// item. Does nothing and return false otherwise.
+pub fn map_remove_item(name: &[u8], key: &[u8]) -> bool {
+	global_runtime_env::with_or(
+		|env| {
+			let info = ordered_map_info_from_name(name);
+			env.overlay.place_child_storage(&info, key, None)
+		},
+		Default::default,
+	)
+}
+
+/// Returns true iff the map name existsa and contains key.
+pub fn map_contains_item(name: &[u8], key: &[u8]) -> bool {
+	global_runtime_env::with_or(
+		|env| {
+			let info = ordered_map_info_from_name(name);
+			env.overlay.exists_child_storage(&info, key)
+		},
+		Default::default,
+	)
+}
+
+/// Returns Some iff the map name exists and contains key.
+/// If so, the inner value is that associated with key.
+/// If limit is specified, only that many bytes are returned.
+/// Offset start bytes are also skipped from return value.
+pub fn map_get_item(
+	name: &[u8],
+	key: &[u8],
+	limit: Option<u32>,
+	value_offset: u32,
+	// TODO actually we are exitting scope here => an Rc Refcell could make sense
+) -> Option<Cow<'static, [u8]>> {
+	global_runtime_env::with_or(
+		|env| {
+			let info = ordered_map_info_from_name(name);
+			env.overlay.child_storage(&info, key, value_offset, limit)
+		},
+		Default::default,
+	)
+}
+
+/// Returns Some iff the map name exists and contains key. If so, the inner value is the length
+/// of the value associated with key.
+pub fn map_len_item(name: &[u8], key: &[u8]) -> Option<u32> {
+	global_runtime_env::with_or(
+		|env| {
+			let info = ordered_map_info_from_name(name);
+			env.overlay.child_storage_len(&info, key)
+		},
+		Default::default,
+	)
+}
+
+/// Calculates and returns the root of the data structure structure containing the items held in
+/// the map name. Returns None if map name does not exist.
+pub fn map_root32(name: &[u8], algorithm: Root32Structure) -> Option<[u8; 32]> {
+	global_runtime_env::with_or(
+		|env| {
+			let info = ChildInfo::OrderedMap(OrdMapInfo {
+				name: name.to_vec(),
+				mode: None,
+				algorithm: Some(algorithm),
+			});
+			// update structure to apply
+			if !env.overlay.update_storage_info(info.clone(), false) {
+				return None
+			}
+			let root = env.overlay.child_storage_root(&info, StateVersion::V1)?;
+			let mut result = [0u8; 32];
+			result.copy_from_slice(root.as_slice());
+			Some(result)
+		},
+		Default::default,
+	)
+}
+
+/// Returns up to the next count keys in map name immediately following key. If fewer items
+/// exist after key than count, then only the remaining items are returned. If the map name does
+/// not exist then None is returned.
+pub fn map_next_keys(name: &[u8], key: &[u8], count: u32) -> Option<Vec<Vec<u8>>> {
+	global_runtime_env::with_or(
+		|env| {
+			let info = ordered_map_info_from_name(name);
+			env.overlay.next_child_storage_key(&info, key, count)
+		},
+		Default::default,
+	)
+}
+
+// TODO no use as get return ptr already
+pub fn map_read_item(
+	name: &[u8],
+	key: &[u8],
+	value_out: &mut [u8],
+	value_offset: u32,
+) -> Option<u32> {
+	global_runtime_env::with_or(
+		|env| {
+			let len = value_out.len();
+			if len > u32::MAX as usize {
+				return None
+			}
+			env.overlay
+				.map_get_item(name, key, Some(len as u32), value_offset)
+				.map(|value| {
+					let written = std::cmp::min(value.len(), value_out.len());
+					value_out[..written].copy_from_slice(&value[..written]);
+					written as u32
+				})
+		},
+		Default::default,
+	)
+}
+
+// TODO need pub ??
 pub fn hash_with(data: &[u8], algo: Hash32Algorithm) -> [u8; 32] {
 	match algo {
 		Hash32Algorithm::Blake2b256 => sp_io::hashing::blake2_256(data),
 	}
 }
 
+/// Returns Some iff the map name exists and contains key. If so, the inner value is the value
+/// associated with key when hashed with algorithm.
 pub fn map_hash32_item(name: &[u8], key: &[u8], algo: Hash32Algorithm) -> Option<[u8; 32]> {
 	global_runtime_env::with_or(
 		|env| {
@@ -1581,6 +1801,8 @@ pub fn map_hash32_item(name: &[u8], key: &[u8], algo: Hash32Algorithm) -> Option
 	)
 }
 
+/// Returns Some of a Vec of all items in the map name, sorted; or None if the map name does not
+/// exist.
 pub fn map_dump(name: &[u8]) -> Option<Vec<(Vec<u8>, Vec<u8>)>> {
 	global_runtime_env::with_or(
 		|env| {
@@ -1594,6 +1816,10 @@ pub fn map_dump(name: &[u8]) -> Option<Vec<(Vec<u8>, Vec<u8>)>> {
 	)
 }
 
+/// Returns Some of a Vec of all pairs of keys and values in the map name hashed with algorithm
+/// and in order of the (unhashed) key; or None if the map name does not exist.
+/// TODO question hashing key (except for equality checking, issue here is we don't have
+/// preimage).
 pub fn map_dump_hashed(
 	name: &[u8],
 	algorithm: Hash32Algorithm,
@@ -1613,6 +1839,7 @@ pub fn map_dump_hashed(
 	)
 }
 
+/// Returns size of the blob for a given name, or `None` if the blob does not exist.
 pub fn blob_len(name: &[u8]) -> Option<u32> {
 	global_runtime_env::with_or(
 		|env| {
@@ -1623,10 +1850,154 @@ pub fn blob_len(name: &[u8]) -> Option<u32> {
 	)
 }
 
+pub fn blob_read(name: &[u8], value_out: &mut [u8], value_offset: u32) -> Option<u32> {
+	let len = value_out.len();
+	if len > u32::MAX as usize {
+		return None
+	}
+	global_runtime_env::with_or(
+		|env| {
+			env.overlay.blob_get(name, Some(len as u32), value_offset).map(|value| {
+				let written = std::cmp::min(value.len(), value_out.len());
+				value_out[..written].copy_from_slice(&value[..written]);
+				written as u32
+			})
+		},
+		Default::default,
+	)
+}
+
+/// Create a new empty blob.
+/// Clear possibly existing blob.
+pub fn blob_new(name: &[u8], mode: TransientMode) {
+	global_runtime_env::with_or(
+		|env| {
+			// TODO rem func and move to io
+			env.overlay.update_storage_info(
+				ChildInfo::Blob(BlobInfo {
+					name: name.to_vec(),
+					mode: Some(mode),
+					algorithm: None,
+				}),
+				true,
+			);
+		},
+		Default::default,
+	)
+}
+
+/// Returns true iff the blob name is present in execution state.
+pub fn blob_exists(name: &[u8]) -> bool {
+	global_runtime_env::with_or(
+		|env| {
+			let info = blob_info_from_name(name);
+			env.overlay.storage_exists(&info)
+		},
+		Default::default,
+	)
+}
+
+/// Delete blob if present, return false otherwise.
+pub fn blob_delete(name: &[u8]) -> bool {
+	global_runtime_env::with_or(
+		|env| {
+			if env.overlay.blob_exists(name) {
+				let info = blob_info_from_name(name);
+				let _ = env.overlay.kill_child_storage(&info, None, None);
+				true
+			} else {
+				false
+			}
+		},
+		Default::default,
+	)
+}
+
+/// Clone blob value under a different name.
+/// If origin does not exist, this does nothing and return false.
+/// Target content is overwritten.
+pub fn blob_clone(name: &[u8], target_name: &[u8]) -> bool {
+	global_runtime_env::with_or(
+		|env| {
+			let info = blob_info_from_name(name);
+			env.overlay.storage_clone(&info, target_name)
+		},
+		Default::default,
+	)
+}
+
+/// Move blob value under a different name.
+/// If origin does not exist, this does nothing and return false.
+/// If target exists, it is overwritten.
+pub fn blob_rename(name: &[u8], target_name: &[u8]) -> bool {
+	global_runtime_env::with_or(
+		|env| {
+			let info = blob_info_from_name(name);
+			env.overlay.storage_move(&info, target_name)
+		},
+		Default::default,
+	)
+}
+
+/// Get value bytes for the blob.
+/// All bytes if `limit` is `None`, or up to `limit` bytes.
+/// Read bytes starting at a given offset, if offset is out of range, return
+/// an empty bytes vector.
+/// Returns `None` if the blob does not exist.
+/// TODO could be replace by child get
+pub fn blob_get(name: &[u8], limit: Option<u32>, value_offset: u32) -> Option<Cow<'static, [u8]>> {
+	global_runtime_env::with_or(
+		|env| {
+			let info = blob_info_from_name(name);
+			env.overlay.child_storage(&info, &[], value_offset, limit)
+		},
+		Default::default,
+	)
+}
+
+/// If blob exists, return it's hash for a given algorithm.
+pub fn blob_hash32(name: &[u8], algorithm: Hash32Algorithm) -> Option<[u8; 32]> {
+	global_runtime_env::with_or(
+		|env| {
+			let info = ChildInfo::Blob(BlobInfo {
+				name: name.to_vec(),
+				mode: None,
+				algorithm: Some(algorithm),
+			});
+			// update structure to apply
+			if !env.overlay.update_storage_info(info.clone(), false) {
+				return None
+			}
+			let hash = env.overlay.child_storage_root(&info, StateVersion::V1)?;
+			let mut result = [0u8; 32];
+			result.copy_from_slice(hash.as_slice());
+			Some(result)
+		},
+		Default::default,
+	)
+}
+
+/// Write value into a blob.
+///
+/// If data is present at offset, it is overwritten by new value.
+/// If new value is written beyond blob size, the value is appended
+/// to the blob.
+///
+/// If blob does not exist, the operation is ignored and false
+/// is returned.
+///
+/// If offset is bigger than current blog size the operation is
+/// ignored and false is returned.
+///
+/// If size of resulting blob is over u32::MAX bytes, this is ignored
+/// and return false.
 pub fn blob_set(name: &[u8], value: &[u8], offset: u32) -> bool {
 	global_runtime_env::with_or(|env| env.overlay.blob_set(name, value, offset), Default::default)
 }
 
+/// Truncate blob to a given size.
+/// If blob is smaller or already this size, do nothing and return false.
+/// If blob is missing return false.
 pub fn blob_truncate(name: &[u8], new_size: u32) -> bool {
 	global_runtime_env::with_or(|env| env.overlay.blob_truncate(name, new_size), Default::default)
 }

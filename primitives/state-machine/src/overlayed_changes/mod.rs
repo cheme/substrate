@@ -703,7 +703,7 @@ impl Changes {
 	/// Clear child storage of given storage key.
 	///
 	/// Can be rolled back or committed when called inside a transaction.
-	pub(crate) fn clear_child_storage(&mut self, child_info: &ChildInfo) -> u32 {
+	pub fn clear_child_storage(&mut self, child_info: &ChildInfo) -> u32 {
 		let storage_key = child_info.storage_key().to_vec();
 		let context = &self.context;
 		match child_info {

@@ -28,6 +28,7 @@ pub use sp_core::storage::{
 	transient::{Hash32Algorithm, Root32Structure},
 	ChildInfo, ChildType, StateVersion,
 };
+use sp_std::borrow::Cow;
 
 /// Return the value of the item in storage under `key`, or `None` if there is no explicit entry.
 pub fn get<T: Decode + Sized>(child_info: &ChildInfo, key: &[u8]) -> Option<T> {
@@ -49,13 +50,13 @@ pub fn get<T: Decode + Sized>(child_info: &ChildInfo, key: &[u8]) -> Option<T> {
 		},
 		ChildType::OrderedMap => {
 			let storage_key = child_info.storage_key();
-			crate::map_get_item(storage_key, key).and_then(|v| {
+			crate::storage::map_get_item(storage_key, key, None, 0).and_then(|v| {
 				Decode::decode(&mut &v[..]).map(Some).unwrap_or_else(|_| {
 					// TODO #3700: error should be handleable.
 					log::error!(
 						target: "runtime::storage",
 						"Corrupted state in child trie at {:?}/{:?}",
-						storage_key,
+						child_info.storage_key(),
 						key,
 					);
 					None
@@ -78,7 +79,8 @@ pub fn read_blob<T: Decode + Sized>(
 		ChildType::Blob => {
 			let storage_key = child_info.storage_key();
 			let mut buf = vec![0u8; entry_size as usize];
-			if let Some(s) = crate::blob_read(storage_key, &mut buf[..], entry_number * entry_size)
+			if let Some(s) =
+				crate::storage::blob_read(storage_key, &mut buf[..], entry_number * entry_size)
 			{
 				Decode::decode(&mut &buf[..s as usize]).map(Some).unwrap_or_else(|_| {
 					// TODO #3700: error should be handleable.
@@ -126,7 +128,7 @@ pub fn put<T: Encode>(child_info: &ChildInfo, key: &[u8], value: &T) {
 			sp_io::default_child_storage::set(child_info.storage_key(), key, slice)
 		}),
 		ChildType::OrderedMap => value.using_encoded(|slice| {
-			crate::map_insert_item(child_info.storage_key(), key, slice);
+			crate::storage::map_insert_item(child_info.storage_key(), key, slice);
 		}),
 		ChildType::Blob => (),
 	}
@@ -138,8 +140,8 @@ pub fn push<T: Encode>(child_info: &ChildInfo, value: &T) -> bool {
 		ChildType::Default => false,
 		ChildType::OrderedMap => false,
 		ChildType::Blob => value.using_encoded(|slice| {
-			if let Some(at) = sp_io::blob_storage::len(child_info.storage_key()) {
-				crate::blob_set(child_info.storage_key(), slice, at)
+			if let Some(at) = crate::storage::blob_len(child_info.storage_key()) {
+				crate::storage::blob_set(child_info.storage_key(), slice, at)
 			} else {
 				false
 			}
@@ -182,7 +184,7 @@ pub fn take_or_else<T: Codec + Sized, F: FnOnce() -> T>(
 pub fn exists(child_info: &ChildInfo, key: &[u8]) -> bool {
 	match child_info.child_type() {
 		ChildType::Default => sp_io::default_child_storage::exists(child_info.storage_key(), key),
-		ChildType::OrderedMap => crate::map_contains_item(child_info.storage_key(), key),
+		ChildType::OrderedMap => crate::storage::map_contains_item(child_info.storage_key(), key),
 		ChildType::Blob => false,
 	}
 }
@@ -215,7 +217,7 @@ pub fn kill_storage(child_info: &ChildInfo, limit: Option<u32>) -> KillStorageRe
 			if limit.is_some() {
 				KillStorageResult::SomeRemaining(0)
 			} else {
-				crate::map_delete(child_info.storage_key());
+				crate::storage::map_delete(child_info.storage_key());
 				KillStorageResult::AllRemoved(0)
 			},
 		ChildType::Blob => unimplemented!(),
@@ -268,8 +270,8 @@ pub fn clear_storage(
 		ChildType::OrderedMap => {
 			let maybe_cursor = maybe_cursor.map(Vec::from);
 			if maybe_limit.is_none() && maybe_cursor.is_none() {
-				if let Some(s) = crate::map_count(child_info.storage_key()) {
-					if crate::map_delete(child_info.storage_key()) {
+				if let Some(s) = crate::storage::map_count(child_info.storage_key()) {
+					if crate::storage::map_delete(child_info.storage_key()) {
 						return MultiRemovalResults { maybe_cursor, backend: 0, unique: s, loops: 0 }
 					}
 				}
@@ -293,7 +295,7 @@ pub fn kill(child_info: &ChildInfo, key: &[u8]) {
 			sp_io::default_child_storage::clear(child_info.storage_key(), key);
 		},
 		ChildType::OrderedMap => {
-			crate::map_remove_item(child_info.storage_key(), key);
+			crate::storage::map_remove_item(child_info.storage_key(), key);
 		},
 		ChildType::Blob => (),
 	}
@@ -303,7 +305,7 @@ pub fn kill(child_info: &ChildInfo, key: &[u8]) {
 pub fn get_raw(child_info: &ChildInfo, key: &[u8]) -> Option<Vec<u8>> {
 	match child_info.child_type() {
 		ChildType::Default => sp_io::default_child_storage::get(child_info.storage_key(), key),
-		ChildType::OrderedMap => crate::map_get_item(child_info.storage_key(), key),
+		ChildType::OrderedMap => crate::storage::map_get_item(child_info.storage_key(), key, None, 0).map(Cow::into_owned).map(Into::into),
 		ChildType::Blob => None,
 	}
 	.map(Into::into)
@@ -315,7 +317,7 @@ pub fn put_raw(child_info: &ChildInfo, key: &[u8], value: &[u8]) {
 		ChildType::Default =>
 			sp_io::default_child_storage::set(child_info.storage_key(), key, value),
 		ChildType::OrderedMap => {
-			crate::map_insert_item(child_info.storage_key(), key, value);
+			crate::storage::map_insert_item(child_info.storage_key(), key, value);
 		},
 		ChildType::Blob => (),
 	}
@@ -327,10 +329,10 @@ pub fn root(child_info: &ChildInfo, version: StateVersion) -> Option<Vec<u8>> {
 		ChildInfo::Default(..) =>
 			Some(sp_io::default_child_storage::root(child_info.storage_key(), version)),
 		ChildInfo::OrderedMap(ordmap) => ordmap.algorithm.clone().and_then(|algorithm| {
-			crate::map_root32(child_info.storage_key(), algorithm.into()).map(Into::into)
+			crate::storage::map_root32(child_info.storage_key(), algorithm.into()).map(Into::into)
 		}),
 		ChildInfo::Blob(blob) => blob.algorithm.clone().and_then(|algorithm| {
-			crate::blob_hash32(child_info.storage_key(), algorithm.into()).map(Into::into)
+			crate::storage::blob_hash32(child_info.storage_key(), algorithm.into()).map(Into::into)
 		}),
 	}
 }
@@ -344,7 +346,7 @@ pub fn len(child_info: &ChildInfo, key: &[u8]) -> Option<u32> {
 		},
 		ChildType::OrderedMap => {
 			let mut buffer = [0; 0];
-			crate::map_read_item(child_info.storage_key(), key, &mut buffer, 0)
+			crate::storage::map_read_item(child_info.storage_key(), key, &mut buffer, 0)
 		},
 		ChildType::Blob => None,
 	}
