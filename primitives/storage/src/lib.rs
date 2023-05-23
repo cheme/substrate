@@ -510,7 +510,7 @@ pub mod transient {
 	/// from state machine and could extend to more things.
 	/// It actually got not much to do with hasher, but this makes
 	/// refactoring faster (it could be another trait).
-	pub trait Hashers: hash_db::Hasher {
+	pub trait Hashers {
 		/// Indicate if we the hasher uses host functions.
 		const IS_USING_HOST: bool;
 

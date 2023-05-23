@@ -305,7 +305,10 @@ pub fn kill(child_info: &ChildInfo, key: &[u8]) {
 pub fn get_raw(child_info: &ChildInfo, key: &[u8]) -> Option<Vec<u8>> {
 	match child_info.child_type() {
 		ChildType::Default => sp_io::default_child_storage::get(child_info.storage_key(), key),
-		ChildType::OrderedMap => crate::storage::map_get_item(child_info.storage_key(), key, None, 0).map(Cow::into_owned).map(Into::into),
+		ChildType::OrderedMap =>
+			crate::storage::map_get_item(child_info.storage_key(), key, None, 0)
+				.map(Cow::into_owned)
+				.map(Into::into),
 		ChildType::Blob => None,
 	}
 	.map(Into::into)

@@ -24,6 +24,8 @@ pub use self::{
 	},
 	types::StorageEntryMetadataBuilder,
 };
+use sp_core::storage::transient::HasherHandle;
+use sp_core::Hashers;
 
 use crate::{
 	hash::{ReversibleStorageHasher, StorageHasher},
@@ -33,11 +35,13 @@ use crate::{
 	},
 };
 use codec::{Decode, Encode, EncodeLike, FullCodec, FullEncode};
-use sp_core::storage::{Blob as BlobInfo, ChildInfo, OrderedMap as OrdMapInfo, StateVersion};
+use sp_core::storage::{
+	transient::{Hash32Algorithm, Mode as TransientMode, Root32Structure},
+	Blob as BlobInfo, ChildInfo, OrderedMap as OrdMapInfo, StateVersion,
+};
 use sp_runtime::generic::{Digest, DigestItem};
 pub use sp_runtime::TransactionOutcome;
-use sp_std::{collections::btree_set::BTreeSet, borrow::Cow, marker::PhantomData, prelude::*};
-use sp_core::storage::transient::{Hash32Algorithm, Mode as TransientMode, Root32Structure};
+use sp_std::{borrow::Cow, collections::btree_set::BTreeSet, marker::PhantomData, prelude::*};
 pub use types::Key;
 
 pub mod bounded_btree_map;
@@ -1631,7 +1635,7 @@ pub fn map_clone(name: &[u8], target_name: &[u8]) -> bool {
 	global_runtime_env::with_or(
 		|env| {
 			let info = ordered_map_info_from_name(name);
-			env.overlay.storage_clone(&info, target_name)
+			env.overlay.storage_copy(&info, target_name)
 		},
 		Default::default,
 	)
@@ -1657,7 +1661,7 @@ pub fn map_insert_item(name: &[u8], key: &[u8], value: &[u8]) -> bool {
 	global_runtime_env::with_or(
 		|env| {
 			let info = ordered_map_info_from_name(name);
-			env.overlay.place_child_storage(&info, key, Some(value))
+			env.overlay.set_child_storage(&info, key, Some(value))
 		},
 		Default::default,
 	)
@@ -1669,7 +1673,7 @@ pub fn map_remove_item(name: &[u8], key: &[u8]) -> bool {
 	global_runtime_env::with_or(
 		|env| {
 			let info = ordered_map_info_from_name(name);
-			env.overlay.place_child_storage(&info, key, None)
+			env.overlay.set_child_storage(&info, key, None)
 		},
 		Default::default,
 	)
@@ -1680,7 +1684,7 @@ pub fn map_contains_item(name: &[u8], key: &[u8]) -> bool {
 	global_runtime_env::with_or(
 		|env| {
 			let info = ordered_map_info_from_name(name);
-			env.overlay.exists_child_storage(&info, key)
+			env.overlay.child_storage(&info, key, 0, Some(0)).is_some()
 		},
 		Default::default,
 	)
@@ -1704,6 +1708,7 @@ pub fn map_get_item(
 		},
 		Default::default,
 	)
+	.flatten()
 }
 
 /// Returns Some iff the map name exists and contains key. If so, the inner value is the length
@@ -1716,6 +1721,7 @@ pub fn map_len_item(name: &[u8], key: &[u8]) -> Option<u32> {
 		},
 		Default::default,
 	)
+	.flatten()
 }
 
 /// Calculates and returns the root of the data structure structure containing the items held in
@@ -1732,7 +1738,7 @@ pub fn map_root32(name: &[u8], algorithm: Root32Structure) -> Option<[u8; 32]> {
 			if !env.overlay.update_storage_info(info.clone(), false) {
 				return None
 			}
-			let root = env.overlay.child_storage_root(&info, StateVersion::V1)?;
+			let root = env.overlay.ordered_map_storage_root::<IoHashers>(&info)?;
 			let mut result = [0u8; 32];
 			result.copy_from_slice(root.as_slice());
 			Some(result)
@@ -1748,7 +1754,20 @@ pub fn map_next_keys(name: &[u8], key: &[u8], count: u32) -> Option<Vec<Vec<u8>>
 	global_runtime_env::with_or(
 		|env| {
 			let info = ordered_map_info_from_name(name);
-			env.overlay.next_child_storage_key(&info, key, count)
+			let child_info = &info;
+
+			let iter = env.overlay.child_iter_after(child_info, key)?;
+
+			let mut result = Vec::with_capacity(count as usize);
+			for (k, v) in iter {
+				if v.value().is_some() {
+					result.push(k.to_vec());
+					if result.len() == count as usize {
+						break
+					}
+				}
+			}
+			Some(result)
 		},
 		Default::default,
 	)
@@ -1761,22 +1780,15 @@ pub fn map_read_item(
 	value_out: &mut [u8],
 	value_offset: u32,
 ) -> Option<u32> {
-	global_runtime_env::with_or(
-		|env| {
-			let len = value_out.len();
-			if len > u32::MAX as usize {
-				return None
-			}
-			env.overlay
-				.map_get_item(name, key, Some(len as u32), value_offset)
-				.map(|value| {
-					let written = std::cmp::min(value.len(), value_out.len());
-					value_out[..written].copy_from_slice(&value[..written]);
-					written as u32
-				})
-		},
-		Default::default,
-	)
+	let len = value_out.len();
+	if len > u32::MAX as usize {
+		return None
+	}
+	map_get_item(name, key, Some(len as u32), value_offset).map(|value| {
+		let written = std::cmp::min(value.len(), value_out.len());
+		value_out[..written].copy_from_slice(&value[..written]);
+		written as u32
+	})
 }
 
 // TODO need pub ??
@@ -1855,16 +1867,11 @@ pub fn blob_read(name: &[u8], value_out: &mut [u8], value_offset: u32) -> Option
 	if len > u32::MAX as usize {
 		return None
 	}
-	global_runtime_env::with_or(
-		|env| {
-			env.overlay.blob_get(name, Some(len as u32), value_offset).map(|value| {
-				let written = std::cmp::min(value.len(), value_out.len());
-				value_out[..written].copy_from_slice(&value[..written]);
-				written as u32
-			})
-		},
-		Default::default,
-	)
+	blob_get(name, Some(len as u32), value_offset).map(|value| {
+		let written = std::cmp::min(value.len(), value_out.len());
+		value_out[..written].copy_from_slice(&value[..written]);
+		written as u32
+	})
 }
 
 /// Create a new empty blob.
@@ -1901,9 +1908,9 @@ pub fn blob_exists(name: &[u8]) -> bool {
 pub fn blob_delete(name: &[u8]) -> bool {
 	global_runtime_env::with_or(
 		|env| {
-			if env.overlay.blob_exists(name) {
-				let info = blob_info_from_name(name);
-				let _ = env.overlay.kill_child_storage(&info, None, None);
+			let info = blob_info_from_name(name);
+			if env.overlay.storage_exists(&info) {
+				let _ = env.overlay.clear_child_storage(&info);
 				true
 			} else {
 				false
@@ -1920,7 +1927,7 @@ pub fn blob_clone(name: &[u8], target_name: &[u8]) -> bool {
 	global_runtime_env::with_or(
 		|env| {
 			let info = blob_info_from_name(name);
-			env.overlay.storage_clone(&info, target_name)
+			env.overlay.storage_copy(&info, target_name)
 		},
 		Default::default,
 	)
@@ -1953,6 +1960,35 @@ pub fn blob_get(name: &[u8], limit: Option<u32>, value_offset: u32) -> Option<Co
 		},
 		Default::default,
 	)
+	.flatten()
+}
+
+struct IoHashers;
+
+impl Hashers for IoHashers {
+		const IS_USING_HOST: bool = true;
+
+		fn hash_with(data: &[u8], algo: Hash32Algorithm) -> [u8; 32] {
+			match algo {
+				Hash32Algorithm::Blake2b256 => sp_io::hashing::blake2_256(data),
+			}
+		}
+
+		fn hash_state_with(algo: Hash32Algorithm) -> Option<HasherHandle> {
+			sp_io::hashing::get_hasher(algo.into())
+		}
+
+		fn hash_update(state: HasherHandle, data: &[u8]) -> bool {
+			sp_io::hashing::hasher_update(state, data)
+		}
+
+		fn hash_drop(state: Option<HasherHandle>) {
+			sp_io::hashing::drop_hasher(state)
+		}
+
+		fn hash_finalize(state: HasherHandle) -> Option<[u8; 32]> {
+			sp_io::hashing::hasher_finalize(state)
+		}
 }
 
 /// If blob exists, return it's hash for a given algorithm.
@@ -1968,7 +2004,7 @@ pub fn blob_hash32(name: &[u8], algorithm: Hash32Algorithm) -> Option<[u8; 32]> 
 			if !env.overlay.update_storage_info(info.clone(), false) {
 				return None
 			}
-			let hash = env.overlay.child_storage_root(&info, StateVersion::V1)?;
+			let hash = env.overlay.blob_hash::<IoHashers>(&info)?;
 			let mut result = [0u8; 32];
 			result.copy_from_slice(hash.as_slice());
 			Some(result)

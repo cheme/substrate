@@ -578,7 +578,7 @@ impl Changes {
 	/// Can be rolled back or committed when called inside a transaction.
 	///
 	/// Return true if value was set.
-	pub(crate) fn set_child_storage(
+	pub fn set_child_storage(
 		&mut self,
 		child_info: &ChildInfo,
 		key: &[u8],
@@ -1778,6 +1778,151 @@ unsafe fn rc_mut_unchecked<T>(rc: &mut Arc<T>) -> &mut T {
 	let rc: *const T = Arc::as_ptr(rc);
 	let rc: *mut T = rc as *mut _;
 	&mut *rc
+}
+
+#[cfg(feature = "std")]
+macro_rules! get_hasher {
+	($s:ident, $a:expr) => {
+		$s.hashers.get_hasher($a)
+	};
+}
+
+#[cfg(not(feature = "std"))]
+macro_rules! get_hasher {
+	($s:ident, $a:expr) => {
+		H::hash_state_with($a)
+	};
+}
+
+#[cfg(feature = "std")]
+macro_rules! drop_hasher {
+	($s:ident, $h:expr) => {
+		$s.hashers.drop_hasher($h)
+	};
+}
+
+#[cfg(not(feature = "std"))]
+macro_rules! drop_hasher {
+	($s:ident, $h:expr) => {
+		H::hash_drop($h)
+	};
+}
+
+#[cfg(feature = "std")]
+macro_rules! hasher_update {
+	($s:ident, $h:expr, $d:expr) => {
+		$s.hashers.hasher_update($h, $d)
+	};
+}
+
+#[cfg(not(feature = "std"))]
+macro_rules! hasher_update {
+	($s:ident, $h:expr, $d:expr) => {
+		H::hash_update($h, $d)
+	};
+}
+
+#[cfg(feature = "std")]
+macro_rules! hasher_finalize {
+	($s:ident, $h:expr) => {
+		$s.hashers.hasher_finalize($h)
+	};
+}
+
+#[cfg(not(feature = "std"))]
+macro_rules! hasher_finalize {
+	($s:ident, $h:expr) => {
+		H::hash_finalize($h)
+	};
+}
+impl Changes {
+	/// Calculate root of an ordered map.
+	pub fn ordered_map_storage_root<H>(&mut self, child_info: &ChildInfo) -> Option<Vec<u8>>
+	where
+		H: Hashers,
+		H::Out: Encode,
+	{
+		let storage_key = child_info.storage_key();
+		let prefixed_storage_key = child_info.prefixed_storage_key();
+
+		if let ChildInfo::OrderedMap(..) = child_info {
+			let result = if let Some((data, info)) =
+				self.ordered_map_changes(child_info.storage_key())
+			{
+				if let Some(root) = info.cached_hash.as_ref() {
+					// cached
+					return Some(root.clone())
+				}
+				match info.infos.algorithm {
+					Some(Root32Structure::SubstrateDefault) => {
+						let delta = data.into_iter().filter_map(|(k, v)| v.value().map(|v| (k, v)));
+						sp_trie::child_trie_root::<sp_trie::LayoutV1<H>, _, _, _>(delta).encode()
+					},
+					None => return None,
+				}
+			} else {
+				return None
+			};
+
+			self.cache_ordered_map_root(child_info.storage_key(), result.clone());
+			return Some(result)
+		}
+		None
+	}
+
+	/// Calculate hash of a blob.
+	pub fn blob_hash<H: Hashers>(&mut self, child_info: &ChildInfo) -> Option<Vec<u8>> {
+		if let ChildInfo::Blob(..) = child_info {
+			let Some((mut chunks, info)) = self.blobs.get(child_info.storage_key()).and_then(|b| b.chunks()) else {
+				return None
+			};
+			let Some(algorithm) = info.infos.algorithm else {
+				return None
+			};
+			let Some(state) = get_hasher!(self, algorithm) else {
+				// get a handle even if we run single chunk (easier to specify failure:
+				// no condition no cache asumption).
+				return None
+			};
+			if let Some(hash) = info.cached_hash.as_ref() {
+				// cached
+				drop_hasher!(self, Some(state));
+				return Some(hash.clone())
+			}
+
+			let result = if let Some(chunk) = chunks.next() {
+				if info.size <= sp_core::storage::BLOB_CHUNK_SIZE {
+					sp_std::mem::drop(chunks);
+					H::hash_with(&chunk[..], algorithm)
+				} else {
+					if !hasher_update!(self, state, &chunk[..]) {
+						drop_hasher!(self, Some(state));
+						return None
+					}
+					for chunk in chunks {
+						if !hasher_update!(self, state, &chunk[..]) {
+							drop_hasher!(self, Some(state));
+							return None
+						}
+					}
+					if let Some(hash) = hasher_finalize!(self, state) {
+						hash
+					} else {
+						drop_hasher!(self, Some(state));
+						return None
+					}
+				}
+			} else {
+				sp_std::mem::drop(chunks);
+				H::hash_with(&[], algorithm)
+			};
+
+			let result = result.encode();
+			self.cache_blob_hash(child_info.storage_key(), result.clone());
+			return Some(result)
+		}
+		None
+	}
 }
 
 #[cfg(test)]
