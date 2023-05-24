@@ -1693,21 +1693,24 @@ pub fn map_contains_item(name: &[u8], key: &[u8]) -> bool {
 /// If so, the inner value is that associated with key.
 /// If limit is specified, only that many bytes are returned.
 /// Offset start bytes are also skipped from return value.
+/// TODO should be able to not instantiate value here: just rc access on value.
+/// TODO if rc refcell access the slice of value, there will be no need for limit and value_offset.
 pub fn map_get_item(
 	name: &[u8],
 	key: &[u8],
 	limit: Option<u32>,
 	value_offset: u32,
-	// TODO actually we are exitting scope here => an Rc Refcell could make sense
-) -> Option<Cow<'static, [u8]>> {
+) -> Option<Vec<u8>> {
 	global_runtime_env::with_or(
 		|env| {
 			let info = ordered_map_info_from_name(name);
-			env.overlay.child_storage(&info, key, value_offset, limit)
+			env.overlay
+				.child_storage(&info, key, value_offset, limit)
+				.flatten()
+				.map(Cow::into_owned)
 		},
 		Default::default,
 	)
-	.flatten()
 }
 
 /// Returns Some iff the map name exists and contains key. If so, the inner value is the length
@@ -1954,16 +1957,18 @@ pub fn blob_rename(name: &[u8], target_name: &[u8]) -> bool {
 /// Read bytes starting at a given offset, if offset is out of range, return
 /// an empty bytes vector.
 /// Returns `None` if the blob does not exist.
-/// TODO could be replace by child get
-pub fn blob_get(name: &[u8], limit: Option<u32>, value_offset: u32) -> Option<Cow<'static, [u8]>> {
+/// TODO could return rc on multiple non concatenated value, to avoid instantiating.
+pub fn blob_get(name: &[u8], limit: Option<u32>, value_offset: u32) -> Option<Vec<u8>> {
 	global_runtime_env::with_or(
 		|env| {
 			let info = blob_info_from_name(name);
-			env.overlay.child_storage(&info, &[], value_offset, limit)
+			env.overlay
+				.child_storage(&info, &[], value_offset, limit)
+				.flatten()
+				.map(Cow::into_owned)
 		},
 		Default::default,
 	)
-	.flatten()
 }
 
 struct IoHashers;
