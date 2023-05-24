@@ -28,7 +28,6 @@ pub use sp_core::storage::{
 	transient::{Hash32Algorithm, Root32Structure},
 	ChildInfo, ChildType, StateVersion,
 };
-use sp_std::borrow::Cow;
 
 /// Return the value of the item in storage under `key`, or `None` if there is no explicit entry.
 pub fn get<T: Decode + Sized>(child_info: &ChildInfo, key: &[u8]) -> Option<T> {

@@ -36,7 +36,7 @@ use crate::{
 use codec::{Decode, Encode, EncodeLike, FullCodec, FullEncode};
 use sp_core::storage::{
 	transient::{Hash32Algorithm, Mode as TransientMode, Root32Structure},
-	Blob as BlobInfo, ChildInfo, OrderedMap as OrdMapInfo, StateVersion,
+	Blob as BlobInfo, ChildInfo, OrderedMap as OrdMapInfo,
 };
 use sp_runtime::generic::{Digest, DigestItem};
 pub use sp_runtime::TransactionOutcome;
@@ -1824,7 +1824,6 @@ pub fn map_hash32_item(name: &[u8], key: &[u8], algo: Hash32Algorithm) -> Option
 pub fn map_dump(name: &[u8]) -> Option<Vec<(Vec<u8>, Vec<u8>)>> {
 	global_runtime_env::with_or(
 		|env| {
-			let info = ordered_map_info_from_name(name);
 			env.overlay.ordered_map_changes(name).map(|(data, _info)| {
 				data.filter_map(|(k, v)| v.value_ref().as_ref().map(|v| (k.clone(), v.clone())))
 					.collect()

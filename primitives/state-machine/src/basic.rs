@@ -50,7 +50,6 @@ pub struct BasicExternalities {
 impl BasicExternalities {
 	/// Create a new instance of `BasicExternalities`
 	pub fn new(inner: Storage) -> Self {
-		debug_assert!(!<Blake2Hasher as sp_core::Hashers>::IS_USING_HOST);
 		BasicExternalities { overlay: inner.into(), extensions: Default::default() }
 	}
 

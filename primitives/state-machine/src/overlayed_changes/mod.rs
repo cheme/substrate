@@ -36,7 +36,6 @@ use sp_core::{
 	},
 	Hashers,
 };
-use sp_externalities::ordered_map_info_from_name;
 #[cfg(feature = "std")]
 use sp_externalities::{Extension, Extensions};
 #[cfg(not(feature = "std"))]
@@ -117,7 +116,7 @@ pub struct Changes {
 impl Changes {
 	/// Put a chunk to be archive.
 	pub fn blob_archive_chunk(&mut self, name: &[u8], chunk: &[u8]) {
-		let mut entry = self.archive_blobs.entry(name.to_vec()).or_insert_with(|| {
+		let entry = self.archive_blobs.entry(name.to_vec()).or_insert_with(|| {
 			(
 				MovableMeta {
 					infos: TransientInfo {
@@ -138,7 +137,7 @@ impl Changes {
 
 	/// Put a blob hash to be archive.
 	pub fn blob_archive_hash(&mut self, name: &[u8], hash: &[u8], algo: Hash32Algorithm) {
-		let mut entry = self.archive_blobs.entry(name.to_vec()).or_insert_with(|| {
+		let entry = self.archive_blobs.entry(name.to_vec()).or_insert_with(|| {
 			(
 				MovableMeta {
 					infos: TransientInfo {
@@ -159,7 +158,7 @@ impl Changes {
 
 	/// Put a map key value to be archive.
 	pub fn map_archive_item(&mut self, name: &[u8], key: &[u8], value: &[u8]) {
-		let mut entry = self.archive_ordered_maps.entry(name.to_vec()).or_insert_with(|| {
+		let entry = self.archive_ordered_maps.entry(name.to_vec()).or_insert_with(|| {
 			(
 				MovableMeta {
 					infos: TransientInfo {
@@ -180,7 +179,7 @@ impl Changes {
 
 	/// Put a map root to be archive.
 	pub fn map_archive_root(&mut self, name: &[u8], root: &[u8], algo: Root32Structure) {
-		let mut entry = self.archive_ordered_maps.entry(name.to_vec()).or_insert_with(|| {
+		let entry = self.archive_ordered_maps.entry(name.to_vec()).or_insert_with(|| {
 			(
 				MovableMeta {
 					infos: TransientInfo {
@@ -199,51 +198,6 @@ impl Changes {
 		entry.0.cached_hash = Some(root.to_vec());
 	}
 }
-/*
-impl Changes {
-	/// Returns Some iff the map name exists and contains key. If so, the inner value is the value
-	/// associated with key when hashed with algorithm.
-	pub fn map_hash32_item<H: Hashers>(
-		&mut self,
-		name: &[u8],
-		key: &[u8],
-		algo: Hash32Algorithm,
-	) -> Option<[u8; 32]> {
-		let info: ChildInfo = ordered_map_info_from_name(name);
-		self.child_storage(&info, key, 0, None)
-			.flatten()
-			.map(|v| H::hash_with(v.as_ref(), algo))
-	}
-
-	/// Returns Some of a Vec of all items in the map name, sorted; or None if the map name does not
-	/// exist.
-	pub fn map_dump<H: Hashers>(&mut self, name: &[u8]) -> Option<Vec<(Vec<u8>, Vec<u8>)>> {
-		self.ordered_map_changes(name).map(|(data, _info)| {
-			data.filter_map(|(k, v)| v.value_ref().as_ref().map(|v| (k.clone(), v.clone())))
-				.collect()
-		})
-	}
-
-	/// Returns Some of a Vec of all pairs of keys and values in the map name hashed with algorithm
-	/// and in order of the (unhashed) key; or None if the map name does not exist.
-	/// TODO question hashing key (except for equality checking, issue here is we don't have
-	/// preimage).
-	pub fn map_dump_hashed<H: Hashers>(
-		&mut self,
-		name: &[u8],
-		algorithm: Hash32Algorithm,
-	) -> Option<Vec<([u8; 32], [u8; 32])>> {
-		self.ordered_map_changes(name).map(|(data, _info)| {
-			data.filter_map(|(k, v)| {
-				v.value_ref()
-					.as_ref()
-					.map(|v| (H::hash_with(k, algorithm), H::hash_with(v.as_ref(), algorithm)))
-			})
-			.collect()
-		})
-	}
-}
-*/
 
 /// Changes for movable transient stoarge.
 ///
@@ -500,6 +454,7 @@ impl Changes {
 		self.blobs.get(name).and_then(|blob| blob.chunks())
 	}
 
+	/* TODO looks needed ??
 	fn blob_chunks_into_committed(
 		mut blob: Arc<OverlayedChangeSetBlob>,
 		infos: OverlayedInfos<BlobMeta, Arc<OverlayedChangeSetBlob>>,
@@ -527,6 +482,7 @@ impl Changes {
 
 		Some((iter, infos))
 	}
+	*/
 
 	/// Return size of a given map when defined.
 	pub fn map_count(&self, name: &[u8]) -> Option<u32> {
@@ -637,6 +593,9 @@ impl Changes {
 		}
 	}
 
+	/// Set byte data at a given offset (modification local to current transactional layer).
+	/// Return true if value was set.
+	/// Return false when not set (e.g. offset is out of bounds).
 	pub fn blob_set(&mut self, name: &[u8], value: &[u8], offset: u32) -> bool {
 		let Some(previous_len) = self.blob_len(name) else {
 			return false;
@@ -676,6 +635,8 @@ impl Changes {
 		}
 	}
 
+	/// Truncate blob to a new length (modification local to current transactional layer).
+	/// Return true if something was changed.
 	pub fn blob_truncate(&mut self, name: &[u8], new_len: u32) -> bool {
 		let Some(previous_len) = self.blob_len(name) else {
 			return false;
@@ -1842,9 +1803,6 @@ impl Changes {
 		H: Hasher,
 		H::Out: Encode,
 	{
-		let storage_key = child_info.storage_key();
-		let prefixed_storage_key = child_info.prefixed_storage_key();
-
 		if let ChildInfo::OrderedMap(..) = child_info {
 			let result = if let Some((data, info)) =
 				self.ordered_map_changes(child_info.storage_key())

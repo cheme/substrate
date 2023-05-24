@@ -29,7 +29,7 @@ use sp_core::{
 		well_known_keys::is_child_storage_key,
 		ChildInfo, StateVersion, TrackedStorageKey,
 	},
-	Hasher, HasherHandle, Hashers,
+	Hasher, HasherHandle,
 };
 use sp_externalities::{
 	result_from_slice, result_from_vec, Extension, ExtensionStore, Externalities,

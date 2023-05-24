@@ -27,6 +27,8 @@ use std::{
 type TestChangeSet = (
 	Vec<(StorageKey, Option<StorageData>)>,
 	Vec<(StorageKey, Vec<(StorageKey, Option<StorageData>)>)>,
+	Vec<(StorageKey, Option<StorageData>)>,
+	Vec<(StorageKey, Vec<(StorageKey, Option<StorageData>)>)>,
 );
 
 impl From<TestChangeSet> for StorageChangeSet {
@@ -41,8 +43,8 @@ impl From<TestChangeSet> for StorageChangeSet {
 		StorageChangeSet {
 			changes: From::from(changes.0),
 			child_changes: From::from(changes.1),
-			btrees_changes: Arc::new([]), // TODO add tests
-			blobs_changes: Arc::new([]),  // TODO add tests
+			btrees_changes: From::from(changes.2),
+			blobs_changes: From::from(changes.3),
 			filter: None,
 			child_filters,
 			btrees_filters: None,

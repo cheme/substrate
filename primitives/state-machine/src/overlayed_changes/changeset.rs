@@ -481,20 +481,24 @@ impl OverlayedContext {
 }
 
 impl<I: Clone, M> OverlayedInfos<I, M> {
+	/* TODO needed?
 	/// Consume this infos and return the info if it is existing.
 	pub fn drain_committed(self) -> I {
 		self.infos.into_value().info
 	}
+	*/
 
 	/// Current value for infos.
 	pub fn value_ref(&self) -> &I {
 		&self.infos.value_ref().info
 	}
 
+	/* TODO needed?
 	/// The value as seen by the current transaction.
 	pub fn into_value(self) -> I {
 		self.infos.into_value().info
 	}
+	*/
 
 	/// Access mutable value on  the change set.
 	/// This should be use to change the value as it will
@@ -713,10 +717,12 @@ impl OverlayedChangeSetBlob {
 		&self.chunks[index as usize]
 	}
 
+	/* TODO needed?
 	/// Entry iter.
 	pub(super) fn into_iter(self) -> impl Iterator<Item = OverlayedEntry<BlobChunk>> {
 		self.chunks.into_iter()
 	}
+	*/
 
 	/// Clearing is not needed as we always check size on access.
 	/// This method will therefore only clean entry when possible.

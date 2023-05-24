@@ -33,8 +33,8 @@ use sp_std::{
 };
 
 use sp_storage::{
-	transient::{Hash32Algorithm, HasherHandle, Mode as TransientMode, Root32Structure},
-	Blob as BlobInfo, ChildInfo, OrderedMap as OrdMapInfo, StateVersion, TrackedStorageKey,
+	transient::{Hash32Algorithm, HasherHandle, Root32Structure},
+	ChildInfo, StateVersion, TrackedStorageKey,
 };
 
 pub use extensions::{Extension, ExtensionStore, Extensions};
@@ -481,12 +481,4 @@ pub fn result_from_cow(
 		Cow::Owned(owned) => result_from_vec(Some(owned), start, limit),
 		Cow::Borrowed(borrowed) => result_from_slice(Some(borrowed), start, limit),
 	}
-}
-
-pub fn blob_info_from_name(name: &[u8]) -> ChildInfo {
-	ChildInfo::Blob(BlobInfo { name: name.to_vec(), mode: None, algorithm: None })
-}
-
-pub fn ordered_map_info_from_name(name: &[u8]) -> ChildInfo {
-	ChildInfo::OrderedMap(OrdMapInfo { name: name.to_vec(), mode: None, algorithm: None })
 }

@@ -23,7 +23,7 @@ use hash_db::Hasher;
 use sp_core::{
 	storage::{
 		transient::{Hash32Algorithm, Root32Structure},
-		ChildInfo, ChildType, StateVersion, TrackedStorageKey,
+		ChildInfo, StateVersion, TrackedStorageKey,
 	},
 	traits::Externalities,
 	HasherHandle,

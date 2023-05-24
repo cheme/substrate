@@ -681,8 +681,7 @@ pub trait Hash:
 	+ Clone
 	+ Eq
 	+ PartialEq
-	+ Hasher<Out = <Self as Hash>::Output>
-	+ Hashers
+	+ Hasher<Out = <Self as Hash>::Output> // TODO ok ?+ Hashers
 {
 	/// The hash type produced.
 	type Output: Member

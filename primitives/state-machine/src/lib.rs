@@ -164,7 +164,6 @@ mod execution {
 		hexdisplay::HexDisplay,
 		storage::{ChildInfo, ChildType, PrefixedStorageKey},
 		traits::{CallContext, CodeExecutor, RuntimeCode},
-		Hashers,
 	};
 	use sp_externalities::Extensions;
 	use std::{

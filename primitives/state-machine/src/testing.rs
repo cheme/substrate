@@ -29,7 +29,7 @@ use sp_core::{
 		well_known_keys::{is_child_storage_key, CODE},
 		StateVersion, Storage,
 	},
-	Hasher, Hashers,
+	Hasher,
 };
 use sp_externalities::{Extension, ExtensionStore, Extensions};
 use sp_trie::StorageProof;
