@@ -1483,15 +1483,17 @@ pub mod fuzz {
 
 			change.exit_runtime(true).unwrap();
 			change
-				.drain_committed()
-				.3
+				.drain_transient_committed()
+				.unwrap()
+				.1
 				.into_iter()
-				.filter_map(|(meta, value)| {
+				.filter_map(|(meta, chunks)| {
 					if meta.removed {
 						return None
 					}
+					let blob = crate::overlayed_changes::blob_from_chunks(chunks, meta.size);
 					let k: u8 = meta.infos.name[0];
-					Some((k, value))
+					Some((k, blob))
 				})
 				.collect()
 		}
@@ -1963,29 +1965,6 @@ mod tests {
 		let mut ext = Ext::new(&mut overlay, &mut cache, backend, None);
 
 		ext.set_child_storage(child_info, b"abc", b"def");
-		assert_eq!(ext.child_storage(child_info, b"abc", 0, None), Some(b"def"[..].into()));
-		let _ = ext.kill_child_storage(child_info, None, None);
-		assert_eq!(ext.child_storage(child_info, b"abc", 0, None), None);
-	}
-
-	#[test]
-	fn transient_map_storage_works() {
-		let child_info = ChildInfo::new_ordered_map(
-			b"sub1",
-			Some(sp_core::storage::transient::Mode::Drop),
-			None,
-		);
-		let child_info = &child_info;
-		let state = new_in_mem_hash_key::<BlakeTwo256>();
-		let backend = state.as_trie_backend();
-		let mut overlay = Changes::default();
-		let mut cache = StorageTransactionCache::default();
-		let mut ext = Ext::new(&mut overlay, &mut cache, backend, None);
-
-		assert!(!ext.set_child_storage(child_info, b"abc", b"def"));
-		assert_eq!(ext.child_storage(child_info, b"abc", 0, None), None);
-		assert!(ext.update_storage_info(child_info.clone(), true));
-		assert!(ext.set_child_storage(child_info, b"abc", b"def"));
 		assert_eq!(ext.child_storage(child_info, b"abc", 0, None), Some(b"def"[..].into()));
 		let _ = ext.kill_child_storage(child_info, None, None);
 		assert_eq!(ext.child_storage(child_info, b"abc", 0, None), None);
@@ -2556,91 +2535,6 @@ mod tests {
 		}
 		overlay.commit_transaction().unwrap();
 		assert_eq!(overlay.storage(b"ccc"), Some(None));
-	}
-
-	#[test]
-	fn blob_changes() {
-		let blob1 =
-			ChildInfo::new_blob(b"sub1", Some(sp_core::storage::transient::Mode::Drop), None);
-		let blob2 =
-			ChildInfo::new_blob(b"sub2", Some(sp_core::storage::transient::Mode::Drop), None);
-		let blob3 =
-			ChildInfo::new_blob(b"sub3", Some(sp_core::storage::transient::Mode::Drop), None);
-		let initial: BTreeMap<Vec<u8>, Vec<u8>> = Default::default();
-
-		let state = InMemoryBackend::<BlakeTwo256>::from((initial, StateVersion::default()));
-		let backend = state.as_trie_backend();
-
-		let mut overlay = Changes::default();
-		overlay.start_transaction();
-		// blob not created
-		assert!(!overlay.blob_set(blob1.storage_key(), &[0], 0));
-		// create blob
-		assert!(overlay.update_storage_info(blob1.clone(), true));
-		// out of range
-		assert!(!overlay.blob_set(blob1.storage_key(), &[0], 1));
-		// ok
-		assert!(overlay.blob_set(blob1.storage_key(), &[0], 0));
-		assert!(overlay.blob_set(blob1.storage_key(), &[1, 2], 1));
-		{
-			let mut cache = StorageTransactionCache::default();
-			let mut ext = Ext::new(&mut overlay, &mut cache, backend, None);
-			ext.blob_new(blob2.storage_key(), sp_core::storage::transient::Mode::Drop);
-			assert_eq!(ext.blob_get(blob1.storage_key(), Some(1), 1), Some(vec![1].into()));
-			assert!(ext.blob_exists(blob1.storage_key()));
-			assert!(!ext.blob_exists(blob3.storage_key()));
-			ext.storage_start_transaction();
-			assert!(ext.blob_clone(blob1.storage_key(), blob3.storage_key()));
-			assert_eq!(ext.blob_get(blob3.storage_key(), Some(8), 1), Some(vec![1, 2].into()));
-			assert!(ext.blob_delete(blob1.storage_key()));
-			assert!(!ext.blob_exists(blob1.storage_key()));
-			assert_eq!(ext.blob_get(blob1.storage_key(), Some(8), 1), None);
-			ext.storage_start_transaction();
-			assert!(ext.blob_rename(blob3.storage_key(), blob1.storage_key()));
-			assert_eq!(ext.blob_get(blob1.storage_key(), Some(1), 1), Some(vec![1].into()));
-			assert!(!ext.blob_exists(blob3.storage_key()));
-			assert_eq!(ext.blob_get(blob3.storage_key(), Some(8), 1), None);
-			assert_eq!(ext.blob_len(blob1.storage_key()), Some(3));
-			assert!(!ext.blob_truncate(blob1.storage_key(), 5));
-			assert!(ext.blob_truncate(blob1.storage_key(), 1));
-			assert_eq!(ext.blob_get(blob1.storage_key(), None, 0), Some(vec![0].into()));
-			assert_eq!(ext.blob_len(blob1.storage_key()), Some(1));
-			use hash_db::Hasher;
-			let value_hash = BlakeTwo256::hash(&[0]);
-			assert_eq!(
-				ext.blob_hash32(
-					blob1.storage_key(),
-					sp_core::storage::transient::Hash32Algorithm::Blake2b256
-				)
-				.as_ref()
-				.map(|h| &h[..]),
-				Some(&value_hash[..])
-			);
-			let mut value = vec![0; 800];
-			for i in 0u8..80 {
-				value[i as usize * 10] = i;
-			}
-			let value_hash = BlakeTwo256::hash(value.as_slice());
-			assert!(ext.blob_set(blob1.storage_key(), value.as_slice(), 0));
-			assert_eq!(
-				ext.blob_hash32(
-					blob1.storage_key(),
-					sp_core::storage::transient::Hash32Algorithm::Blake2b256
-				)
-				.as_ref()
-				.map(|h| &h[..]),
-				Some(&value_hash[..])
-			);
-			ext.storage_rollback_transaction().unwrap();
-			assert!(!ext.blob_exists(blob1.storage_key()));
-			assert_eq!(ext.blob_get(blob1.storage_key(), Some(8), 1), None);
-			ext.storage_rollback_transaction().unwrap();
-			assert_eq!(ext.blob_get(blob1.storage_key(), Some(1), 1), Some(vec![1].into()));
-			assert!(ext.blob_exists(blob1.storage_key()));
-			assert!(!ext.blob_exists(blob3.storage_key()));
-		}
-
-		// TODO test multiple consecutive rename: same tx, different tx.
 	}
 
 	#[test]

@@ -92,7 +92,7 @@ pub type OverlayedChangeSet = OverlayedMap<StorageKey, Option<StorageValue>>;
 #[derive(Debug, Clone, Default)]
 pub struct OverlayedChangeSetBlob {
 	/// Stores the changes to the blob.
-	chunks: Vec<OverlayedEntry<BlobChunk>>,
+	pub chunks: Vec<OverlayedEntry<BlobChunk>>,
 
 	/// Store indexes that where modified for a transaction layer
 	/// and if size did change.
@@ -474,6 +474,11 @@ impl OverlayedContext {
 		assert!(self.number_transactions == 0, "Drain is not allowed with open transactions.");
 	}
 
+	/// Check if we cannot drain committed (if transactions are open).
+	pub fn can_drain_committed(&self) -> bool {
+		self.number_transactions == 0
+	}
+
 	/// Number of open transaction (including non runtime ones).
 	pub fn transaction_depth(&self) -> usize {
 		self.number_transactions
@@ -481,24 +486,20 @@ impl OverlayedContext {
 }
 
 impl<I: Clone, M> OverlayedInfos<I, M> {
-	/* TODO needed?
 	/// Consume this infos and return the info if it is existing.
 	pub fn drain_committed(self) -> I {
 		self.infos.into_value().info
 	}
-	*/
 
 	/// Current value for infos.
 	pub fn value_ref(&self) -> &I {
 		&self.infos.value_ref().info
 	}
 
-	/* TODO needed?
 	/// The value as seen by the current transaction.
 	pub fn into_value(self) -> I {
 		self.infos.into_value().info
 	}
-	*/
 
 	/// Access mutable value on  the change set.
 	/// This should be use to change the value as it will

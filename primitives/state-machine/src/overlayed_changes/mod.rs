@@ -454,11 +454,10 @@ impl Changes {
 		self.blobs.get(name).and_then(|blob| blob.chunks())
 	}
 
-	/* TODO looks needed ??
 	fn blob_chunks_into_committed(
 		mut blob: Arc<OverlayedChangeSetBlob>,
 		infos: OverlayedInfos<BlobMeta, Arc<OverlayedChangeSetBlob>>,
-	) -> Option<(impl Iterator<Item = [u8; BLOB_CHUNK_SIZE]>, BlobMeta)> {
+	) -> Option<(BlobMeta, impl Iterator<Item = [u8; BLOB_CHUNK_SIZE]>)> {
 		let infos = infos.into_value();
 
 		if !matches!(infos.infos.mode, Some(Mode::Archive)) {
@@ -469,6 +468,7 @@ impl Changes {
 
 		let nb_chunk = if chunk_end == 0 && chunk_end_offset == 0 { 0 } else { chunk_end + 1 };
 		let iter = sp_std::mem::take(unsafe { rc_mut_unchecked(&mut blob) })
+			.chunks
 			.into_iter()
 			.enumerate()
 			.filter_map(move |(at, entry)| {
@@ -480,9 +480,8 @@ impl Changes {
 				}
 			});
 
-		Some((iter, infos))
+		Some((infos, iter))
 	}
-	*/
 
 	/// Return size of a given map when defined.
 	pub fn map_count(&self, name: &[u8]) -> Option<u32> {
@@ -938,6 +937,43 @@ impl Changes {
 				.map(|(infos, changes)| (infos, changes.into_iter())),
 			take(&mut self.archive_blobs).into_values(),
 		)
+	}
+
+	/// Consume all transient changes (blobs + ordered_map) and return them.
+	///
+	/// This should after be injected (only archived transient are return here)
+	/// through archive storage host functions.
+	///
+	/// Return `None` when `transaction_depth() > 0`
+	/// TODO in frame support call it and inject in util function.
+	///  TODO use blob_from_chunks there
+	pub fn drain_transient_committed(
+		&mut self,
+	) -> Option<(
+		impl Iterator<Item = (OrdMapMeta, impl Iterator<Item = (StorageKey, Option<StorageValue>)>)>,
+		impl Iterator<Item = (BlobMeta, impl Iterator<Item = [u8; BLOB_CHUNK_SIZE]>)>,
+	)> {
+		if !self.context.can_drain_committed() {
+			return None
+		}
+		use sp_std::mem::take;
+		self.context = Default::default(); // Return to client (legacy behavior).
+		Some((
+			take(&mut self.ordered_maps).into_iter().filter_map(|(_key, mut ordmap)| {
+				let infos = ordmap.infos.drain_committed();
+				if !matches!(infos.infos.mode, Some(Mode::Archive)) {
+					return None
+				}
+				Some((
+					infos,
+					sp_std::mem::take(unsafe { rc_mut_unchecked(&mut ordmap.changes) })
+						.drain_committed(),
+				))
+			}),
+			take(&mut self.blobs).into_iter().filter_map(|(_key, blob)| {
+				Self::blob_chunks_into_committed(blob.changes, blob.infos)
+			}),
+		))
 	}
 
 	/// Consume all changes (top + children) and return them.
@@ -2097,5 +2133,26 @@ mod tests {
 		let mut overlay = Changes::default();
 		overlay.start_transaction();
 		let _ = overlay.drain_committed();
+	}
+
+	#[test]
+	fn transient_map_storage_works() {
+		let child_info = ChildInfo::new_ordered_map(
+			b"sub1",
+			Some(sp_core::storage::transient::Mode::Drop),
+			None,
+		);
+		let child_info = &child_info;
+		let mut overlay = Changes::default();
+		assert!(!overlay.set_child_storage(child_info, b"abc", Some(b"def")));
+		assert_eq!(overlay.child_storage(child_info, b"abc", 0, None), None);
+		assert!(overlay.update_storage_info(child_info.clone(), true));
+		assert!(overlay.set_child_storage(child_info, b"abc", Some(b"def")));
+		assert_eq!(
+			overlay.child_storage(child_info, b"abc", 0, None).flatten(),
+			Some(Cow::Borrowed(&b"def"[..]))
+		);
+		let _ = overlay.clear_child_storage(child_info);
+		assert_eq!(overlay.child_storage(child_info, b"abc", 0, None).flatten(), None);
 	}
 }
