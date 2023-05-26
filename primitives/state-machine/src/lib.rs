@@ -1487,13 +1487,10 @@ pub mod fuzz {
 				.unwrap()
 				.1
 				.into_iter()
-				.filter_map(|(meta, chunks)| {
-					if meta.removed {
-						return None
-					}
+				.map(|(meta, chunks)| {
 					let blob = crate::overlayed_changes::blob_from_chunks(chunks, meta.size);
 					let k: u8 = meta.infos.name[0];
-					Some((k, blob))
+					(k, blob)
 				})
 				.collect()
 		}

@@ -24,8 +24,6 @@ pub use self::{
 	},
 	types::StorageEntryMetadataBuilder,
 };
-use sp_core::{storage::transient::HasherHandle, Hashers};
-
 use crate::{
 	hash::{ReversibleStorageHasher, StorageHasher},
 	storage::types::{
@@ -34,9 +32,12 @@ use crate::{
 	},
 };
 use codec::{Decode, Encode, EncodeLike, FullCodec, FullEncode};
-use sp_core::storage::{
-	transient::{Hash32Algorithm, Mode as TransientMode, Root32Structure},
-	Blob as BlobInfo, ChildInfo, OrderedMap as OrdMapInfo,
+use sp_core::{
+	storage::{
+		transient::{Hash32Algorithm, HasherHandle, Mode as TransientMode, Root32Structure},
+		Blob as BlobInfo, ChildInfo, OrderedMap as OrdMapInfo, BLOB_CHUNK_SIZE,
+	},
+	Hashers,
 };
 use sp_runtime::generic::{Digest, DigestItem};
 pub use sp_runtime::TransactionOutcome;
@@ -1867,6 +1868,9 @@ pub fn blob_len(name: &[u8]) -> Option<u32> {
 	)
 }
 
+/// Read from a blob at a given offset.
+/// Return the `None` if blob is not found.
+/// Return number of bytes read otherwise (if offset is out of bounds, return 0).
 pub fn blob_read(name: &[u8], value_out: &mut [u8], value_offset: u32) -> Option<u32> {
 	let len = value_out.len();
 	if len > u32::MAX as usize {
@@ -1965,6 +1969,58 @@ pub fn blob_get(name: &[u8], limit: Option<u32>, value_offset: u32) -> Option<Ve
 				.child_storage(&info, &[], value_offset, limit)
 				.flatten()
 				.map(Cow::into_owned)
+		},
+		Default::default,
+	)
+}
+
+/// Iterate on all change to report for a block.
+/// Return true on success, false otherwise.
+/// Cause of failure is mainly open transaction.
+/// This method should be called at least once at every end of block
+/// processsing to allow archival of transient data.
+pub fn archive_transient_data() -> bool {
+	global_runtime_env::with_or(
+		|env| {
+			let Some((iter_map, iter_blob)) = env.overlay
+				.drain_transient_committed() else {
+					return false;
+				};
+			for (meta, values) in iter_map {
+				for (key, value) in values {
+					if let Some(v) = value.as_ref() {
+						sp_io::ordered_map_storage::archive_item(
+							&meta.infos.name,
+							&key,
+							v.as_ref(),
+						);
+					}
+				}
+				if let (Some(root), Some(structure)) = (meta.cached_hash, meta.infos.algorithm) {
+					sp_io::ordered_map_storage::archive_root(
+						&meta.infos.name,
+						&root,
+						structure.into(),
+					);
+				}
+			}
+			for (meta, chunks) in iter_blob {
+				let mut len = 0;
+				for chunk in chunks {
+					len += BLOB_CHUNK_SIZE;
+					let chunk = if len > meta.size {
+						&chunk[..BLOB_CHUNK_SIZE - (len - meta.size)]
+					} else {
+						debug_assert!(chunk.len() == BLOB_CHUNK_SIZE);
+						&chunk[..]
+					};
+					sp_io::blob_storage::archive_chunk(&meta.infos.name, chunk);
+				}
+				if let (Some(hash), Some(algo)) = (meta.cached_hash, meta.infos.algorithm) {
+					sp_io::blob_storage::archive_hash(&meta.infos.name, &hash, algo.into());
+				}
+			}
+			true
 		},
 		Default::default,
 	)

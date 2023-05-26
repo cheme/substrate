@@ -463,6 +463,9 @@ impl Changes {
 		if !matches!(infos.infos.mode, Some(Mode::Archive)) {
 			return None
 		}
+		if infos.removed {
+			return None
+		}
 
 		let (chunk_end, chunk_end_offset) = blob_chunk_end_index(infos.size);
 
@@ -947,6 +950,8 @@ impl Changes {
 	/// Return `None` when `transaction_depth() > 0`
 	/// TODO in frame support call it and inject in util function.
 	///  TODO use blob_from_chunks there
+	///  TODO iterate on ptr to Storage value and ptr to chunks only!!!!
+	///  TODO maybe not need the whole meta as we already filter removed and non archive
 	pub fn drain_transient_committed(
 		&mut self,
 	) -> Option<(
@@ -962,6 +967,9 @@ impl Changes {
 			take(&mut self.ordered_maps).into_iter().filter_map(|(_key, mut ordmap)| {
 				let infos = ordmap.infos.drain_committed();
 				if !matches!(infos.infos.mode, Some(Mode::Archive)) {
+					return None
+				}
+				if infos.removed {
 					return None
 				}
 				Some((

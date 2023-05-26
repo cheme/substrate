@@ -636,12 +636,12 @@ pub trait Trie {
 #[runtime_interface]
 pub trait BlobStorage {
 	/// Put a chunk to be archive.
-	fn archive_blob_chunk(&mut self, name: &[u8], chunk: &[u8]) {
+	fn archive_chunk(&mut self, name: &[u8], chunk: &[u8]) {
 		self.blob_archive_chunk(name, chunk);
 	}
 
 	/// Put a blob hash to be archive.
-	fn archive_blob_hash(&mut self, name: &[u8], hash: &[u8], algo: Crossing<Hash32Algorithm>) {
+	fn archive_hash(&mut self, name: &[u8], hash: &[u8], algo: Crossing<Hash32Algorithm>) {
 		self.blob_archive_hash(name, hash, algo.0);
 	}
 }
@@ -650,17 +650,12 @@ pub trait BlobStorage {
 #[runtime_interface]
 pub trait OrderedMapStorage {
 	/// Put a map key value to be archive.
-	fn archive_ordered_map_item(&mut self, name: &[u8], key: &[u8], value: &[u8]) {
+	fn archive_item(&mut self, name: &[u8], key: &[u8], value: &[u8]) {
 		self.map_archive_item(name, key, value);
 	}
 
 	/// Put a map root to be archive.
-	fn archive_ordered_map_root(
-		&mut self,
-		name: &[u8],
-		root: &[u8],
-		structure: Crossing<Root32Structure>,
-	) {
+	fn archive_root(&mut self, name: &[u8], root: &[u8], structure: Crossing<Root32Structure>) {
 		self.map_archive_root(name, root, structure.0);
 	}
 }
