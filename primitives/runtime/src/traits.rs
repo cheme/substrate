@@ -731,19 +731,16 @@ impl Hasher for BlakeTwo256 {
 
 use sp_core::Hash32Algorithm;
 
+/*
 fn hash32_with_algorithm_hosts(data: &[u8], algo: Hash32Algorithm) -> [u8; 32] {
 	match algo {
 		Hash32Algorithm::Blake2b256 => sp_io::hashing::blake2_256(data).into(),
 	}
 }
+*/
 
 impl Hashers for BlakeTwo256 {
 	const IS_USING_HOST: bool = true;
-
-	fn hash_with(data: &[u8], algo: Hash32Algorithm) -> [u8; 32] {
-		// TODO unreachable it??
-		hash32_with_algorithm_hosts(data, algo)
-	}
 
 	fn hash_state_with(algo: Hash32Algorithm) -> Option<HasherHandle> {
 		sp_io::hashing::get_hasher(algo.into())
@@ -791,11 +788,6 @@ impl Hasher for Keccak256 {
 
 impl Hashers for Keccak256 {
 	const IS_USING_HOST: bool = true;
-
-	fn hash_with(data: &[u8], algo: Hash32Algorithm) -> [u8; 32] {
-		// TODO unreachable it??
-		hash32_with_algorithm_hosts(data, algo)
-	}
 
 	fn hash_state_with(algo: Hash32Algorithm) -> Option<HasherHandle> {
 		sp_io::hashing::get_hasher(algo.into())

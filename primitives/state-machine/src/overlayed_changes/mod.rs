@@ -949,9 +949,6 @@ impl Changes {
 	///
 	/// Return `None` when `transaction_depth() > 0`
 	/// TODO in frame support call it and inject in util function.
-	///  TODO use blob_from_chunks there
-	///  TODO iterate on ptr to Storage value and ptr to chunks only!!!!
-	///  TODO maybe not need the whole meta as we already filter removed and non archive
 	pub fn drain_transient_committed(
 		&mut self,
 	) -> Option<(
@@ -1875,28 +1872,25 @@ impl Changes {
 	/// Calculate hash of a blob.
 	pub fn blob_hash<H: Hashers>(&mut self, child_info: &ChildInfo) -> Option<Vec<u8>> {
 		if let ChildInfo::Blob(..) = child_info {
-			let Some((mut chunks, info)) = self.blobs.get(child_info.storage_key()).and_then(|b| b.chunks()) else {
+			let result = {
+				let Some((mut chunks, info)) = self.blobs.get(child_info.storage_key()).and_then(|b| b.chunks()) else {
 				return None
 			};
-			let Some(algorithm) = info.infos.algorithm else {
+				let Some(algorithm) = info.infos.algorithm else {
 				return None
 			};
-			let Some(state) = get_hasher!(self, algorithm) else {
+				let Some(state) = get_hasher!(self, algorithm) else {
 				// get a handle even if we run single chunk (easier to specify failure:
 				// no condition no cache asumption).
 				return None
 			};
-			if let Some(hash) = info.cached_hash.as_ref() {
-				// cached
-				drop_hasher!(self, Some(state));
-				return Some(hash.clone())
-			}
+				if let Some(hash) = info.cached_hash.as_ref() {
+					// cached
+					drop_hasher!(self, Some(state));
+					return Some(hash.clone())
+				}
 
-			let result = if let Some(chunk) = chunks.next() {
-				if info.size <= sp_core::storage::BLOB_CHUNK_SIZE {
-					sp_std::mem::drop(chunks);
-					H::hash_with(&chunk[..], algorithm)
-				} else {
+				let result = if let Some(chunk) = chunks.next() {
 					if !hasher_update!(self, state, &chunk[..]) {
 						drop_hasher!(self, Some(state));
 						return None
@@ -1913,13 +1907,17 @@ impl Changes {
 						drop_hasher!(self, Some(state));
 						return None
 					}
-				}
-			} else {
-				sp_std::mem::drop(chunks);
-				H::hash_with(&[], algorithm)
-			};
+				} else {
+					if let Some(hash) = hasher_finalize!(self, state) {
+						hash
+					} else {
+						drop_hasher!(self, Some(state));
+						return None
+					}
+				};
 
-			let result = result.encode();
+				result.encode()
+			};
 			self.cache_blob_hash(child_info.storage_key(), result.clone());
 			return Some(result)
 		}
@@ -1930,7 +1928,7 @@ impl Changes {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::{ext::Ext, InMemoryBackend};
+	use crate::{ext::Ext, testing::DummyHashers, InMemoryBackend};
 	use sp_core::{traits::Externalities, Blake2Hasher};
 	use std::collections::BTreeMap;
 
@@ -2049,7 +2047,7 @@ mod tests {
 		overlay.set_storage(b"doug".to_vec(), None);
 
 		let mut cache = StorageTransactionCache::default();
-		let mut ext = Ext::new(&mut overlay, &mut cache, &backend, None);
+		let mut ext = Ext::<_, DummyHashers, _>::new(&mut overlay, &mut cache, &backend, None);
 		let root = array_bytes::hex2bytes_unchecked(
 			"39245109cef3758c2eed2ccba8d9b370a917850af3824bc8348d505df2c298fa",
 		);

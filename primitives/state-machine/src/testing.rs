@@ -29,7 +29,7 @@ use sp_core::{
 		well_known_keys::{is_child_storage_key, CODE},
 		StateVersion, Storage,
 	},
-	Hasher,
+	Hash32Algorithm, Hasher, HasherHandle, Hashers,
 };
 use sp_externalities::{Extension, ExtensionStore, Extensions};
 use sp_trie::StorageProof;
@@ -37,6 +37,32 @@ use std::{
 	any::{Any, TypeId},
 	panic::{AssertUnwindSafe, UnwindSafe},
 };
+
+/// Simple HashMap-based Externalities impl.
+/// TODO if needed thread local impl.
+pub struct DummyHashers;
+
+impl Hashers for DummyHashers {
+	/// Indicate if we the hasher uses host functions.
+	const IS_USING_HOST: bool = false;
+
+	/// Get hasher.
+	fn hash_state_with(_algo: Hash32Algorithm) -> Option<HasherHandle> {
+		unreachable!("DummyHashers")
+	}
+
+	fn hash_update(_state: HasherHandle, _data: &[u8]) -> bool {
+		unreachable!("DummyHashers")
+	}
+
+	fn hash_drop(_state: Option<HasherHandle>) {
+		unreachable!("DummyHashers")
+	}
+
+	fn hash_finalize(_state: HasherHandle) -> Option<[u8; 32]> {
+		unreachable!("DummyHashers")
+	}
+}
 
 /// Simple HashMap-based Externalities impl.
 pub struct TestExternalities<H>
@@ -63,7 +89,7 @@ where
 	H::Out: Ord + 'static + codec::Codec,
 {
 	/// Get externalities implementation.
-	pub fn ext(&mut self) -> Ext<H, InMemoryBackend<H>> {
+	pub fn ext(&mut self) -> Ext<H, DummyHashers, InMemoryBackend<H>> {
 		Ext::new(
 			&mut self.overlay,
 			&mut self.storage_transaction_cache,
@@ -246,7 +272,7 @@ where
 		let proving_backend = TrieBackendBuilder::wrap(&self.backend)
 			.with_recorder(Default::default())
 			.build();
-		let mut proving_ext = Ext::new(
+		let mut proving_ext = Ext::<_, DummyHashers, _>::new(
 			&mut self.overlay,
 			&mut self.storage_transaction_cache,
 			&proving_backend,

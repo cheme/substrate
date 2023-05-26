@@ -2044,11 +2044,13 @@ struct IoHashers;
 impl Hashers for IoHashers {
 	const IS_USING_HOST: bool = true;
 
+	/*
 	fn hash_with(data: &[u8], algo: Hash32Algorithm) -> [u8; 32] {
 		match algo {
 			Hash32Algorithm::Blake2b256 => sp_io::hashing::blake2_256(data),
 		}
 	}
+	*/
 
 	fn hash_state_with(algo: Hash32Algorithm) -> Option<HasherHandle> {
 		sp_io::hashing::get_hasher(algo.into())

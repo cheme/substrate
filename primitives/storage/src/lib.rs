@@ -510,12 +510,13 @@ pub mod transient {
 	/// from state machine and could extend to more things.
 	/// It actually got not much to do with hasher, but this makes
 	/// refactoring faster (it could be another trait).
+	/// TODO maybe remove the ext macro and have associated handle
+	/// (and in std we just return the hasher state instead of the handle).
 	pub trait Hashers {
 		/// Indicate if we the hasher uses host functions.
+		/// TODO rem (trait is just host or nothing)
 		const IS_USING_HOST: bool;
 
-		/// Compute the hash of the provided slice of bytes returning the calculated hash.
-		fn hash_with(data: &[u8], algo: Hash32Algorithm) -> [u8; 32];
 		/// Get hasher.
 		fn hash_state_with(algo: Hash32Algorithm) -> Option<HasherHandle>;
 		/// Advance hashing with more bytes.

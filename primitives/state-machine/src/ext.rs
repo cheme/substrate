@@ -29,12 +29,13 @@ use sp_core::{
 		well_known_keys::is_child_storage_key,
 		ChildInfo, StateVersion, TrackedStorageKey,
 	},
-	Hasher, HasherHandle,
+	Hasher, HasherHandle, Hashers,
 };
 use sp_externalities::{
 	result_from_slice, result_from_vec, Extension, ExtensionStore, Externalities,
 	MultiRemovalResults,
 };
+use sp_std::marker::PhantomData;
 use sp_trie::{empty_child_trie_root, LayoutV1};
 
 use crate::{log_error, trace, warn, StorageTransactionCache};
@@ -59,7 +60,7 @@ macro_rules! get_hasher {
 #[cfg(not(feature = "std"))]
 macro_rules! get_hasher {
 	($s:ident, $a:expr) => {
-		H::hash_state_with($a)
+		H2::hash_state_with($a)
 	};
 }
 
@@ -73,7 +74,7 @@ macro_rules! drop_hasher {
 #[cfg(not(feature = "std"))]
 macro_rules! drop_hasher {
 	($s:ident, $h:expr) => {
-		H::hash_drop($h)
+		H2::hash_drop($h)
 	};
 }
 
@@ -87,7 +88,7 @@ macro_rules! hasher_update {
 #[cfg(not(feature = "std"))]
 macro_rules! hasher_update {
 	($s:ident, $h:expr, $d:expr) => {
-		H::hash_update($h, $d)
+		H2::hash_update($h, $d)
 	};
 }
 
@@ -101,7 +102,7 @@ macro_rules! hasher_finalize {
 #[cfg(not(feature = "std"))]
 macro_rules! hasher_finalize {
 	($s:ident, $h:expr) => {
-		H::hash_finalize($h)
+		H2::hash_finalize($h)
 	};
 }
 
@@ -154,7 +155,7 @@ impl<B: error::Error, E: error::Error> error::Error for Error<B, E> {
 }
 
 /// Wraps a read-only backend, call executor, and current overlayed changes.
-pub struct Ext<'a, H, B>
+pub struct Ext<'a, H, H2, B>
 where
 	H: Hasher,
 	B: 'a + Backend<H>,
@@ -170,9 +171,10 @@ where
 	/// Extensions registered with this instance.
 	#[cfg(feature = "std")]
 	extensions: Option<OverlayedExtensions<'a>>,
+	_ph: PhantomData<H2>,
 }
 
-impl<'a, H, B> Ext<'a, H, B>
+impl<'a, H, H2, B> Ext<'a, H, H2, B>
 where
 	H: Hasher,
 	B: Backend<H>,
@@ -184,7 +186,6 @@ where
 		storage_transaction_cache: &'a mut StorageTransactionCache<B::Transaction, H>,
 		backend: &'a B,
 	) -> Self {
-		debug_assert!(H::IS_USING_HOST);
 		Ext { overlay, backend, id: 0, storage_transaction_cache }
 	}
 
@@ -202,6 +203,7 @@ where
 			storage_transaction_cache,
 			id: rand::random(),
 			extensions: extensions.map(OverlayedExtensions::new),
+			_ph: Default::default(),
 		}
 	}
 
@@ -214,10 +216,11 @@ where
 }
 
 #[cfg(test)]
-impl<'a, H, B> Ext<'a, H, B>
+impl<'a, H, H2, B> Ext<'a, H, H2, B>
 where
 	H: Hasher,
 	H::Out: Ord + 'static,
+	H2: Hashers,
 	B: 'a + Backend<H>,
 {
 	pub fn storage_pairs(&self) -> Vec<(StorageKey, StorageValue)> {
@@ -236,10 +239,11 @@ where
 	}
 }
 
-impl<'a, H, B> Externalities for Ext<'a, H, B>
+impl<'a, H, H2, B> Externalities for Ext<'a, H, H2, B>
 where
 	H: Hasher,
 	H::Out: Ord + 'static + codec::Codec,
+	H2: Hashers,
 	B: Backend<H>,
 {
 	fn set_offchain_storage(&mut self, key: &[u8], value: Option<&[u8]>) {
@@ -936,7 +940,7 @@ where
 	}
 }
 
-impl<'a, H, B> Ext<'a, H, B>
+impl<'a, H, H2, B> Ext<'a, H, H2, B>
 where
 	H: Hasher,
 	H::Out: Ord + 'static + codec::Codec,
@@ -1037,7 +1041,7 @@ impl<'a> StorageAppend<'a> {
 }
 
 #[cfg(not(feature = "std"))]
-impl<'a, H, B> ExtensionStore for Ext<'a, H, B>
+impl<'a, H, H2, B> ExtensionStore for Ext<'a, H, H2, B>
 where
 	H: Hasher,
 	H::Out: Ord + 'static + codec::Codec,
@@ -1064,7 +1068,7 @@ where
 }
 
 #[cfg(feature = "std")]
-impl<'a, H, B> ExtensionStore for Ext<'a, H, B>
+impl<'a, H, H2, B> ExtensionStore for Ext<'a, H, H2, B>
 where
 	H: Hasher,
 	B: 'a + Backend<H>,
@@ -1104,7 +1108,7 @@ where
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::InMemoryBackend;
+	use crate::{testing::DummyHashers, InMemoryBackend};
 	use codec::Encode;
 	use hash_db::Hasher;
 	use sp_core::{
@@ -1114,7 +1118,7 @@ mod tests {
 	};
 
 	type TestBackend = InMemoryBackend<Blake2Hasher>;
-	type TestExt<'a> = Ext<'a, Blake2Hasher, TestBackend>;
+	type TestExt<'a> = Ext<'a, Blake2Hasher, DummyHashers, TestBackend>;
 
 	#[test]
 	fn next_storage_key_works() {
