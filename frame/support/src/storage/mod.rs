@@ -1512,6 +1512,18 @@ pub struct GlobalRuntimeContent {
 environmental::environmental!(global_runtime_env: GlobalRuntimeContent, with_init);
 // TODO move all in an env module
 
+fn transient_commit_transaction() -> bool {
+	global_runtime_env::with_or(|env| env.overlay.commit_transaction().is_ok(), Default::default)
+}
+
+fn transient_rollback_transaction() -> bool {
+	global_runtime_env::with_or(|env| env.overlay.rollback_transaction().is_ok(), Default::default)
+}
+
+fn transient_start_transaction() {
+	global_runtime_env::with_or(|env| env.overlay.start_transaction(), Default::default);
+}
+
 /// Reset env before each processing (generally
 /// a call to `global_runtime_env_using` is enough
 /// but it is not call in all cases.
@@ -1979,6 +1991,7 @@ pub fn blob_get(name: &[u8], limit: Option<u32>, value_offset: u32) -> Option<Ve
 /// Cause of failure is mainly open transaction.
 /// This method should be called at least once at every end of block
 /// processsing to allow archival of transient data.
+/// On successful call, all transient data is removed.
 pub fn archive_transient_data() -> bool {
 	global_runtime_env::with_or(
 		|env| {
@@ -2531,49 +2544,53 @@ mod test {
 			ChildInfo::new_blob(b"sub2", Some(sp_core::storage::transient::Mode::Drop), None);
 		let blob3 =
 			ChildInfo::new_blob(b"sub3", Some(sp_core::storage::transient::Mode::Drop), None);
-		let initial: BTreeMap<Vec<u8>, Vec<u8>> = Default::default();
 
-		let state = InMemoryBackend::<BlakeTwo256>::from((initial, StateVersion::default()));
-		let backend = state.as_trie_backend();
-
-		let mut overlay = Changes::default();
-		overlay.start_transaction();
+		crate::storage::transient_start_transaction();
 		// blob not created
-		assert!(!overlay.blob_set(blob1.storage_key(), &[0], 0));
+		assert!(!crate::storage::blob_set(blob1.storage_key(), &[0], 0));
 		// create blob
-		assert!(overlay.update_storage_info(blob1.clone(), true));
+		assert!(crate::storage::update_storage_info(blob1.clone(), true));
 		// out of range
-		assert!(!overlay.blob_set(blob1.storage_key(), &[0], 1));
+		assert!(!crate::storage::blob_set(blob1.storage_key(), &[0], 1));
 		// ok
-		assert!(overlay.blob_set(blob1.storage_key(), &[0], 0));
-		assert!(overlay.blob_set(blob1.storage_key(), &[1, 2], 1));
+		assert!(crate::storage::blob_set(blob1.storage_key(), &[0], 0));
+		assert!(crate::storage::blob_set(blob1.storage_key(), &[1, 2], 1));
 		{
-			let mut cache = StorageTransactionCache::default();
-			let mut ext = Ext::new(&mut overlay, &mut cache, backend, None);
-			ext.blob_new(blob2.storage_key(), sp_core::storage::transient::Mode::Drop);
-			assert_eq!(ext.blob_get(blob1.storage_key(), Some(1), 1), Some(vec![1].into()));
-			assert!(ext.blob_exists(blob1.storage_key()));
-			assert!(!ext.blob_exists(blob3.storage_key()));
-			ext.storage_start_transaction();
-			assert!(ext.blob_clone(blob1.storage_key(), blob3.storage_key()));
-			assert_eq!(ext.blob_get(blob3.storage_key(), Some(8), 1), Some(vec![1, 2].into()));
-			assert!(ext.blob_delete(blob1.storage_key()));
-			assert!(!ext.blob_exists(blob1.storage_key()));
-			assert_eq!(ext.blob_get(blob1.storage_key(), Some(8), 1), None);
-			ext.storage_start_transaction();
-			assert!(ext.blob_rename(blob3.storage_key(), blob1.storage_key()));
-			assert_eq!(ext.blob_get(blob1.storage_key(), Some(1), 1), Some(vec![1].into()));
-			assert!(!ext.blob_exists(blob3.storage_key()));
-			assert_eq!(ext.blob_get(blob3.storage_key(), Some(8), 1), None);
-			assert_eq!(ext.blob_len(blob1.storage_key()), Some(3));
-			assert!(!ext.blob_truncate(blob1.storage_key(), 5));
-			assert!(ext.blob_truncate(blob1.storage_key(), 1));
-			assert_eq!(ext.blob_get(blob1.storage_key(), None, 0), Some(vec![0].into()));
-			assert_eq!(ext.blob_len(blob1.storage_key()), Some(1));
-			use hash_db::Hasher;
-			let value_hash = BlakeTwo256::hash(&[0]);
+			crate::storage::blob_new(blob2.storage_key(), sp_core::storage::transient::Mode::Drop);
 			assert_eq!(
-				ext.blob_hash32(
+				crate::storage::blob_get(blob1.storage_key(), Some(1), 1),
+				Some(vec![1].into())
+			);
+			assert!(crate::storage::blob_exists(blob1.storage_key()));
+			assert!(!crate::storage::blob_exists(blob3.storage_key()));
+			crate::storage::transient_start_transaction();
+			assert!(crate::storage::blob_clone(blob1.storage_key(), blob3.storage_key()));
+			assert_eq!(
+				crate::storage::blob_get(blob3.storage_key(), Some(8), 1),
+				Some(vec![1, 2].into())
+			);
+			assert!(crate::storage::blob_delete(blob1.storage_key()));
+			assert!(!crate::storage::blob_exists(blob1.storage_key()));
+			assert_eq!(crate::storage::blob_get(blob1.storage_key(), Some(8), 1), None);
+			crate::storage::transient_start_transaction();
+			assert!(crate::storage::blob_rename(blob3.storage_key(), blob1.storage_key()));
+			assert_eq!(
+				crate::storage::blob_get(blob1.storage_key(), Some(1), 1),
+				Some(vec![1].into())
+			);
+			assert!(!crate::storage::blob_exists(blob3.storage_key()));
+			assert_eq!(crate::storage::blob_get(blob3.storage_key(), Some(8), 1), None);
+			assert_eq!(crate::storage::blob_len(blob1.storage_key()), Some(3));
+			assert!(!crate::storage::blob_truncate(blob1.storage_key(), 5));
+			assert!(crate::storage::blob_truncate(blob1.storage_key(), 1));
+			assert_eq!(
+				crate::storage::blob_get(blob1.storage_key(), None, 0),
+				Some(vec![0].into())
+			);
+			assert_eq!(crate::storage::blob_len(blob1.storage_key()), Some(1));
+			let value_hash = sp_io::hashing::blake2_256(&[0]);
+			assert_eq!(
+				crate::storage::blob_hash32(
 					blob1.storage_key(),
 					sp_core::storage::transient::Hash32Algorithm::Blake2b256
 				)
@@ -2585,10 +2602,10 @@ mod test {
 			for i in 0u8..80 {
 				value[i as usize * 10] = i;
 			}
-			let value_hash = BlakeTwo256::hash(value.as_slice());
-			assert!(ext.blob_set(blob1.storage_key(), value.as_slice(), 0));
+			let value_hash = sp_io::hashing::blake2_256(value.as_slice());
+			assert!(crate::storage::blob_set(blob1.storage_key(), value.as_slice(), 0));
 			assert_eq!(
-				ext.blob_hash32(
+				crate::storage::blob_hash32(
 					blob1.storage_key(),
 					sp_core::storage::transient::Hash32Algorithm::Blake2b256
 				)
@@ -2596,13 +2613,16 @@ mod test {
 				.map(|h| &h[..]),
 				Some(&value_hash[..])
 			);
-			ext.storage_rollback_transaction().unwrap();
-			assert!(!ext.blob_exists(blob1.storage_key()));
-			assert_eq!(ext.blob_get(blob1.storage_key(), Some(8), 1), None);
-			ext.storage_rollback_transaction().unwrap();
-			assert_eq!(ext.blob_get(blob1.storage_key(), Some(1), 1), Some(vec![1].into()));
-			assert!(ext.blob_exists(blob1.storage_key()));
-			assert!(!ext.blob_exists(blob3.storage_key()));
+			crate::storage::transient_rollback_transaction();
+			assert!(!crate::storage::blob_exists(blob1.storage_key()));
+			assert_eq!(crate::storage::blob_get(blob1.storage_key(), Some(8), 1), None);
+			crate::storage::transient_rollback_transaction();
+			assert_eq!(
+				crate::storage::blob_get(blob1.storage_key(), Some(1), 1),
+				Some(vec![1].into())
+			);
+			assert!(crate::storage::blob_exists(blob1.storage_key()));
+			assert!(!crate::storage::blob_exists(blob3.storage_key()));
 		}
 
 		// TODO test multiple consecutive rename: same tx, different tx.

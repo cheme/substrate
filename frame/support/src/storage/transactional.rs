@@ -99,6 +99,7 @@ pub fn is_transactional() -> bool {
 /// call, as it will also handle wasm global/local transactional data.
 pub fn commit_transaction() {
 	sp_io::storage::commit_transaction();
+	crate::storage::transient_commit_transaction();
 }
 
 /// Runtime commit transaction first access.
@@ -106,6 +107,7 @@ pub fn commit_transaction() {
 /// call, as it will also handle wasm global/local transactional data.
 pub fn rollback_transaction() {
 	sp_io::storage::rollback_transaction();
+	crate::storage::transient_rollback_transaction();
 }
 
 /// Runtime commit transaction first access.
@@ -113,6 +115,7 @@ pub fn rollback_transaction() {
 /// call, as it will also handle wasm global/local transactional data.
 pub fn start_transaction() {
 	sp_io::storage::start_transaction();
+	crate::storage::transient_start_transaction();
 }
 
 /// Execute the supplied function in a new storage transaction.

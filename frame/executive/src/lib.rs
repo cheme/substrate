@@ -492,6 +492,8 @@ where
 
 				// any final checks
 				Self::final_checks(&header);
+
+				frame_support::storage::archive_transient_data();
 			}
 		});
 	}
