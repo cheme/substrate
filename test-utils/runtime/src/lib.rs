@@ -829,7 +829,7 @@ fn test_witness(proof: StorageProof, root: crate::Hash) {
 	let backend = sp_state_machine::TrieBackendBuilder::<_, crate::Hashing>::new(db, root).build();
 	let mut overlay = sp_state_machine::Changes::default();
 	let mut cache = sp_state_machine::StorageTransactionCache::<_, _>::default();
-	let mut ext = sp_state_machine::Ext::new(
+	let mut ext = sp_state_machine::Ext::<_, frame_support::storage::IoHashers, _>::new(
 		&mut overlay,
 		&mut cache,
 		&backend,

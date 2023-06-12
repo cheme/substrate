@@ -1735,6 +1735,7 @@ fn blob_chunk_end_index(end: usize) -> (u32, usize) {
 	}
 }
 
+#[cfg(feature = "std")]
 pub(crate) fn blob_from_chunks<B: AsRef<[u8]>>(
 	mut iter: impl Iterator<Item = B>,
 	size: usize,

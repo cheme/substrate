@@ -47,6 +47,8 @@ use sp_core::{
 	ecdsa, ed25519,
 	hash::{H256, H512},
 	sr25519,
+	storage::transient::{Hash32Algorithm, HasherHandle},
+	Hashers,
 };
 use sp_std::prelude::*;
 
@@ -1075,6 +1077,37 @@ mod tests {
 			assert_eq!(sp_io::storage::get(b"a").unwrap(), vec![1u8; 44]);
 			assert_eq!(sp_io::storage::get(b"b").unwrap(), vec![2u8; 33]);
 		});
+	}
+}
+
+/// trait `Hashers` implementation to use (calls sp_io).
+pub struct IoHashers;
+
+impl Hashers for IoHashers {
+	const IS_USING_HOST: bool = true;
+
+	/*
+	fn hash_with(data: &[u8], algo: Hash32Algorithm) -> [u8; 32] {
+		match algo {
+			Hash32Algorithm::Blake2b256 => sp_io::hashing::blake2_256(data),
+		}
+	}
+	*/
+
+	fn hash_state_with(algo: Hash32Algorithm) -> Option<HasherHandle> {
+		sp_io::hashing::get_hasher(algo.into())
+	}
+
+	fn hash_update(state: HasherHandle, data: &[u8]) -> bool {
+		sp_io::hashing::hasher_update(state, data)
+	}
+
+	fn hash_drop(state: Option<HasherHandle>) {
+		sp_io::hashing::drop_hasher(state)
+	}
+
+	fn hash_finalize(state: HasherHandle) -> Option<[u8; 32]> {
+		sp_io::hashing::hasher_finalize(state)
 	}
 }
 

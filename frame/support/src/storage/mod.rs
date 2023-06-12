@@ -32,15 +32,12 @@ use crate::{
 	},
 };
 use codec::{Decode, Encode, EncodeLike, FullCodec, FullEncode};
-use sp_core::{
-	storage::{
-		transient::{Hash32Algorithm, HasherHandle, Mode as TransientMode, Root32Structure},
-		Blob as BlobInfo, ChildInfo, OrderedMap as OrdMapInfo, BLOB_CHUNK_SIZE,
-	},
-	Hashers,
+use sp_core::storage::{
+	transient::{Hash32Algorithm, Mode as TransientMode, Root32Structure},
+	Blob as BlobInfo, ChildInfo, OrderedMap as OrdMapInfo, BLOB_CHUNK_SIZE,
 };
 use sp_runtime::generic::{Digest, DigestItem};
-pub use sp_runtime::TransactionOutcome;
+pub use sp_runtime::{IoHashers, TransactionOutcome};
 use sp_std::{borrow::Cow, collections::btree_set::BTreeSet, marker::PhantomData, prelude::*};
 pub use types::Key;
 
@@ -1804,7 +1801,7 @@ pub fn map_read_item(
 		return None
 	}
 	map_get_item(name, key, Some(len as u32), value_offset).map(|value| {
-		let written = std::cmp::min(value.len(), value_out.len());
+		let written = sp_std::cmp::min(value.len(), value_out.len());
 		value_out[..written].copy_from_slice(&value[..written]);
 		written as u32
 	})
@@ -1889,7 +1886,7 @@ pub fn blob_read(name: &[u8], value_out: &mut [u8], value_offset: u32) -> Option
 		return None
 	}
 	blob_get(name, Some(len as u32), value_offset).map(|value| {
-		let written = std::cmp::min(value.len(), value_out.len());
+		let written = sp_std::cmp::min(value.len(), value_out.len());
 		value_out[..written].copy_from_slice(&value[..written]);
 		written as u32
 	})
@@ -2037,36 +2034,6 @@ pub fn archive_transient_data() -> bool {
 		},
 		Default::default,
 	)
-}
-
-struct IoHashers;
-
-impl Hashers for IoHashers {
-	const IS_USING_HOST: bool = true;
-
-	/*
-	fn hash_with(data: &[u8], algo: Hash32Algorithm) -> [u8; 32] {
-		match algo {
-			Hash32Algorithm::Blake2b256 => sp_io::hashing::blake2_256(data),
-		}
-	}
-	*/
-
-	fn hash_state_with(algo: Hash32Algorithm) -> Option<HasherHandle> {
-		sp_io::hashing::get_hasher(algo.into())
-	}
-
-	fn hash_update(state: HasherHandle, data: &[u8]) -> bool {
-		sp_io::hashing::hasher_update(state, data)
-	}
-
-	fn hash_drop(state: Option<HasherHandle>) {
-		sp_io::hashing::drop_hasher(state)
-	}
-
-	fn hash_finalize(state: HasherHandle) -> Option<[u8; 32]> {
-		sp_io::hashing::hasher_finalize(state)
-	}
 }
 
 /// If blob exists, return it's hash for a given algorithm.

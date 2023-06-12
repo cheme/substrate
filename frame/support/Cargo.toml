@@ -31,6 +31,7 @@ sp-debug-derive = { default-features = false, path = "../../primitives/debug-der
 tt-call = "1.0.8"
 frame-support-procedural = { version = "4.0.0-dev", default-features = false, path = "./procedural" }
 paste = "1.0"
+hash256-std-hasher = { version = "0.15.2", default-features = false }
 once_cell = { version = "1", default-features = false, optional = true }
 sp-state-machine = { version = "0.13.0", default-features = false, path = "../../primitives/state-machine" }
 bitflags = "1.3"

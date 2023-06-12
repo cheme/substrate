@@ -186,7 +186,7 @@ where
 		storage_transaction_cache: &'a mut StorageTransactionCache<B::Transaction, H>,
 		backend: &'a B,
 	) -> Self {
-		Ext { overlay, backend, id: 0, storage_transaction_cache }
+		Ext { overlay, backend, id: 0, storage_transaction_cache, _ph: Default::default() }
 	}
 
 	/// Create a new `Ext` from overlayed changes and read-only backend

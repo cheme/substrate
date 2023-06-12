@@ -328,7 +328,7 @@ struct HasherIoBlake;
 impl sp_core::Hasher for HasherIoBlake {
 	const LENGTH: usize = 32;
 	type Out = [u8; 32];
-	type StdHasher = <sp_core::Blake2Hasher as sp_core::Hasher>::StdHasher;
+	type StdHasher = hash256_std_hasher::Hash256StdHasher;
 
 	fn hash(x: &[u8]) -> Self::Out {
 		sp_io::hashing::blake2_256(x)

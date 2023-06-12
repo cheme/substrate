@@ -43,7 +43,6 @@ pub use std_reexport::*;
 pub use execution::*;
 #[cfg(feature = "std")]
 pub use log::{debug, error as log_error, warn};
-use sp_core::Hasher;
 #[cfg(feature = "std")]
 pub use tracing::trace;
 
@@ -164,7 +163,7 @@ mod execution {
 		hexdisplay::HexDisplay,
 		storage::{ChildInfo, ChildType, PrefixedStorageKey},
 		traits::{CallContext, CodeExecutor, RuntimeCode},
-		Hashers,
+		Hasher, Hashers,
 	};
 	use sp_externalities::Extensions;
 	use std::{

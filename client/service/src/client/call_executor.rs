@@ -26,7 +26,7 @@ use sp_core::{
 	traits::{CallContext, CodeExecutor, RuntimeCode},
 	ExecutionContext,
 };
-use sp_runtime::{generic::BlockId, traits::Block as BlockT};
+use sp_runtime::{generic::BlockId, traits::Block as BlockT, IoHashers};
 use sp_state_machine::{
 	backend::AsTrieBackend, Changes, ExecutionStrategy, Ext, StateMachine, StorageProof,
 };
@@ -124,7 +124,7 @@ where
 		let mut overlay = Changes::default();
 
 		let mut cache = StorageTransactionCache::<Block, B::State>::default();
-		let mut ext = Ext::new(&mut overlay, &mut cache, state, None);
+		let mut ext = Ext::<_, IoHashers, _>::new(&mut overlay, &mut cache, state, None);
 
 		self.executor
 			.runtime_version(&mut ext, code)
@@ -186,7 +186,7 @@ where
 			ExecutionContext::OffchainCall(None),
 		);
 
-		let mut sm = StateMachine::new(
+		let mut sm = StateMachine::<_, _, IoHashers, _>::new(
 			&state,
 			&mut changes,
 			&self.executor,
@@ -245,7 +245,7 @@ where
 					.with_recorder(recorder.clone())
 					.build();
 
-				let mut state_machine = StateMachine::new(
+				let mut state_machine = StateMachine::<_, _, IoHashers, _>::new(
 					&backend,
 					changes,
 					&self.executor,
@@ -260,7 +260,7 @@ where
 				state_machine.execute_using_consensus_failure_handler(execution_manager)
 			},
 			None => {
-				let mut state_machine = StateMachine::new(
+				let mut state_machine = StateMachine::<_, _, IoHashers, _>::new(
 					&state,
 					changes,
 					&self.executor,
@@ -304,7 +304,7 @@ where
 			state_runtime_code.runtime_code().map_err(sp_blockchain::Error::RuntimeCode)?;
 		let runtime_code = self.check_override(runtime_code, &state, at_hash)?.0;
 
-		sp_state_machine::prove_execution_on_trie_backend(
+		sp_state_machine::prove_execution_on_trie_backend::<_, _, IoHashers, _>(
 			trie_backend,
 			&mut Default::default(),
 			&self.executor,

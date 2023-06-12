@@ -2710,6 +2710,7 @@ dependencies = [
  "frame-metadata",
  "frame-support-procedural",
  "frame-system",
+ "hash256-std-hasher",
  "impl-trait-for-tuples",
  "k256",
  "log",

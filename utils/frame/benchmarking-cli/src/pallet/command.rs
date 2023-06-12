@@ -40,6 +40,7 @@ use sp_core::{
 use sp_externalities::Extensions;
 use sp_keystore::{testing::MemoryKeystore, KeystoreExt};
 use sp_runtime::traits::{Block as BlockT, Header as HeaderT};
+use sp_runtime::IoHashers;
 use sp_state_machine::StateMachine;
 use std::{collections::HashMap, fmt::Debug, fs, str::FromStr, time};
 
@@ -236,7 +237,7 @@ impl PalletCmd {
 
 		// Get Benchmark List
 		let state = &state_without_tracking;
-		let result = StateMachine::new(
+		let result = StateMachine::<_, _, IoHashers, _>::new(
 			state,
 			&mut changes,
 			&executor,
@@ -365,7 +366,7 @@ impl PalletCmd {
 				// First we run a verification
 				if !self.no_verify {
 					let state = &state_without_tracking;
-					let result = StateMachine::new(
+					let result = StateMachine::<_, _, IoHashers, _>::new(
 						state,
 						&mut changes,
 						&executor,
@@ -405,7 +406,7 @@ impl PalletCmd {
 				// Do one loop of DB tracking.
 				{
 					let state = &state_with_tracking;
-					let result = StateMachine::new(
+					let result = StateMachine::<_, _, IoHashers, _>::new(
 						state, // todo remove tracking
 						&mut changes,
 						&executor,
@@ -437,7 +438,7 @@ impl PalletCmd {
 				// Finally run a bunch of loops to get extrinsic timing information.
 				for r in 0..self.external_repeat {
 					let state = &state_without_tracking;
-					let result = StateMachine::new(
+					let result = StateMachine::<_, _, IoHashers, _>::new(
 						state, // todo remove tracking
 						&mut changes,
 						&executor,
