@@ -332,6 +332,12 @@ where
 			);
 		}
 
+		frame_support::log::info!(
+			target: LOG_TARGET,
+			"try-runtime: Block #{:?} successfully executed",
+			header.number(),
+		);
+
 		Ok(frame_system::Pallet::<System>::block_weight().total())
 	}
 
@@ -886,7 +892,7 @@ mod tests {
 		type WeightInfo = ();
 		type FreezeIdentifier = ();
 		type MaxFreezes = ConstU32<1>;
-		type HoldIdentifier = ();
+		type RuntimeHoldReason = ();
 		type MaxHolds = ConstU32<1>;
 	}
 

@@ -54,7 +54,6 @@ members = [
 	"client/network/sync",
 	"client/network/test",
 	"client/offchain",
-	"client/peerset",
 	"client/allocator",
 	"client/proposer-metrics",
 	"client/rpc",
@@ -75,6 +74,7 @@ members = [
 	"client/transaction-pool/api",
 	"client/utils",
 	"frame/alliance",
+	"frame/asset-conversion",
 	"frame/assets",
 	"frame/atomic-swap",
 	"frame/aura",
@@ -107,9 +107,13 @@ members = [
 	"frame/election-provider-support/benchmarking",
 	"frame/election-provider-support/solution-type",
 	"frame/election-provider-support/solution-type/fuzzer",
+	"frame/examples",
 	"frame/examples/basic",
 	"frame/examples/offchain-worker",
+	"frame/examples/kitchensink",
 	"frame/examples/dev-mode",
+	"frame/examples/split",
+	"frame/examples/default-config",
 	"frame/executive",
 	"frame/nis",
 	"frame/grandpa",
@@ -167,6 +171,7 @@ members = [
 	"frame/system/rpc/runtime-api",
 	"frame/timestamp",
 	"frame/transaction-payment",
+	"frame/transaction-payment/asset-conversion-tx-payment",
 	"frame/transaction-payment/asset-tx-payment",
 	"frame/transaction-payment/rpc",
 	"frame/transaction-payment/rpc/runtime-api",
@@ -199,9 +204,11 @@ members = [
 	"primitives/core",
 	"primitives/core/hashing",
 	"primitives/core/hashing/proc-macro",
+	"primitives/crypto/ec-utils",
 	"primitives/database",
 	"primitives/debug-derive",
 	"primitives/externalities",
+	"primitives/genesis-builder",
 	"primitives/inherents",
 	"primitives/io",
 	"primitives/keyring",
@@ -294,7 +301,6 @@ hash-db = { opt-level = 3 }
 hmac = { opt-level = 3 }
 httparse = { opt-level = 3 }
 integer-sqrt = { opt-level = 3 }
-k256 = { opt-level = 3 }
 keccak = { opt-level = 3 }
 libm = { opt-level = 3 }
 librocksdb-sys = { opt-level = 3 }
