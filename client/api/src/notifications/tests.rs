@@ -43,8 +43,10 @@ impl From<TestChangeSet> for StorageChangeSet {
 		StorageChangeSet {
 			changes: From::from(changes.0),
 			child_changes: From::from(changes.1),
-			btrees_changes: From::from(changes.2),
-			blobs_changes: From::from(changes.3),
+			blobs_changes: From::from(changes.2),
+			btrees_changes: From::from(
+				changes.3.into_iter().map(|(k, v)| (k, Some(v))).collect::<Vec<_>>(),
+			),
 			filter: None,
 			child_filters,
 			btrees_filters: None,
@@ -105,7 +107,9 @@ fn triggering_change_should_notify_wildcard_listeners() {
 						(StorageKey(vec![5]), Some(StorageData(vec![4]))),
 						(StorageKey(vec![6]), None),
 					]
-				)]
+				)],
+				vec![],
+				vec![],
 			)
 				.into()
 		)
@@ -154,13 +158,17 @@ fn should_only_notify_interested_listeners() {
 	// then
 	assert_eq!(
 		recv1.next().map(StorageNotification::into_fields).unwrap(),
-		(Hash::from_low_u64_be(1), (vec![(StorageKey(vec![1]), None),], vec![]).into())
+		(
+			Hash::from_low_u64_be(1),
+			(vec![(StorageKey(vec![1]), None),], vec![], vec![], vec![]).into()
+		)
 	);
 	assert_eq!(
 		recv2.next().map(StorageNotification::into_fields).unwrap(),
 		(
 			Hash::from_low_u64_be(1),
-			(vec![(StorageKey(vec![2]), Some(StorageData(vec![3]))),], vec![]).into()
+			(vec![(StorageKey(vec![2]), Some(StorageData(vec![3]))),], vec![], vec![], vec![])
+				.into()
 		)
 	);
 	assert_eq!(
@@ -172,7 +180,9 @@ fn should_only_notify_interested_listeners() {
 				vec![(
 					StorageKey(vec![4]),
 					vec![(StorageKey(vec![5]), Some(StorageData(vec![4])))]
-				),]
+				),],
+				vec![],
+				vec![],
 			)
 				.into()
 		)

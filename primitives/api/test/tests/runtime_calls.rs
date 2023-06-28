@@ -16,8 +16,10 @@
 // limitations under the License.
 
 use sp_api::{Core, ProvideRuntimeApi};
-use sp_runtime::traits::{HashFor, Header as HeaderT};
-use sp_runtime::IoHashers;
+use sp_runtime::{
+	traits::{HashFor, Header as HeaderT},
+	IoHashers,
+};
 use sp_state_machine::{
 	create_proof_check_backend, execution_proof_check_on_trie_backend, ExecutionStrategy,
 };

@@ -39,8 +39,10 @@ use sp_core::{
 };
 use sp_externalities::Extensions;
 use sp_keystore::{testing::MemoryKeystore, KeystoreExt};
-use sp_runtime::traits::{Block as BlockT, Header as HeaderT};
-use sp_runtime::IoHashers;
+use sp_runtime::{
+	traits::{Block as BlockT, Header as HeaderT},
+	IoHashers,
+};
 use sp_state_machine::StateMachine;
 use std::{collections::HashMap, fmt::Debug, fs, str::FromStr, time};
 
