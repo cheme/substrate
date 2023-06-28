@@ -1360,9 +1360,9 @@ impl<T: Config> Pallet<T> {
 
 	/// Gets the index of extrinsic that is currently executing.
 	pub fn extrinsic_index() -> Option<u32> {
-		// TODO change get_global to return option
-		Some(frame_support::storage::get_global_extrinsic_count())
-		//storage::unhashed::get(well_known_keys::EXTRINSIC_INDEX)
+		//let index2 = storage::unhashed::get(well_known_keys::EXTRINSIC_INDEX);
+		let index = Some(frame_support::storage::get_global_extrinsic_count());
+		index
 	}
 
 	/// Gets extrinsics count.
@@ -1404,7 +1404,6 @@ impl<T: Config> Pallet<T> {
 		let entropy = (b"frame_system::initialize", parent_hash).using_encoded(blake2_256);
 		storage::unhashed::put_raw(well_known_keys::INTRABLOCK_ENTROPY, &entropy[..]);
 		frame_support::storage::set_global_extrinsic_count(0u32);
-		//		storage::unhashed::put(well_known_keys::EXTRINSIC_INDEX, &0u32);
 		<Number<T>>::put(number);
 		<Digest<T>>::put(digest);
 		<ParentHash<T>>::put(parent_hash);
@@ -1470,8 +1469,9 @@ impl<T: Config> Pallet<T> {
 		let parent_hash = <ParentHash<T>>::get();
 		let digest = <Digest<T>>::get();
 
-		let count = frame_support::storage::get_global_extrinsic_count();
-		let extrinsics = (0..count).map(ExtrinsicData::<T>::take).collect();
+		let count2 = frame_support::storage::get_global_extrinsic_count();
+		let _ = ExtrinsicCount::<T>::take().unwrap_or_default(); // TODO rem but remove matters here
+		let extrinsics = (0..count2).map(ExtrinsicData::<T>::take).collect();
 		let extrinsics_root = extrinsics_data_root::<T::Hashing>(extrinsics);
 
 		// move block hash pruning window by one block
@@ -1562,7 +1562,7 @@ impl<T: Config> Pallet<T> {
 	#[cfg(any(feature = "std", test))]
 	pub fn set_extrinsic_index(extrinsic_index: u32) {
 		frame_support::storage::set_global_extrinsic_count(extrinsic_index);
-		//storage::unhashed::put(well_known_keys::EXTRINSIC_INDEX, &extrinsic_index)
+		storage::unhashed::put(well_known_keys::EXTRINSIC_INDEX, &extrinsic_index)
 	}
 
 	/// Set the parent hash number to something in particular. Can be used as an alternative to
@@ -1664,15 +1664,15 @@ impl<T: Config> Pallet<T> {
 		let next_extrinsic_index = Self::extrinsic_index().unwrap_or_default() + 1u32;
 
 		frame_support::storage::set_global_extrinsic_count(next_extrinsic_index);
-		//storage::unhashed::put(well_known_keys::EXTRINSIC_INDEX, &next_extrinsic_index);
+		storage::unhashed::put(well_known_keys::EXTRINSIC_INDEX, &next_extrinsic_index);
 		ExecutionPhase::<T>::put(Phase::ApplyExtrinsic(next_extrinsic_index));
 	}
 
 	/// To be called immediately after `note_applied_extrinsic` of the last extrinsic of the block
 	/// has been called.
 	pub fn note_finished_extrinsics() {
+		let _: u32 = storage::unhashed::take(well_known_keys::EXTRINSIC_INDEX).unwrap_or_default();
 		let extrinsic_index: u32 = frame_support::storage::get_global_extrinsic_count();
-		//			storage::unhashed::take(well_known_keys::EXTRINSIC_INDEX).unwrap_or_default();
 		ExtrinsicCount::<T>::put(extrinsic_index);
 		ExecutionPhase::<T>::put(Phase::Finalization);
 	}
