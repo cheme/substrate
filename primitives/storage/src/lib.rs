@@ -33,11 +33,9 @@ use sp_std::{
 };
 
 /// Storage key.
-#[derive(PartialEq, Eq, RuntimeDebug)]
-#[cfg_attr(
-	feature = "serde",
-	derive(Serialize, Deserialize, Hash, PartialOrd, Ord, Clone, Encode, Decode)
-)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Encode, Decode, RuntimeDebug)]
+#[cfg_attr(feature = "std", derive(Hash))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct StorageKey(
 	#[cfg_attr(feature = "serde", serde(with = "impl_serde::serialize"))] pub Vec<u8>,
 );
@@ -104,8 +102,9 @@ impl From<Vec<u8>> for TrackedStorageKey {
 }
 
 /// Storage key of a child trie, it contains the prefix to the key.
-#[derive(PartialEq, Eq, RuntimeDebug)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize, Hash, PartialOrd, Ord, Clone))]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, RuntimeDebug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "std", derive(Hash))]
 #[repr(transparent)]
 #[derive(RefCast)]
 pub struct PrefixedStorageKey(
@@ -145,11 +144,9 @@ impl PrefixedStorageKey {
 }
 
 /// Storage data associated to a [`StorageKey`].
-#[derive(PartialEq, Eq, RuntimeDebug)]
-#[cfg_attr(
-	feature = "serde",
-	derive(Serialize, Deserialize, Hash, PartialOrd, Ord, Clone, Encode, Decode, Default)
-)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Encode, Decode, Default, RuntimeDebug)]
+#[cfg_attr(feature = "std", derive(Hash))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct StorageData(
 	#[cfg_attr(feature = "serde", serde(with = "impl_serde::serialize"))] pub Vec<u8>,
 );
@@ -186,7 +183,8 @@ pub struct Storage {
 
 /// Blob storage data.
 #[cfg(feature = "std")]
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Encode, Decode)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct StorageBlob {
 	/// Full blob representation.
 	pub data: Vec<u8>,
@@ -199,7 +197,8 @@ pub struct StorageBlob {
 
 /// Ordered map storage data.
 #[cfg(feature = "std")]
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Encode, Decode)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct StorageOrderedMap {
 	/// Ordered key value data for storage.
 	pub data: StorageMap,
@@ -211,8 +210,8 @@ pub struct StorageOrderedMap {
 }
 
 /// Storage change set
-#[derive(RuntimeDebug)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize, PartialEq, Eq))]
+#[derive(RuntimeDebug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
 pub struct StorageChangeSet<Hash> {
 	/// Block hash
@@ -289,8 +288,9 @@ pub const TRIE_VALUE_NODE_THRESHOLD: u32 = 33;
 pub type Name = Vec<u8>;
 
 /// Information related to a child state.
-#[derive(Debug, Clone)]
-#[cfg_attr(feature = "serde", derive(PartialEq, Eq, Hash, PartialOrd, Ord, Encode, Decode))]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Debug, Clone, Encode, Decode)]
+#[cfg_attr(feature = "std", derive(Hash))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum ChildInfo {
 	/// This is the one used by default.
 	Default(DefaultChild),
@@ -445,11 +445,15 @@ pub enum ChildType {
 pub mod transient {
 	use codec::{Decode, Encode};
 
+	#[cfg(feature = "serde")]
+	use serde::{Deserialize, Serialize};
+
 	/// `Mode` define if transient storage should keep
 	/// storage accessible.
 	/// Accessible storage may be pruned as any storage.
-	#[derive(PartialEq, Eq, Debug, Clone, Copy, Encode, Decode)]
-	#[cfg_attr(feature = "std", derive(Hash, PartialOrd, Ord))]
+	#[derive(PartialEq, Eq, Debug, Clone, Copy, PartialOrd, Ord, Encode, Decode)]
+	#[cfg_attr(feature = "std", derive(Hash))]
+	#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 	pub enum Mode {
 		/// Storage can be drop.
 		/// Information will remain local to the runtime
@@ -467,8 +471,9 @@ pub mod transient {
 	///
 	/// Warning any update to this enum means updating
 	/// (new version needed) all host functions using it as a parameter.
-	#[derive(PartialEq, Eq, Debug, Clone, Copy, Encode, Decode)]
-	#[cfg_attr(feature = "std", derive(Hash, PartialOrd, Ord))]
+	#[derive(PartialEq, Eq, Debug, Clone, Copy, PartialOrd, Ord, Encode, Decode)]
+	#[cfg_attr(feature = "std", derive(Hash))]
+	#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 	pub enum Hash32Algorithm {
 		/// Storage can be drop.
 		#[cfg_attr(feature = "std", codec(index = 0))]
@@ -484,8 +489,9 @@ pub mod transient {
 	///
 	/// Warning any update to this enum means updating
 	/// (new version needed) all host functions using it as a parameter.
-	#[derive(PartialEq, Eq, Debug, Clone, Copy, Encode, Decode)]
-	#[cfg_attr(feature = "std", derive(Hash, PartialOrd, Ord))]
+	#[derive(PartialEq, Eq, Debug, Clone, Copy, PartialOrd, Ord, Encode, Decode)]
+	#[cfg_attr(feature = "std", derive(Hash))]
+	#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 	pub enum Root32Structure {
 		/// Substrate default.
 		/// The patricia base 16 merkle trie with
@@ -595,8 +601,9 @@ impl ChildType {
 /// It shares its trie nodes backend storage with every other child trie, so its storage key needs
 /// to be a unique id that will be use only once. Those unique id also required to be long enough to
 /// avoid any unique id to be prefixed by an other unique id.
-#[derive(Debug, Clone)]
-#[cfg_attr(feature = "serde", derive(PartialEq, Eq, Hash, PartialOrd, Ord, Encode, Decode))]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Encode, Decode)]
+#[cfg_attr(feature = "std", derive(Hash))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct DefaultChild {
 	/// Data is the storage key without prefix.
 	pub name: Name,
@@ -616,8 +623,8 @@ impl DefaultChild {
 }
 
 /// Transient defining infos.
-#[derive(Debug, Clone)]
-#[cfg_attr(feature = "std", derive(PartialEq, Eq, Ord, Encode, Decode))]
+#[derive(Debug, Clone, PartialEq, Eq, Ord, Encode, Decode)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct TransientInfo<A> {
 	/// Name of the transient storage.
 	pub name: Name,
@@ -646,7 +653,6 @@ impl<A> sp_std::hash::Hash for TransientInfo<A> {
 	}
 }
 
-#[cfg(feature = "std")]
 impl<A: PartialEq> PartialOrd for TransientInfo<A> {
 	fn partial_cmp(&self, other: &Self) -> Option<sp_std::cmp::Ordering> {
 		self.name.partial_cmp(&other.name)
