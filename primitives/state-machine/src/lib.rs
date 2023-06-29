@@ -1486,11 +1486,12 @@ pub mod fuzz {
 				.drain_committed()
 				.3
 				.into_iter()
-				.filter_map(|(meta, value)| {
+				.filter_map(|(meta, chunks)| {
 					if meta.removed {
 						return None
 					}
 					let k: u8 = meta.infos.name[0];
+					let value = overlayed_changes::blob_from_chunks(chunks, meta.size);
 					Some((k, value))
 				})
 				.collect()

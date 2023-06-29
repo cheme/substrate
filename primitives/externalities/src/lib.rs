@@ -377,13 +377,11 @@ pub trait Externalities: ExtensionStore {
 	///
 	/// Return false if source do not exist.
 	/// Return false if storage do not support this operation.
-	/// TODO consider single function for move and clone?
 	fn storage_move(&mut self, info: &ChildInfo, target_name: &[u8]) -> bool;
 
 	/// Create a new empty blob.
 	/// Clear possibly existing blob.
 	fn blob_new(&mut self, name: &[u8], mode: TransientMode) {
-		// TODO rem func and move to io
 		self.update_storage_info(
 			ChildInfo::Blob(BlobInfo { name: name.to_vec(), mode: Some(mode), algorithm: None }),
 			true,
@@ -428,7 +426,6 @@ pub trait Externalities: ExtensionStore {
 	/// Read bytes starting at a given offset, if offset is out of range, return
 	/// an empty bytes vector.
 	/// Returns `None` if the blob does not exist.
-	/// TODO could be replace by child get
 	fn blob_get(
 		&mut self,
 		name: &[u8],
@@ -483,7 +480,6 @@ pub trait Externalities: ExtensionStore {
 	/// Create a new empty transient map.
 	/// Clear possibly existing map.
 	fn map_new(&mut self, name: &[u8], mode: TransientMode) {
-		// TODO rem func and move to io
 		self.update_storage_info(
 			ChildInfo::OrderedMap(OrdMapInfo {
 				name: name.to_vec(),

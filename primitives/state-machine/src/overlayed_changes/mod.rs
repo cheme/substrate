@@ -335,7 +335,7 @@ impl Changes {
 				if infos.removed {
 					return Some(None)
 				}
-				Some(Cow::Owned(map.changes.storage(start, limit, infos.size, &self.stats)))
+				Some(map.changes.storage(start, limit, infos.size, &self.stats))
 			},
 		};
 		Some(value)
@@ -360,7 +360,7 @@ impl Changes {
 	fn blob_chunks_into_committed(
 		mut blob: Arc<OverlayedChangeSetBlob>,
 		infos: OverlayedInfos<BlobMeta, Arc<OverlayedChangeSetBlob>>,
-	) -> Option<(impl Iterator<Item = [u8; BLOB_CHUNK_SIZE]>, BlobMeta)> {
+	) -> Option<(BlobMeta, impl Iterator<Item = [u8; BLOB_CHUNK_SIZE]>)> {
 		let infos = infos.into_value();
 
 		if !matches!(infos.infos.mode, Some(sp_core::storage::transient::Mode::Archive)) {
@@ -382,7 +382,7 @@ impl Changes {
 				}
 			});
 
-		Some((iter, infos))
+		Some((infos, iter))
 	}
 
 	/// Return size of a given map when defined.
@@ -819,7 +819,7 @@ impl Changes {
 			),
 		>,
 		impl Iterator<Item = (OrdMapMeta, impl Iterator<Item = (StorageKey, Option<StorageValue>)>)>,
-		impl Iterator<Item = (BlobMeta, Blob)>,
+		impl Iterator<Item = (BlobMeta, impl Iterator<Item = [u8; BLOB_CHUNK_SIZE]>)>,
 	) {
 		self.context.guard_drain_committed();
 		use sp_std::mem::take;
@@ -829,20 +829,21 @@ impl Changes {
 			take(&mut self.children)
 				.into_iter()
 				.map(|(key, child)| (key, (child.changes.drain_committed(), child.infos))),
-			take(&mut self.ordered_maps).into_iter().map(|(_key, mut ordmap)| {
-				(
-					ordmap.infos.drain_committed(),
-					sp_std::mem::take(unsafe { rc_mut_unchecked(&mut ordmap.changes) })
-						.drain_committed(),
-				)
+			take(&mut self.ordered_maps).into_iter().filter_map(|(_key, mut ordmap)| {
+				let info = ordmap.infos.drain_committed();
+				(!info.removed).then(|| {
+					(
+						info,
+						sp_std::mem::take(unsafe { rc_mut_unchecked(&mut ordmap.changes) })
+							.drain_committed(),
+					)
+				})
 			}),
 			take(&mut self.blobs).into_iter().filter_map(|(_key, blob)| {
-				if let Some((iter, info)) =
+				if let Some((info, iter)) =
 					Self::blob_chunks_into_committed(blob.changes, blob.infos)
 				{
-					// TODO this is too costy, just send the info not concatenated ???
-					let blob: Blob = blob_from_chunks(iter, info.size);
-					Some((info, blob))
+					(!info.removed).then(|| (info, iter))
 				} else {
 					None
 				}
@@ -952,7 +953,12 @@ impl Changes {
 				.map(|(sk, it)| (sk, it.0.collect()))
 				.collect(),
 			ordered_maps_changes: ordmaps_changes.map(|(info, it)| (info, it.collect())).collect(),
-			blobs_changes: blobs_changes.map(|(info, blob)| (info, blob)).collect(),
+			blobs_changes: blobs_changes
+				.map(|(info, blob)| {
+					let size = info.size;
+					(info, blob_from_chunks(blob, size))
+				})
+				.collect(),
 			offchain_storage_changes,
 			transaction,
 			transaction_storage_root,
