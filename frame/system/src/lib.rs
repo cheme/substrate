@@ -1360,9 +1360,10 @@ impl<T: Config> Pallet<T> {
 
 	/// Gets the index of extrinsic that is currently executing.
 	pub fn extrinsic_index() -> Option<u32> {
-		//let index2 = storage::unhashed::get(well_known_keys::EXTRINSIC_INDEX);
+		let index2 = storage::unhashed::get(well_known_keys::EXTRINSIC_INDEX);
 		let index = Some(frame_support::storage::get_global_extrinsic_count());
-		index
+		assert!(index == index2, "Extrinsic index mismatch3");
+		index2
 	}
 
 	/// Gets extrinsics count.
@@ -1470,8 +1471,9 @@ impl<T: Config> Pallet<T> {
 		let digest = <Digest<T>>::get();
 
 		let count2 = frame_support::storage::get_global_extrinsic_count();
-		let _ = ExtrinsicCount::<T>::take().unwrap_or_default(); // TODO rem but remove matters here
-		let extrinsics = (0..count2).map(ExtrinsicData::<T>::take).collect();
+		let count = ExtrinsicCount::<T>::take().unwrap_or_default(); // TODO rem but remove matters here
+		assert!(count == count2, "Extrinsic index mismatch2");
+		let extrinsics = (0..count).map(ExtrinsicData::<T>::take).collect();
 		let extrinsics_root = extrinsics_data_root::<T::Hashing>(extrinsics);
 
 		// move block hash pruning window by one block
@@ -1671,8 +1673,9 @@ impl<T: Config> Pallet<T> {
 	/// To be called immediately after `note_applied_extrinsic` of the last extrinsic of the block
 	/// has been called.
 	pub fn note_finished_extrinsics() {
-		let _: u32 = storage::unhashed::take(well_known_keys::EXTRINSIC_INDEX).unwrap_or_default();
-		let extrinsic_index: u32 = frame_support::storage::get_global_extrinsic_count();
+		let extrinsic_index: u32 = storage::unhashed::take(well_known_keys::EXTRINSIC_INDEX).unwrap_or_default();
+		let extrinsic_index2: u32 = frame_support::storage::get_global_extrinsic_count();
+		assert!(extrinsic_index == extrinsic_index2, "Extrinsic index mismatch");
 		ExtrinsicCount::<T>::put(extrinsic_index);
 		ExecutionPhase::<T>::put(Phase::Finalization);
 	}
