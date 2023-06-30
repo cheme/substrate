@@ -3249,7 +3249,7 @@ dependencies = [
 [[package]]
 name = "hash-db"
 version = "0.16.0"
-source = "git+https://github.com/cheme/trie?branch=query_plan#dc693031cdf9f0cb46eeb4a57f156894fa958861"
+source = "git+https://github.com/cheme/trie?branch=query_plan#9b50c3a1cd90494ec153a7baa9050eedbc0ac661"
 
 [[package]]
 name = "hash256-std-hasher"
@@ -12578,12 +12578,11 @@ dependencies = [
 [[package]]
 name = "trie-db"
 version = "0.27.1"
-source = "git+https://github.com/cheme/trie?branch=query_plan#dc693031cdf9f0cb46eeb4a57f156894fa958861"
+source = "git+https://github.com/cheme/trie?branch=query_plan#9b50c3a1cd90494ec153a7baa9050eedbc0ac661"
 dependencies = [
  "hash-db",
  "hashbrown 0.13.2",
  "log",
- "parity-scale-codec",
  "rustc-hex",
  "smallvec",
 ]
