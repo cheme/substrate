@@ -127,6 +127,8 @@ pub fn run() -> Result<()> {
 					),
 					#[cfg(feature = "runtime-benchmarks")]
 					BenchmarkCmd::Storage(cmd) => {
+						// load once first to ensure db is flushed.
+						new_partial(&config)?;
 						// ensure that we keep the task manager alive
 						let partial = new_partial(&config)?;
 						let db = partial.backend.expose_db();
