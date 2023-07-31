@@ -90,6 +90,18 @@ pub trait BuildGenesisBlock<Block: BlockT> {
 	/// Returns the built genesis block along with the block import operation
 	/// after setting the genesis storage.
 	fn build_genesis_block(self) -> sp_blockchain::Result<(Block, Self::BlockImportOperation)>;
+
+	/// TODO streaming building with trie db as parameter. Break teh BlockImportOperation
+	/// abstraction, and require dropping state column when starting as we will commit everyç
+	/// n key value operation.
+	/// In parallel also need to calculate root which is done by using iter_build builder (can
+	/// inject node as they are created).
+	/// client/api/src/backend.rs|505| 7: type BlockImportOperation: BlockImportOperation<Block, State = Self::State>;
+	/// + change calls like
+	/// client/service/src/client/client.rs
+	/// 399:			let (genesis_block, mut op) = genesis_block_builder.build_genesis_block()?;
+	/// and getting rid of set_block_data.
+	/// Need to build header, not block data (only here for the diff).
 }
 
 /// Default genesis block builder in Substrate.
