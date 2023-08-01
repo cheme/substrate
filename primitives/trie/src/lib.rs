@@ -55,8 +55,8 @@ pub use trie_db::{
 pub use trie_db::{
 	proof::VerifyError,
 	query_plan::{
-		record_query_plan, verify_query_plan_iter, HaltedStateRecord, InMemoryRecorder, ProofKind,
-		QueryPlan, QueryPlanItem, ReadProofItem, Recorder as QueryPlanRecorder,
+		record_query_plan, verify_query_plan_iter, HaltedStateRecord, ProofKind, QueryPlan,
+		QueryPlanItemRef, ReadProofItem, Recorder as QueryPlanRecorder,
 	},
 };
 /// The Substrate format implementation of `TrieStream`.

@@ -1099,17 +1099,18 @@ mod execution {
 		H::Out: Ord + Codec,
 		I: IntoIterator<Item = (&'a [u8], bool, bool)>,
 	{
-		use sp_trie::{verify_query_plan_iter, ProofKind, QueryPlan, QueryPlanItem, ReadProofItem};
+		use sp_trie::{
+			verify_query_plan_iter, ProofKind, QueryPlan, QueryPlanItemRef, ReadProofItem,
+		};
 
 		let kind = ProofKind::FullNodes;
 		let mut keys_iter = keys.into_iter();
-		let items = (&mut keys_iter).map(|(k, h, p)| QueryPlanItem {
+		let items = (&mut keys_iter).map(|(k, h, p)| QueryPlanItemRef {
 			key: k.as_ref(),
 			hash_only: h,
 			as_prefix: p,
 		});
-		let query_plan =
-			QueryPlan { items, ignore_unordered: false, kind, _ph: Default::default() };
+		let query_plan = QueryPlan { items, kind, _ph: Default::default() };
 		let verify_iter = verify_query_plan_iter::<sp_trie::LayoutV0<H>, _, _, _>(
 			query_plan.into(),
 			proof.into_iter(),

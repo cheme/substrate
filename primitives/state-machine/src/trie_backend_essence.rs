@@ -732,29 +732,27 @@ where
 
 		self.with_trie_db(root, child_info, |trie| {
 			use sp_trie::{
-				record_query_plan, HaltedStateRecord, InMemoryRecorder, ProofKind, QueryPlan,
-				QueryPlanItem, QueryPlanRecorder,
+				record_query_plan, HaltedStateRecord, ProofKind, QueryPlan, QueryPlanItemRef,
+				QueryPlanRecorder,
 			};
 
 			let kind = ProofKind::FullNodes;
 			let limit_nodes = None;
 			let limit_size = None;
 			let recorder =
-				QueryPlanRecorder::new(kind, InMemoryRecorder::default(), limit_nodes, limit_size);
-			let from =
+				QueryPlanRecorder::new(kind, Default::default(), limit_nodes, limit_size);
+			let mut from =
 				HaltedStateRecord::from_at(recorder, start.map(|(k, align)| (k.to_vec(), align)));
 			let mut keys_iter = keys.into_iter();
-			let items = (&mut keys_iter).map(|(k, h, p)| QueryPlanItem {
+			let items = (&mut keys_iter).map(|(k, h, p)| QueryPlanItemRef {
 				key: k.as_ref(),
 				hash_only: h,
 				as_prefix: p,
 			});
-			let mut query_plan =
-				QueryPlan { items, ignore_unordered: false, kind, _ph: Default::default() };
-			let from =
-				record_query_plan(trie, &mut query_plan, from).map_err(|e| format!("{:?}", e))?;
+			let mut query_plan = QueryPlan { items, kind, _ph: Default::default() };
+			record_query_plan(trie, &mut query_plan, &mut from).map_err(|e| format!("{:?}", e))?;
 			//let complete = from.is_finished();
-			let proof = from.finish().output().nodes;
+			let proof = from.finish();
 			Ok((proof, root))
 		})
 	}
