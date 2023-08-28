@@ -32,7 +32,7 @@ use sp_core::{
 	Blake2Hasher, HasherHandle,
 };
 use sp_externalities::{result_from_slice, Extension, Extensions, MultiRemovalResults};
-use sp_trie::{empty_child_trie_root, HashKey, LayoutV0, LayoutV1, TrieConfiguration};
+use sp_trie::{empty_child_trie_root, LayoutV0, LayoutV1, TrieConfiguration};
 use std::{
 	any::{Any, TypeId},
 	borrow::Cow,
@@ -43,7 +43,7 @@ use std::{
 /// Simple Map-based Externalities impl.
 #[derive(Debug)]
 pub struct BasicExternalities {
-	overlay: Changes,
+	overlay: Changes<Blake2Hasher>,
 	extensions: Extensions,
 }
 
@@ -346,9 +346,8 @@ impl Externalities for BasicExternalities {
 		match child_info.child_type() {
 			ChildType::Default => (),
 			ChildType::OrderedMap => {
-				let Some((data, info)) =
-					self.overlay.ordered_map_changes(child_info.storage_key()) else
-				{
+				let Some((data, info)) = self.overlay.ordered_map_changes(child_info.storage_key())
+				else {
 					return None
 				};
 				if let Some(root) = info.cached_hash.as_ref() {
@@ -372,7 +371,8 @@ impl Externalities for BasicExternalities {
 				return Some(result)
 			},
 			ChildType::Blob => {
-				let Some((mut chunks, info)) = self.overlay.blob_chunks(child_info.storage_key()) else {
+				let Some((mut chunks, info)) = self.overlay.blob_chunks(child_info.storage_key())
+				else {
 					return None
 				};
 				if let Some(hash) = info.cached_hash.as_ref() {
@@ -403,7 +403,7 @@ impl Externalities for BasicExternalities {
 		}
 
 		let ChildInfo::Default(info) = child_info else {
-			return None; // actually unreachable
+			return None // actually unreachable
 		};
 		self.default_child_storage_root(&info.name, state_version)
 	}
@@ -547,7 +547,7 @@ impl BasicExternalities {
 			if let Some((data, _child_info)) = self.overlay.child_changes(name) {
 				let delta =
 					data.into_iter().map(|(k, v)| (k.as_ref(), v.value().map(|v| v.as_slice())));
-				crate::in_memory_backend::new_in_mem::<Blake2Hasher, HashKey<_>>()
+				crate::in_memory_backend::new_in_mem::<Blake2Hasher>()
 					.default_child_storage_root(name, delta, state_version)
 					.0
 			} else {

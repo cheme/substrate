@@ -113,7 +113,7 @@ impl StorageChangeSet {
 			.filter_map(move |(sk, changes)| {
 				let Some(changes) = changes else {
 					// TODO notif for removal and add
-					return None;
+					return None
 				};
 				self.btrees_filters.as_ref().and_then(|cf| {
 					cf.get(sk).map(|filter| {

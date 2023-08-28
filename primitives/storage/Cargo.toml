@@ -34,7 +34,4 @@ std = [
 ]
 
 # Serde support without relying on std features.
-serde = [
-	"dep:serde",
-	"impl-serde",
-]
+serde = [ "dep:serde", "impl-serde" ]

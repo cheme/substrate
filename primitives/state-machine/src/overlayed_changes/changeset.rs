@@ -741,9 +741,7 @@ impl OverlayedChangeSetBlob {
 			return
 		}
 		let nb_chunks = self.chunks.len() as u32;
-		let Some(dirty) = self.dirty.last_mut() else {
-			return
-		};
+		let Some(dirty) = self.dirty.last_mut() else { return };
 
 		for i in (start_chunk..nb_chunks).rev() {
 			let i = i as usize;

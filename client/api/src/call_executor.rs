@@ -20,12 +20,13 @@
 
 use sc_executor::{RuntimeVersion, RuntimeVersionOf};
 use sp_core::traits::CallContext;
+use sp_externalities::Extensions;
 use sp_runtime::traits::Block as BlockT;
-use sp_state_machine::{Changes, ExecutionStrategy, StorageProof};
+use sp_state_machine::{Changes, StorageProof};
 use std::cell::RefCell;
 
 use crate::execution_extensions::ExecutionExtensions;
-use sp_api::{ExecutionContext, ProofRecorder, StorageTransactionCache};
+use sp_api::{HashingFor, ProofRecorder};
 
 /// Executor Provider
 pub trait ExecutorProvider<Block: BlockT> {
@@ -58,7 +59,6 @@ pub trait CallExecutor<B: BlockT>: RuntimeVersionOf {
 		at_hash: B::Hash,
 		method: &str,
 		call_data: &[u8],
-		strategy: ExecutionStrategy,
 		context: CallContext,
 	) -> Result<Vec<u8>, sp_blockchain::Error>;
 
@@ -73,13 +73,9 @@ pub trait CallExecutor<B: BlockT>: RuntimeVersionOf {
 		method: &str,
 		call_data: &[u8],
 		changes: &RefCell<Changes>,
-		storage_transaction_cache: Option<
-			&RefCell<
-				StorageTransactionCache<B, <Self::Backend as crate::backend::Backend<B>>::State>,
-			>,
-		>,
 		proof_recorder: &Option<ProofRecorder<B>>,
-		context: ExecutionContext,
+		call_context: CallContext,
+		extensions: &RefCell<Extensions>,
 	) -> sp_blockchain::Result<Vec<u8>>;
 
 	/// Extract RuntimeVersion of given block
