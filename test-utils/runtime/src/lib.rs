@@ -1113,9 +1113,7 @@ mod tests {
 	#[test]
 	fn test_blob_storage() {
 		// can only run once (update)
-		let client = TestClientBuilder::new()
-			.set_execution_strategy(ExecutionStrategy::AlwaysWasm)
-			.build();
+		let client = TestClientBuilder::new().build();
 		let runtime_api = client.runtime_api();
 		let best_hash = client.chain_info().best_hash;
 

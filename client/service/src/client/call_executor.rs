@@ -23,11 +23,12 @@ use sc_client_api::{
 use sc_executor::{RuntimeVersion, RuntimeVersionOf};
 use sp_api::ProofRecorder;
 use sp_core::traits::{CallContext, CodeExecutor, RuntimeCode};
-use sp_runtime::{generic::BlockId, traits::Block as BlockT};
-use sp_state_machine::{
-	backend::AsTrieBackend, Changes, ExecutionStrategy, Ext, OverlayedChanges, StateMachine,
-	StorageProof,
+use sp_externalities::Extensions;
+use sp_runtime::{
+	generic::BlockId,
+	traits::{Block as BlockT, HashingFor},
 };
+use sp_state_machine::{backend::AsTrieBackend, Changes, Ext, StateMachine, StorageProof};
 use std::{cell::RefCell, sync::Arc};
 
 /// Call executor that executes methods locally, querying all required
@@ -199,7 +200,6 @@ where
 		method: &str,
 		call_data: &[u8],
 		changes: &RefCell<Changes<HashingFor<Block>>>,
-		storage_transaction_cache: Option<&RefCell<StorageTransactionCache<Block, B::State>>>,
 		recorder: &Option<ProofRecorder<Block>>,
 		call_context: CallContext,
 		extensions: &RefCell<Extensions>,

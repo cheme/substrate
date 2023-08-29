@@ -1141,7 +1141,6 @@ pub struct Backend<Block: BlockT> {
 	state_usage: Arc<StateUsageStats>,
 	genesis_state: RwLock<Option<Arc<DbGenesisStorage<Block>>>>,
 	shared_trie_cache: Option<sp_trie::cache::SharedTrieCache<HashingFor<Block>>>,
-	shared_trie_cache: Option<sp_trie::cache::SharedTrieCache<HashFor<Block>>>,
 	transient_in_memory: RwLock<TransientArchiveInMemory<Block>>,
 }
 

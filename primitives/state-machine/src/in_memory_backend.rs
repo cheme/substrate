@@ -197,7 +197,7 @@ mod tests {
 			vec![(Some(child_info.clone()), vec![(b"2".to_vec(), Some(b"3".to_vec()))])],
 			state_version,
 		);
-		let child_info = ChildInfo::Default(child_info);
+		let child_info = ChildInfo::Default(child_info.clone());
 		let child_info = &child_info;
 		let trie_backend = storage.as_trie_backend();
 		assert_eq!(trie_backend.child_storage(child_info, b"2").unwrap(), Some(b"3".to_vec()));

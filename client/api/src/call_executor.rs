@@ -72,7 +72,7 @@ pub trait CallExecutor<B: BlockT>: RuntimeVersionOf {
 		at_hash: B::Hash,
 		method: &str,
 		call_data: &[u8],
-		changes: &RefCell<Changes>,
+		changes: &RefCell<Changes<HashingFor<B>>>,
 		proof_recorder: &Option<ProofRecorder<B>>,
 		call_context: CallContext,
 		extensions: &RefCell<Extensions>,

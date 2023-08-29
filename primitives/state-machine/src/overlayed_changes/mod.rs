@@ -1020,12 +1020,6 @@ impl<H: Hasher> Changes<H> {
 			},
 		};
 
-		use sp_std::mem::take;
-		let main_storage_changes = take(&mut self.top).drain_commited();
-		let child_storage_changes = take(&mut self.children)
-			.into_iter()
-			.map(|(key, (val, info))| (key, (val.drain_commited(), info)));
-
 		let (main_storage_changes, child_storage_changes, ordmaps_changes, blobs_changes) =
 			self.drain_committed();
 		let offchain_storage_changes = self.offchain_drain_committed().collect();
@@ -1112,9 +1106,9 @@ impl<H: Hasher> Changes<H> {
 			return Ok((root, true))
 		}
 
-		let root = if let Some((changes, info)) = self.child_changes(storage_key) {
+		let root = if let Some((changes, _info)) = self.child_changes(storage_key) {
 			let delta = changes.map(|(k, v)| (k.as_ref(), v.value().map(AsRef::as_ref)));
-			Some(backend.child_storage_root(info, delta, state_version))
+			Some(backend.child_storage_root(&child_info, delta, state_version))
 		} else {
 			None
 		};
@@ -1623,11 +1617,7 @@ impl<H: Hasher> From<sp_core::storage::Storage> for Changes<H> {
 				.collect(),
 			ordered_maps,
 			blobs,
-			offchain: Default::default(),
-			transaction_index_ops: Default::default(),
-			stats: Default::default(),
-			#[cfg(feature = "std")]
-			hashers: Default::default(),
+			..Default::default()
 		}
 	}
 }
@@ -1949,12 +1939,12 @@ mod tests {
 		let backend = new_in_mem::<Blake2Hasher>();
 		let mut overlay = Changes::<Blake2Hasher>::default();
 		overlay.start_transaction();
-		overlay.set_child_storage(child_info, vec![20], Some(vec![20]));
-		overlay.set_child_storage(child_info, vec![30], Some(vec![30]));
-		overlay.set_child_storage(child_info, vec![40], Some(vec![40]));
+		overlay.set_child_storage(child_info, &[20], Some(&[20]));
+		overlay.set_child_storage(child_info, &[30], Some(&[30]));
+		overlay.set_child_storage(child_info, &[40], Some(&[40]));
 		overlay.commit_transaction().unwrap();
-		overlay.set_child_storage(child_info, vec![10], Some(vec![10]));
-		overlay.set_child_storage(child_info, vec![30], None);
+		overlay.set_child_storage(child_info, &[10], Some(&[10]));
+		overlay.set_child_storage(child_info, &[30], None);
 
 		{
 			let mut ext = Ext::new(&mut overlay, &backend, None);
@@ -1962,7 +1952,7 @@ mod tests {
 			let root = "eafb765909c3ed5afd92a0c564acf4620d0234b31702e8e8e9b48da72a748838";
 
 			assert_eq!(
-				bytes2hex("", &ext.child_storage_root(child_info, state_version)),
+				bytes2hex("", &ext.child_storage_root(child_info, state_version).unwrap()),
 				child_root,
 			);
 
@@ -1970,7 +1960,7 @@ mod tests {
 
 			// Calling a second time should use it from the cache
 			assert_eq!(
-				bytes2hex("", &ext.child_storage_root(child_info, state_version)),
+				bytes2hex("", &ext.child_storage_root(child_info, state_version).unwrap()),
 				child_root,
 			);
 		}
@@ -2057,7 +2047,7 @@ mod tests {
 	#[test]
 	#[should_panic]
 	fn drain_with_open_transaction_panics() {
-		let mut overlay = Changes::default();
+		let mut overlay = Changes::<Blake2Hasher>::default();
 		overlay.start_transaction();
 		let _ = overlay.drain_committed();
 	}

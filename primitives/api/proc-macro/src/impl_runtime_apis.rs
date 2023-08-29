@@ -267,7 +267,7 @@ fn generate_runtime_api_base_structures() -> Result<TokenStream> {
 			/// Implements all runtime apis for the client side.
 			pub struct RuntimeApiImpl<Block: #crate_::BlockT, C: #crate_::CallApiAt<Block> + 'static> {
 				call: &'static C,
-				commit_on_success: std::cell::RefCell<bool>,
+				transaction_depth: std::cell::RefCell<u16>,
 				changes: std::cell::RefCell<#crate_::Changes<#crate_::HashingFor<Block>>>,
 				recorder: std::option::Option<#crate_::ProofRecorder<Block>>,
 				call_context: #crate_::CallContext,
@@ -284,11 +284,13 @@ fn generate_runtime_api_base_structures() -> Result<TokenStream> {
 				) -> R where Self: Sized {
 					self.start_transaction();
 
-					*std::cell::RefCell::borrow_mut(&self.commit_on_success) = false;
+					*std::cell::RefCell::borrow_mut(&self.transaction_depth) += 1;
 					let res = call(self);
-					*std::cell::RefCell::borrow_mut(&self.commit_on_success) = true;
+					std::cell::RefCell::borrow_mut(&self.transaction_depth)
+						.checked_sub(1)
+						.expect("Transactions are opened and closed together; qed");
 
-					self.commit_or_rollback(std::matches!(res, #crate_::TransactionOutcome::Commit(_)));
+					self.commit_or_rollback_transaction(std::matches!(res, #crate_::TransactionOutcome::Commit(_)));
 
 					res.into_inner()
 				}
@@ -375,7 +377,7 @@ fn generate_runtime_api_base_structures() -> Result<TokenStream> {
 				) -> #crate_::ApiRef<'a, Self::RuntimeApi> {
 					RuntimeApiImpl {
 						call: unsafe { std::mem::transmute(call) },
-						commit_on_success: true.into(),
+						transaction_depth: 0.into(),
 						changes: std::default::Default::default(),
 						recorder: std::default::Default::default(),
 						call_context: #crate_::CallContext::Offchain,
@@ -392,7 +394,6 @@ fn generate_runtime_api_base_structures() -> Result<TokenStream> {
 					Other parts of the runtime that make use of transactions (state-machine)
 					also balance their transactions. The runtime cannot close client initiated
 					transactions; qed";
-					if *std::cell::RefCell::borrow(&self.commit_on_success) {
 
 					let res = if commit {
 						let res = if let Some(recorder) = &self.recorder {
@@ -425,14 +426,9 @@ fn generate_runtime_api_base_structures() -> Result<TokenStream> {
 					};
 
 					std::result::Result::expect(res, proof);
-					}
 				}
 
 				fn start_transaction(&self) {
-					if !*std::cell::RefCell::borrow(&self.commit_on_success) {
-						return
-					}
-
 					#crate_::Changes::start_transaction(
 						&mut std::cell::RefCell::borrow_mut(&self.changes)
 					);

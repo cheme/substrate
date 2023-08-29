@@ -201,7 +201,7 @@ mod execution {
 		method: &'a str,
 		call_data: &'a [u8],
 		overlay: &'a mut Changes<H>,
-		extensions: Extensions,
+		extensions: &'a mut Extensions,
 		runtime_code: &'a RuntimeCode<'a>,
 		stats: StateMachineStats,
 		/// The hash of the block the state machine will be executed on.
@@ -1268,7 +1268,7 @@ pub mod fuzz {
 	}
 
 	struct Overlay {
-		data: Changes,
+		data: Changes<sp_runtime::traits::BlakeTwo256>,
 		conf: FuzzConf,
 	}
 

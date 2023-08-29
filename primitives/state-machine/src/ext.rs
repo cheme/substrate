@@ -20,8 +20,7 @@
 #[cfg(feature = "std")]
 use crate::overlayed_changes::OverlayedExtensions;
 use crate::{backend::Backend, Changes, IndexOperation, IterArgs, StorageKey, StorageValue};
-use codec::{Decode, Encode, EncodeAppend};
-use hash_db::Hasher;
+use codec::{Encode, EncodeAppend};
 #[cfg(feature = "std")]
 use sp_core::hexdisplay::HexDisplay;
 use sp_core::{
@@ -36,7 +35,7 @@ use sp_externalities::{
 	result_from_slice, result_from_vec, Extension, ExtensionStore, Externalities,
 	MultiRemovalResults,
 };
-use sp_trie::{empty_child_trie_root, LayoutV1};
+use sp_trie::LayoutV1;
 
 use crate::{log_error, trace, warn};
 use sp_std::{
@@ -684,7 +683,6 @@ where
 	) -> Option<Vec<u8>> {
 		let _guard = guard();
 		let storage_key = child_info.storage_key();
-		let prefixed_storage_key = child_info.prefixed_storage_key();
 
 		if let ChildInfo::OrderedMap(..) = child_info {
 			let result = if let Some((data, info)) =
@@ -791,44 +789,21 @@ where
 			return Some(result)
 		}
 
-		let root = if let Some((changes, info)) = self.overlay.child_changes(storage_key) {
-			let delta = changes.map(|(k, v)| (k.as_ref(), v.value().map(AsRef::as_ref)));
-			let child_info = ChildInfo::Default(info.clone());
-			Some(self.backend.child_storage_root(&child_info, delta, state_version))
-		} else {
-			None
-		};
+		let (root, _cached) = self
+			.overlay
+			.child_storage_root(child_info, self.backend, state_version)
+			.expect(EXT_NOT_ALLOWED_TO_FAIL);
 
-		if let Some((root, is_empty, _)) = root {
-			if let Some((changes, info)) = self.overlay.child_changes(storage_key) {
-				let delta = changes.map(|(k, v)| (k.as_ref(), v.value().map(AsRef::as_ref)));
-				let child_info = ChildInfo::Default(info.clone());
-				// TODO caching.
-				let (root, _cached, _) =
-					self.backend.child_storage_root(&child_info, delta, state_version);
-				Some(root.encode())
-			} else {
-				None
-			}
-		} else {
-			// empty overlay
-			let root = self
-				.storage(prefixed_storage_key.as_slice(), 0, None)
-				.and_then(|k| Decode::decode(&mut &k[..]).ok())
-				// V1 is equivalent to V0 on empty root.
-				.unwrap_or_else(empty_child_trie_root::<LayoutV1<H>>);
+		trace!(
+			target: "state",
+			method = "ChildStorageRoot",
+			ext_id = %HexDisplay::from(&self.id.to_le_bytes()),
+			child_info = %HexDisplay::from(&child_info.storage_key()),
+			storage_root = %HexDisplay::from(&root.as_ref()),
+			cached = %_cached,
+		);
 
-			trace!(
-				target: "state",
-				method = "ChildStorageRoot",
-				ext_id = %HexDisplay::from(&self.id.to_le_bytes()),
-				child_info = %HexDisplay::from(&storage_key),
-				storage_root = %HexDisplay::from(&root.as_ref()),
-				cached = false,
-			);
-
-			Some(root.encode())
-		}
+		Some(root.encode())
 	}
 
 	fn storage_index_transaction(&mut self, index: u32, hash: &[u8], size: u32) {
@@ -1283,9 +1258,7 @@ mod tests {
 	fn next_child_storage_key_works() {
 		let child_info = DefaultChild::new(b"Child1");
 
-		let mut overlay = Changes::default();
-		overlay.set_child_storage(child_info, vec![20], None);
-		overlay.set_child_storage(child_info, vec![30], Some(vec![31]));
+		let overlay = Changes::<Blake2Hasher>::default();
 		let backend = (
 			Storage {
 				top: map![],
@@ -1343,7 +1316,7 @@ mod tests {
 	fn child_storage_works() {
 		let child_info = DefaultChild::new(b"Child1");
 		let child_info = &child_info;
-		let mut overlay = Changes::default();
+		let overlay = Changes::<Blake2Hasher>::default();
 		let backend = (
 			Storage {
 				top: map![],
@@ -1364,7 +1337,7 @@ mod tests {
 		)
 			.into();
 
-		let child_info = ChildInfo::Default(child_info);
+		let child_info = ChildInfo::Default(child_info.clone());
 		let child_info = &child_info;
 
 		let mut overlay = Changes::default();
@@ -1393,7 +1366,6 @@ mod tests {
 	#[test]
 	fn clear_prefix_cannot_delete_a_child_root() {
 		let child_info = DefaultChild::new(b"Child1");
-		let mut cache = StorageTransactionCache::default();
 		let mut overlay = Changes::default();
 		let backend = (
 			Storage {
