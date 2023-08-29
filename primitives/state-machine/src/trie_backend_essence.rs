@@ -579,9 +579,7 @@ where
 	/// Create a raw iterator over the storage.
 	pub fn raw_iter(&self, args: IterArgs) -> Result<RawIter<S, H, C>> {
 		let root = if let Some(child_info) = args.child_info.as_ref() {
-			let ChildInfo::Default(info) = child_info else {
-				return Ok(Default::default())
-			};
+			let ChildInfo::Default(info) = child_info else { return Ok(Default::default()) };
 
 			let root = match self.default_child_root(info.name.as_slice())? {
 				Some(root) => root,

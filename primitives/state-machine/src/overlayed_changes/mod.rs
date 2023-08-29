@@ -571,17 +571,13 @@ impl<H: Hasher> Changes<H> {
 	}
 
 	pub(crate) fn blob_set(&mut self, name: &[u8], value: &[u8], offset: u32) -> bool {
-		let Some(previous_len) = self.blob_len(name) else {
-			return false
-		};
+		let Some(previous_len) = self.blob_len(name) else { return false };
 
 		if offset > previous_len {
 			return false
 		};
 
-		let Some(BlobChanges { changes, infos }) = self.blobs.get_mut(name) else {
-			return false
-		};
+		let Some(BlobChanges { changes, infos }) = self.blobs.get_mut(name) else { return false };
 
 		let end = offset as usize + value.len();
 		if end > u32::MAX as usize {
@@ -610,13 +606,9 @@ impl<H: Hasher> Changes<H> {
 	}
 
 	pub(crate) fn blob_truncate(&mut self, name: &[u8], new_len: u32) -> bool {
-		let Some(previous_len) = self.blob_len(name) else {
-			return false
-		};
+		let Some(previous_len) = self.blob_len(name) else { return false };
 
-		let Some(blob) = self.blobs.get_mut(name) else {
-			return false
-		};
+		let Some(blob) = self.blobs.get_mut(name) else { return false };
 		if new_len >= previous_len {
 			return false
 		};
@@ -663,17 +655,13 @@ impl<H: Hasher> Changes<H> {
 
 	fn clear_blob_storage(&mut self, name: &[u8]) -> u32 {
 		let context = &self.context;
-		let Some(entry) = self.blobs.get_mut(name) else {
-			return 0
-		};
+		let Some(entry) = self.blobs.get_mut(name) else { return 0 };
 		entry.clear_movable_storage(&|| Arc::new(context.spawn_blob()), &self.context)
 	}
 
 	fn clear_ordered_map_storage(&mut self, name: &[u8]) -> u32 {
 		let context = &self.context;
-		let Some(entry) = self.ordered_maps.get_mut(name) else {
-			return 0
-		};
+		let Some(entry) = self.ordered_maps.get_mut(name) else { return 0 };
 		entry.clear_movable_storage(&|| Arc::new(context.spawn_child()), &self.context)
 	}
 
