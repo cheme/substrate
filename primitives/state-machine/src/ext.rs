@@ -166,9 +166,6 @@ where
 	overlay: &'a mut Changes<H>,
 	/// The storage backend to read from.
 	backend: &'a B,
-	overlay: &'a mut OverlayedChanges<H>,
-	/// The storage backend to read from.
-	backend: &'a B,
 	/// Extensions registered with this instance.
 	#[cfg(feature = "std")]
 	extensions: Option<OverlayedExtensions<'a>>,
@@ -1278,7 +1275,7 @@ mod tests {
 	fn next_child_storage_key_works() {
 		let child_info = DefaultChild::new(b"Child1");
 
-		let mut overlay = OverlayedChanges::default();
+		let mut overlay = Changes::default();
 		overlay.set_child_storage(child_info, vec![20], None);
 		overlay.set_child_storage(child_info, vec![30], Some(vec![31]));
 		let backend = (

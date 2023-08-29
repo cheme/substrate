@@ -359,7 +359,10 @@ impl Externalities for BasicExternalities {
 						let delta = data
 							.into_iter()
 							.map(|(k, v)| (k.as_ref(), v.value().map(|v| v.as_slice())));
-						crate::in_memory_backend::new_in_mem::<Blake2Hasher, HashKey<_>>()
+						// TODO trie backend should not use prefixed memory, but would
+						// happen when rocksdb will be removed (not worth restoring old
+						// code).
+						crate::in_memory_backend::new_in_mem::<Blake2Hasher>()
 							.child_storage_root(&child_info, delta, StateVersion::V1)
 							.0
 							.encode()
