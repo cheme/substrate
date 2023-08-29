@@ -131,7 +131,7 @@ pub use crate::{
 	overlayed_changes::{
 		BlobsCollection, Changes, ChildStorageCollection, IndexOperation, OffchainChanges,
 		OffchainChangesCollection, OrdMapsCollection, StorageChanges, StorageCollection,
-		StorageKey, StorageTransactionCache, StorageValue,
+		StorageKey, StorageValue,
 	},
 	stats::{StateMachineStats, UsageInfo, UsageUnit},
 	trie_backend::{TrieBackend, TrieBackendBuilder},
@@ -1742,8 +1742,7 @@ mod tests {
 		let state = new_in_mem::<BlakeTwo256>();
 		let backend = state.as_trie_backend();
 		let mut overlay = Changes::default();
-		let mut cache = StorageTransactionCache::default();
-		let mut ext = Ext::new(&mut overlay, &mut cache, backend, None);
+		let mut ext = Ext::new(&mut overlay, backend, None);
 
 		assert!(!ext.set_child_storage(child_info, b"abc", b"def"));
 		assert_eq!(ext.child_storage(child_info, b"abc", 0, None), None);
@@ -2342,8 +2341,7 @@ mod tests {
 		assert!(overlay.blob_set(blob1.storage_key(), &[0], 0));
 		assert!(overlay.blob_set(blob1.storage_key(), &[1, 2], 1));
 		{
-			let mut cache = StorageTransactionCache::default();
-			let mut ext = Ext::new(&mut overlay, &mut cache, backend, None);
+			let mut ext = Ext::new(&mut overlay, backend, None);
 			ext.blob_new(blob2.storage_key(), sp_core::storage::transient::Mode::Drop);
 			assert_eq!(ext.blob_get(blob1.storage_key(), Some(1), 1), Some(vec![1].into()));
 			assert!(ext.blob_exists(blob1.storage_key()));

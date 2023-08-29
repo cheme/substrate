@@ -38,7 +38,7 @@ use sp_core::{
 use sp_externalities::{Extension, Extensions};
 #[cfg(not(feature = "std"))]
 use sp_std::collections::btree_map::BTreeMap as Map;
-use sp_std::{borrow::Cow, collections::btree_set::BTreeSet, sync::Arc, vec::Vec};
+use sp_std::{borrow::Cow, sync::Arc, vec::Vec};
 use sp_trie::{empty_child_trie_root, LayoutV1};
 #[cfg(feature = "std")]
 use std::collections::{hash_map::Entry as MapEntry, HashMap as Map};
@@ -81,7 +81,6 @@ pub type OffchainChangesCollection = Vec<((Vec<u8>, Vec<u8>), OffchainOverlayedC
 /// It allows changes to be modified using nestable transactions.
 ///
 /// TODO move all children, orderemaps, blobs under their own struct when possible.
-#[derive(Debug, Default, Clone)]
 pub struct Changes<H: Hasher> {
 	/// Context of execution.
 	context: OverlayedContext,
@@ -101,6 +100,10 @@ pub struct Changes<H: Hasher> {
 	stats: StateMachineStats,
 	#[cfg(feature = "std")]
 	pub(crate) hashers: HashersExternalities,
+	/// Caches the "storage transaction" that is created while calling `storage_root`.
+	///
+	/// This transaction can be applied to the backend to persist the state changes.
+	storage_transaction_cache: Option<StorageTransactionCache<H>>,
 }
 
 /// Changes for movable transient stoarge.
@@ -153,48 +156,54 @@ impl<M> From<M> for MovableMeta<M> {
 struct ChildChanges {
 	changes: OverlayedChangeSet,
 	infos: DefaultChild,
-	/// Caches the "storage transaction" that is created while calling `storage_root`.
-	///
-	/// This transaction can be applied to the backend to persist the state changes.
-	storage_transaction_cache: Option<StorageTransactionCache<H>>,
 }
 
-impl<H: Hasher> Default for OverlayedChanges<H> {
+impl<H: Hasher> Default for Changes<H> {
 	fn default() -> Self {
 		Self {
+			context: Default::default(),
 			top: Default::default(),
 			children: Default::default(),
+			ordered_maps: Default::default(),
+			blobs: Default::default(),
 			offchain: Default::default(),
 			transaction_index_ops: Default::default(),
-			collect_extrinsics: Default::default(),
 			stats: Default::default(),
+			#[cfg(feature = "std")]
+			hashers: Default::default(),
 			storage_transaction_cache: None,
 		}
 	}
 }
 
-impl<H: Hasher> Clone for OverlayedChanges<H> {
+impl<H: Hasher> Clone for Changes<H> {
 	fn clone(&self) -> Self {
 		Self {
+			context: self.context.clone(),
 			top: self.top.clone(),
 			children: self.children.clone(),
+			ordered_maps: self.ordered_maps.clone(),
+			blobs: self.blobs.clone(),
 			offchain: self.offchain.clone(),
 			transaction_index_ops: self.transaction_index_ops.clone(),
-			collect_extrinsics: self.collect_extrinsics,
 			stats: self.stats.clone(),
+			#[cfg(feature = "std")]
+			hashers: self.hashers.clone(),
 			storage_transaction_cache: self.storage_transaction_cache.clone(),
 		}
 	}
 }
 
-impl<H: Hasher> sp_std::fmt::Debug for OverlayedChanges<H> {
+impl<H: Hasher> sp_std::fmt::Debug for Changes<H> {
 	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-		f.debug_struct("OverlayedChanges")
+		f.debug_struct("Changes")
+			.field("context", &self.context)
 			.field("top", &self.top)
 			.field("children", &self.children)
+			.field("ordered_maps", &self.ordered_maps)
+			.field("blobs", &self.blobs)
 			.field("offchain", &self.offchain)
 			.field("transaction_index_ops", &self.transaction_index_ops)
-			.field("collect_extrinsics", &self.collect_extrinsics)
 			.field("stats", &self.stats)
 			.field("storage_transaction_cache", &self.storage_transaction_cache)
 			.finish()
@@ -978,16 +987,16 @@ impl<H: Hasher> Changes<H> {
 	}
 
 	/// Convert this instance with all changes into a [`StorageChanges`] instance.
+	/// TODO remove if unused.
 	pub fn into_storage_changes<B: Backend<H>>(
 		mut self,
 		backend: &B,
-		mut cache: StorageTransactionCache<B::Transaction, H>,
 		state_version: StateVersion,
-	) -> Result<StorageChanges<B::Transaction, H>, DefaultError>
+	) -> Result<StorageChanges<H>, DefaultError>
 	where
 		H::Out: Ord + Encode + 'static,
 	{
-		self.drain_storage_changes(backend, &mut cache, state_version)
+		self.drain_storage_changes(backend, state_version)
 	}
 
 	/// Drain all changes into a [`StorageChanges`] instance. Leave empty overlay in place.
@@ -1938,7 +1947,7 @@ mod tests {
 		let child_info = ChildInfo::new_default(b"Child1");
 		let child_info = &child_info;
 		let backend = new_in_mem::<Blake2Hasher>();
-		let mut overlay = OverlayedChanges::<Blake2Hasher>::default();
+		let mut overlay = Changes::<Blake2Hasher>::default();
 		overlay.start_transaction();
 		overlay.set_child_storage(child_info, vec![20], Some(vec![20]));
 		overlay.set_child_storage(child_info, vec![30], Some(vec![30]));

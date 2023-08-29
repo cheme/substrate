@@ -567,7 +567,6 @@ where
 		);
 		let _guard = guard();
 
-		self.mark_dirty();
 		self.overlay.set_child_storage(child_info, key, value)
 	}
 
@@ -792,16 +791,25 @@ where
 			return Some(result)
 		}
 
+		let root = if let Some((changes, info)) = self.overlay.child_changes(storage_key) {
+			let delta = changes.map(|(k, v)| (k.as_ref(), v.value().map(AsRef::as_ref)));
+			let child_info = ChildInfo::Default(info.clone());
+			Some(self.backend.child_storage_root(&child_info, delta, state_version))
+		} else {
+			None
+		};
+
 		if let Some((root, is_empty, _)) = root {
-			let root = if let Some((changes, info)) = self.overlay.child_changes(storage_key) {
+			if let Some((changes, info)) = self.overlay.child_changes(storage_key) {
 				let delta = changes.map(|(k, v)| (k.as_ref(), v.value().map(AsRef::as_ref)));
 				let child_info = ChildInfo::Default(info.clone());
-				Some(self.backend.child_storage_root(&child_info, delta, state_version))
+				// TODO caching.
+				let (root, _cached, _) =
+					self.backend.child_storage_root(&child_info, delta, state_version);
+				Some(root.encode())
 			} else {
 				None
-			};
-
-			Some(root)
+			}
 		} else {
 			// empty overlay
 			let root = self

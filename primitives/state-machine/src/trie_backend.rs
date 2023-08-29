@@ -491,7 +491,8 @@ where
 	}
 }
 
-impl<S: TrieBackendStorage<H>, H: Hasher, C: AsLocalTrieCache<H> + Send + Sync> TrieBackend<S, H, C>
+impl<S: TrieBackendStorage<H>, H: Hasher, C: TrieCacheProvider<H> + Send + Sync>
+	TrieBackend<S, H, C>
 where
 	H::Out: Ord + Codec,
 {
@@ -501,7 +502,7 @@ where
 		name: &[u8],
 		delta: impl Iterator<Item = (&'a [u8], Option<&'a [u8]>)>,
 		state_version: StateVersion,
-	) -> (H::Out, bool, S::Overlay) {
+	) -> (H::Out, bool, PrefixedMemoryDB<H>) {
 		self.essence.default_child_storage_root(name, delta, state_version)
 	}
 }

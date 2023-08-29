@@ -24,7 +24,7 @@ use crate::{
 use codec::Codec;
 use hash_db::Hasher;
 use sp_core::storage::{DefaultChild, StateVersion, Storage};
-use sp_trie::{empty_trie_root, GenericMemoryDB, HashKey, KeyFunction, LayoutV1, PrefixedMemoryDB};
+use sp_trie::{empty_trie_root, LayoutV1, PrefixedMemoryDB};
 use std::collections::{BTreeMap, HashMap};
 
 /// Create a new empty instance of in-memory backend.
