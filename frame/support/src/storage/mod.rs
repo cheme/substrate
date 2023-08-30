@@ -193,7 +193,7 @@ pub trait StorageList<V: FullCodec> {
 
 	/// Append a single element.
 	///
-	/// Should not be called repeatedly; use `append_many` instead.  
+	/// Should not be called repeatedly; use `append_many` instead.
 	/// Worst case linear `O(len)` with `len` being the number if elements in the list.
 	fn append_one<EncodeLikeValue>(item: EncodeLikeValue)
 	where
@@ -204,7 +204,7 @@ pub trait StorageList<V: FullCodec> {
 
 	/// Append many elements.
 	///
-	/// Should not be called repeatedly; use `appender` instead.  
+	/// Should not be called repeatedly; use `appender` instead.
 	/// Worst case linear `O(len + items.count())` with `len` beings the number if elements in the
 	/// list.
 	fn append_many<EncodeLikeValue, I>(items: I)
@@ -1617,7 +1617,8 @@ pub struct GlobalRuntimeContent {
 	pub extrinsic: u32,
 
 	/// Overlay for storing transient local data.
-	pub overlay: sp_state_machine::Changes,
+	/// TODO split Changes so we don't need an unused hasher here.
+	pub overlay: sp_state_machine::Changes<sp_runtime::traits::BlakeTwo256>,
 }
 
 environmental::environmental!(global_runtime_env: GlobalRuntimeContent, with_init);
@@ -1868,7 +1869,7 @@ where
 			if !env.overlay.update_storage_info(info.clone(), false) {
 				return None
 			}
-			let root = env.overlay.ordered_map_storage_root::<H>(&info)?;
+			let root = env.overlay.ordered_map_storage_root(&info)?;
 			let mut result = [0u8; 32];
 			result.copy_from_slice(root.as_slice());
 			Some(result)

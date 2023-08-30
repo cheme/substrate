@@ -40,7 +40,7 @@ use sp_core::{
 use sp_externalities::{Extension, Extensions};
 #[cfg(not(feature = "std"))]
 use sp_std::collections::btree_map::BTreeMap as Map;
-use sp_std::{borrow::Cow, collections::btree_set::BTreeSet, sync::Arc, vec::Vec};
+use sp_std::{borrow::Cow, sync::Arc, vec::Vec};
 use sp_trie::{empty_child_trie_root, LayoutV1};
 #[cfg(feature = "std")]
 use std::collections::{hash_map::Entry as MapEntry, HashMap as Map};
@@ -118,7 +118,7 @@ pub struct Changes<H: Hasher> {
 	archive_ordered_maps: Map<Name, (OrdMapMeta, Vec<(Vec<u8>, Option<Vec<u8>>)>)>,
 }
 
-impl Changes {
+impl<H: Hasher> Changes<H> {
 	/// Put a chunk to be archive.
 	pub fn blob_archive_chunk(&mut self, name: &[u8], chunk: &[u8]) {
 		let entry = self.archive_blobs.entry(name.to_vec()).or_insert_with(|| {
@@ -256,42 +256,58 @@ struct ChildChanges {
 	infos: DefaultChild,
 }
 
-impl<H: Hasher> Default for OverlayedChanges<H> {
+impl<H: Hasher> Default for Changes<H> {
 	fn default() -> Self {
 		Self {
+			context: Default::default(),
 			top: Default::default(),
 			children: Default::default(),
+			ordered_maps: Default::default(),
+			archive_ordered_maps: Default::default(),
+			blobs: Default::default(),
+			archive_blobs: Default::default(),
 			offchain: Default::default(),
 			transaction_index_ops: Default::default(),
-			collect_extrinsics: Default::default(),
 			stats: Default::default(),
+			#[cfg(feature = "std")]
+			hashers: Default::default(),
 			storage_transaction_cache: None,
 		}
 	}
 }
 
-impl<H: Hasher> Clone for OverlayedChanges<H> {
+impl<H: Hasher> Clone for Changes<H> {
 	fn clone(&self) -> Self {
 		Self {
+			context: self.context.clone(),
 			top: self.top.clone(),
 			children: self.children.clone(),
+			ordered_maps: self.ordered_maps.clone(),
+			archive_ordered_maps: self.archive_ordered_maps.clone(),
+			blobs: self.blobs.clone(),
+			archive_blobs: self.archive_blobs.clone(),
 			offchain: self.offchain.clone(),
 			transaction_index_ops: self.transaction_index_ops.clone(),
-			collect_extrinsics: self.collect_extrinsics,
 			stats: self.stats.clone(),
+			#[cfg(feature = "std")]
+			hashers: self.hashers.clone(),
 			storage_transaction_cache: self.storage_transaction_cache.clone(),
 		}
 	}
 }
 
-impl<H: Hasher> sp_std::fmt::Debug for OverlayedChanges<H> {
+impl<H: Hasher> sp_std::fmt::Debug for Changes<H> {
 	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-		f.debug_struct("OverlayedChanges")
+		f.debug_struct("Changes")
+			.field("context", &self.context)
 			.field("top", &self.top)
 			.field("children", &self.children)
+			.field("ordered_maps", &self.ordered_maps)
+			.field("archive_ordered_maps", &self.archive_ordered_maps)
+			.field("blobs", &self.blobs)
+			.field("archive_blobs", &self.archive_blobs)
 			.field("offchain", &self.offchain)
 			.field("transaction_index_ops", &self.transaction_index_ops)
-			.field("collect_extrinsics", &self.collect_extrinsics)
 			.field("stats", &self.stats)
 			.field("storage_transaction_cache", &self.storage_transaction_cache)
 			.finish()
@@ -503,7 +519,7 @@ impl<H: Hasher> Changes<H> {
 				if infos.removed {
 					return Some(None)
 				}
-				Some(Cow::Owned(map.changes.storage(start, limit, infos.size, &self.stats)))
+				Some(map.changes.storage(start, limit, infos.size, &self.stats).into())
 			},
 		};
 		Some(value)
@@ -534,6 +550,7 @@ impl<H: Hasher> Changes<H> {
 		if !matches!(infos.infos.mode, Some(Mode::Archive)) {
 			return None
 		}
+
 		if infos.removed {
 			return None
 		}
@@ -734,7 +751,7 @@ impl<H: Hasher> Changes<H> {
 	/// Clear child storage of given storage key.
 	///
 	/// Can be rolled back or committed when called inside a transaction.
-	pub(crate) fn clear_child_storage(&mut self, child_info: &ChildInfo) -> u32 {
+	pub fn clear_child_storage(&mut self, child_info: &ChildInfo) -> u32 {
 		self.mark_dirty();
 
 		let storage_key = child_info.storage_key().to_vec();
@@ -784,10 +801,13 @@ impl<H: Hasher> Changes<H> {
 	///
 	/// Can be rolled back or committed when called inside a transaction
 	pub(crate) fn clear_child_prefix(&mut self, child_info: &ChildInfo, prefix: &[u8]) -> u32 {
+		if let ChildInfo::Default(_) = child_info {
+			self.mark_dirty();
+		}
+
 		let context = &self.context;
 		match child_info {
 			ChildInfo::Default(info) => {
-				self.mark_dirty();
 				let child = self.children.entry(info.name.clone()).or_insert_with(|| {
 					ChildChanges { changes: context.spawn_child(), infos: info.clone() }
 				});
@@ -1109,11 +1129,11 @@ impl<H: Hasher> Changes<H> {
 	}
 
 	/// Convert this instance with all changes into a [`StorageChanges`] instance.
-	pub fn into_storage_changes<B: Backend<H>, H: Hasher>(
+	pub fn into_storage_changes<B: Backend<H>>(
 		mut self,
 		backend: &B,
 		state_version: StateVersion,
-	) -> Result<StorageChanges<B::Transaction, H>, DefaultError>
+	) -> Result<StorageChanges<H>, DefaultError>
 	where
 		H::Out: Ord + Encode + 'static,
 	{
@@ -1222,9 +1242,9 @@ impl<H: Hasher> Changes<H> {
 			return Ok((root, true))
 		}
 
-		let root = if let Some((changes, info)) = self.child_changes(storage_key) {
+		let root = if let Some((changes, _info)) = self.child_changes(storage_key) {
 			let delta = changes.map(|(k, v)| (k.as_ref(), v.value().map(AsRef::as_ref)));
-			Some(backend.child_storage_root(info, delta, state_version))
+			Some(backend.child_storage_root(&child_info, delta, state_version))
 		} else {
 			None
 		};
@@ -1733,13 +1753,7 @@ impl<H: Hasher> From<sp_core::storage::Storage> for Changes<H> {
 				.collect(),
 			ordered_maps,
 			blobs,
-			offchain: Default::default(),
-			transaction_index_ops: Default::default(),
-			stats: Default::default(),
-			#[cfg(feature = "std")]
-			hashers: Default::default(),
-			archive_ordered_maps: Default::default(),
-			archive_blobs: Default::default(),
+			..Default::default()
 		}
 	}
 }
@@ -1970,9 +1984,10 @@ macro_rules! hasher_finalize {
 		H::hash_finalize($h)
 	};
 }
-impl Changes {
+
+impl<H: Hasher> Changes<H> {
 	/// Calculate root of an ordered map.
-	pub fn ordered_map_storage_root<H>(&mut self, child_info: &ChildInfo) -> Option<Vec<u8>>
+	pub fn ordered_map_storage_root(&mut self, child_info: &ChildInfo) -> Option<Vec<u8>>
 	where
 		H: Hasher,
 		H::Out: Encode,
@@ -2001,7 +2016,9 @@ impl Changes {
 		}
 		None
 	}
+}
 
+impl<H2: Hasher> Changes<H2> {
 	/// Calculate hash of a blob.
 	pub fn blob_hash<H: Hashers>(&mut self, child_info: &ChildInfo) -> Option<Vec<u8>> {
 		if let ChildInfo::Blob(..) = child_info {
@@ -2061,7 +2078,7 @@ impl Changes {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::{ext::Ext, new_in_mem, InMemoryBackend};
+	use crate::{ext::Ext, new_in_mem, testing::DummyHashers, InMemoryBackend};
 	use array_bytes::bytes2hex;
 	use sp_core::{traits::Externalities, Blake2Hasher};
 	use std::collections::BTreeMap;
@@ -2125,7 +2142,7 @@ mod tests {
 			assert_eq!(offchain_data, expected);
 		}
 
-		let mut overlayed = Changes::default();
+		let mut overlayed = Changes::<Blake2Hasher>::default();
 
 		let key = vec![42, 69, 169, 142];
 
@@ -2168,7 +2185,7 @@ mod tests {
 		.into_iter()
 		.collect();
 		let backend = InMemoryBackend::<Blake2Hasher>::from((initial, state_version));
-		let mut overlay = Changes::default();
+		let mut overlay = Changes::<Blake2Hasher>::default();
 
 		overlay.start_transaction();
 		overlay.set_storage(b"dog".to_vec(), Some(b"puppy".to_vec()));
@@ -2182,9 +2199,7 @@ mod tests {
 
 		{
 			let mut ext = Ext::<_, DummyHashers, _>::new(&mut overlay, &backend, None);
-			let root = array_bytes::hex2bytes_unchecked(
-				"39245109cef3758c2eed2ccba8d9b370a917850af3824bc8348d505df2c298fa",
-			);
+			let root = "39245109cef3758c2eed2ccba8d9b370a917850af3824bc8348d505df2c298fa";
 
 			assert_eq!(bytes2hex("", &ext.storage_root(state_version)), root);
 			// Calling a second time should use it from the cache
@@ -2194,7 +2209,7 @@ mod tests {
 		// Check that the storage root is recalculated
 		overlay.set_storage(b"doug2".to_vec(), Some(b"yes".to_vec()));
 
-		let mut ext = Ext::new(&mut overlay, &backend, None);
+		let mut ext = Ext::<_, DummyHashers, _>::new(&mut overlay, &backend, None);
 		let root = "5c0a4e35cb967de785e1cb8743e6f24b6ff6d45155317f2078f6eb3fc4ff3e3d";
 		assert_eq!(bytes2hex("", &ext.storage_root(state_version)), root);
 	}
@@ -2215,7 +2230,7 @@ mod tests {
 		overlay.set_child_storage(child_info, &[30], None);
 
 		{
-			let mut ext = Ext::new(&mut overlay, &backend, None);
+			let mut ext = Ext::<_, DummyHashers, _>::new(&mut overlay, &backend, None);
 			let child_root = "c02965e1df4dc5baf6977390ce67dab1d7a9b27a87c1afe27b50d29cc990e0f5";
 			let root = "eafb765909c3ed5afd92a0c564acf4620d0234b31702e8e8e9b48da72a748838";
 
@@ -2228,7 +2243,7 @@ mod tests {
 
 			// Calling a second time should use it from the cache
 			assert_eq!(
-				bytes2hex("", &ext.child_storage_root(child_info, state_version)),
+				bytes2hex("", &ext.child_storage_root(child_info, state_version).unwrap()),
 				child_root,
 			);
 		}
@@ -2276,7 +2291,6 @@ mod tests {
 	fn next_child_storage_key_change_works() {
 		let child_info = ChildInfo::new_default(b"Child1");
 		let child_info = &child_info;
-		let child = child_info.storage_key();
 		let mut overlay = Changes::<Blake2Hasher>::default();
 		overlay.start_transaction();
 		overlay.set_child_storage(child_info, &[20], Some(&[20]));
@@ -2316,7 +2330,7 @@ mod tests {
 	#[test]
 	#[should_panic]
 	fn drain_with_open_transaction_panics() {
-		let mut overlay = Changes::default();
+		let mut overlay = Changes::<Blake2Hasher>::default();
 		overlay.start_transaction();
 		let _ = overlay.drain_committed();
 	}
@@ -2329,7 +2343,7 @@ mod tests {
 			None,
 		);
 		let child_info = &child_info;
-		let mut overlay = Changes::default();
+		let mut overlay = Changes::<Blake2Hasher>::default();
 		assert!(!overlay.set_child_storage(child_info, b"abc", Some(b"def")));
 		assert_eq!(overlay.child_storage(child_info, b"abc", 0, None), None);
 		assert!(overlay.update_storage_info(child_info.clone(), true));

@@ -24,11 +24,12 @@ use sc_executor::{RuntimeVersion, RuntimeVersionOf};
 use sp_api::ProofRecorder;
 use sp_core::traits::{CallContext, CodeExecutor, RuntimeCode};
 use sp_externalities::Extensions;
-use sp_runtime::{generic::BlockId, traits::Block as BlockT, HashingFor, IoHashers};
-use sp_state_machine::{
-	backend::AsTrieBackend, Changes, ExecutionStrategy, Ext, OverlayedChanges, StateMachine,
-	StorageProof,
+use sp_runtime::{
+	generic::BlockId,
+	traits::{Block as BlockT, HashingFor},
+	IoHashers,
 };
+use sp_state_machine::{backend::AsTrieBackend, Changes, Ext, StateMachine, StorageProof};
 use std::{cell::RefCell, sync::Arc};
 
 /// Call executor that executes methods locally, querying all required

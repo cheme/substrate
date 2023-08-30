@@ -131,7 +131,7 @@ pub use crate::{
 	overlayed_changes::{
 		BlobsCollection, Changes, ChildStorageCollection, IndexOperation, OffchainChanges,
 		OffchainChangesCollection, OrdMapsCollection, StorageChanges, StorageCollection,
-		StorageKey, StorageTransactionCache, StorageValue,
+		StorageKey, StorageValue,
 	},
 	stats::{StateMachineStats, UsageInfo, UsageUnit},
 	trie_backend::{TrieBackend, TrieBackendBuilder},
@@ -1277,7 +1277,7 @@ pub mod fuzz {
 	}
 
 	struct Overlay {
-		data: Changes,
+		data: Changes<sp_runtime::traits::BlakeTwo256>,
 		conf: FuzzConf,
 	}
 
@@ -1415,7 +1415,7 @@ mod tests {
 		traits::{CallContext, CodeExecutor, Externalities, RuntimeCode},
 		H256,
 	};
-	use sp_runtime::traits::BlakeTwo256;
+	use sp_runtime::{traits::BlakeTwo256, IoHashers};
 	use sp_trie::{
 		trie_types::{TrieDBMutBuilderV0, TrieDBMutBuilderV1},
 		KeySpacedDBMut, PrefixedMemoryDB,
@@ -1585,7 +1585,7 @@ mod tests {
 
 		let overlay_limit = overlay.clone();
 		{
-			let mut ext = Ext::new(&mut overlay, backend, None);
+			let mut ext = Ext::<_, IoHashers, _>::new(&mut overlay, backend, None);
 			let _ = ext.clear_prefix(b"ab", None, None);
 		}
 		overlay.commit_transaction().unwrap();
@@ -1608,7 +1608,7 @@ mod tests {
 
 		let mut overlay = overlay_limit;
 		{
-			let mut ext = Ext::new(&mut overlay, backend, None);
+			let mut ext = Ext::<_, IoHashers, _>::new(&mut overlay, backend, None);
 			assert_matches!(
 				ext.clear_prefix(b"ab", Some(1), None).deconstruct(),
 				(Some(_), 1, 3, 1)
@@ -1653,7 +1653,7 @@ mod tests {
 		overlay.set_child_storage(&child_info, b"4", Some(b"1312"));
 
 		{
-			let mut ext = Ext::new(&mut overlay, &backend, None);
+			let mut ext = Ext::<_, IoHashers, _>::new(&mut overlay, &backend, None);
 			let r = ext.kill_child_storage(&child_info, Some(2), None);
 			assert_matches!(r.deconstruct(), (Some(_), 2, 6, 2));
 		}
@@ -1689,7 +1689,7 @@ mod tests {
 		let child_info = ChildInfo::Default(child_info);
 		let backend = InMemoryBackend::<BlakeTwo256>::from((initial, StateVersion::default()));
 		let mut overlay = Changes::default();
-		let mut ext = Ext::new(&mut overlay, &backend, None);
+		let mut ext = Ext::<_, IoHashers, _>::new(&mut overlay, &backend, None);
 		let r = ext.kill_child_storage(&child_info, Some(0), None).deconstruct();
 		assert_matches!(r, (Some(_), 0, 0, 0));
 		let r = ext
@@ -1719,7 +1719,7 @@ mod tests {
 		let child_info = ChildInfo::Default(child_info);
 		let backend = InMemoryBackend::<BlakeTwo256>::from((initial, StateVersion::default()));
 		let mut overlay = Changes::default();
-		let mut ext = Ext::new(&mut overlay, &backend, None);
+		let mut ext = Ext::<_, IoHashers, _>::new(&mut overlay, &backend, None);
 		assert_eq!(ext.kill_child_storage(&child_info, None, None).deconstruct(), (None, 4, 4, 4));
 	}
 
@@ -1730,7 +1730,7 @@ mod tests {
 		let state = new_in_mem::<BlakeTwo256>();
 		let backend = state.as_trie_backend();
 		let mut overlay = Changes::default();
-		let mut ext = Ext::new(&mut overlay, backend, None);
+		let mut ext = Ext::<_, IoHashers, _>::new(&mut overlay, backend, None);
 
 		ext.set_child_storage(child_info, b"abc", b"def");
 		assert_eq!(ext.child_storage(child_info, b"abc", 0, None), Some(b"def"[..].into()));
@@ -1746,7 +1746,7 @@ mod tests {
 		let backend = state.as_trie_backend();
 		let mut overlay = Changes::default();
 		{
-			let mut ext = Ext::new(&mut overlay, backend, None);
+			let mut ext = Ext::<_, IoHashers, _>::new(&mut overlay, backend, None);
 
 			ext.storage_append(key.clone(), reference_data[0].encode());
 			assert_eq!(
@@ -1756,7 +1756,7 @@ mod tests {
 		}
 		overlay.start_transaction();
 		{
-			let mut ext = Ext::new(&mut overlay, backend, None);
+			let mut ext = Ext::<_, IoHashers, _>::new(&mut overlay, backend, None);
 
 			for i in reference_data.iter().skip(1) {
 				ext.storage_append(key.clone(), i.encode());
@@ -1765,7 +1765,7 @@ mod tests {
 		}
 		overlay.rollback_transaction().unwrap();
 		{
-			let mut ext = Ext::new(&mut overlay, backend, None);
+			let mut ext = Ext::<_, IoHashers, _>::new(&mut overlay, backend, None);
 			assert_eq!(
 				ext.storage(key.as_slice(), 0, None),
 				Some(vec![reference_data[0].clone()].encode().into())
@@ -1789,7 +1789,7 @@ mod tests {
 
 		// For example, block initialization with event.
 		{
-			let mut ext = Ext::new(&mut overlay, backend, None);
+			let mut ext = Ext::<_, IoHashers, _>::new(&mut overlay, backend, None);
 			ext.clear_storage(key.as_slice());
 			ext.storage_append(key.clone(), Item::InitializationItem.encode());
 		}
@@ -1797,7 +1797,7 @@ mod tests {
 
 		// For example, first transaction resulted in panic during block building
 		{
-			let mut ext = Ext::new(&mut overlay, backend, None);
+			let mut ext = Ext::<_, IoHashers, _>::new(&mut overlay, backend, None);
 
 			assert_eq!(
 				ext.storage(key.as_slice(), 0, None),
@@ -1815,7 +1815,7 @@ mod tests {
 
 		// Then we apply next transaction which is valid this time.
 		{
-			let mut ext = Ext::new(&mut overlay, backend, None);
+			let mut ext = Ext::<_, IoHashers, _>::new(&mut overlay, backend, None);
 
 			assert_eq!(
 				ext.storage(key.as_slice(), 0, None),
@@ -1833,7 +1833,7 @@ mod tests {
 
 		// Then only initlaization item and second (committed) item should persist.
 		{
-			let mut ext = Ext::new(&mut overlay, backend, None);
+			let mut ext = Ext::<_, IoHashers, _>::new(&mut overlay, backend, None);
 			assert_eq!(
 				ext.storage(key.as_slice(), 0, None),
 				Some(vec![Item::InitializationItem, Item::CommitedItem].encode().into()),
@@ -2255,7 +2255,7 @@ mod tests {
 
 		let mut transaction = {
 			let backend = test_trie(state_version, None, None);
-			let mut ext = Ext::new(&mut overlay, &backend, None);
+			let mut ext = Ext::<_, IoHashers, _>::new(&mut overlay, &backend, None);
 			ext.set_child_storage(&child_info_1, b"abc", b"def");
 			ext.set_child_storage(&child_info_2, b"abc", b"def");
 			ext.storage_root(state_version);
@@ -2291,7 +2291,7 @@ mod tests {
 		assert_eq!(overlay.storage(b"bbb"), None);
 
 		{
-			let mut ext = Ext::new(&mut overlay, backend, None);
+			let mut ext = Ext::<_, IoHashers, _>::new(&mut overlay, backend, None);
 			assert_eq!(ext.storage(b"bbb", 0, None), Some(vec![].into()));
 			assert_eq!(ext.storage(b"ccc", 0, None), Some(vec![].into()));
 			ext.clear_storage(b"ccc");

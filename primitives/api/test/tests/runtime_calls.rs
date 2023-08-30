@@ -22,9 +22,7 @@ use sp_runtime::{
 	traits::{HashingFor, Header as HeaderT},
 	IoHashers, TransactionOutcome,
 };
-use sp_state_machine::{
-	create_proof_check_backend, execution_proof_check_on_trie_backend, ExecutionStrategy,
-};
+use sp_state_machine::{create_proof_check_backend, execution_proof_check_on_trie_backend};
 
 use substrate_test_runtime_client::{
 	prelude::*,

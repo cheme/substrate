@@ -20,8 +20,7 @@
 #[cfg(feature = "std")]
 use crate::overlayed_changes::OverlayedExtensions;
 use crate::{backend::Backend, Changes, IndexOperation, IterArgs, StorageKey, StorageValue};
-use codec::{Decode, Encode, EncodeAppend};
-use hash_db::Hasher;
+use codec::{Encode, EncodeAppend};
 #[cfg(feature = "std")]
 use sp_core::hexdisplay::HexDisplay;
 use sp_core::{
@@ -37,7 +36,6 @@ use sp_externalities::{
 	MultiRemovalResults,
 };
 use sp_std::marker::PhantomData;
-use sp_trie::{empty_child_trie_root, LayoutV1};
 
 use crate::{log_error, trace, warn};
 use sp_std::{
@@ -170,6 +168,7 @@ where
 	/// Extensions registered with this instance.
 	#[cfg(feature = "std")]
 	extensions: Option<OverlayedExtensions<'a>>,
+	_ph: PhantomData<H2>,
 }
 
 impl<'a, H, H2, B> Ext<'a, H, H2, B>
@@ -180,7 +179,7 @@ where
 	/// Create a new `Ext`.
 	#[cfg(not(feature = "std"))]
 	pub fn new(overlay: &'a mut Changes<H>, backend: &'a B) -> Self {
-		Ext { overlay, backend, id: 0 }
+		Ext { overlay, backend, id: 0, _ph: Default::default() }
 	}
 
 	/// Create a new `Ext` from overlayed changes and read-only backend
@@ -195,6 +194,7 @@ where
 			backend,
 			id: rand::random(),
 			extensions: extensions.map(OverlayedExtensions::new),
+			_ph: Default::default(),
 		}
 	}
 }
@@ -569,7 +569,7 @@ where
 		);
 		let _guard = guard();
 
-		self.overlay.set_child_storage(child_info, key, value);
+		self.overlay.set_child_storage(child_info, key, value)
 	}
 
 	fn kill_child_storage(
@@ -685,8 +685,6 @@ where
 		state_version: StateVersion,
 	) -> Option<Vec<u8>> {
 		let _guard = guard();
-		let storage_key = child_info.storage_key();
-		let prefixed_storage_key = child_info.prefixed_storage_key();
 
 		if let ChildInfo::OrderedMap(..) = child_info {
 			return None
@@ -1108,7 +1106,6 @@ mod tests {
 	fn next_child_storage_key_works() {
 		let child_info = DefaultChild::new(b"Child1");
 
-		let overlay = Changes::<Blake2Hasher>::default();
 		let backend = (
 			Storage {
 				top: map![],
@@ -1166,7 +1163,6 @@ mod tests {
 	fn child_storage_works() {
 		let child_info = DefaultChild::new(b"Child1");
 		let child_info = &child_info;
-		let overlay = Changes::<Blake2Hasher>::default();
 		let backend = (
 			Storage {
 				top: map![],

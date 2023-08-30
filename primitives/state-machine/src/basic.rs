@@ -358,7 +358,7 @@ impl Externalities for BasicExternalities {
 						let delta = data
 							.into_iter()
 							.map(|(k, v)| (k.as_ref(), v.value().map(|v| v.as_slice())));
-						crate::in_memory_backend::new_in_mem::<Blake2Hasher, HashKey<_>>()
+						crate::in_memory_backend::new_in_mem::<Blake2Hasher>()
 							.child_storage_root(&child_info, delta, StateVersion::V1)
 							.0
 							.encode()
@@ -486,7 +486,7 @@ impl BasicExternalities {
 			if let Some((data, _child_info)) = self.overlay.child_changes(name) {
 				let delta =
 					data.into_iter().map(|(k, v)| (k.as_ref(), v.value().map(|v| v.as_slice())));
-				crate::in_memory_backend::new_in_mem::<Blake2Hasher, HashKey<_>>()
+				crate::in_memory_backend::new_in_mem::<Blake2Hasher>()
 					.default_child_storage_root(name, delta, state_version)
 					.0
 			} else {
