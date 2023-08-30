@@ -473,14 +473,14 @@ impl<'a, Block: BlockT> TransientArchive<'a, Block> {
 		let journal_key = Self::journal_key(self.hash);
 		let Some(journal) = self.db.get(columns::AUX, &journal_key) else {
 			debug!("Missing journal, skipping pruning {:?}", self.hash);
-			return Ok(());
+			return Ok(())
 		};
 		tx.remove(columns::AUX, &journal_key);
 		let mut read_journal = journal.as_slice();
 		let mut current_btree: Option<Vec<u8>> = None;
 		let Some(version) = read_journal.get(0) else {
 			warn!("Invalid journal encoding, skipping pruning {:?}", self.hash);
-			return Ok(());
+			return Ok(())
 		};
 		read_journal = &read_journal[1..];
 		if *version != 0 {

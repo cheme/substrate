@@ -21,8 +21,8 @@ mod changeset;
 mod offchain;
 
 use self::changeset::{OriginEntry, OverlayedChangeSet, OverlayedChangeSetBlob, OverlayedInfos};
-use crate::{backend::Backend, stats::StateMachineStats, warn, DefaultError};
-use codec::Encode;
+use crate::{backend::Backend, stats::StateMachineStats, warn, BackendTransaction, DefaultError};
+use codec::{Decode, Encode};
 use hash_db::Hasher;
 pub use offchain::OffchainChanges;
 #[cfg(feature = "std")]
@@ -40,7 +40,8 @@ use sp_core::{
 use sp_externalities::{Extension, Extensions};
 #[cfg(not(feature = "std"))]
 use sp_std::collections::btree_map::BTreeMap as Map;
-use sp_std::{borrow::Cow, sync::Arc, vec::Vec};
+use sp_std::{borrow::Cow, collections::btree_set::BTreeSet, sync::Arc, vec::Vec};
+use sp_trie::{empty_child_trie_root, LayoutV1};
 #[cfg(feature = "std")]
 use std::collections::{hash_map::Entry as MapEntry, HashMap as Map};
 #[cfg(feature = "std")]
@@ -83,8 +84,7 @@ pub type OffchainChangesCollection = Vec<((Vec<u8>, Vec<u8>), OffchainOverlayedC
 ///
 /// TODO move all children, orderemaps, blobs under their own struct when possible.
 /// TODO if going global variable direction: split in two struct (or not)
-#[derive(Debug, Default, Clone)]
-pub struct Changes {
+pub struct Changes<H: Hasher> {
 	/// Context of execution.
 	context: OverlayedContext,
 	/// Top level storage changes.
@@ -101,6 +101,11 @@ pub struct Changes {
 	transaction_index_ops: Vec<IndexOperation>,
 	/// Collect statistic on this execution.
 	stats: StateMachineStats,
+	/// Caches the "storage transaction" that is created while calling `storage_root`.
+	///
+	/// This transaction can be applied to the backend to persist the state changes.
+	storage_transaction_cache: Option<StorageTransactionCache<H>>,
+
 	#[cfg(feature = "std")]
 	pub(crate) hashers: HashersExternalities,
 
@@ -251,6 +256,48 @@ struct ChildChanges {
 	infos: DefaultChild,
 }
 
+impl<H: Hasher> Default for OverlayedChanges<H> {
+	fn default() -> Self {
+		Self {
+			top: Default::default(),
+			children: Default::default(),
+			offchain: Default::default(),
+			transaction_index_ops: Default::default(),
+			collect_extrinsics: Default::default(),
+			stats: Default::default(),
+			storage_transaction_cache: None,
+		}
+	}
+}
+
+impl<H: Hasher> Clone for OverlayedChanges<H> {
+	fn clone(&self) -> Self {
+		Self {
+			top: self.top.clone(),
+			children: self.children.clone(),
+			offchain: self.offchain.clone(),
+			transaction_index_ops: self.transaction_index_ops.clone(),
+			collect_extrinsics: self.collect_extrinsics,
+			stats: self.stats.clone(),
+			storage_transaction_cache: self.storage_transaction_cache.clone(),
+		}
+	}
+}
+
+impl<H: Hasher> sp_std::fmt::Debug for OverlayedChanges<H> {
+	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+		f.debug_struct("OverlayedChanges")
+			.field("top", &self.top)
+			.field("children", &self.children)
+			.field("offchain", &self.offchain)
+			.field("transaction_index_ops", &self.transaction_index_ops)
+			.field("collect_extrinsics", &self.collect_extrinsics)
+			.field("stats", &self.stats)
+			.field("storage_transaction_cache", &self.storage_transaction_cache)
+			.finish()
+	}
+}
+
 /// Transaction index operation.
 #[derive(Debug, Clone)]
 pub enum IndexOperation {
@@ -276,7 +323,7 @@ pub enum IndexOperation {
 ///
 /// This contains all the changes to the storage and transactions to apply theses changes to the
 /// backend.
-pub struct StorageChanges<Transaction, H: Hasher> {
+pub struct StorageChanges<H: Hasher> {
 	/// All changes to the main storage.
 	///
 	/// A value of `None` means that it was deleted.
@@ -293,7 +340,7 @@ pub struct StorageChanges<Transaction, H: Hasher> {
 	/// [`main_storage_changes`](StorageChanges::main_storage_changes) and from
 	/// [`child_storage_changes`](StorageChanges::child_storage_changes).
 	/// [`offchain_storage_changes`](StorageChanges::offchain_storage_changes).
-	pub transaction: Transaction,
+	pub transaction: BackendTransaction<H>,
 	/// The storage root after applying the transaction.
 	pub transaction_storage_root: H::Out,
 	/// Changes to the transaction index,
@@ -302,7 +349,7 @@ pub struct StorageChanges<Transaction, H: Hasher> {
 }
 
 #[cfg(feature = "std")]
-impl<Transaction, H: Hasher> StorageChanges<Transaction, H> {
+impl<H: Hasher> StorageChanges<H> {
 	/// Deconstruct into the inner values
 	pub fn into_inner(
 		self,
@@ -312,7 +359,7 @@ impl<Transaction, H: Hasher> StorageChanges<Transaction, H> {
 		OrdMapsCollection,
 		BlobsCollection,
 		OffchainChangesCollection,
-		Transaction,
+		BackendTransaction<H>,
 		H::Out,
 		Vec<IndexOperation>,
 	) {
@@ -329,30 +376,7 @@ impl<Transaction, H: Hasher> StorageChanges<Transaction, H> {
 	}
 }
 
-/// Storage transactions are calculated as part of the `storage_root`.
-/// These transactions can be reused for importing the block into the
-/// storage. So, we cache them to not require a recomputation of those transactions.
-pub struct StorageTransactionCache<Transaction, H: Hasher> {
-	/// Contains the changes for the main and the child storages as one transaction.
-	pub(crate) transaction: Option<Transaction>,
-	/// The storage root after applying the transaction.
-	pub(crate) transaction_storage_root: Option<H::Out>,
-}
-
-impl<Transaction, H: Hasher> StorageTransactionCache<Transaction, H> {
-	/// Reset the cached transactions.
-	pub fn reset(&mut self) {
-		*self = Self::default();
-	}
-}
-
-impl<Transaction, H: Hasher> Default for StorageTransactionCache<Transaction, H> {
-	fn default() -> Self {
-		Self { transaction: None, transaction_storage_root: None }
-	}
-}
-
-impl<Transaction: Default, H: Hasher> Default for StorageChanges<Transaction, H> {
+impl<H: Hasher> Default for StorageChanges<H> {
 	fn default() -> Self {
 		Self {
 			main_storage_changes: Default::default(),
@@ -368,7 +392,46 @@ impl<Transaction: Default, H: Hasher> Default for StorageChanges<Transaction, H>
 	}
 }
 
-impl Changes {
+/// Storage transactions are calculated as part of the `storage_root`.
+/// These transactions can be reused for importing the block into the
+/// storage. So, we cache them to not require a recomputation of those transactions.
+struct StorageTransactionCache<H: Hasher> {
+	/// Contains the changes for the main and the child storages as one transaction.
+	transaction: BackendTransaction<H>,
+	/// The storage root after applying the transaction.
+	transaction_storage_root: H::Out,
+}
+
+impl<H: Hasher> StorageTransactionCache<H> {
+	fn into_inner(self) -> (BackendTransaction<H>, H::Out) {
+		(self.transaction, self.transaction_storage_root)
+	}
+}
+
+impl<H: Hasher> Clone for StorageTransactionCache<H> {
+	fn clone(&self) -> Self {
+		Self {
+			transaction: self.transaction.clone(),
+			transaction_storage_root: self.transaction_storage_root,
+		}
+	}
+}
+
+impl<H: Hasher> sp_std::fmt::Debug for StorageTransactionCache<H> {
+	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+		let mut debug = f.debug_struct("StorageTransactionCache");
+
+		#[cfg(feature = "std")]
+		debug.field("transaction_storage_root", &self.transaction_storage_root);
+
+		#[cfg(not(feature = "std"))]
+		debug.field("transaction_storage_root", &self.transaction_storage_root.as_ref());
+
+		debug.finish()
+	}
+}
+
+impl<H: Hasher> Changes<H> {
 	/// Whether no changes are contained in the top nor in any of the child changes.
 	pub fn is_empty(&self) -> bool {
 		self.top.is_empty() && self.children.is_empty()
@@ -379,6 +442,12 @@ impl Changes {
 	/// value has been set.
 	pub fn storage(&self, key: &[u8]) -> Option<Option<&[u8]>> {
 		self.top.storage(key, 0, None, &self.stats)
+	}
+
+	/// Should be called when there are changes that require to reset the
+	/// `storage_transaction_cache`.
+	fn mark_dirty(&mut self) {
+		self.storage_transaction_cache = None;
 	}
 
 	/// Returns mutable reference to current value.
@@ -392,6 +461,8 @@ impl Changes {
 		key: &[u8],
 		init: impl Fn() -> StorageValue,
 	) -> &mut StorageValue {
+		self.mark_dirty();
+
 		let value = self.top.modify(key.to_vec(), init);
 
 		// if the value was deleted initialise it back with an empty vec
@@ -524,6 +595,8 @@ impl Changes {
 	///
 	/// Can be rolled back or committed when called inside a transaction.
 	pub fn set_storage(&mut self, key: StorageKey, val: Option<StorageValue>) {
+		self.mark_dirty();
+
 		let size_write = val.as_ref().map(|x| x.len() as u64).unwrap_or(0);
 		self.stats.tally_write_overlay(size_write);
 		self.top.set(key, val);
@@ -542,6 +615,8 @@ impl Changes {
 		key: &[u8],
 		val: Option<&[u8]>,
 	) -> bool {
+		self.mark_dirty();
+
 		let size_write = val.as_ref().map(|x| x.len() as u64).unwrap_or(0);
 		self.stats.tally_write_overlay(size_write);
 
@@ -558,8 +633,9 @@ impl Changes {
 				true
 			},
 			ChildInfo::OrderedMap(infos) => {
-				let Some(OrdMapChanges { changes, infos }) = self.ordered_maps.get_mut(&infos.name) else {
-					return false;
+				let Some(OrdMapChanges { changes, infos }) = self.ordered_maps.get_mut(&infos.name)
+				else {
+					return false
 				};
 				if infos.value_ref().removed {
 					return false
@@ -599,17 +675,13 @@ impl Changes {
 	/// Return true if value was set.
 	/// Return false when not set (e.g. offset is out of bounds).
 	pub fn blob_set(&mut self, name: &[u8], value: &[u8], offset: u32) -> bool {
-		let Some(previous_len) = self.blob_len(name) else {
-			return false;
-		};
+		let Some(previous_len) = self.blob_len(name) else { return false };
 
 		if offset > previous_len {
 			return false
 		};
 
-		let Some(BlobChanges {changes, infos}) = self.blobs.get_mut(name) else {
-			return false;
-		};
+		let Some(BlobChanges { changes, infos }) = self.blobs.get_mut(name) else { return false };
 
 		let end = offset as usize + value.len();
 		if end > u32::MAX as usize {
@@ -640,13 +712,9 @@ impl Changes {
 	/// Truncate blob to a new length (modification local to current transactional layer).
 	/// Return true if something was changed.
 	pub fn blob_truncate(&mut self, name: &[u8], new_len: u32) -> bool {
-		let Some(previous_len) = self.blob_len(name) else {
-			return false;
-		};
+		let Some(previous_len) = self.blob_len(name) else { return false };
 
-		let Some(blob) = self.blobs.get_mut(name) else {
-			return false;
-		};
+		let Some(blob) = self.blobs.get_mut(name) else { return false };
 		if new_len >= previous_len {
 			return false
 		};
@@ -666,7 +734,9 @@ impl Changes {
 	/// Clear child storage of given storage key.
 	///
 	/// Can be rolled back or committed when called inside a transaction.
-	pub fn clear_child_storage(&mut self, child_info: &ChildInfo) -> u32 {
+	pub(crate) fn clear_child_storage(&mut self, child_info: &ChildInfo) -> u32 {
+		self.mark_dirty();
+
 		let storage_key = child_info.storage_key().to_vec();
 		let context = &self.context;
 		match child_info {
@@ -691,17 +761,13 @@ impl Changes {
 
 	fn clear_blob_storage(&mut self, name: &[u8]) -> u32 {
 		let context = &self.context;
-		let Some(entry) = self.blobs.get_mut(name) else {
-			return 0;
-		};
+		let Some(entry) = self.blobs.get_mut(name) else { return 0 };
 		entry.clear_movable_storage(&|| Arc::new(context.spawn_blob()), &self.context)
 	}
 
 	fn clear_ordered_map_storage(&mut self, name: &[u8]) -> u32 {
 		let context = &self.context;
-		let Some(entry) = self.ordered_maps.get_mut(name) else {
-			return 0;
-		};
+		let Some(entry) = self.ordered_maps.get_mut(name) else { return 0 };
 		entry.clear_movable_storage(&|| Arc::new(context.spawn_child()), &self.context)
 	}
 
@@ -709,6 +775,8 @@ impl Changes {
 	///
 	/// Can be rolled back or committed when called inside a transaction.
 	pub(crate) fn clear_prefix(&mut self, prefix: &[u8]) -> u32 {
+		self.mark_dirty();
+
 		self.top.clear_where(|key, _| key.starts_with(prefix))
 	}
 
@@ -719,6 +787,7 @@ impl Changes {
 		let context = &self.context;
 		match child_info {
 			ChildInfo::Default(info) => {
+				self.mark_dirty();
 				let child = self.children.entry(info.name.clone()).or_insert_with(|| {
 					ChildChanges { changes: context.spawn_child(), infos: info.clone() }
 				});
@@ -727,7 +796,8 @@ impl Changes {
 				child.changes.clear_where(|key, _| key.starts_with(prefix))
 			},
 			ChildInfo::OrderedMap(info) => {
-				let Some(OrdMapChanges { changes, infos }) = self.ordered_maps.get_mut(&info.name) else {
+				let Some(OrdMapChanges { changes, infos }) = self.ordered_maps.get_mut(&info.name)
+				else {
 					return 0
 				};
 				if infos.value_ref().removed {
@@ -773,6 +843,8 @@ impl Changes {
 	/// Any changes made during that transaction are discarded. Returns an error if
 	/// there is no open transaction that can be rolled back.
 	pub fn rollback_transaction(&mut self) -> Result<(), NoOpenTransaction> {
+		self.mark_dirty();
+
 		let start_depth = self.context.transaction_depth();
 		self.context.rollback_transaction()?;
 
@@ -1040,35 +1112,34 @@ impl Changes {
 	pub fn into_storage_changes<B: Backend<H>, H: Hasher>(
 		mut self,
 		backend: &B,
-		mut cache: StorageTransactionCache<B::Transaction, H>,
 		state_version: StateVersion,
 	) -> Result<StorageChanges<B::Transaction, H>, DefaultError>
 	where
 		H::Out: Ord + Encode + 'static,
 	{
-		self.drain_storage_changes(backend, &mut cache, state_version)
+		self.drain_storage_changes(backend, state_version)
 	}
 
 	/// Drain all changes into a [`StorageChanges`] instance. Leave empty overlay in place.
-	pub fn drain_storage_changes<B: Backend<H>, H: Hasher>(
+	pub fn drain_storage_changes<B: Backend<H>>(
 		&mut self,
 		backend: &B,
-		cache: &mut StorageTransactionCache<B::Transaction, H>,
 		state_version: StateVersion,
-	) -> Result<StorageChanges<B::Transaction, H>, DefaultError>
+	) -> Result<StorageChanges<H>, DefaultError>
 	where
 		H::Out: Ord + Encode + 'static,
 	{
-		// If the transaction does not exist, we generate it.
-		if cache.transaction.is_none() {
-			self.storage_root(backend, cache, state_version);
-		}
-
-		let (transaction, transaction_storage_root) = cache
-			.transaction
-			.take()
-			.and_then(|t| cache.transaction_storage_root.take().map(|tr| (t, tr)))
-			.expect("Transaction was be generated as part of `storage_root`; qed");
+		let (transaction, transaction_storage_root) = match self.storage_transaction_cache.take() {
+			Some(cache) => cache.into_inner(),
+			// If the transaction does not exist, we generate it.
+			None => {
+				self.storage_root(backend, state_version);
+				self.storage_transaction_cache
+					.take()
+					.expect("`storage_transaction_cache` was just initialized; qed")
+					.into_inner()
+			},
+		};
 
 		let (main_storage_changes, child_storage_changes, ordmaps_changes, blobs_changes) =
 			self.drain_committed();
@@ -1095,16 +1166,19 @@ impl Changes {
 	/// Generate the storage root using `backend` and all changes
 	/// as seen by the current transaction.
 	///
-	/// Returns the storage root and caches storage transaction in the given `cache`.
-	pub fn storage_root<H: Hasher, B: Backend<H>>(
-		&self,
+	/// Returns the storage root and whether it was already cached.
+	pub fn storage_root<B: Backend<H>>(
+		&mut self,
 		backend: &B,
-		cache: &mut StorageTransactionCache<B::Transaction, H>,
 		state_version: StateVersion,
-	) -> H::Out
+	) -> (H::Out, bool)
 	where
 		H::Out: Ord + Encode,
 	{
+		if let Some(cache) = &self.storage_transaction_cache {
+			return (cache.transaction_storage_root, true)
+		}
+
 		let delta = self.changes().map(|(k, v)| (&k[..], v.value().map(|v| &v[..])));
 		let child_delta = self.children().map(|(changes, info)| {
 			(info, changes.map(|(k, v)| (&k[..], v.value().map(|v| &v[..]))))
@@ -1112,10 +1186,72 @@ impl Changes {
 
 		let (root, transaction) = backend.full_storage_root(delta, child_delta, state_version);
 
-		cache.transaction = Some(transaction);
-		cache.transaction_storage_root = Some(root);
+		self.storage_transaction_cache =
+			Some(StorageTransactionCache { transaction, transaction_storage_root: root });
 
-		root
+		(root, false)
+	}
+
+	/// Generate the child storage root using `backend` and all child changes
+	/// as seen by the current transaction.
+	///
+	/// Returns the child storage root and whether it was already cached.
+	pub fn child_storage_root<B: Backend<H>>(
+		&mut self,
+		child_info: &ChildInfo,
+		backend: &B,
+		state_version: StateVersion,
+	) -> Result<(H::Out, bool), B::Error>
+	where
+		H::Out: Ord + Encode + Decode,
+	{
+		let storage_key = child_info.storage_key();
+		let prefixed_storage_key = child_info.prefixed_storage_key();
+
+		if self.storage_transaction_cache.is_some() {
+			let root = self
+				.storage(prefixed_storage_key.as_slice())
+				.map(|v| Ok(v.map(|v| v.to_vec())))
+				.or_else(|| backend.storage(prefixed_storage_key.as_slice()).map(Some).transpose())
+				.transpose()?
+				.flatten()
+				.and_then(|k| Decode::decode(&mut &k[..]).ok())
+				// V1 is equivalent to V0 on empty root.
+				.unwrap_or_else(empty_child_trie_root::<LayoutV1<H>>);
+
+			return Ok((root, true))
+		}
+
+		let root = if let Some((changes, info)) = self.child_changes(storage_key) {
+			let delta = changes.map(|(k, v)| (k.as_ref(), v.value().map(AsRef::as_ref)));
+			Some(backend.child_storage_root(info, delta, state_version))
+		} else {
+			None
+		};
+
+		let root = if let Some((root, is_empty, _)) = root {
+			// We store update in the overlay in order to be able to use
+			// 'self.storage_transaction' cache. This is brittle as it rely on Ext only querying
+			// the trie backend for storage root.
+			// A better design would be to manage 'child_storage_transaction' in a
+			// similar way as 'storage_transaction' but for each child trie.
+			self.set_storage(prefixed_storage_key.into_inner(), (!is_empty).then(|| root.encode()));
+
+			self.mark_dirty();
+
+			root
+		} else {
+			// empty overlay
+			let root = backend
+				.storage(prefixed_storage_key.as_slice())?
+				.and_then(|k| Decode::decode(&mut &k[..]).ok())
+				// V1 is equivalent to V0 on empty root.
+				.unwrap_or_else(empty_child_trie_root::<LayoutV1<H>>);
+
+			root
+		};
+
+		Ok((root, false))
 	}
 
 	/// Returns an iterator over the keys (in lexicographic order) following `key` (excluding `key`)
@@ -1260,9 +1396,7 @@ impl Changes {
 	/// Cache root.
 	/// Do nothing on failure.
 	pub fn cache_ordered_map_root(&mut self, name: &[u8], root: Vec<u8>) {
-		let Some(entry) = self.ordered_maps.get_mut(name) else {
-			return
-		};
+		let Some(entry) = self.ordered_maps.get_mut(name) else { return };
 		let entry = entry.infos.modify_value(&self.context);
 		debug_assert!(!entry.removed);
 		entry.cached_hash = Some(root);
@@ -1271,9 +1405,7 @@ impl Changes {
 	/// Cache hash.
 	/// Do nothing on failure.
 	pub fn cache_blob_hash(&mut self, name: &[u8], hash: Vec<u8>) {
-		let Some(entry) = self.blobs.get_mut(name) else {
-			return
-		};
+		let Some(entry) = self.blobs.get_mut(name) else { return };
 		let entry = entry.infos.modify_value(&self.context);
 		debug_assert!(!entry.removed);
 		entry.cached_hash = Some(hash);
@@ -1447,9 +1579,7 @@ where
 			.or_insert_with(|| Self { changes: spawn_changes(), infos: spawn_infos() })
 			as *mut MovableStorage<C, TransientInfo<A>>;
 
-		let Some(origin) = map.get(&info.name) else {
-			return false
-		};
+		let Some(origin) = map.get(&info.name) else { return false };
 
 		// Access pointer to new val as we know ordered map.
 		// implementation do not change on origin access.
@@ -1486,8 +1616,10 @@ where
 			return false
 		};
 
-		let Some((_size, state)) = map.get_mut(&info.name)
-			.and_then(|entry| entry.move_storage(spawn_changes, context)) else {
+		let Some((_size, state)) = map
+			.get_mut(&info.name)
+			.and_then(|entry| entry.move_storage(spawn_changes, context))
+		else {
 			return false
 		};
 
@@ -1561,7 +1693,7 @@ pub trait Transactional {
 }
 
 #[cfg(feature = "std")]
-impl From<sp_core::storage::Storage> for Changes {
+impl<H: Hasher> From<sp_core::storage::Storage> for Changes<H> {
 	fn from(storage: sp_core::storage::Storage) -> Self {
 		let context = OverlayedContext::default();
 		let top: OverlayedChangeSet = storage.top.into();
@@ -1874,17 +2006,17 @@ impl Changes {
 	pub fn blob_hash<H: Hashers>(&mut self, child_info: &ChildInfo) -> Option<Vec<u8>> {
 		if let ChildInfo::Blob(..) = child_info {
 			let result = {
-				let Some((mut chunks, info)) = self.blobs.get(child_info.storage_key()).and_then(|b| b.chunks()) else {
-				return None
-			};
-				let Some(algorithm) = info.infos.algorithm else {
-				return None
-			};
+				let Some((mut chunks, info)) =
+					self.blobs.get(child_info.storage_key()).and_then(|b| b.chunks())
+				else {
+					return None
+				};
+				let Some(algorithm) = info.infos.algorithm else { return None };
 				let Some(state) = get_hasher!(self, algorithm) else {
-				// get a handle even if we run single chunk (easier to specify failure:
-				// no condition no cache asumption).
-				return None
-			};
+					// get a handle even if we run single chunk (easier to specify failure:
+					// no condition no cache asumption).
+					return None
+				};
 				if let Some(hash) = info.cached_hash.as_ref() {
 					// cached
 					drop_hasher!(self, Some(state));
@@ -1929,13 +2061,14 @@ impl Changes {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::{ext::Ext, testing::DummyHashers, InMemoryBackend};
+	use crate::{ext::Ext, new_in_mem, InMemoryBackend};
+	use array_bytes::bytes2hex;
 	use sp_core::{traits::Externalities, Blake2Hasher};
 	use std::collections::BTreeMap;
 
 	#[test]
 	fn overlayed_storage_works() {
-		let mut overlayed = Changes::default();
+		let mut overlayed = Changes::<Blake2Hasher>::default();
 
 		let key = vec![42, 69, 169, 142];
 
@@ -1970,7 +2103,7 @@ mod tests {
 	fn offchain_overlayed_storage_transactions_works() {
 		use sp_core::offchain::STORAGE_PREFIX;
 		fn check_offchain_content(
-			state: &Changes,
+			state: &Changes<Blake2Hasher>,
 			nb_commit: usize,
 			expected: Vec<(Vec<u8>, Option<Vec<u8>>)>,
 		) {
@@ -2047,18 +2180,63 @@ mod tests {
 		overlay.set_storage(b"dogglesworth".to_vec(), Some(b"cat".to_vec()));
 		overlay.set_storage(b"doug".to_vec(), None);
 
-		let mut cache = StorageTransactionCache::default();
-		let mut ext = Ext::<_, DummyHashers, _>::new(&mut overlay, &mut cache, &backend, None);
-		let root = array_bytes::hex2bytes_unchecked(
-			"39245109cef3758c2eed2ccba8d9b370a917850af3824bc8348d505df2c298fa",
-		);
+		{
+			let mut ext = Ext::<_, DummyHashers, _>::new(&mut overlay, &backend, None);
+			let root = array_bytes::hex2bytes_unchecked(
+				"39245109cef3758c2eed2ccba8d9b370a917850af3824bc8348d505df2c298fa",
+			);
 
-		assert_eq!(&ext.storage_root(state_version)[..], &root);
+			assert_eq!(bytes2hex("", &ext.storage_root(state_version)), root);
+			// Calling a second time should use it from the cache
+			assert_eq!(bytes2hex("", &ext.storage_root(state_version)), root);
+		}
+
+		// Check that the storage root is recalculated
+		overlay.set_storage(b"doug2".to_vec(), Some(b"yes".to_vec()));
+
+		let mut ext = Ext::new(&mut overlay, &backend, None);
+		let root = "5c0a4e35cb967de785e1cb8743e6f24b6ff6d45155317f2078f6eb3fc4ff3e3d";
+		assert_eq!(bytes2hex("", &ext.storage_root(state_version)), root);
+	}
+
+	#[test]
+	fn overlayed_child_storage_root_works() {
+		let state_version = StateVersion::default();
+		let child_info = ChildInfo::new_default(b"Child1");
+		let child_info = &child_info;
+		let backend = new_in_mem::<Blake2Hasher>();
+		let mut overlay = Changes::<Blake2Hasher>::default();
+		overlay.start_transaction();
+		overlay.set_child_storage(child_info, &[20], Some(&[20]));
+		overlay.set_child_storage(child_info, &[30], Some(&[30]));
+		overlay.set_child_storage(child_info, &[40], Some(&[40]));
+		overlay.commit_transaction().unwrap();
+		overlay.set_child_storage(child_info, &[10], Some(&[10]));
+		overlay.set_child_storage(child_info, &[30], None);
+
+		{
+			let mut ext = Ext::new(&mut overlay, &backend, None);
+			let child_root = "c02965e1df4dc5baf6977390ce67dab1d7a9b27a87c1afe27b50d29cc990e0f5";
+			let root = "eafb765909c3ed5afd92a0c564acf4620d0234b31702e8e8e9b48da72a748838";
+
+			assert_eq!(
+				bytes2hex("", &ext.child_storage_root(child_info, state_version).unwrap()),
+				child_root,
+			);
+
+			assert_eq!(bytes2hex("", &ext.storage_root(state_version)), root);
+
+			// Calling a second time should use it from the cache
+			assert_eq!(
+				bytes2hex("", &ext.child_storage_root(child_info, state_version)),
+				child_root,
+			);
+		}
 	}
 
 	#[test]
 	fn next_storage_key_change_works() {
-		let mut overlay = Changes::default();
+		let mut overlay = Changes::<Blake2Hasher>::default();
 		overlay.start_transaction();
 		overlay.set_storage(vec![20], Some(vec![20]));
 		overlay.set_storage(vec![30], Some(vec![30]));
@@ -2098,7 +2276,8 @@ mod tests {
 	fn next_child_storage_key_change_works() {
 		let child_info = ChildInfo::new_default(b"Child1");
 		let child_info = &child_info;
-		let mut overlay = Changes::default();
+		let child = child_info.storage_key();
+		let mut overlay = Changes::<Blake2Hasher>::default();
 		overlay.start_transaction();
 		overlay.set_child_storage(child_info, &[20], Some(&[20]));
 		overlay.set_child_storage(child_info, &[30], Some(&[30]));

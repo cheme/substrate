@@ -64,9 +64,9 @@ impl TransientStorageHook<Block> for DebugAndTest {
 			};
 			for (k, v) in data {
 				let Some(v2) = data2.data.get(k) else {
-				success = false;
-				break
-			};
+					success = false;
+					break
+				};
 				if v.as_ref() != Some(v2) {
 					success = false;
 				}

@@ -113,6 +113,15 @@ pub trait StorageValue<T: FullCodec> {
 	/// Mutate the value
 	fn mutate<R, F: FnOnce(&mut Self::Query) -> R>(f: F) -> R;
 
+	/// Mutate the value under a key if the value already exists. Do nothing and return the default
+	/// value if not.
+	fn mutate_extant<R: Default, F: FnOnce(&mut T) -> R>(f: F) -> R {
+		Self::mutate_exists(|maybe_v| match maybe_v {
+			Some(ref mut value) => f(value),
+			None => R::default(),
+		})
+	}
+
 	/// Mutate the value if closure returns `Ok`
 	fn try_mutate<R, E, F: FnOnce(&mut Self::Query) -> Result<R, E>>(f: F) -> Result<R, E>;
 
@@ -159,6 +168,75 @@ pub trait StorageValue<T: FullCodec> {
 		T: StorageDecodeLength,
 	{
 		T::decode_len(&Self::hashed_key())
+	}
+}
+
+/// A non-continuous container type.
+pub trait StorageList<V: FullCodec> {
+	/// Iterator for normal and draining iteration.
+	type Iterator: Iterator<Item = V>;
+
+	/// Append iterator for fast append operations.
+	type Appender: StorageAppender<V>;
+
+	/// List the elements in append order.
+	fn iter() -> Self::Iterator;
+
+	/// Drain the elements in append order.
+	///
+	/// Note that this drains a value as soon as it is being inspected. For example `take_while(|_|
+	/// false)` still drains the first element. This also applies to `peek()`.
+	fn drain() -> Self::Iterator;
+
+	/// A fast append iterator.
+	fn appender() -> Self::Appender;
+
+	/// Append a single element.
+	///
+	/// Should not be called repeatedly; use `append_many` instead.  
+	/// Worst case linear `O(len)` with `len` being the number if elements in the list.
+	fn append_one<EncodeLikeValue>(item: EncodeLikeValue)
+	where
+		EncodeLikeValue: EncodeLike<V>,
+	{
+		Self::append_many(core::iter::once(item));
+	}
+
+	/// Append many elements.
+	///
+	/// Should not be called repeatedly; use `appender` instead.  
+	/// Worst case linear `O(len + items.count())` with `len` beings the number if elements in the
+	/// list.
+	fn append_many<EncodeLikeValue, I>(items: I)
+	where
+		EncodeLikeValue: EncodeLike<V>,
+		I: IntoIterator<Item = EncodeLikeValue>,
+	{
+		let mut ap = Self::appender();
+		ap.append_many(items);
+	}
+}
+
+/// Append iterator to append values to a storage struct.
+///
+/// Can be used in situations where appending does not have constant time complexity.
+pub trait StorageAppender<V: FullCodec> {
+	/// Append a single item in constant time `O(1)`.
+	fn append<EncodeLikeValue>(&mut self, item: EncodeLikeValue)
+	where
+		EncodeLikeValue: EncodeLike<V>;
+
+	/// Append many items in linear time `O(items.count())`.
+	// Note: a default impl is provided since `Self` is already assumed to be optimal for single
+	// append operations.
+	fn append_many<EncodeLikeValue, I>(&mut self, items: I)
+	where
+		EncodeLikeValue: EncodeLike<V>,
+		I: IntoIterator<Item = EncodeLikeValue>,
+	{
+		for item in items.into_iter() {
+			self.append(item);
+		}
 	}
 }
 
@@ -1195,6 +1273,20 @@ impl<T> Iterator for ChildTriePrefixIterator<T> {
 	}
 }
 
+/// Trait for storage types that store all its value after a unique prefix.
+pub trait StoragePrefixedContainer {
+	/// Module prefix. Used for generating final key.
+	fn module_prefix() -> &'static [u8];
+
+	/// Storage prefix. Used for generating final key.
+	fn storage_prefix() -> &'static [u8];
+
+	/// Final full prefix that prefixes all keys.
+	fn final_prefix() -> [u8; 32] {
+		crate::storage::storage_prefix(Self::module_prefix(), Self::storage_prefix())
+	}
+}
+
 /// Trait for maps that store all its value after a unique prefix.
 ///
 /// By default the final prefix is:
@@ -1203,7 +1295,7 @@ impl<T> Iterator for ChildTriePrefixIterator<T> {
 /// ```
 pub trait StoragePrefixedMap<Value: FullCodec> {
 	/// Module prefix. Used for generating final key.
-	fn module_prefix() -> &'static [u8];
+	fn module_prefix() -> &'static [u8]; // TODO move to StoragePrefixedContainer
 
 	/// Storage prefix. Used for generating final key.
 	fn storage_prefix() -> &'static [u8];
@@ -1347,6 +1439,7 @@ mod private {
 	impl<K, V, S> Sealed for bounded_btree_map::BoundedBTreeMap<K, V, S> {}
 	impl<T, S> Sealed for bounded_btree_set::BoundedBTreeSet<T, S> {}
 	impl<T: Encode> Sealed for BTreeSet<T> {}
+	impl<'a, T: EncodeLike<U>, U: Encode> Sealed for codec::Ref<'a, T, U> {}
 
 	macro_rules! impl_sealed_for_tuple {
 		($($elem:ident),+) => {
@@ -2013,10 +2106,9 @@ pub fn blob_get(name: &[u8], limit: Option<u32>, value_offset: u32) -> Option<Ve
 pub fn archive_transient_data() -> bool {
 	global_runtime_env::with_or(
 		|env| {
-			let Some((iter_map, iter_blob)) = env.overlay
-				.drain_transient_committed() else {
-					return false;
-				};
+			let Some((iter_map, iter_blob)) = env.overlay.drain_transient_committed() else {
+				return false
+			};
 			for (meta, values) in iter_map {
 				for (key, value) in values {
 					if let Some(v) = value.as_ref() {

@@ -21,6 +21,7 @@
 use crate::overlayed_changes::OverlayedExtensions;
 use crate::{backend::Backend, Changes, IndexOperation, IterArgs, StorageKey, StorageValue};
 use codec::{Decode, Encode, EncodeAppend};
+use hash_db::Hasher;
 #[cfg(feature = "std")]
 use sp_core::hexdisplay::HexDisplay;
 use sp_core::{
@@ -38,7 +39,7 @@ use sp_externalities::{
 use sp_std::marker::PhantomData;
 use sp_trie::{empty_child_trie_root, LayoutV1};
 
-use crate::{log_error, trace, warn, StorageTransactionCache};
+use crate::{log_error, trace, warn};
 use sp_std::{
 	any::{Any, TypeId},
 	borrow::Cow,
@@ -163,15 +164,12 @@ where
 	/// Pseudo-unique id used for tracing.
 	pub id: u16,
 	/// The overlayed changes to write to.
-	overlay: &'a mut Changes,
+	overlay: &'a mut Changes<H>,
 	/// The storage backend to read from.
 	backend: &'a B,
-	/// The cache for the storage transactions.
-	storage_transaction_cache: &'a mut StorageTransactionCache<B::Transaction, H>,
 	/// Extensions registered with this instance.
 	#[cfg(feature = "std")]
 	extensions: Option<OverlayedExtensions<'a>>,
-	_ph: PhantomData<H2>,
 }
 
 impl<'a, H, H2, B> Ext<'a, H, H2, B>
@@ -181,37 +179,23 @@ where
 {
 	/// Create a new `Ext`.
 	#[cfg(not(feature = "std"))]
-	pub fn new(
-		overlay: &'a mut Changes,
-		storage_transaction_cache: &'a mut StorageTransactionCache<B::Transaction, H>,
-		backend: &'a B,
-	) -> Self {
-		Ext { overlay, backend, id: 0, storage_transaction_cache, _ph: Default::default() }
+	pub fn new(overlay: &'a mut Changes<H>, backend: &'a B) -> Self {
+		Ext { overlay, backend, id: 0 }
 	}
 
 	/// Create a new `Ext` from overlayed changes and read-only backend
 	#[cfg(feature = "std")]
 	pub fn new(
-		overlay: &'a mut Changes,
-		storage_transaction_cache: &'a mut StorageTransactionCache<B::Transaction, H>,
+		overlay: &'a mut Changes<H>,
 		backend: &'a B,
 		extensions: Option<&'a mut sp_externalities::Extensions>,
 	) -> Self {
 		Self {
 			overlay,
 			backend,
-			storage_transaction_cache,
 			id: rand::random(),
 			extensions: extensions.map(OverlayedExtensions::new),
-			_ph: Default::default(),
 		}
-	}
-
-	/// Invalidates the currently cached storage root and the db transaction.
-	///
-	/// Called when there are changes that likely will invalidate the storage root.
-	fn mark_dirty(&mut self) {
-		self.storage_transaction_cache.reset();
 	}
 }
 
@@ -566,7 +550,6 @@ where
 			),
 		);
 
-		self.mark_dirty();
 		self.overlay.set_storage(key, value);
 	}
 
@@ -586,8 +569,7 @@ where
 		);
 		let _guard = guard();
 
-		self.mark_dirty();
-		self.overlay.set_child_storage(child_info, key, value)
+		self.overlay.set_child_storage(child_info, key, value);
 	}
 
 	fn kill_child_storage(
@@ -603,7 +585,6 @@ where
 			child_info = %HexDisplay::from(&child_info.storage_key()),
 		);
 		let _guard = guard();
-		self.mark_dirty();
 		let overlay = self.overlay.clear_child_storage(child_info);
 		let (maybe_cursor, backend, loops) =
 			self.limit_remove_from_backend(Some(child_info), None, maybe_limit, maybe_cursor);
@@ -632,7 +613,6 @@ where
 			return MultiRemovalResults { maybe_cursor: None, backend: 0, unique: 0, loops: 0 }
 		}
 
-		self.mark_dirty();
 		let overlay = self.overlay.clear_prefix(prefix);
 		let (maybe_cursor, backend, loops) =
 			self.limit_remove_from_backend(None, Some(prefix), maybe_limit, maybe_cursor);
@@ -655,7 +635,6 @@ where
 		);
 		let _guard = guard();
 
-		self.mark_dirty();
 		let overlay = self.overlay.clear_child_prefix(child_info, prefix);
 		let (maybe_cursor, backend, loops) = self.limit_remove_from_backend(
 			Some(child_info),
@@ -676,7 +655,6 @@ where
 		);
 
 		let _guard = guard();
-		self.mark_dirty();
 
 		let backend = &mut self.backend;
 		let current_value = self.overlay.value_mut_or_insert_with(&key, || {
@@ -687,27 +665,17 @@ where
 
 	fn storage_root(&mut self, state_version: StateVersion) -> Vec<u8> {
 		let _guard = guard();
-		if let Some(ref root) = self.storage_transaction_cache.transaction_storage_root {
-			trace!(
-				target: "state",
-				method = "StorageRoot",
-				ext_id = %HexDisplay::from(&self.id.to_le_bytes()),
-				storage_root = %HexDisplay::from(&root.as_ref()),
-				cached = true,
-			);
-			return root.encode()
-		}
 
-		let root =
-			self.overlay
-				.storage_root(self.backend, self.storage_transaction_cache, state_version);
+		let (root, _cached) = self.overlay.storage_root(self.backend, state_version);
+
 		trace!(
 			target: "state",
 			method = "StorageRoot",
 			ext_id = %HexDisplay::from(&self.id.to_le_bytes()),
 			storage_root = %HexDisplay::from(&root.as_ref()),
-			cached = false,
+			cached = %_cached,
 		);
+
 		root.encode()
 	}
 
@@ -728,73 +696,21 @@ where
 			return None
 		}
 
-		if self.storage_transaction_cache.transaction_storage_root.is_some() {
-			let root = self
-				.storage(prefixed_storage_key.as_slice(), 0, None)
-				.and_then(|k| Decode::decode(&mut &k[..]).ok())
-				// V1 is equivalent to V0 on empty root.
-				.unwrap_or_else(empty_child_trie_root::<LayoutV1<H>>);
-			trace!(
-				target: "state",
-				method = "ChildStorageRoot",
-				ext_id = %HexDisplay::from(&self.id.to_le_bytes()),
-				child_info = %HexDisplay::from(&storage_key),
-				storage_root = %HexDisplay::from(&root.as_ref()),
-				cached = true,
-			);
-			Some(root.encode())
-		} else {
-			let root = if let Some((changes, info)) = self.overlay.child_changes(storage_key) {
-				let delta = changes.map(|(k, v)| (k.as_ref(), v.value().map(AsRef::as_ref)));
-				let child_info = ChildInfo::Default(info.clone());
-				Some(self.backend.child_storage_root(&child_info, delta, state_version))
-			} else {
-				None
-			};
+		let (root, _cached) = self
+			.overlay
+			.child_storage_root(child_info, self.backend, state_version)
+			.expect(EXT_NOT_ALLOWED_TO_FAIL);
 
-			if let Some((root, is_empty, _)) = root {
-				let root = root.encode();
-				// We store update in the overlay in order to be able to use
-				// 'self.storage_transaction' cache. This is brittle as it rely on Ext only querying
-				// the trie backend for storage root.
-				// A better design would be to manage 'child_storage_transaction' in a
-				// similar way as 'storage_transaction' but for each child trie.
-				if is_empty {
-					self.overlay.set_storage(prefixed_storage_key.into_inner(), None);
-				} else {
-					self.overlay.set_storage(prefixed_storage_key.into_inner(), Some(root.clone()));
-				}
+		trace!(
+			target: "state",
+			method = "ChildStorageRoot",
+			ext_id = %HexDisplay::from(&self.id.to_le_bytes()),
+			child_info = %HexDisplay::from(&child_info.storage_key()),
+			storage_root = %HexDisplay::from(&root.as_ref()),
+			cached = %_cached,
+		);
 
-				trace!(
-					target: "state",
-					method = "ChildStorageRoot",
-					ext_id = %HexDisplay::from(&self.id.to_le_bytes()),
-					child_info = %HexDisplay::from(&storage_key),
-					storage_root = %HexDisplay::from(&root.as_ref()),
-					cached = false,
-				);
-
-				Some(root)
-			} else {
-				// empty overlay
-				let root = self
-					.storage(prefixed_storage_key.as_slice(), 0, None)
-					.and_then(|k| Decode::decode(&mut &k[..]).ok())
-					// V1 is equivalent to V0 on empty root.
-					.unwrap_or_else(empty_child_trie_root::<LayoutV1<H>>);
-
-				trace!(
-					target: "state",
-					method = "ChildStorageRoot",
-					ext_id = %HexDisplay::from(&self.id.to_le_bytes()),
-					child_info = %HexDisplay::from(&storage_key),
-					storage_root = %HexDisplay::from(&root.as_ref()),
-					cached = false,
-				);
-
-				Some(root.encode())
-			}
-		}
+		Some(root.encode())
 	}
 
 	fn storage_index_transaction(&mut self, index: u32, hash: &[u8], size: u32) {
@@ -833,7 +749,6 @@ where
 	}
 
 	fn storage_rollback_transaction(&mut self) -> Result<(), ()> {
-		self.mark_dirty();
 		self.overlay.rollback_transaction().map_err(|_| ())
 	}
 
@@ -846,14 +761,9 @@ where
 			self.overlay.rollback_transaction().expect(BENCHMARKING_FN);
 		}
 		self.overlay
-			.drain_storage_changes(
-				self.backend,
-				self.storage_transaction_cache,
-				Default::default(), // using any state
-			)
+			.drain_storage_changes(self.backend, Default::default())
 			.expect(EXT_NOT_ALLOWED_TO_FAIL);
 		self.backend.wipe().expect(EXT_NOT_ALLOWED_TO_FAIL);
-		self.mark_dirty();
 		self.overlay
 			.enter_runtime()
 			.expect("We have reset the overlay above, so we can not be in the runtime; qed");
@@ -867,7 +777,7 @@ where
 		}
 		let changes = self
 			.overlay
-			.drain_storage_changes(self.backend, self.storage_transaction_cache, state_version)
+			.drain_storage_changes(self.backend, state_version)
 			.expect(EXT_NOT_ALLOWED_TO_FAIL);
 		self.backend
 			.commit(
@@ -877,7 +787,6 @@ where
 				changes.child_storage_changes,
 			)
 			.expect(EXT_NOT_ALLOWED_TO_FAIL);
-		self.mark_dirty();
 		self.overlay
 			.enter_runtime()
 			.expect("We have reset the overlay above, so we can not be in the runtime; qed");
@@ -1109,7 +1018,7 @@ where
 mod tests {
 	use super::*;
 	use crate::{testing::DummyHashers, InMemoryBackend};
-	use codec::Encode;
+	use codec::{Decode, Encode};
 	use hash_db::Hasher;
 	use sp_core::{
 		map,
@@ -1122,7 +1031,6 @@ mod tests {
 
 	#[test]
 	fn next_storage_key_works() {
-		let mut cache = StorageTransactionCache::default();
 		let mut overlay = Changes::default();
 		overlay.set_storage(vec![20], None);
 		overlay.set_storage(vec![30], Some(vec![31]));
@@ -1141,7 +1049,7 @@ mod tests {
 		)
 			.into();
 
-		let mut ext = TestExt::new(&mut overlay, &mut cache, &backend, None);
+		let mut ext = TestExt::new(&mut overlay, &backend, None);
 
 		// next_backend < next_overlay
 		assert_eq!(ext.next_storage_key(&[5]), Some(vec![10]));
@@ -1157,7 +1065,7 @@ mod tests {
 
 		drop(ext);
 		overlay.set_storage(vec![50], Some(vec![50]));
-		let mut ext = TestExt::new(&mut overlay, &mut cache, &backend, None);
+		let mut ext = TestExt::new(&mut overlay, &backend, None);
 
 		// next_overlay exist but next_backend doesn't exist
 		assert_eq!(ext.next_storage_key(&[40]), Some(vec![50]));
@@ -1165,7 +1073,6 @@ mod tests {
 
 	#[test]
 	fn next_storage_key_works_with_a_lot_empty_values_in_overlay() {
-		let mut cache = StorageTransactionCache::default();
 		let mut overlay = Changes::default();
 		overlay.set_storage(vec![20], None);
 		overlay.set_storage(vec![21], None);
@@ -1190,7 +1097,7 @@ mod tests {
 		)
 			.into();
 
-		let mut ext = TestExt::new(&mut overlay, &mut cache, &backend, None);
+		let mut ext = TestExt::new(&mut overlay, &backend, None);
 
 		assert_eq!(ext.next_storage_key(&[5]), Some(vec![30]));
 
@@ -1201,7 +1108,7 @@ mod tests {
 	fn next_child_storage_key_works() {
 		let child_info = DefaultChild::new(b"Child1");
 
-		let mut cache = StorageTransactionCache::default();
+		let overlay = Changes::<Blake2Hasher>::default();
 		let backend = (
 			Storage {
 				top: map![],
@@ -1228,7 +1135,7 @@ mod tests {
 		overlay.set_child_storage(child_info, &[20], None);
 		overlay.set_child_storage(child_info, &[30], Some(&[31]));
 
-		let mut ext = TestExt::new(&mut overlay, &mut cache, &backend, None);
+		let mut ext = TestExt::new(&mut overlay, &backend, None);
 
 		assert_eq!(
 			ext.next_child_storage_key(child_info, &[5], 10),
@@ -1249,7 +1156,7 @@ mod tests {
 
 		drop(ext);
 		overlay.set_child_storage(child_info, &[50], Some(&[50]));
-		let mut ext = TestExt::new(&mut overlay, &mut cache, &backend, None);
+		let mut ext = TestExt::new(&mut overlay, &backend, None);
 
 		// next_overlay exist but next_backend doesn't exist
 		assert_eq!(ext.next_child_storage_key(child_info, &[40], 1), Some(vec![vec![50]]));
@@ -1258,7 +1165,8 @@ mod tests {
 	#[test]
 	fn child_storage_works() {
 		let child_info = DefaultChild::new(b"Child1");
-		let mut cache = StorageTransactionCache::default();
+		let child_info = &child_info;
+		let overlay = Changes::<Blake2Hasher>::default();
 		let backend = (
 			Storage {
 				top: map![],
@@ -1279,13 +1187,13 @@ mod tests {
 		)
 			.into();
 
-		let child_info = ChildInfo::Default(child_info);
+		let child_info = ChildInfo::Default(child_info.clone());
 		let child_info = &child_info;
 
 		let mut overlay = Changes::default();
 		overlay.set_child_storage(child_info, &[20], None);
 		overlay.set_child_storage(child_info, &[30], Some(&[31]));
-		let mut ext = TestExt::new(&mut overlay, &mut cache, &backend, None);
+		let mut ext = TestExt::new(&mut overlay, &backend, None);
 
 		assert_eq!(ext.child_storage(child_info, &[10], 0, None), Some(vec![10, 1, 2].into()));
 		assert_eq!(ext.child_storage(child_info, &[10], 1, Some(1)), Some(vec![1].into()));
@@ -1308,7 +1216,6 @@ mod tests {
 	#[test]
 	fn clear_prefix_cannot_delete_a_child_root() {
 		let child_info = DefaultChild::new(b"Child1");
-		let mut cache = StorageTransactionCache::default();
 		let mut overlay = Changes::default();
 		let backend = (
 			Storage {
@@ -1330,7 +1237,7 @@ mod tests {
 
 		let child_info = ChildInfo::Default(child_info);
 		let child_info = &child_info;
-		let ext = TestExt::new(&mut overlay, &mut cache, &backend, None);
+		let ext = TestExt::new(&mut overlay, &backend, None);
 
 		use sp_core::storage::well_known_keys;
 		let mut ext = ext;

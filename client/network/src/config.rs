@@ -32,13 +32,14 @@ pub use crate::{
 
 pub use libp2p::{identity::Keypair, multiaddr, Multiaddr, PeerId};
 
+use crate::peer_store::PeerStoreHandle;
 use codec::Encode;
 use prometheus_endpoint::Registry;
 use zeroize::Zeroize;
 
 pub use sc_network_common::{
 	role::{Role, Roles},
-	sync::warp::WarpSyncProvider,
+	sync::{warp::WarpSyncProvider, SyncMode},
 	ExHashT,
 };
 use sc_utils::mpsc::TracingUnboundedSender;
@@ -275,39 +276,10 @@ impl NonReservedPeerMode {
 			_ => None,
 		}
 	}
-}
 
-/// Sync operation mode.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum SyncMode {
-	/// Full block download and verification.
-	Full,
-	/// Download blocks and the latest state.
-	Fast {
-		/// Skip state proof download and verification.
-		skip_proofs: bool,
-		/// Download indexed transactions for recent blocks.
-		storage_chain_mode: bool,
-	},
-	/// Warp sync - verify authority set transitions and the latest state.
-	Warp,
-}
-
-impl SyncMode {
-	/// Returns if `self` is [`Self::Warp`].
-	pub fn is_warp(&self) -> bool {
-		matches!(self, Self::Warp)
-	}
-
-	/// Returns if `self` is [`Self::Fast`].
-	pub fn is_fast(&self) -> bool {
-		matches!(self, Self::Fast { .. })
-	}
-}
-
-impl Default for SyncMode {
-	fn default() -> Self {
-		Self::Full
+	/// If we are in "reserved-only" peer mode.
+	pub fn is_reserved_only(&self) -> bool {
+		matches!(self, NonReservedPeerMode::Deny)
 	}
 }
 
@@ -712,6 +684,9 @@ pub struct Params<Block: BlockT> {
 
 	/// Network layer configuration.
 	pub network_config: FullNetworkConfiguration,
+
+	/// Peer store with known nodes, peer reputations, etc.
+	pub peer_store: PeerStoreHandle,
 
 	/// Legacy name of the protocol to use on the wire. Should be different for each chain.
 	pub protocol_id: ProtocolId,

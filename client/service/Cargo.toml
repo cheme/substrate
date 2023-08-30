@@ -13,13 +13,16 @@ readme = "README.md"
 targets = ["x86_64-unknown-linux-gnu"]
 
 [features]
-default = ["rocksdb"]
+default = [ "rocksdb" ]
 # The RocksDB feature activates the RocksDB database backend. If it is not activated, and you pass
 # a path to a database, an error will be produced at runtime.
-rocksdb = ["sc-client-db/rocksdb"]
+rocksdb = [ "sc-client-db/rocksdb" ]
 # exposes the client type
 test-helpers = []
-runtime-benchmarks = ["sc-client-db/runtime-benchmarks"]
+runtime-benchmarks = [
+	"sc-client-db/runtime-benchmarks",
+	"sp-runtime/runtime-benchmarks",
+]
 
 [dependencies]
 jsonrpsee = { version = "0.16.2", features = ["server"] }
@@ -69,7 +72,6 @@ sc-rpc-spec-v2 = { version = "0.10.0-dev", path = "../rpc-spec-v2" }
 sc-block-builder = { version = "0.10.0-dev", path = "../block-builder" }
 sc-informant = { version = "0.10.0-dev", path = "../informant" }
 sc-telemetry = { version = "4.0.0-dev", path = "../telemetry" }
-sc-offchain = { version = "4.0.0-dev", path = "../offchain" }
 prometheus-endpoint = { package = "substrate-prometheus-endpoint", path = "../../utils/prometheus", version = "0.10.0-dev" }
 sc-tracing = { version = "4.0.0-dev", path = "../tracing" }
 sc-sysinfo = { version = "6.0.0-dev", path = "../sysinfo" }

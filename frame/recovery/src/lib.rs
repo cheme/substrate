@@ -152,13 +152,16 @@
 
 use codec::{Decode, Encode, MaxEncodedLen};
 use scale_info::TypeInfo;
-use sp_runtime::traits::{CheckedAdd, CheckedMul, Dispatchable, SaturatedConversion, StaticLookup};
+use sp_runtime::{
+	traits::{CheckedAdd, CheckedMul, Dispatchable, SaturatedConversion, StaticLookup},
+	RuntimeDebug,
+};
 use sp_std::prelude::*;
 
 use frame_support::{
 	dispatch::{GetDispatchInfo, PostDispatchInfo},
 	traits::{BalanceStatus, Currency, ReservableCurrency},
-	BoundedVec, RuntimeDebug,
+	BoundedVec,
 };
 
 pub use pallet::*;
@@ -334,7 +337,7 @@ pub mod pallet {
 		_,
 		Twox64Concat,
 		T::AccountId,
-		RecoveryConfig<T::BlockNumber, BalanceOf<T>, FriendsOf<T>>,
+		RecoveryConfig<BlockNumberFor<T>, BalanceOf<T>, FriendsOf<T>>,
 	>;
 
 	/// Active recovery attempts.
@@ -349,7 +352,7 @@ pub mod pallet {
 		T::AccountId,
 		Twox64Concat,
 		T::AccountId,
-		ActiveRecovery<T::BlockNumber, BalanceOf<T>, FriendsOf<T>>,
+		ActiveRecovery<BlockNumberFor<T>, BalanceOf<T>, FriendsOf<T>>,
 	>;
 
 	/// The list of allowed proxy accounts.
@@ -440,7 +443,7 @@ pub mod pallet {
 			origin: OriginFor<T>,
 			friends: Vec<T::AccountId>,
 			threshold: u16,
-			delay_period: T::BlockNumber,
+			delay_period: BlockNumberFor<T>,
 		) -> DispatchResult {
 			let who = ensure_signed(origin)?;
 			// Check account is not already set up for recovery

@@ -25,10 +25,10 @@ sp-std = { version = "8.0.0", default-features = false, path = "../std" }
 thiserror = "1.0"
 
 [dev-dependencies]
-array-bytes = "4.1"
+array-bytes = "6.1"
 
 [features]
-default = ["std"]
+default = [ "std" ]
 std = [
 	"codec/std",
 	"log/std",
@@ -42,9 +42,4 @@ std = [
 ]
 
 # Serde support without relying on std features.
-serde = [
-	"dep:serde",
-	"scale-info/serde",
-	"sp-core/serde",
-	"sp-runtime/serde",
-]
+serde = [ "dep:serde", "scale-info/serde", "sp-core/serde", "sp-runtime/serde" ]
