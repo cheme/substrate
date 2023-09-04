@@ -16,11 +16,12 @@
 // limitations under the License.
 
 use crate::{
+	debug::{CallSpan, Tracing},
 	gas::GasMeter,
-	storage::{self, DepositAccount, WriteOutcome},
+	storage::{self, meter::Diff, WriteOutcome},
 	BalanceOf, CodeHash, CodeInfo, CodeInfoOf, Config, ContractInfo, ContractInfoOf,
 	DebugBufferVec, Determinism, Error, Event, Nonce, Origin, Pallet as Contracts, Schedule,
-	System, WasmBlob, LOG_TARGET,
+	WasmBlob, LOG_TARGET,
 };
 use frame_support::{
 	crypto::ecdsa::ECDSAExt,
@@ -30,8 +31,9 @@ use frame_support::{
 	ensure,
 	storage::{with_transaction, TransactionOutcome},
 	traits::{
-		tokens::{Fortitude::Polite, Preservation::Expendable},
-		Contains, Currency, ExistenceRequirement, OriginTrait, Randomness, Time,
+		fungible::{Inspect, Mutate},
+		tokens::Preservation,
+		Contains, OriginTrait, Randomness, Time,
 	},
 	weights::Weight,
 	Blake2_128Concat, BoundedVec, StorageHasher,
@@ -271,6 +273,9 @@ pub trait Ext: sealing::Sealed {
 	/// Get a mutable reference to the nested gas meter.
 	fn gas_meter_mut(&mut self) -> &mut GasMeter<Self::T>;
 
+	/// Charges `diff` from the meter.
+	fn charge_storage(&mut self, diff: &Diff);
+
 	/// Append a string to the debug buffer.
 	///
 	/// It is added as-is without any additional new line.
@@ -343,7 +348,17 @@ pub trait Ext: sealing::Sealed {
 }
 
 /// Describes the different functions that can be exported by an [`Executable`].
-#[derive(Clone, Copy, PartialEq)]
+#[derive(
+	Copy,
+	Clone,
+	PartialEq,
+	Eq,
+	sp_core::RuntimeDebug,
+	codec::Decode,
+	codec::Encode,
+	codec::MaxEncodedLen,
+	scale_info::TypeInfo,
+)]
 pub enum ExportedFunction {
 	/// The constructor function which is executed on deployment of a contract.
 	Constructor,
@@ -531,7 +546,7 @@ enum CachedContract<T: Config> {
 	///
 	/// In this case a reload is neither allowed nor possible. Please note that recursive
 	/// calls cannot remove a contract as this is checked and denied.
-	Terminated(DepositAccount<T>),
+	Terminated,
 }
 
 impl<T: Config> CachedContract<T> {
@@ -550,15 +565,6 @@ impl<T: Config> CachedContract<T> {
 			Some(contract)
 		} else {
 			None
-		}
-	}
-
-	/// Returns `Some` iff the contract is not `Cached::Invalidated`.
-	fn deposit_account(&self) -> Option<&DepositAccount<T>> {
-		match self {
-			CachedContract::Cached(contract) => Some(contract.deposit_account()),
-			CachedContract::Terminated(deposit_account) => Some(&deposit_account),
-			CachedContract::Invalidated => None,
 		}
 	}
 }
@@ -639,9 +645,7 @@ impl<T: Config> CachedContract<T> {
 	/// Terminate and return the contract info.
 	fn terminate(&mut self, account_id: &T::AccountId) -> ContractInfo<T> {
 		self.load(account_id);
-		let contract = get_cached_or_panic_after_load!(self);
-		let deposit_account = contract.deposit_account().clone();
-		get_cached_or_panic_after_load!(mem::replace(self, Self::Terminated(deposit_account)))
+		get_cached_or_panic_after_load!(mem::replace(self, Self::Terminated))
 	}
 }
 
@@ -903,10 +907,15 @@ where
 			// Every non delegate call or instantiate also optionally transfers the balance.
 			self.initial_transfer()?;
 
+			let call_span =
+				T::Debug::new_call_span(executable.code_hash(), entry_point, &input_data);
+
 			// Call into the Wasm blob.
 			let output = executable
 				.execute(self, &entry_point, input_data)
 				.map_err(|e| ExecError { error: e.error, origin: ErrorOrigin::Callee })?;
+
+			call_span.after_call(&output);
 
 			// Avoid useless work that would be reverted anyways.
 			if output.did_revert() {
@@ -929,7 +938,7 @@ where
 			match (entry_point, delegated_code_hash) {
 				(ExportedFunction::Constructor, _) => {
 					// It is not allowed to terminate a contract inside its constructor.
-					if matches!(frame.contract_info, CachedContract::Terminated(_)) {
+					if matches!(frame.contract_info, CachedContract::Terminated) {
 						return Err(Error::<T>::TerminatedInConstructor.into())
 					}
 
@@ -1033,18 +1042,8 @@ where
 			// in its contract info. The load is necessary to pull it from storage in case
 			// it was invalidated.
 			frame.contract_info.load(account_id);
-			let deposit_account = frame
-				.contract_info
-				.deposit_account()
-				.expect(
-					"Is only `None` when the info is invalidated.
-				We just re-loaded from storage which either makes the state `Cached` or `Terminated`.
-				qed",
-				)
-				.clone();
 			let mut contract = frame.contract_info.into_contract();
-			prev.nested_storage
-				.absorb(frame.nested_storage, deposit_account, contract.as_mut());
+			prev.nested_storage.absorb(frame.nested_storage, account_id, contract.as_mut());
 
 			// In case the contract wasn't terminated we need to persist changes made to it.
 			if let Some(contract) = contract {
@@ -1079,14 +1078,10 @@ where
 			if !persist {
 				return
 			}
-			let deposit_account = self.first_frame.contract_info.deposit_account().expect(
-				"Is only `None` when the info is invalidated. The first frame can't be invalidated.
-				qed",
-			).clone();
 			let mut contract = self.first_frame.contract_info.as_contract();
 			self.storage_meter.absorb(
 				mem::take(&mut self.first_frame.nested_storage),
-				deposit_account,
+				&self.first_frame.account_id,
 				contract.as_deref_mut(),
 			);
 			if let Some(contract) = contract {
@@ -1100,13 +1095,15 @@ where
 
 	/// Transfer some funds from `from` to `to`.
 	fn transfer(
-		existence_requirement: ExistenceRequirement,
+		preservation: Preservation,
 		from: &T::AccountId,
 		to: &T::AccountId,
 		value: BalanceOf<T>,
 	) -> DispatchResult {
-		T::Currency::transfer(from, to, value, existence_requirement)
-			.map_err(|_| Error::<T>::TransferFailed)?;
+		if !value.is_zero() && from != to {
+			T::Currency::transfer(from, to, value, preservation)
+				.map_err(|_| Error::<T>::TransferFailed)?;
+		}
 		Ok(())
 	}
 
@@ -1130,7 +1127,7 @@ where
 			Origin::Root if value.is_zero() => return Ok(()),
 			Origin::Root => return DispatchError::RootNotAllowed.into(),
 		};
-		Self::transfer(ExistenceRequirement::KeepAlive, &caller, &frame.account_id, value)
+		Self::transfer(Preservation::Preserve, &caller, &frame.account_id, value)
 	}
 
 	/// Reference to the current (top) frame.
@@ -1278,20 +1275,13 @@ where
 	}
 
 	fn terminate(&mut self, beneficiary: &AccountIdOf<Self::T>) -> Result<(), DispatchError> {
-		use frame_support::traits::fungible::Inspect;
 		if self.is_recursive() {
 			return Err(Error::<T>::TerminatedWhileReentrant.into())
 		}
 		let frame = self.top_frame_mut();
 		let info = frame.terminate();
-		frame.nested_storage.terminate(&info);
-		System::<T>::dec_consumers(&frame.account_id);
-		T::Currency::transfer(
-			&frame.account_id,
-			beneficiary,
-			T::Currency::reducible_balance(&frame.account_id, Expendable, Polite),
-			ExistenceRequirement::AllowDeath,
-		)?;
+		frame.nested_storage.terminate(&info, beneficiary.clone());
+
 		info.queue_trie_for_deletion();
 		ContractInfoOf::<T>::remove(&frame.account_id);
 		E::decrement_refcount(info.code_hash);
@@ -1300,7 +1290,7 @@ where
 			E::decrement_refcount(*code_hash);
 			frame
 				.nested_storage
-				.charge_deposit(info.deposit_account().clone(), StorageDeposit::Refund(*deposit));
+				.charge_deposit(frame.account_id.clone(), StorageDeposit::Refund(*deposit));
 		}
 
 		Contracts::<T>::deposit_event(
@@ -1314,7 +1304,7 @@ where
 	}
 
 	fn transfer(&mut self, to: &T::AccountId, value: BalanceOf<T>) -> DispatchResult {
-		Self::transfer(ExistenceRequirement::KeepAlive, &self.top_frame().account_id, to, value)
+		Self::transfer(Preservation::Preserve, &self.top_frame().account_id, to, value)
 	}
 
 	fn get_storage(&mut self, key: &Key<T>) -> Option<Vec<u8>> {
@@ -1377,7 +1367,7 @@ where
 	}
 
 	fn balance(&self) -> BalanceOf<T> {
-		T::Currency::free_balance(&self.top_frame().account_id)
+		T::Currency::balance(&self.top_frame().account_id)
 	}
 
 	fn value_transferred(&self) -> BalanceOf<T> {
@@ -1425,6 +1415,10 @@ where
 
 	fn gas_meter_mut(&mut self) -> &mut GasMeter<Self::T> {
 		&mut self.top_frame_mut().nested_gas
+	}
+
+	fn charge_storage(&mut self, diff: &Diff) {
+		self.top_frame_mut().nested_storage.charge(diff)
 	}
 
 	fn append_debug_buffer(&mut self, msg: &str) -> bool {
@@ -1490,8 +1484,7 @@ where
 		let deposit = StorageDeposit::Charge(new_base_deposit)
 			.saturating_sub(&StorageDeposit::Charge(old_base_deposit));
 
-		let deposit_account = info.deposit_account().clone();
-		frame.nested_storage.charge_deposit(deposit_account, deposit);
+		frame.nested_storage.charge_deposit(frame.account_id.clone(), deposit);
 
 		E::increment_refcount(hash)?;
 		E::decrement_refcount(prev_hash);
@@ -1542,7 +1535,7 @@ where
 		<WasmBlob<T>>::increment_refcount(code_hash)?;
 		frame
 			.nested_storage
-			.charge_deposit(info.deposit_account().clone(), StorageDeposit::Charge(deposit));
+			.charge_deposit(frame.account_id.clone(), StorageDeposit::Charge(deposit));
 		Ok(())
 	}
 
@@ -1558,7 +1551,7 @@ where
 
 		frame
 			.nested_storage
-			.charge_deposit(info.deposit_account().clone(), StorageDeposit::Refund(deposit));
+			.charge_deposit(frame.account_id.clone(), StorageDeposit::Refund(deposit));
 		Ok(())
 	}
 }
@@ -1808,7 +1801,7 @@ mod tests {
 			set_balance(&origin, 100);
 			set_balance(&dest, 0);
 
-			MockStack::transfer(ExistenceRequirement::KeepAlive, &origin, &dest, 55).unwrap();
+			MockStack::transfer(Preservation::Preserve, &origin, &dest, 55).unwrap();
 
 			assert_eq!(get_balance(&origin), 45);
 			assert_eq!(get_balance(&dest), 55);
@@ -1946,7 +1939,7 @@ mod tests {
 		ExtBuilder::default().build().execute_with(|| {
 			set_balance(&origin, 0);
 
-			let result = MockStack::transfer(ExistenceRequirement::KeepAlive, &origin, &dest, 100);
+			let result = MockStack::transfer(Preservation::Preserve, &origin, &dest, 100);
 
 			assert_eq!(result, Err(Error::<Test>::TransferFailed.into()));
 			assert_eq!(get_balance(&origin), 0);

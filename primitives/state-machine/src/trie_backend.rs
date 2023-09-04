@@ -30,6 +30,7 @@ use codec::Codec;
 use hash_db::HashDB;
 use hash_db::Hasher;
 use sp_core::storage::{ChildInfo, StateVersion};
+use sp_trie::PrefixedMemoryDB;
 #[cfg(feature = "std")]
 use sp_trie::{
 	cache::{LocalTrieCache, TrieCache},
@@ -390,7 +391,6 @@ where
 	H::Out: Ord + Codec,
 {
 	type Error = crate::DefaultError;
-	type Transaction = S::Overlay;
 	type TrieBackendStorage = S;
 	type RawIter = crate::trie_backend_essence::RawIter<S, H, C>;
 
@@ -471,7 +471,7 @@ where
 		&self,
 		delta: impl Iterator<Item = (&'a [u8], Option<&'a [u8]>)>,
 		state_version: StateVersion,
-	) -> (H::Out, Self::Transaction)
+	) -> (H::Out, PrefixedMemoryDB<H>)
 	where
 		H::Out: Ord,
 	{
@@ -483,7 +483,7 @@ where
 		child_info: &ChildInfo,
 		delta: impl Iterator<Item = (&'a [u8], Option<&'a [u8]>)>,
 		state_version: StateVersion,
-	) -> (H::Out, bool, Self::Transaction)
+	) -> (H::Out, bool, PrefixedMemoryDB<H>)
 	where
 		H::Out: Ord,
 	{
@@ -542,7 +542,7 @@ pub mod tests {
 	use sp_trie::{
 		cache::{CacheSize, SharedTrieCache},
 		trie_types::{TrieDBBuilder, TrieDBMutBuilderV0, TrieDBMutBuilderV1},
-		KeySpacedDBMut, PrefixedKey, PrefixedMemoryDB, Trie, TrieCache, TrieMut,
+		KeySpacedDBMut, PrefixedMemoryDB, Trie, TrieCache, TrieMut,
 	};
 	use std::iter;
 	use trie_db::NodeCodec;
@@ -1200,7 +1200,7 @@ pub mod tests {
 			(Some(child_info_1.clone()), (28..65).map(|i| (vec![i], Some(vec![i]))).collect()),
 			(Some(child_info_2.clone()), (10..15).map(|i| (vec![i], Some(vec![i]))).collect()),
 		];
-		let in_memory = new_in_mem::<BlakeTwo256, PrefixedKey<BlakeTwo256>>();
+		let in_memory = new_in_mem::<BlakeTwo256>();
 		let in_memory = in_memory.update(contents, state_version);
 		let child_storage_keys = vec![child_info_1.to_owned(), child_info_2.to_owned()];
 		let in_memory_root = in_memory
@@ -1305,7 +1305,7 @@ pub mod tests {
 					.collect(),
 			),
 		];
-		let in_memory = new_in_mem::<BlakeTwo256, PrefixedKey<BlakeTwo256>>();
+		let in_memory = new_in_mem::<BlakeTwo256>();
 		let in_memory = in_memory.update(contents, state_version);
 		let child_storage_keys = vec![child_info_1.to_owned()];
 		let in_memory_root = in_memory
@@ -1493,7 +1493,7 @@ pub mod tests {
 			(Some(child_info_1.clone()), vec![(key.clone(), Some(child_trie_1_val.clone()))]),
 			(Some(child_info_2.clone()), vec![(key.clone(), Some(child_trie_2_val.clone()))]),
 		];
-		let in_memory = new_in_mem::<BlakeTwo256, PrefixedKey<BlakeTwo256>>();
+		let in_memory = new_in_mem::<BlakeTwo256>();
 		let in_memory = in_memory.update(contents, state_version);
 		let child_storage_keys = vec![child_info_1.to_owned(), child_info_2.to_owned()];
 		let in_memory_root = in_memory
